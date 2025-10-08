@@ -1,0 +1,23 @@
+[
+  {
+    "id": "b_main_01",
+    "image": "/uploads/баннер1.jpg",
+    "href": null,
+    "active": true,
+    "order": 1
+  },
+  {
+    "id": "b_main_02", 
+    "image": "/uploads/баннер2.jpg",
+    "href": null,
+    "active": true,
+    "order": 2
+  },
+  {
+    "id": "b_main_03",
+    "image": "/uploads/баннер3.jpg",
+    "href": null,
+    "active": true,
+    "order": 3
+  }
+]

@@ -1,0 +1,6 @@
+[
+  { "id": "c_new_drop", "slug": "novyj-drop", "name": "Новый дроп", "order": 5 },
+  { "id": "c_blazers", "slug": "pidzhaki", "name": "Пиджаки", "order": 10 },
+  { "id": "c_jeans",   "slug": "dzhinsy",  "name": "Джинсы",  "order": 20 },
+  { "id": "c_jackets", "slug": "kurtki",   "name": "Куртки",  "order": 30 }
+]

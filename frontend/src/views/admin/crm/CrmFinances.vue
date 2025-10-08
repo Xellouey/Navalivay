@@ -1,0 +1,356 @@
+<template>
+  <div class="min-h-screen bg-gray-50 p-6">
+    <div class="max-w-7xl mx-auto">
+      <!-- Back Button -->
+      <button @click="$router.push('/admin?tab=crm')" class="mb-4 inline-flex items-center px-4 py-2 bg-white border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors">
+        <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"/>
+        </svg>
+        Назад в админку
+      </button>
+      
+      <div class="mb-8">
+        <h1 class="text-3xl font-bold text-gray-900">Финансы</h1>
+        <p class="text-gray-600 mt-2">Управление счетами и транзакциями</p>
+      </div>
+
+      <!-- Cash Accounts -->
+      <div class="mb-8">
+        <div class="flex items-center justify-between mb-4">
+          <h2 class="text-xl font-bold text-gray-900">Счета и кассы</h2>
+          <button @click="showAccountModal = true" class="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700">Добавить счет</button>
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div v-for="account in cashAccounts" :key="account.id" class="bg-white rounded-lg shadow-sm p-6">
+            <div class="flex items-center justify-between mb-2">
+              <h3 class="font-medium text-gray-900">{{ account.name }}</h3>
+              <span v-if="account.is_default" class="px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs font-medium">По умолчанию</span>
+            </div>
+            <div class="text-2xl font-bold text-gray-900">{{ formatCurrency(account.balance) }}</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Transactions -->
+      <div class="bg-white rounded-lg shadow-sm p-6">
+        <div class="flex items-center justify-between mb-4">
+          <h2 class="text-xl font-bold text-gray-900">Транзакции</h2>
+          <div class="flex gap-2">
+            <button @click="transactionFilter = null" :class="filterBtnClass(null)">Все</button>
+            <button @click="transactionFilter = 'income'" :class="filterBtnClass('income')">Приход</button>
+            <button @click="transactionFilter = 'expense'" :class="filterBtnClass('expense')">Расход</button>
+            <button @click="showTransactionModal = true" class="ml-4 px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700">Добавить</button>
+          </div>
+        </div>
+
+        <div v-if="cashTransactions.length > 0" class="overflow-x-auto">
+          <table class="w-full">
+            <thead class="border-b">
+              <tr>
+                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Дата</th>
+                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Счет</th>
+                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Тип</th>
+                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Описание</th>
+                <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Сумма</th>
+                <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Действия</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y">
+              <tr v-for="transaction in cashTransactions" :key="transaction.id" class="hover:bg-gray-50">
+                <td class="px-4 py-3 text-sm text-gray-500">{{ formatDate(transaction.created_at) }}</td>
+                <td class="px-4 py-3 text-sm text-gray-900">{{ transaction.account_name }}</td>
+                <td class="px-4 py-3">
+                  <span :class="transaction.type === 'income' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'" class="px-2 py-1 rounded-full text-xs font-medium">
+                    {{ transaction.type === 'income' ? 'Приход' : 'Расход' }}
+                  </span>
+                </td>
+                <td class="px-4 py-3 text-sm text-gray-900">{{ transaction.description || '—' }}</td>
+                <td class="px-4 py-3 text-sm text-right font-medium" :class="transaction.type === 'income' ? 'text-green-600' : 'text-red-600'">
+                  {{ transaction.type === 'income' ? '+' : '-' }}{{ formatCurrency(transaction.amount) }}
+                </td>
+                <td class="px-4 py-3">
+                  <div class="flex justify-end gap-2">
+                    <button
+                      @click="openEditTransaction(transaction)"
+                      :disabled="!!transaction.order_id"
+                      class="inline-flex items-center justify-center px-3 py-1 text-xs font-medium rounded-md border transition-colors"
+                      :class="transaction.order_id ? 'border-gray-200 text-gray-400 cursor-not-allowed' : 'border-blue-200 text-blue-600 hover:bg-blue-50'"
+                      :title="transaction.order_id ? 'Транзакция создана автоматически и редактируется из заказа' : 'Редактировать транзакцию'"
+                    >
+                      Редактировать
+                    </button>
+                    <button
+                      @click="deleteTransaction(transaction)"
+                      :disabled="!!transaction.order_id"
+                      class="inline-flex items-center justify-center px-3 py-1 text-xs font-medium rounded-md border transition-colors"
+                      :class="transaction.order_id ? 'border-gray-200 text-gray-400 cursor-not-allowed' : 'border-red-200 text-red-600 hover:bg-red-50'"
+                      :title="transaction.order_id ? 'Операция создана автоматически. Удалите оплату в заказе.' : 'Удалить транзакцию'"
+                    >
+                      Удалить
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div v-else class="text-center py-8 text-gray-500">Транзакций нет</div>
+      </div>
+    </div>
+
+    <!-- Add Transaction Modal -->
+    <AdminModal
+      :isOpen="showTransactionModal"
+      title="Добавить транзакцию"
+      description="Заполните данные для новой операции."
+      size="sm"
+      :showActions="false"
+      @close="showTransactionModal = false"
+      @cancel="showTransactionModal = false"
+    >
+      <div class="space-y-4">
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Счет</label>
+          <select v-model="newTransaction.account_id" class="w-full px-3 py-2 border border-gray-300 rounded-md">
+            <option v-for="acc in cashAccounts" :key="acc.id" :value="acc.id">{{ acc.name }}</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Тип</label>
+          <select v-model="newTransaction.type" class="w-full px-3 py-2 border border-gray-300 rounded-md">
+            <option value="income">Приход</option>
+            <option value="expense">Расход</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Сумма</label>
+          <input v-model.number="newTransaction.amount" type="number" class="w-full px-3 py-2 border border-gray-300 rounded-md" />
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Описание</label>
+          <input v-model="newTransaction.description" type="text" class="w-full px-3 py-2 border border-gray-300 rounded-md" />
+        </div>
+        <div class="flex gap-3 pt-2">
+          <button @click="addTransaction" class="flex-1 px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700">Добавить</button>
+          <button @click="showTransactionModal = false" class="flex-1 px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300">Отмена</button>
+        </div>
+      </div>
+    </AdminModal>
+
+    <!-- Add Account Modal -->
+    <AdminModal
+      :isOpen="showAccountModal"
+      title="Новый счет"
+      description="Создайте дополнительную кассу и настройте начальный баланс."
+      size="sm"
+      :showActions="false"
+      @close="closeAccountModal"
+      @cancel="closeAccountModal"
+    >
+      <div class="space-y-4">
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Название счета</label>
+          <input v-model.trim="newAccount.name" type="text" class="w-full px-3 py-2 border border-gray-300 rounded-md" placeholder="Например, Касса в магазине" />
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Начальный баланс</label>
+          <input v-model.number="newAccount.balance" type="number" class="w-full px-3 py-2 border border-gray-300 rounded-md" />
+        </div>
+        <label class="inline-flex items-center text-sm text-gray-700">
+          <input v-model="newAccount.is_default" type="checkbox" class="mr-2 rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
+          Сделать счетом по умолчанию
+        </label>
+        <div class="flex gap-3 pt-2">
+          <button @click="addAccount" class="flex-1 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700">Создать</button>
+          <button @click="closeAccountModal" class="flex-1 px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300">Отмена</button>
+        </div>
+      </div>
+    </AdminModal>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { ref, onMounted, watch, reactive } from 'vue'
+import { useCrmStore } from '@/stores/crm'
+import { storeToRefs } from 'pinia'
+import AdminModal from '@/components/AdminModal.vue'
+import type { CashTransaction } from '@/stores/crm'
+
+const crmStore = useCrmStore()
+const { cashAccounts, cashTransactions } = storeToRefs(crmStore)
+const showAccountModal = ref(false)
+const showTransactionModal = ref(false)
+const transactionFilter = ref<'income' | 'expense' | null>(null)
+const newTransaction = ref({ account_id: '', type: 'income' as 'income' | 'expense', amount: 0, description: '' })
+const newAccount = ref({ name: '', balance: 0, is_default: false })
+const showEditTransactionModal = ref(false)
+const editTransaction = ref<CashTransaction | null>(null)
+const editTransactionForm = reactive({
+  account_id: '',
+  type: 'income' as 'income' | 'expense',
+  amount: 0,
+  description: ''
+})
+const editTransactionError = ref('')
+const savingTransaction = ref(false)
+
+watch(transactionFilter, () => {
+  crmStore.fetchCashTransactions({ type: transactionFilter.value || undefined })
+})
+
+watch(cashAccounts, (accounts) => {
+  if (!accounts.length) {
+    newTransaction.value.account_id = ''
+    if (showEditTransactionModal.value) {
+      editTransactionForm.account_id = ''
+    }
+    return
+  }
+
+  const currentId = newTransaction.value.account_id
+  if (!currentId || !accounts.some((acc) => acc.id === currentId)) {
+    newTransaction.value.account_id = accounts[0].id
+  }
+
+  if (showEditTransactionModal.value) {
+    if (!editTransactionForm.account_id || !accounts.some((acc) => acc.id === editTransactionForm.account_id)) {
+      editTransactionForm.account_id = accounts[0].id
+    }
+  }
+})
+
+onMounted(async () => {
+  await crmStore.fetchCashAccounts()
+  await crmStore.fetchCashTransactions()
+  if (cashAccounts.value.length > 0) {
+    newTransaction.value.account_id = cashAccounts.value[0].id
+  }
+})
+
+function filterBtnClass(filter: 'income' | 'expense' | null) {
+  return ['px-3 py-1 rounded-md text-sm font-medium transition-colors', transactionFilter.value === filter ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200']
+}
+
+async function addTransaction() {
+  try {
+    if (!newTransaction.value.account_id) {
+      alert('Выберите счет для транзакции')
+      return
+    }
+
+    await crmStore.createCashTransaction(newTransaction.value)
+    showTransactionModal.value = false
+    await crmStore.fetchCashAccounts()
+    await crmStore.fetchCashTransactions()
+  } catch (error) {
+    alert('Ошибка добавления транзакции')
+  }
+}
+
+async function addAccount() {
+  if (!newAccount.value.name.trim()) {
+    alert('Укажите название счета')
+    return
+  }
+
+  try {
+    await crmStore.createCashAccount({
+      name: newAccount.value.name.trim(),
+      balance: Number(newAccount.value.balance) || 0,
+      is_default: newAccount.value.is_default
+    })
+    await crmStore.fetchCashAccounts()
+    closeAccountModal()
+  } catch (error) {
+    alert('Ошибка создания счета')
+  }
+}
+
+function resetNewAccount() {
+  newAccount.value = { name: '', balance: 0, is_default: false }
+}
+
+function closeAccountModal() {
+  showAccountModal.value = false
+  resetNewAccount()
+}
+
+function openEditTransaction(transaction: CashTransaction) {
+  if (transaction.order_id) {
+    return
+  }
+  editTransaction.value = transaction
+  editTransactionForm.account_id = transaction.account_id
+  editTransactionForm.type = transaction.type
+  editTransactionForm.amount = transaction.amount
+  editTransactionForm.description = transaction.description || ''
+  editTransactionError.value = ''
+  showEditTransactionModal.value = true
+}
+
+function closeEditTransactionModal() {
+  showEditTransactionModal.value = false
+  editTransaction.value = null
+  editTransactionForm.account_id = ''
+  editTransactionForm.type = 'income'
+  editTransactionForm.amount = 0
+  editTransactionForm.description = ''
+  editTransactionError.value = ''
+  savingTransaction.value = false
+}
+
+async function submitEditTransaction() {
+  if (!editTransaction.value || savingTransaction.value) return
+  if (!editTransactionForm.account_id) {
+    editTransactionError.value = 'Выберите счёт'
+    return
+  }
+  if (Number(editTransactionForm.amount) <= 0) {
+    editTransactionError.value = 'Сумма должна быть больше нуля'
+    return
+  }
+
+  savingTransaction.value = true
+  editTransactionError.value = ''
+  try {
+    await crmStore.updateCashTransaction(editTransaction.value.id, {
+      account_id: editTransactionForm.account_id,
+      type: editTransactionForm.type,
+      amount: Number(editTransactionForm.amount),
+      description: editTransactionForm.description.trim() ? editTransactionForm.description.trim() : undefined
+    })
+    await crmStore.fetchCashTransactions({ type: transactionFilter.value || undefined })
+    closeEditTransactionModal()
+  } catch (error: any) {
+    console.error('[CRM] update transaction error', error)
+    editTransactionError.value = error?.message || 'Не удалось обновить транзакцию'
+  } finally {
+    savingTransaction.value = false
+  }
+}
+
+async function deleteTransaction(transaction: CashTransaction) {
+  if (transaction.order_id) {
+    return
+  }
+  if (!confirm('Удалить эту транзакцию?')) {
+    return
+  }
+
+  try {
+    await crmStore.deleteCashTransaction(transaction.id)
+    await crmStore.fetchCashAccounts()
+    await crmStore.fetchCashTransactions({ type: transactionFilter.value || undefined })
+  } catch (error) {
+    alert('Ошибка удаления транзакции')
+  }
+}
+
+function formatCurrency(value: number): string {
+  return new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB', minimumFractionDigits: 0 }).format(value)
+}
+
+function formatDate(dateString: string): string {
+  return new Date(dateString).toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+}
+</script>

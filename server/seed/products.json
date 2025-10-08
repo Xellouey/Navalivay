@@ -1,0 +1,66 @@
+[
+  {
+    "id": "p_blazer_01",
+    "categoryId": "c_blazers",
+    "title": "Пиджак классический",
+    "priceRub": 4990,
+    "description": "Стильный классический пиджак из качественной ткани. Идеальная посадка, универсальный цвет. Подходит для деловых встреч и торжественных мероприятий.",
+    "images": ["https://placehold.co/400x533/383b3d/ffc81a?text=Пиджак"]
+  },
+  {
+    "id": "p_blazer_02",
+    "categoryId": "c_blazers",
+    "title": "Пиджак casual",
+    "priceRub": 3990,
+    "description": "Легкий пиджак для повседневной носки. Удобный крой, натуральные материалы.",
+    "images": ["https://placehold.co/400x533/383b3d/ffc81a?text=Casual"]
+  },
+  {
+    "id": "p_jeans_01",
+    "categoryId": "c_jeans",
+    "title": "Джинсы прямого кроя",
+    "priceRub": 2990,
+    "description": "Качественный деним, классический прямой крой. Универсальная модель для повседневного использования.",
+    "images": ["https://placehold.co/400x533/383b3d/ffc81a?text=Джинсы"]
+  },
+  {
+    "id": "p_jeans_02",
+    "categoryId": "c_jeans",
+    "title": "Джинсы skinny",
+    "priceRub": 3490,
+    "description": "Зауженные джинсы с эластаном. Отличная посадка, стрейч-материал для комфорта.",
+    "images": ["https://placehold.co/400x533/383b3d/ffc81a?text=Skinny"]
+  },
+  {
+    "id": "p_jacket_01",
+    "categoryId": "c_jackets",
+    "title": "Куртка демисезонная",
+    "priceRub": 5990,
+    "description": "Стильная демисезонная куртка. Водоотталкивающая ткань, утепление синтепон. Идеально для межсезонья.",
+    "images": ["https://placehold.co/400x533/383b3d/ffc81a?text=Демисезон"]
+  },
+  {
+    "id": "p_jacket_02",
+    "categoryId": "c_jackets",
+    "title": "Куртка зимняя",
+    "priceRub": 8990,
+    "description": "Теплая зимняя куртка с пуховым наполнителем. Температурный режим до -25°C.",
+    "images": ["https://placehold.co/400x533/383b3d/ffc81a?text=Зимняя"]
+  },
+  {
+    "id": "p_new_01",
+    "categoryId": "c_new_drop",
+    "title": "Эксклюзивная толстовка",
+    "priceRub": 6990,
+    "description": "Лимитированная коллекция. Высококачественный хлопок, уникальный дизайн. Только 50 экземпляров.",
+    "images": ["https://placehold.co/400x533/ffc81a/383b3d?text=NEW"]
+  },
+  {
+    "id": "p_new_02",
+    "categoryId": "c_new_drop",
+    "title": "Худи лимитированная серия",
+    "priceRub": 7490,
+    "description": "Премиальное худи из новой коллекции. Эксклюзивный принт, овесайз крой.",
+    "images": ["https://placehold.co/400x533/ffc81a/383b3d?text=HOODIE"]
+  }
+]
