@@ -31,64 +31,65 @@
 
     <!-- Filters -->
     <div class="bg-white rounded-lg border p-4 space-y-3">
-      <div class="flex flex-col md:flex-row md:items-center gap-3">
-        <div class="flex items-center gap-2 flex-1 min-w-0">
+      <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+        <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-3 flex-1 min-w-0">
           <input
             v-model="search"
             type="text"
             placeholder="Поиск по названию..."
-            class="w-full px-3 py-2 border border-gray-300 rounded-lg bg-white text-gray-900 focus:ring-2 focus:ring-brand-primary focus:border-transparent"
+            class="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-gray-900 focus:border-transparent focus:ring-2 focus:ring-brand-primary"
             @input="onFiltersChanged"
           />
-          <div class="flex items-center gap-1">
-            <select
-              v-model="category"
-              class="px-3 py-2 border border-gray-300 rounded-lg bg-white text-gray-900 focus:ring-2 focus:ring-brand-primary focus:border-transparent"
-              @change="onCategoryFilterChange"
-            >
-              <option value="">Все категории</option>
-              <option v-for="c in categories" :key="c.id" :value="c.id">{{ c.name }}</option>
-            </select>
-            <button
-              type="button"
-              class="inline-flex items-center justify-center rounded-lg border border-gray-300 bg-white p-2 text-gray-600 transition hover:bg-gray-100 hover:text-gray-800"
-              title="Создать категорию"
-              @click="openInlineCategoryModal"
-            >
-              <PlusIcon class="h-4 w-4" />
-              <span class="sr-only">Создать категорию</span>
-            </button>
-          </div>
-          <div class="flex items-center gap-1">
-            <select
-              v-model="group"
-              :disabled="!groupFilterOptions.length"
-              class="px-3 py-2 border border-gray-300 rounded-lg bg-white text-gray-900 focus:ring-2 focus:ring-brand-primary focus:border-transparent disabled:bg-gray-100 disabled:text-gray-400"
-              @change="onFiltersChanged"
-            >
-              <option value="">Все линейки</option>
-              <option v-for="option in groupFilterOptions" :key="option.id" :value="option.id">
-                {{ option.name }}
-              </option>
-            </select>
-            <button
-              type="button"
-              class="inline-flex items-center justify-center rounded-lg border border-gray-300 bg-white p-2 text-gray-600 transition hover:bg-gray-100 hover:text-gray-800 disabled:cursor-not-allowed disabled:opacity-40"
-              :disabled="!category"
-              :title="category ? 'Создать линейку' : 'Сначала выберите категорию'"
-              @click="openInlineGroupModal"
-            >
-              <PlusIcon class="h-4 w-4" />
-              <span class="sr-only">Создать линейку</span>
-            </button>
+          <div class="hidden sm:flex flex-wrap items-center gap-2">
+            <div class="flex items-center gap-1">
+              <select
+                v-model="category"
+                class="rounded-lg border border-gray-300 bg-white px-3 py-2 text-gray-900 focus:border-transparent focus:ring-2 focus:ring-brand-primary"
+                @change="onCategoryFilterChange"
+              >
+                <option value="">Все категории</option>
+                <option v-for="c in categories" :key="c.id" :value="c.id">{{ c.name }}</option>
+              </select>
+              <button
+                type="button"
+                class="inline-flex items-center justify-center rounded-lg border border-gray-300 bg-white p-2 text-gray-600 transition hover:bg-gray-100 hover:text-gray-800"
+                title="Создать категорию"
+                @click="openInlineCategoryModal"
+              >
+                <PlusIcon class="h-4 w-4" />
+                <span class="sr-only">Создать категорию</span>
+              </button>
+            </div>
+            <div class="flex items-center gap-1">
+              <select
+                v-model="group"
+                :disabled="!groupFilterOptions.length"
+                class="rounded-lg border border-gray-300 bg-white px-3 py-2 text-gray-900 focus:border-transparent focus:ring-2 focus:ring-brand-primary disabled:bg-gray-100 disabled:text-gray-400"
+                @change="onFiltersChanged"
+              >
+                <option value="">Все линейки</option>
+                <option v-for="option in groupFilterOptions" :key="option.id" :value="option.id">
+                  {{ option.name }}
+                </option>
+              </select>
+              <button
+                type="button"
+                class="inline-flex items-center justify-center rounded-lg border border-gray-300 bg-white p-2 text-gray-600 transition hover:bg-gray-100 hover:text-gray-800 disabled:cursor-not-allowed disabled:opacity-40"
+                :disabled="!category"
+                :title="category ? 'Создать линейку' : 'Сначала выберите категорию'"
+                @click="openInlineGroupModal"
+              >
+                <PlusIcon class="h-4 w-4" />
+                <span class="sr-only">Создать линейку</span>
+              </button>
+            </div>
           </div>
         </div>
-        <!-- Десктоп: обычный вид -->
         <div class="hidden sm:flex items-center gap-2">
           <label class="text-sm text-gray-600">На странице</label>
           <select
             v-model.number="pageSize"
-            class="px-3 py-2 border border-gray-300 rounded-lg bg-white text-gray-900 focus:ring-2 focus:ring-brand-primary focus:border-transparent"
+            class="rounded-lg border border-gray-300 bg-white px-3 py-2 text-gray-900 focus:border-transparent focus:ring-2 focus:ring-brand-primary"
             @change="onPageSizeChange"
           >
             <option :value="10">10</option>
@@ -96,84 +97,94 @@
             <option :value="50">50</option>
           </select>
         </div>
-        <div class="hidden sm:flex items-center gap-1 bg-gray-100 rounded-lg p-1">
+        <div class="hidden sm:flex items-center gap-1 rounded-lg bg-gray-100 p-1">
           <button
             @click="viewMode = 'table'"
             :class="[
-              'flex items-center justify-center p-2 rounded-md transition-all',
+              'flex items-center justify-center rounded-md p-2 transition-all',
               viewMode === 'table' 
                 ? 'bg-white text-gray-900 shadow-sm' 
                 : 'text-gray-500 hover:text-gray-700'
             ]"
             title="Вид таблицы"
           >
-            <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+            <svg class="h-5 w-5" fill="currentColor" viewBox="0 0 20 20">
               <path d="M3 3a1 1 0 000 2h11a1 1 0 100-2H3zM3 7a1 1 0 000 2h5a1 1 0 000-2H3zM3 11a1 1 0 100 2h4a1 1 0 100-2H3zM13 16a1 1 0 102 0v-5.586l1.293 1.293a1 1 0 001.414-1.414l-3-3a1 1 0 00-1.414 0l-3 3a1 1 0 101.414 1.414L13 10.414V16z"/>
             </svg>
           </button>
           <button
             @click="viewMode = 'list'"
             :class="[
-              'flex items-center justify-center p-2 rounded-md transition-all',
+              'flex items-center justify-center rounded-md p-2 transition-all',
               viewMode === 'list' 
                 ? 'bg-white text-gray-900 shadow-sm' 
                 : 'text-gray-500 hover:text-gray-700'
             ]"
             title="Вид списка"
           >
-            <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+            <svg class="h-5 w-5" fill="currentColor" viewBox="0 0 20 20">
               <path fill-rule="evenodd" d="M3 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z" clip-rule="evenodd"/>
             </svg>
           </button>
         </div>
-        
-        <!-- Мобильные: комбинированный вид -->
-        <div class="flex sm:hidden items-center gap-2">
+      </div>
+
+      <div class="flex flex-wrap items-stretch gap-2 sm:hidden">
+        <button
+          type="button"
+          class="inline-flex flex-1 items-center justify-center gap-2 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 transition hover:bg-gray-100 hover:text-gray-900"
+          @click="showFiltersModal = true"
+        >
+          <FunnelIcon class="h-5 w-5" />
+          <span>Фильтры</span>
+        </button>
+        <div class="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-600">
           <label class="text-sm text-gray-600">На странице</label>
           <select
             v-model.number="pageSize"
-            class="px-3 py-2 border border-gray-300 rounded-lg bg-white text-gray-900 focus:ring-2 focus:ring-brand-primary focus:border-transparent"
+            class="rounded-md border border-gray-300 bg-white px-2 py-1 text-gray-900 focus:border-transparent focus:ring-2 focus:ring-brand-primary"
             @change="onPageSizeChange"
           >
             <option :value="10">10</option>
             <option :value="20">20</option>
             <option :value="50">50</option>
           </select>
-          <div class="flex items-center gap-1 bg-gray-100 rounded-lg p-1">
-            <button
-              @click="viewMode = 'table'"
-              :class="[
-                'flex items-center justify-center p-2 rounded-md transition-all',
-                viewMode === 'table' 
-                  ? 'bg-white text-gray-900 shadow-sm' 
-                  : 'text-gray-500 hover:text-gray-700'
-              ]"
-              title="Вид таблицы"
-            >
-              <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-                <path d="M3 3a1 1 0 000 2h11a1 1 0 100-2H3zM3 7a1 1 0 000 2h5a1 1 0 000-2H3zM3 11a1 1 0 100 2h4a1 1 0 100-2H3zM13 16a1 1 0 102 0v-5.586l1.293 1.293a1 1 0 001.414-1.414l-3-3a1 1 0 00-1.414 0l-3 3a1 1 0 101.414 1.414L13 10.414V16z"/>
-              </svg>
-            </button>
-            <button
-              @click="viewMode = 'list'"
-              :class="[
-                'flex items-center justify-center p-2 rounded-md transition-all',
-                viewMode === 'list' 
-                  ? 'bg-white text-gray-900 shadow-sm' 
-                  : 'text-gray-500 hover:text-gray-700'
-              ]"
-              title="Вид списка"
-            >
-              <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-                <path fill-rule="evenodd" d="M3 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z" clip-rule="evenodd"/>
-              </svg>
-            </button>
-          </div>
+        </div>
+        <div class="flex items-center gap-1 rounded-lg bg-gray-100 p-1">
+          <button
+            @click="viewMode = 'table'"
+            :class="[
+              'flex items-center justify-center rounded-md p-2 transition-all',
+              viewMode === 'table' 
+                ? 'bg-white text-gray-900 shadow-sm' 
+                : 'text-gray-500 hover:text-gray-700'
+            ]"
+            title="Вид таблицы"
+          >
+            <svg class="h-5 w-5" fill="currentColor" viewBox="0 0 20 20">
+              <path d="M3 3a1 1 0 000 2h11a1 1 0 100-2H3zM3 7a1 1 0 000 2h5a1 1 0 000-2H3zM3 11a1 1 0 100 2h4a1 1 0 100-2H3zM13 16a1 1 0 102 0v-5.586l1.293 1.293a1 1 0 001.414-1.414l-3-3a1 1 0 00-1.414 0l-3 3a1 1 0 101.414 1.414L13 10.414V16z"/>
+            </svg>
+          </button>
+          <button
+            @click="viewMode = 'list'"
+            :class="[
+              'flex items-center justify-center rounded-md p-2 transition-all',
+              viewMode === 'list' 
+                ? 'bg-white text-gray-900 shadow-sm' 
+                : 'text-gray-500 hover:text-gray-700'
+            ]"
+            title="Вид списка"
+          >
+            <svg class="h-5 w-5" fill="currentColor" viewBox="0 0 20 20">
+              <path fill-rule="evenodd" d="M3 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z" clip-rule="evenodd"/>
+            </svg>
+          </button>
         </div>
       </div>
-      
-      <!-- Batch operations -->
-      <div v-if="selectedIds.length" class="space-y-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+    </div>
+
+    <!-- Batch operations -->
+    <div v-if="selectedIds.length" class="space-y-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
         <div class="flex items-center justify-between">
           <span class="text-sm font-medium text-blue-800">Выбрано: {{ selectedIds.length }}</span>
           <button
@@ -212,7 +223,6 @@
             Удалить
           </button>
         </div>
-      </div>
     </div>
 
     <!-- Table View -->
@@ -645,12 +655,160 @@
         {{ copiedToast }}
       </div>
     </Transition>
+    
+    <!-- Filters Modal (mobile) -->
+    <Transition
+      enter-active-class="transition-opacity duration-200 ease-out"
+      enter-from-class="opacity-0"
+      enter-to-class="opacity-100"
+      leave-active-class="transition-opacity duration-150 ease-in"
+      leave-from-class="opacity-100"
+      leave-to-class="opacity-0"
+    >
+      <div
+        v-if="showFiltersModal"
+        class="fixed inset-0 z-50 flex items-end justify-center bg-black/40 px-4 py-6 sm:items-center"
+        @click.self="closeFiltersModal"
+      >
+        <div class="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
+          <div class="flex items-center justify-between gap-2">
+            <h3 class="text-lg font-semibold text-gray-900">Фильтры</h3>
+            <button
+              type="button"
+              class="inline-flex items-center justify-center rounded-full p-2 text-gray-500 transition hover:bg-gray-100 hover:text-gray-800"
+              @click="closeFiltersModal"
+            >
+              <XMarkIcon class="h-5 w-5" />
+              <span class="sr-only">Закрыть</span>
+            </button>
+          </div>
+
+          <div class="mt-4 space-y-4">
+            <div class="space-y-2">
+              <label class="text-sm font-medium text-gray-700">Поиск</label>
+              <input
+                v-model="search"
+                type="text"
+                placeholder="Поиск по названию..."
+                class="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-gray-900 focus:border-transparent focus:ring-2 focus:ring-brand-primary"
+                @input="onFiltersChanged"
+              />
+            </div>
+
+            <div class="space-y-3">
+              <label class="text-sm font-medium text-gray-700">Категория и линейка</label>
+              <div class="flex flex-col gap-3">
+                <div class="flex items-center gap-2">
+                  <select
+                    v-model="category"
+                    class="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-gray-900 focus:border-transparent focus:ring-2 focus:ring-brand-primary"
+                    @change="onCategoryFilterChange"
+                  >
+                    <option value="">Все категории</option>
+                    <option v-for="c in categories" :key="c.id" :value="c.id">{{ c.name }}</option>
+                  </select>
+                  <button
+                    type="button"
+                    class="inline-flex items-center justify-center rounded-lg border border-gray-300 bg-white p-2 text-gray-600 transition hover:bg-gray-100 hover:text-gray-800"
+                    title="Создать категорию"
+                    @click="handleFiltersModalAction('category')"
+                  >
+                    <PlusIcon class="h-4 w-4" />
+                    <span class="sr-only">Создать категорию</span>
+                  </button>
+                </div>
+                <div class="flex items-center gap-2">
+                  <select
+                    v-model="group"
+                    :disabled="!groupFilterOptions.length"
+                    class="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-gray-900 focus:border-transparent focus:ring-2 focus:ring-brand-primary disabled:bg-gray-100 disabled:text-gray-400"
+                    @change="onFiltersChanged"
+                  >
+                    <option value="">Все линейки</option>
+                    <option v-for="option in groupFilterOptions" :key="option.id" :value="option.id">
+                      {{ option.name }}
+                    </option>
+                  </select>
+                  <button
+                    type="button"
+                    class="inline-flex items-center justify-center rounded-lg border border-gray-300 bg-white p-2 text-gray-600 transition hover:bg-gray-100 hover:text-gray-800 disabled:cursor-not-allowed disabled:opacity-40"
+                    :disabled="!category"
+                    :title="category ? 'Создать линейку' : 'Сначала выберите категорию'"
+                    @click="handleFiltersModalAction('group')"
+                  >
+                    <PlusIcon class="h-4 w-4" />
+                    <span class="sr-only">Создать линейку</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div class="space-y-2">
+              <label class="text-sm font-medium text-gray-700">Показывать на странице</label>
+              <select
+                v-model.number="pageSize"
+                class="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-gray-900 focus:border-transparent focus:ring-2 focus:ring-brand-primary"
+                @change="onPageSizeChange"
+              >
+                <option :value="10">10</option>
+                <option :value="20">20</option>
+                <option :value="50">50</option>
+              </select>
+            </div>
+
+            <div class="space-y-2">
+              <label class="text-sm font-medium text-gray-700">Режим отображения</label>
+              <div class="flex items-center gap-1 rounded-lg bg-gray-100 p-1">
+                <button
+                  @click="viewMode = 'table'"
+                  :class="[
+                    'flex flex-1 items-center justify-center rounded-md p-2 transition-all',
+                    viewMode === 'table' 
+                      ? 'bg-white text-gray-900 shadow-sm' 
+                      : 'text-gray-500 hover:text-gray-700'
+                  ]"
+                  title="Вид таблицы"
+                >
+                  <svg class="h-5 w-5" fill="currentColor" viewBox="0 0 20 20">
+                    <path d="M3 3a1 1 0 000 2h11a1 1 0 100-2H3zM3 7a1 1 0 000 2h5a1 1 0 000-2H3zM3 11a1 1 0 100 2h4a1 1 0 100-2H3zM13 16a1 1 0 102 0v-5.586l1.293 1.293a1 1 0 001.414-1.414l-3-3a1 1 0 00-1.414 0l-3 3a1 1 0 101.414 1.414L13 10.414V16z"/>
+                  </svg>
+                </button>
+                <button
+                  @click="viewMode = 'list'"
+                  :class="[
+                    'flex flex-1 items-center justify-center rounded-md p-2 transition-all',
+                    viewMode === 'list' 
+                      ? 'bg-white text-gray-900 shadow-sm' 
+                      : 'text-gray-500 hover:text-gray-700'
+                  ]"
+                  title="Вид списка"
+                >
+                  <svg class="h-5 w-5" fill="currentColor" viewBox="0 0 20 20">
+                    <path fill-rule="evenodd" d="M3 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z" clip-rule="evenodd"/>
+                  </svg>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div class="mt-6 flex justify-end">
+            <button
+              type="button"
+              class="inline-flex items-center justify-center rounded-lg bg-brand-dark px-4 py-2 text-sm font-medium text-white transition hover:bg-brand-dark/90"
+              @click="closeFiltersModal"
+            >
+              Готово
+            </button>
+          </div>
+        </div>
+      </div>
+    </Transition>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, ref, watch, onMounted, onUnmounted } from 'vue'
-import { PlusIcon } from '@heroicons/vue/24/outline'
+import { PlusIcon, FunnelIcon, XMarkIcon } from '@heroicons/vue/24/outline'
 import { useAdminStore } from '@/stores/admin'
 
 interface ProductLink { label?: string; url: string }
@@ -710,6 +868,7 @@ const selectedGroupId = ref('')
 const groupModalCategoryId = ref('')
 const groupModalLoading = ref(false)
 const modalFetchedCategories = new Set<string>()
+const showFiltersModal = ref(false)
 
 const groupFilterOptions = computed(() => {
   const currentCategory = category.value
@@ -737,10 +896,14 @@ const modalGroupOptions = computed(() => {
 
 // Media query для отслеживания мобильных устройств
 const checkIsMobile = () => {
-  isMobile.value = window.innerWidth < 768 // md breakpoint
-  
+  const next = window.innerWidth < 768
+  if (!next) {
+    showFiltersModal.value = false
+  }
+  isMobile.value = next
+
   // При первой загрузке на мобильных сразу включаем список
-  if (!isInitialized.value && isMobile.value) {
+  if (!isInitialized.value && next) {
     viewMode.value = 'list'
   }
   isInitialized.value = true
@@ -790,6 +953,21 @@ function openInlineCategoryModal() {
 
 function openInlineGroupModal() {
   emit('createGroup', { categoryId: category.value || null })
+}
+
+function closeFiltersModal() {
+  showFiltersModal.value = false
+}
+
+function handleFiltersModalAction(target: 'category' | 'group') {
+  showFiltersModal.value = false
+  requestAnimationFrame(() => {
+    if (target === 'category') {
+      openInlineCategoryModal()
+    } else {
+      openInlineGroupModal()
+    }
+  })
 }
 
 async function ensureModalGroups(categoryId: string) {

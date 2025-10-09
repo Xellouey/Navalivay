@@ -1,27 +1,20 @@
 <template>
-  <div class="min-h-screen bg-gray-50 p-6">
-    <div class="max-w-7xl mx-auto">
+  <div class="min-h-screen bg-gray-50 px-4 py-6 sm:px-6 lg:px-8">
+    <div class="mx-auto w-full max-w-7xl space-y-8">
       <!-- Back Button -->
-      <button @click="$router.push('/admin?tab=crm')" class="mb-4 inline-flex items-center px-4 py-2 bg-white border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors">
-        <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"/>
-        </svg>
-        Назад в админку
-      </button>
-      
-      <div class="mb-8">
-        <h1 class="text-3xl font-bold text-gray-900">Клиенты</h1>
-        <p class="text-gray-600 mt-2">Управление клиентами и их заказами</p>
+      <div>
+        <h1 class="text-2xl font-bold text-gray-900 sm:text-3xl">Клиенты</h1>
+        <p class="mt-2 text-sm text-gray-600 sm:text-base">Управление клиентами и их заказами</p>
       </div>
 
       <!-- Filters -->
-      <div class="mb-6 flex gap-2">
+      <div class="flex flex-wrap gap-2">
         <button @click="selectedFilter = null" :class="filterButtonClass(null)">Все</button>
         <button @click="selectedFilter = 'inactive'" :class="filterButtonClass('inactive')">Пропавшие (>30 дней)</button>
         <button @click="selectedFilter = 'cold'" :class="filterButtonClass('cold')">Холодные (без заказов)</button>
       </div>
 
-      <div v-if="!loadingCustomers" class="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      <div v-if="!loadingCustomers" class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <div class="rounded-xl border border-blue-100 bg-blue-50/60 p-4">
           <p class="text-xs font-semibold uppercase text-blue-600">Холодные</p>
           <p class="mt-2 text-3xl font-bold text-blue-800">{{ temperatureStats.cold }}</p>
@@ -74,8 +67,9 @@
           </div>
         </div>
 
-        <div v-if="customers.length > 0" class="bg-white rounded-lg shadow-sm overflow-hidden">
-        <table class="w-full">
+        <div v-if="customers.length > 0" class="rounded-lg bg-white shadow-sm">
+          <div class="overflow-x-auto">
+            <table class="w-full min-w-[720px]">
           <thead class="bg-gray-50 border-b">
             <tr>
               <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Клиент</th>
@@ -161,8 +155,9 @@
               </td>
             </tr>
           </tbody>
-        </table>
-      </div>
+            </table>
+          </div>
+        </div>
 
         <div v-else class="text-center py-12 bg-white rounded-lg shadow-sm">
           <p class="text-gray-600">Клиентов не найдено</p>
@@ -269,7 +264,7 @@ onMounted(() => {
 
 function filterButtonClass(filter: 'inactive' | 'cold' | null) {
   return [
-    'px-4 py-2 rounded-lg font-medium transition-colors',
+    'w-full rounded-lg px-4 py-2 text-sm font-medium transition-colors sm:w-auto',
     selectedFilter.value === filter ? 'bg-blue-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-100'
   ]
 }

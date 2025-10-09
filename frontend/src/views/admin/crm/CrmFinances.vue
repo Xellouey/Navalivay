@@ -1,26 +1,19 @@
 <template>
-  <div class="min-h-screen bg-gray-50 p-6">
-    <div class="max-w-7xl mx-auto">
+  <div class="min-h-screen bg-gray-50 px-4 py-6 sm:px-6 lg:px-8">
+    <div class="mx-auto w-full max-w-7xl space-y-8">
       <!-- Back Button -->
-      <button @click="$router.push('/admin?tab=crm')" class="mb-4 inline-flex items-center px-4 py-2 bg-white border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors">
-        <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"/>
-        </svg>
-        Назад в админку
-      </button>
-      
-      <div class="mb-8">
-        <h1 class="text-3xl font-bold text-gray-900">Финансы</h1>
-        <p class="text-gray-600 mt-2">Управление счетами и транзакциями</p>
+      <div>
+        <h1 class="text-2xl font-bold text-gray-900 sm:text-3xl">Финансы</h1>
+        <p class="mt-2 text-sm text-gray-600 sm:text-base">Управление счетами и транзакциями</p>
       </div>
 
       <!-- Cash Accounts -->
       <div class="mb-8">
-        <div class="flex items-center justify-between mb-4">
+        <div class="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <h2 class="text-xl font-bold text-gray-900">Счета и кассы</h2>
-          <button @click="showAccountModal = true" class="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700">Добавить счет</button>
+          <button @click="showAccountModal = true" class="w-full rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-blue-700 sm:w-auto">Добавить счет</button>
         </div>
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div class="grid grid-cols-1 gap-4 md:grid-cols-3">
           <div v-for="account in cashAccounts" :key="account.id" class="bg-white rounded-lg shadow-sm p-6">
             <div class="flex items-center justify-between mb-2">
               <h3 class="font-medium text-gray-900">{{ account.name }}</h3>
@@ -32,14 +25,14 @@
       </div>
 
       <!-- Transactions -->
-      <div class="bg-white rounded-lg shadow-sm p-6">
-        <div class="flex items-center justify-between mb-4">
+      <div class="rounded-lg bg-white p-6 shadow-sm">
+        <div class="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <h2 class="text-xl font-bold text-gray-900">Транзакции</h2>
-          <div class="flex gap-2">
+          <div class="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:justify-end">
             <button @click="transactionFilter = null" :class="filterBtnClass(null)">Все</button>
             <button @click="transactionFilter = 'income'" :class="filterBtnClass('income')">Приход</button>
             <button @click="transactionFilter = 'expense'" :class="filterBtnClass('expense')">Расход</button>
-            <button @click="showTransactionModal = true" class="ml-4 px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700">Добавить</button>
+            <button @click="showTransactionModal = true" class="w-full rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-green-700 sm:w-auto sm:ml-2">Добавить</button>
           </div>
         </div>
 
@@ -228,7 +221,7 @@ onMounted(async () => {
 })
 
 function filterBtnClass(filter: 'income' | 'expense' | null) {
-  return ['px-3 py-1 rounded-md text-sm font-medium transition-colors', transactionFilter.value === filter ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200']
+  return ['w-full rounded-md px-3 py-1 text-sm font-medium transition-colors sm:w-auto', transactionFilter.value === filter ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200']
 }
 
 async function addTransaction() {

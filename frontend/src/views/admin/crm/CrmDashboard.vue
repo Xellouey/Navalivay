@@ -1,28 +1,30 @@
 <template>
-  <div class="min-h-screen bg-gray-50 p-6">
-    <div class="max-w-7xl mx-auto">
-      <!-- Back Button -->
-      <button @click="$router.push('/admin?tab=crm')" class="mb-4 inline-flex items-center px-4 py-2 bg-white border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors">
-        <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"/>
+  <div class="min-h-screen bg-gray-50 px-4 py-6 sm:px-6 lg:px-8">
+    <div class="mx-auto w-full max-w-7xl space-y-8">
+      <button
+        @click="$router.push('/admin?tab=crm')"
+        class="inline-flex w-full items-center justify-center rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 transition hover:bg-gray-100 sm:w-auto"
+      >
+        <svg class="mr-2 h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
         </svg>
         Назад в админку
       </button>
-      
+
       <!-- Header -->
-      <div class="mb-8">
-        <h1 class="text-3xl font-bold text-gray-900">CRM Dashboard</h1>
-        <p class="text-gray-600 mt-2">Статистика и аналитика продаж</p>
+      <div>
+        <h1 class="text-2xl font-bold text-gray-900 sm:text-3xl">CRM Dashboard</h1>
+        <p class="mt-2 text-sm text-gray-600 sm:text-base">Статистика и аналитика продаж</p>
       </div>
 
       <!-- Period Filter -->
-      <div class="mb-6 flex gap-2">
+      <div class="flex flex-wrap gap-2">
         <button
           v-for="period in periods"
           :key="period.value"
           @click="selectedPeriod = period.value"
           :class="[
-            'px-4 py-2 rounded-lg font-medium transition-colors',
+            'w-full rounded-lg px-4 py-2 text-sm font-medium transition-colors sm:w-auto',
             selectedPeriod === period.value
               ? 'bg-blue-600 text-white'
               : 'bg-white text-gray-700 hover:bg-gray-100'
@@ -37,9 +39,9 @@
         <p class="mt-4 text-gray-600">Загрузка данных...</p>
       </div>
 
-      <div v-else-if="dashboardStats" class="space-y-6">
+      <div v-else-if="dashboardStats" class="space-y-8">
         <!-- Stats Cards -->
-        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <div class="bg-white rounded-lg shadow-sm p-6">
             <div class="text-sm text-gray-600 mb-2">Количество продаж</div>
             <div class="text-3xl font-bold text-gray-900">{{ dashboardStats.stats.totalSales }}</div>
@@ -88,7 +90,7 @@
             <div
               v-for="(product, index) in dashboardStats.topProducts"
               :key="index"
-              class="flex items-center justify-between p-3 bg-gray-50 rounded-lg"
+              class="flex flex-col gap-3 rounded-lg bg-gray-50 p-3 sm:flex-row sm:items-center sm:justify-between"
             >
               <div class="flex-1">
                 <div class="font-medium text-gray-900">{{ product.group_name }}</div>
@@ -108,7 +110,7 @@
           </div>
         </div>
 
-        <div class="grid gap-6 md:grid-cols-2">
+        <div class="grid gap-6 sm:grid-cols-2">
           <div class="bg-white rounded-lg shadow-sm p-6">
             <h2 class="text-xl font-bold text-gray-900 mb-4">Доставка</h2>
             <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -127,7 +129,7 @@
         <!-- Orders by Status -->
         <div class="bg-white rounded-lg shadow-sm p-6">
           <h2 class="text-xl font-bold text-gray-900 mb-4">Заказы по статусам</h2>
-          <div v-if="dashboardStats.ordersByStatus.length > 0" class="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div v-if="dashboardStats.ordersByStatus.length > 0" class="grid grid-cols-2 gap-4 sm:grid-cols-4">
             <div
               v-for="(statusData, index) in dashboardStats.ordersByStatus"
               :key="index"

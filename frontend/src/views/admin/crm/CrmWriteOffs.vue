@@ -1,31 +1,21 @@
 <template>
-  <div class="min-h-screen bg-gray-50 p-6">
-    <div class="mx-auto max-w-7xl">
-      <button
-        @click="$router.push('/admin?tab=crm')"
-        class="mb-4 inline-flex items-center rounded-lg border border-gray-300 bg-white px-4 py-2 text-gray-700 transition hover:bg-gray-50"
-      >
-        <svg class="mr-2 h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-        </svg>
-        Назад в админку
-      </button>
-
-      <div class="mb-8 flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 class="text-3xl font-bold text-gray-900">Списания</h1>
-          <p class="mt-2 text-gray-600">Фиксируйте потери и держите склад в актуальном состоянии</p>
+  <div class="min-h-screen bg-gray-50 px-4 py-6 sm:px-6 lg:px-8">
+    <div class="mx-auto w-full max-w-7xl space-y-8">
+      <div class="flex flex-wrap items-start justify-between gap-4">
+        <div class="max-w-2xl space-y-2">
+          <h1 class="text-2xl font-bold text-gray-900 sm:text-3xl">Списания</h1>
+          <p class="text-sm text-gray-600 sm:text-base">Фиксируйте потери и держите склад в актуальном состоянии</p>
         </div>
-        <div class="flex gap-3">
+        <div class="flex w-full flex-wrap gap-3 sm:w-auto sm:justify-end">
           <button
             @click="refreshWriteOffs"
-            class="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 transition hover:bg-gray-100"
+            class="w-full rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 transition hover:bg-gray-100 sm:w-auto"
           >
             Обновить
           </button>
           <button
             @click="openCreateModal"
-            class="rounded-lg bg-red-600 px-6 py-3 text-sm font-semibold text-white transition hover:bg-red-700"
+            class="w-full rounded-lg bg-red-600 px-6 py-3 text-sm font-semibold text-white transition hover:bg-red-700 sm:w-auto"
           >
             Создать списание
           </button>
@@ -57,8 +47,9 @@
         <p class="mt-4 text-gray-600">Загрузка истории списаний…</p>
       </div>
 
-      <div v-else-if="writeOffs.length" class="overflow-hidden rounded-xl bg-white shadow-sm">
-        <table class="w-full text-left">
+      <div v-else-if="writeOffs.length" class="rounded-xl bg-white shadow-sm">
+        <div class="overflow-x-auto">
+          <table class="w-full min-w-[680px] text-left">
           <thead class="border-b bg-gray-50 text-xs font-medium uppercase text-gray-500">
             <tr>
               <th class="px-6 py-3">№</th>
@@ -87,7 +78,8 @@
               </td>
             </tr>
           </tbody>
-        </table>
+          </table>
+        </div>
       </div>
 
       <div v-else class="rounded-xl bg-white py-16 text-center shadow-sm">
@@ -175,8 +167,9 @@
               </div>
             </div>
 
-            <div class="rounded-xl border border-gray-200 p-0">
-              <table class="w-full text-sm">
+            <div class="rounded-xl border border-gray-200">
+              <div class="overflow-x-auto">
+                <table class="w-full min-w-[600px] text-sm">
                 <thead class="bg-gray-50 text-xs font-medium uppercase text-gray-500">
                   <tr>
                     <th class="px-4 py-3 text-left">Товар</th>
@@ -225,7 +218,8 @@
                     <td colspan="6" class="px-4 py-6 text-center text-sm text-gray-500">Добавьте товары, чтобы оформить списание</td>
                   </tr>
                 </tbody>
-              </table>
+                </table>
+              </div>
             </div>
           </div>
 
@@ -307,8 +301,9 @@
             </div>
           </div>
 
-          <div class="overflow-hidden rounded-lg border border-gray-200">
-            <table class="w-full text-sm">
+          <div class="rounded-lg border border-gray-200">
+            <div class="overflow-x-auto">
+              <table class="w-full min-w-[520px] text-sm">
               <thead class="bg-gray-50 text-xs font-medium uppercase text-gray-500">
                 <tr>
                   <th class="px-4 py-3 text-left">Товар</th>
@@ -325,7 +320,8 @@
                   <td class="px-4 py-3 text-right text-sm font-semibold text-gray-900">{{ formatCurrency(item.total_cost) }}</td>
                 </tr>
               </tbody>
-            </table>
+              </table>
+            </div>
           </div>
         </div>
       </div>

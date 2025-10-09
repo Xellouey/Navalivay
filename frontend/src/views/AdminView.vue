@@ -32,155 +32,257 @@
     </div>
 
     <!-- Authenticated layout -->
-<AdminLayout v-else v-model="activeTab" :tabs="adminTabs" @logout="handleLogout">
+<AdminLayout v-else v-model="layoutTab" :tabs="adminTabs" :main-active="!isCrmRoute" :crm-links="crmLinks" @logout="handleLogout">
         <template #default>
-          <!-- Overview -->
-          <div v-if="activeTab === 'dashboard'" class="space-y-6">
-            <section class="card-base p-4 sm:p-6 space-y-5">
-              <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                  <h2 class="text-lg font-semibold text-gray-900">Ключевые показатели</h2>
-                  <p class="text-sm text-gray-500">Выберите период для отображения данных</p>
+          <RouterView v-if="isCrmRoute" />
+          <template v-else>
+            <!-- Overview -->
+            <div v-if="activeTab === 'dashboard'" class="space-y-8">
+            <section class="relative overflow-hidden rounded-3xl bg-gradient-to-br from-brand-dark via-red-600 to-brand-primary text-white shadow-xl">
+              <div class="absolute inset-0">
+                <div class="absolute -top-16 -left-24 h-64 w-64 rounded-full bg-white/15 blur-3xl"></div>
+                <div class="absolute -bottom-20 right-0 h-72 w-72 rounded-full bg-white/10 blur-2xl"></div>
+              </div>
+              <div class="relative z-10 space-y-8 p-6 sm:p-8 lg:p-10">
+                <div class="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
+                  <div class="flex-1 min-w-0 space-y-6">
+                    <div class="flex flex-wrap items-center gap-3">
+                      <span class="relative inline-flex items-center gap-3 rounded-full border border-white/25 bg-white/10 px-5 py-2 text-[0.65rem] font-semibold uppercase tracking-[0.35em] text-white/80 shadow-[0_10px_30px_rgba(0,0,0,0.18)] backdrop-blur-sm">
+                        <span class="flex h-7 w-7 items-center justify-center rounded-full bg-white/15 text-white">
+                          <SparklesIcon class="h-4 w-4" />
+                        </span>
+                        <span class="tracking-[0.4em]">
+                          Обзор · {{ activeOverviewLabel }}
+                        </span>
+                      </span>
+                    </div>
+
+                    <div v-if="overviewStats" class="grid w-full min-w-0 gap-3 sm:grid-cols-2 md:grid-cols-3">
+                      <div class="rounded-2xl border border-white/20 bg-white/10 px-4 py-3 backdrop-blur">
+                        <p class="text-[0.65rem] font-semibold uppercase tracking-[0.25em] text-white/70">Сделок</p>
+                        <p class="mt-1 text-xl font-semibold">{{ overviewStats?.totalSales ?? '—' }}</p>
+                      </div>
+                      <div class="rounded-2xl border border-white/20 bg-white/10 px-4 py-3 backdrop-blur">
+                        <p class="text-[0.65rem] font-semibold uppercase tracking-[0.25em] text-white/70">Выручка</p>
+                        <p class="mt-1 text-xl font-semibold">{{ formatCurrency(overviewStats?.revenue) }}</p>
+                      </div>
+                      <div class="rounded-2xl border border-white/20 bg-white/10 px-4 py-3 backdrop-blur">
+                        <p class="text-[0.65rem] font-semibold uppercase tracking-[0.25em] text-white/70">Средний чек</p>
+                        <p class="mt-1 text-xl font-semibold">{{ formatCurrency(overviewStats?.averageCheck) }}</p>
+                      </div>
+                    </div>
+
+                    <div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-2">
+                      <div class="group relative overflow-hidden rounded-2xl bg-white/10 p-5 shadow-lg backdrop-blur-sm ring-1 ring-inset ring-white/15 transition hover:bg-white/15">
+                        <div class="flex flex-col items-start gap-4 sm:flex-row sm:items-start sm:justify-between">
+                          <div class="space-y-2">
+                            <p class="text-xs font-semibold uppercase tracking-[0.25em] text-white/60">Продажи</p>
+                            <p class="text-3xl font-semibold">{{ overviewStats?.totalSales ?? '—' }}</p>
+                          </div>
+                          <span class="rounded-xl bg-white/20 p-2 text-white">
+                            <ArrowTrendingUpIcon class="h-6 w-6" />
+                          </span>
+                        </div>
+                        <p class="mt-3 text-xs text-white/70">Количество завершённых сделок за период</p>
+                      </div>
+
+                      <div class="group relative overflow-hidden rounded-2xl bg-white/10 p-5 shadow-lg backdrop-blur-sm ring-1 ring-inset ring-white/15 transition hover:bg-white/15">
+                        <div class="flex flex-col items-start gap-4 sm:flex-row sm:items-start sm:justify-between">
+                          <div class="space-y-2">
+                            <p class="text-xs font-semibold uppercase tracking-[0.25em] text-white/60">Выручка</p>
+                            <p class="text-3xl font-semibold">{{ formatCurrency(overviewStats?.revenue) }}</p>
+                          </div>
+                          <span class="rounded-xl bg-white/20 p-2 text-white">
+                            <CurrencyDollarIcon class="h-6 w-6" />
+                          </span>
+                        </div>
+                        <p class="mt-3 text-xs text-white/70">Совокупный доход без учёта расходов</p>
+                      </div>
+
+                      <div class="group relative overflow-hidden rounded-2xl bg-white/10 p-5 shadow-lg backdrop-blur-sm ring-1 ring-inset ring-white/15 transition hover:bg-white/15 xl:col-span-2">
+                        <div class="flex flex-col items-start gap-4 sm:flex-row sm:items-start sm:justify-between">
+                          <div class="space-y-2">
+                            <p class="text-xs font-semibold uppercase tracking-[0.25em] text-white/60">Средний чек</p>
+                            <p class="text-3xl font-semibold">{{ formatCurrency(overviewStats?.averageCheck) }}</p>
+                          </div>
+                          <span class="rounded-xl bg-white/20 p-2 text-white">
+                            <ChartBarIcon class="h-6 w-6" />
+                          </span>
+                        </div>
+                        <p class="mt-3 text-xs text-white/70">Средняя сумма заказа в выбранный период</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="flex w-full flex-col gap-4 sm:max-w-md lg:max-w-sm lg:self-center lg:my-auto">
+                    <div class="rounded-2xl border border-white/20 bg-white/10 p-5 shadow-lg backdrop-blur">
+                      <p class="text-xs font-semibold uppercase tracking-[0.3em] text-white/70">Витрина</p>
+                      <div class="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-3">
+                        <div class="space-y-1">
+                          <p class="text-[0.6rem] font-semibold uppercase tracking-[0.3em] text-white/50">Товары</p>
+                          <p class="text-xl font-semibold text-white">{{ stats.products }}</p>
+                        </div>
+                        <div class="space-y-1">
+                          <p class="text-[0.6rem] font-semibold uppercase tracking-[0.3em] text-white/50">Категории</p>
+                          <p class="text-xl font-semibold text-white">{{ stats.categories }}</p>
+                        </div>
+                        <div class="space-y-1">
+                          <p class="text-[0.6rem] font-semibold uppercase tracking-[0.3em] text-white/50">Баннеры</p>
+                          <p class="text-xl font-semibold text-white">{{ stats.banners }}</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div class="rounded-2xl border border-white/15 bg-white/10 p-5 shadow-lg backdrop-blur-sm">
+                      <div class="flex items-start justify-between gap-4">
+                        <div class="space-y-3">
+                          <p class="text-xs font-semibold uppercase tracking-[0.25em] text-white/60">Прибыль</p>
+                          <div v-if="profitUnlocked" class="space-y-2">
+                            <p class="text-2xl font-semibold text-white">{{ formatCurrency(overviewStats?.profit) }}</p>
+                            <p v-if="profitMargin !== null" class="text-xs text-white/70">Маржинальность {{ profitMargin }}%</p>
+                          </div>
+                          <div v-else class="space-y-4">
+                            <div class="text-2xl font-semibold text-white/70 select-none">
+                              {{ formatCurrency(overviewStats?.profit) }}
+                            </div>
+                            <button
+                              type="button"
+                              class="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/15 px-6 py-2 text-[0.65rem] font-semibold uppercase tracking-[0.35em] text-white transition hover:border-white/35 hover:bg-white/25"
+                              aria-label="Разблокировать"
+                              @click="openProfitModal"
+                            >
+                              <LockOpenIcon class="h-4 w-4" />
+                              <span>Открыть</span>
+                            </button>
+                          </div>
+                        </div>
+                        <span class="flex h-12 w-12 items-center justify-center rounded-xl bg-white/15 text-white">
+                          <BoltIcon class="h-6 w-6" />
+                        </span>
+                      </div>
+                      <p v-if="!profitUnlocked" class="mt-4 text-xs text-white/70">Доступно после подтверждения паролем</p>
+                    </div>
+                  </div>
                 </div>
+
                 <div class="flex flex-wrap items-center gap-2">
                   <button
                     v-for="option in overviewPeriods"
                     :key="option.value"
                     type="button"
-                    class="rounded-full px-3 py-1 text-xs font-semibold transition"
-                    :class="overviewPeriod === option.value ? 'bg-brand-dark text-white shadow' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'"
+                    class="w-full rounded-full px-4 py-2 text-center text-xs font-semibold uppercase tracking-[0.2em] transition sm:w-auto sm:tracking-[0.3em]"
+                    :class="overviewPeriod === option.value ? 'bg-white text-brand-dark shadow-lg' : 'bg-white/15 text-white/80 hover:bg-white/25'"
                     @click="overviewPeriod = option.value"
                   >
                     {{ option.label }}
                   </button>
                 </div>
               </div>
+            </section>
 
-              <div v-if="loadingDashboard" class="flex items-center justify-center py-10">
-                <div class="h-10 w-10 animate-spin rounded-full border-4 border-brand-dark border-r-transparent"></div>
-              </div>
-              <div v-else-if="dashboardStats" class="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-                <div class="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
-                  <p class="text-sm text-gray-600">Продаж</p>
-                  <p class="mt-2 text-2xl font-semibold text-gray-900">{{ overviewStats?.totalSales ?? 0 }}</p>
-                </div>
-                <div class="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
-                  <p class="text-sm text-gray-600">Выручка</p>
-                  <p class="mt-2 text-2xl font-semibold text-emerald-600">{{ formatCurrency(overviewStats?.revenue) }}</p>
-                </div>
-                <div class="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
-                  <p class="text-sm text-gray-600">Прибыль</p>
-                  <div class="mt-2">
-                    <p v-if="profitUnlocked" class="text-2xl font-semibold text-blue-600">
-                      {{ formatCurrency(overviewStats?.profit) }}
-                    </p>
-                    <div v-else class="relative">
-                      <p class="text-2xl font-semibold text-blue-600 select-none blur-sm">
-                        {{ formatCurrency(overviewStats?.profit) }}
-                      </p>
-                      <button
-                        type="button"
-                        class="absolute inset-0 flex items-center justify-center text-xs font-semibold text-blue-600 transition hover:text-blue-800"
-                        @click="openProfitModal"
+            <div v-if="loadingDashboard" class="flex items-center justify-center py-16">
+              <div class="h-12 w-12 animate-spin rounded-full border-4 border-brand-dark border-t-transparent"></div>
+            </div>
+            <template v-else>
+              <div v-if="dashboardStats" class="space-y-8">
+                <section class="grid gap-6 xl:grid-cols-[1.6fr,1fr]">
+                  <div class="card-base relative overflow-hidden rounded-3xl border border-red-100/60 bg-white p-6 shadow-lg">
+                    <div class="flex flex-col items-start gap-4 sm:flex-row sm:items-start sm:justify-between">
+                      <div>
+                        <h3 class="text-lg font-semibold text-gray-900">Лучшие линейки</h3>
+                        <p class="text-sm text-gray-500">Топ-{{ topGroups.length }} направлений по выручке</p>
+                      </div>
+                      <span v-if="topGroups.length" class="rounded-full bg-brand-primary/20 px-3 py-1 text-xs font-semibold text-brand-dark">
+                        {{ topGroups.length }}
+                      </span>
+                    </div>
+                    <div v-if="topGroups.length" class="mt-6 space-y-4">
+                      <div
+                        v-for="(group, index) in topGroups"
+                        :key="group.group_id || index"
+                        class="relative overflow-hidden rounded-2xl border border-gray-200/70 bg-white/90 p-4 shadow-sm transition hover:-translate-y-1 hover:shadow-md"
                       >
-                        Показать
-                      </button>
+                        <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                          <div>
+                            <p class="text-xs font-semibold uppercase tracking-[0.3em] text-brand-dark/70">№{{ index + 1 }}</p>
+                            <p class="mt-1 text-base font-semibold text-gray-900">
+                              {{ group.group_name || 'Без названия' }}
+                            </p>
+                            <p class="text-xs text-gray-500">Продано: {{ group.total_quantity }} шт</p>
+                          </div>
+                          <p class="text-lg font-semibold text-brand-dark">{{ formatCurrency(group.total_revenue) }}</p>
+                        </div>
+                        <div class="mt-4 h-2 w-full rounded-full bg-gray-100">
+                          <div
+                            class="h-full rounded-full bg-gradient-to-r from-brand-dark via-red-500 to-brand-primary"
+                          :style="{ width: `${Math.min(100, Math.max(0, topGroupsMaxRevenue ? ((group.total_revenue ?? 0) / topGroupsMaxRevenue) * 100 : 0))}%` }"
+                          ></div>
+                        </div>
+                      </div>
+                    </div>
+                    <div v-else class="mt-6 rounded-2xl border border-dashed border-gray-200 bg-gray-50 px-6 py-8 text-center text-sm text-gray-500">
+                      Нет данных по продажам за выбранный период.
                     </div>
                   </div>
-                </div>
-                <div class="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
-                  <p class="text-sm text-gray-600">Средний чек</p>
-                  <p class="mt-2 text-2xl font-semibold text-purple-600">{{ formatCurrency(overviewStats?.averageCheck) }}</p>
-                </div>
-              </div>
-              <div v-else class="py-6 text-sm text-gray-500">Нет данных для выбранного периода.</div>
-            </section>
 
-            <section class="card-base p-4 sm:p-6">
-              <div class="flex items-start justify-between gap-3">
-                <div>
-                  <h3 class="text-lg font-semibold text-gray-900">Топ линеек</h3>
-                  <p class="text-sm text-gray-500">На основе фактических продаж</p>
-                </div>
-                <span v-if="topGroups.length" class="rounded-full bg-gray-100 px-3 py-1 text-xs font-semibold text-gray-600">{{ topGroups.length }}</span>
-              </div>
-              <div v-if="topGroups.length" class="mt-4 space-y-3">
-                <div
-                  v-for="(group, index) in topGroups"
-                  :key="group.group_id || index"
-                  class="flex items-center justify-between gap-4 rounded-lg border border-gray-200 bg-white p-3"
-                >
-                  <div>
-                    <p class="font-medium text-gray-900">{{ group.group_name || 'Без названия' }}</p>
-                    <p class="text-xs text-gray-500">Продано: {{ group.total_quantity }} шт</p>
+                  <div class="space-y-6">
+                    <div class="card-base relative overflow-hidden rounded-3xl border border-red-100/60 bg-white p-6 shadow-lg">
+                      <div class="mb-5 flex flex-col items-start gap-3 sm:flex-row sm:items-center">
+                        <span class="rounded-xl bg-brand-primary/20 p-2 text-brand-dark">
+                          <ClipboardDocumentCheckIcon class="h-6 w-6" />
+                        </span>
+                        <div>
+                          <h3 class="text-lg font-semibold text-gray-900">Статусы заказов</h3>
+                          <p class="text-sm text-gray-500">Баланс процессов от новых до доставленных заказов</p>
+                        </div>
+                      </div>
+                      <div v-if="overviewStatuses.length" class="space-y-4">
+                        <div v-for="status in overviewStatuses" :key="status.status" class="space-y-2">
+                          <div class="flex w-full flex-wrap items-center justify-between gap-2 text-sm text-gray-600">
+                            <span>{{ status.label }}</span>
+                            <span class="font-semibold text-gray-900">{{ status.count }}</span>
+                          </div>
+                          <div class="h-1.5 w-full rounded-full bg-gray-100">
+                            <div
+                              class="h-full rounded-full bg-gradient-to-r from-brand-dark via-red-500 to-brand-primary"
+                          :style="{ width: `${status.count ? Math.min(100, Math.max(4, overviewStatusTotal ? (status.count / overviewStatusTotal) * 100 : 0)) : 0}%` }"
+                            ></div>
+                          </div>
+                        </div>
+                      </div>
+                      <div v-else class="rounded-2xl border border-dashed border-gray-200 bg-gray-50 px-6 py-8 text-center text-sm text-gray-500">
+                        Нет данных о статусах заказов.
+                      </div>
+                    </div>
+
+                    <div class="card-base relative overflow-hidden rounded-3xl border border-red-100/60 bg-white p-6 shadow-lg">
+                      <div class="flex flex-col items-start gap-3 sm:flex-row sm:items-center">
+                        <span class="rounded-xl bg-brand-primary/20 p-2 text-brand-dark">
+                          <TruckIcon class="h-6 w-6" />
+                        </span>
+                        <div>
+                          <h3 class="text-lg font-semibold text-gray-900">Логистика и доставка</h3>
+                          <p class="text-sm text-gray-500">Как быстро и эффективно вы доставляете заказы</p>
+                        </div>
+                      </div>
+                      <div class="mt-6 space-y-4">
+                        <div>
+                          <p class="text-xs uppercase tracking-[0.3em] text-gray-500">Доставок</p>
+                          <p class="mt-2 text-3xl font-semibold text-brand-dark">{{ overviewDeliveries.deliveries }}</p>
+                        </div>
+                        <div class="rounded-2xl bg-brand-primary/10 px-4 py-3 text-center text-sm text-brand-dark sm:text-left">
+                          Выручка с доставок: <strong>{{ formatCurrency(overviewDeliveries.revenue) }}</strong>
+                        </div>
+                      </div>
+                    </div>
                   </div>
-                  <p class="text-sm font-semibold text-gray-900">{{ formatCurrency(group.total_revenue) }}</p>
-                </div>
+                </section>
               </div>
-              <div v-else class="mt-4 rounded-lg border border-dashed border-gray-200 bg-gray-50 px-4 py-6 text-center text-sm text-gray-500">
-                Нет данных по продажам за выбранный период.
+              <div v-else class="rounded-3xl border border-dashed border-gray-200 bg-white p-10 text-center text-gray-500 shadow-sm">
+                Нет данных для выбранного периода.
               </div>
-            </section>
+            </template>
 
-            <section class="grid grid-cols-1 gap-4 lg:grid-cols-2">
-              <div class="card-base p-4 sm:p-6">
-                <h3 class="text-sm font-semibold text-gray-700 uppercase tracking-wide">Доставки</h3>
-                <p class="mt-3 text-2xl font-semibold text-gray-900">{{ overviewDeliveries.deliveries }}</p>
-                <p class="text-sm text-gray-500">Количество доставок за период</p>
-                <p class="mt-3 text-sm font-semibold text-emerald-600">{{ formatCurrency(overviewDeliveries.revenue) }}</p>
-              </div>
-              <div class="card-base p-4 sm:p-6">
-                <h3 class="text-sm font-semibold text-gray-700 uppercase tracking-wide">Статусы заказов</h3>
-                <ul class="mt-3 space-y-2 text-sm text-gray-600">
-                  <li v-for="status in overviewStatuses" :key="status.status" class="flex items-center justify-between">
-                    <span>{{ status.label }}</span>
-                    <span class="font-semibold text-gray-900">{{ status.count }}</span>
-                  </li>
-                </ul>
-              </div>
-            </section>
-
-            <section class="grid grid-cols-1 gap-4 sm:grid-cols-3">
-              <button
-                @click="handleOverviewClick('products')"
-                class="card-base flex items-center gap-3 p-4 transition hover:shadow-lg"
-              >
-                <span class="rounded-lg bg-brand-primary/20 p-2"><CubeIcon class="h-6 w-6 text-brand-dark" /></span>
-                <div class="text-left">
-                  <p class="text-sm text-gray-500">Товары</p>
-                  <p class="text-xl font-semibold text-gray-900">{{ stats.products }}</p>
-                </div>
-                <svg class="ml-auto h-5 w-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
-                </svg>
-              </button>
-              <button
-                @click="handleOverviewClick('categories')"
-                class="card-base flex items-center gap-3 p-4 transition hover:shadow-lg"
-              >
-                <span class="rounded-lg bg-brand-primary/20 p-2"><TagIcon class="h-6 w-6 text-brand-dark" /></span>
-                <div class="text-left">
-                  <p class="text-sm text-gray-500">Категории</p>
-                  <p class="text-xl font-semibold text-gray-900">{{ stats.categories }}</p>
-                </div>
-                <svg class="ml-auto h-5 w-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
-                </svg>
-              </button>
-              <button
-                @click="handleOverviewClick('banners')"
-                class="card-base flex items-center gap-3 p-4 transition hover:shadow-lg"
-              >
-                <span class="rounded-lg bg-brand-primary/20 p-2"><PhotoIcon class="h-6 w-6 text-brand-dark" /></span>
-                <div class="text-left">
-                  <p class="text-sm text-gray-500">Баннеры</p>
-                  <p class="text-xl font-semibold text-gray-900">{{ stats.banners }}</p>
-                </div>
-                <svg class="ml-auto h-5 w-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
-                </svg>
-              </button>
-            </section>
           </div>
 
           <!-- Banners -->
@@ -233,39 +335,6 @@
               @createCategory="handleCreateCategoryFromProducts"
               @createGroup="handleCreateGroupFromProducts"
             />
-          </div>
-
-          <!-- CRM -->
-          <div v-else-if="activeTab === 'crm'" class="space-y-6">
-            <div class="card-base p-6">
-              <h3 class="text-lg font-semibold text-gray-900 mb-4">CRM Система</h3>
-              <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                <router-link to="/admin/crm/dashboard" class="block p-4 bg-white border-2 border-gray-200 rounded-lg hover:border-brand-dark hover:shadow-md transition-all">
-                  <h4 class="font-bold text-gray-900 mb-2">📊 Дашборд</h4>
-                  <p class="text-sm text-gray-600">Статистика и аналитика</p>
-                </router-link>
-                <router-link to="/admin/crm/customers" class="block p-4 bg-white border-2 border-gray-200 rounded-lg hover:border-brand-dark hover:shadow-md transition-all">
-                  <h4 class="font-bold text-gray-900 mb-2">👥 Клиенты</h4>
-                  <p class="text-sm text-gray-600">База клиентов</p>
-                </router-link>
-                <router-link to="/admin/crm/procurements" class="block p-4 bg-white border-2 border-gray-200 rounded-lg hover:border-brand-dark hover:shadow-md transition-all">
-                  <h4 class="font-bold text-gray-900 mb-2">📥 Закупки</h4>
-                  <p class="text-sm text-gray-600">Поставки товаров</p>
-                </router-link>
-                <router-link to="/admin/crm/finances" class="block p-4 bg-white border-2 border-gray-200 rounded-lg hover:border-brand-dark hover:shadow-md transition-all">
-                  <h4 class="font-bold text-gray-900 mb-2">💰 Финансы</h4>
-                  <p class="text-sm text-gray-600">Счета и транзакции</p>
-                </router-link>
-                <router-link to="/admin/crm/employees" class="block p-4 bg-white border-2 border-gray-200 rounded-lg hover:border-brand-dark hover:shadow-md transition-all">
-                  <h4 class="font-bold text-gray-900 mb-2">👨‍💼 Сотрудники</h4>
-                  <p class="text-sm text-gray-600">Управление командой</p>
-                </router-link>
-                <router-link to="/admin/crm/write-offs" class="block p-4 bg-white border-2 border-gray-200 rounded-lg hover:border-brand-dark hover:shadow-md transition-all">
-                  <h4 class="font-bold text-gray-900 mb-2">🗑️ Списания</h4>
-                  <p class="text-sm text-gray-600">Учёт списаний товаров</p>
-                </router-link>
-              </div>
-            </div>
           </div>
 
           <!-- Settings -->
@@ -359,6 +428,7 @@
               </form>
             </div>
           </div>
+          </template>
         </template>
       </AdminLayout>
 
@@ -627,7 +697,7 @@
 import { ref, onMounted, computed, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { storeToRefs } from 'pinia'
-import { TagIcon, CubeIcon, PhotoIcon, HomeIcon, Cog6ToothIcon, ChevronUpIcon, ChevronDownIcon, PencilSquareIcon, TrashIcon, PlusIcon } from '@heroicons/vue/24/outline'
+import { ChevronUpIcon, ChevronDownIcon, PencilSquareIcon, TrashIcon, PlusIcon, ArrowTrendingUpIcon, CurrencyDollarIcon, ChartBarIcon, BoltIcon, TruckIcon, ClipboardDocumentCheckIcon, SparklesIcon, LockOpenIcon } from '@heroicons/vue/24/outline'
 import { useAdminStore, type Category, type CategoryGroup, type Product } from '@/stores/admin'
 import { useCrmStore } from '@/stores/crm'
 import AdminBannersList from '@/components/admin/AdminBannersList.vue'
@@ -639,12 +709,14 @@ import AdminProductForm from '@/components/admin/AdminProductForm.vue'
 import AdminLayout from '@/components/admin/layout/AdminLayout.vue'
 import AdminProductsTable from '@/components/admin/AdminProductsTable.vue'
 import AdminCategoryGroupForm from '@/components/admin/AdminCategoryGroupForm.vue'
+import { adminTabs, crmLinks, adminTabOptions, type AdminTabId } from '@/constants/adminNavigation'
 
 const router = useRouter()
 const route = useRoute()
 const adminStore = useAdminStore()
 const crmStore = useCrmStore()
 const { dashboardStats, loadingDashboard } = storeToRefs(crmStore)
+const isCrmRoute = computed(() => route.path.startsWith('/admin/crm'))
 
 const overviewPeriods = [
   { value: 'today', label: 'Сегодня' },
@@ -654,6 +726,7 @@ const overviewPeriods = [
 ] as const
 type OverviewPeriod = typeof overviewPeriods[number]['value']
 const overviewPeriod = ref<OverviewPeriod>('today')
+const activeOverviewLabel = computed(() => overviewPeriods.find(option => option.value === overviewPeriod.value)?.label || '')
 const profitUnlocked = ref(false)
 const showProfitModal = ref(false)
 const profitPassword = ref('')
@@ -751,16 +824,25 @@ function flattenGroupTree(nodes: CategoryGroupNode[], depth = 0): CategoryGroupW
   return list
 }
 
-// Читаем параметр tab из URL сразу при инициализации
-const getInitialTab = (): 'dashboard' | 'banners' | 'categories' | 'products' | 'crm' | 'settings' => {
+const tabOptions = adminTabOptions
+
+const getInitialTab = (): AdminTabId => {
   const tabParam = route.query.tab as string | undefined
-  if (tabParam && ['dashboard', 'banners', 'categories', 'products', 'crm', 'settings'].includes(tabParam)) {
-    return tabParam as 'dashboard' | 'banners' | 'categories' | 'products' | 'crm' | 'settings'
+  if (tabParam && tabOptions.includes(tabParam as AdminTabId)) {
+    return tabParam as AdminTabId
   }
   return 'dashboard'
 }
 
-const activeTab = ref<'dashboard' | 'banners' | 'categories' | 'products' | 'crm' | 'settings'>(getInitialTab())
+const activeTab = ref<AdminTabId>(getInitialTab())
+const layoutTab = computed<AdminTabId>({
+  get: () => activeTab.value,
+  set: (value: AdminTabId) => {
+    activeTab.value = value
+    const query = value === 'dashboard' ? {} : { tab: value }
+    router.push({ path: '/admin', query }).catch(() => {})
+  }
+})
 
 const loginForm = ref({ username: '', password: '' })
 const passwordForm = ref({ currentPassword: '', newPassword: '' })
@@ -782,6 +864,14 @@ const stats = computed(() => ({
 }))
 
 const overviewStats = computed(() => dashboardStats.value?.stats ?? null)
+const profitMargin = computed(() => {
+  const revenue = overviewStats.value?.revenue ?? 0
+  const profit = overviewStats.value?.profit ?? 0
+  if (!revenue) return null
+  const percentage = (profit / revenue) * 100
+  const precision = percentage % 1 === 0 ? 0 : 1
+  return percentage.toFixed(precision)
+})
 const overviewDeliveries = computed(() => ({
   deliveries: dashboardStats.value?.deliveryStats?.deliveries ?? 0,
   revenue: dashboardStats.value?.deliveryStats?.revenue ?? 0
@@ -813,15 +903,11 @@ const overviewStatuses = computed(() => {
   }))
 })
 const topGroups = computed(() => (dashboardStats.value?.topProducts ?? []).slice(0, 6))
-
-const adminTabs = [
-  { id: 'dashboard', name: 'Обзор', icon: HomeIcon },
-  { id: 'products', name: 'Товары', icon: CubeIcon },
-  { id: 'categories', name: 'Категории', icon: TagIcon },
-  { id: 'banners', name: 'Баннеры', icon: PhotoIcon },
-  { id: 'crm', name: 'CRM', icon: CubeIcon },
-  { id: 'settings', name: 'Настройки', icon: Cog6ToothIcon }
-]
+const overviewStatusTotal = computed(() => overviewStatuses.value.reduce((sum, status) => sum + (status.count ?? 0), 0))
+const topGroupsMaxRevenue = computed(() => {
+  const revenues = topGroups.value.map(group => group.total_revenue ?? 0)
+  return revenues.length ? Math.max(...revenues) : 0
+})
 
 const groupCounts = computed<Record<string, number>>(() => {
   const counts: Record<string, number> = {}
@@ -1535,8 +1621,8 @@ watch(
 watch(
   () => route.query.tab,
   (newTab) => {
-    if (newTab && ['dashboard', 'banners', 'categories', 'products', 'crm', 'settings'].includes(newTab as string)) {
-      activeTab.value = newTab as 'dashboard' | 'banners' | 'categories' | 'products' | 'crm' | 'settings'
+    if (typeof newTab === 'string' && tabOptions.includes(newTab as AdminTabId)) {
+      activeTab.value = newTab as AdminTabId
     }
   }
 )

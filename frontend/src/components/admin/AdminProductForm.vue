@@ -334,21 +334,23 @@
     :isOpen="showCreateCategoryModal"
     title="Новая категория"
     description="Создайте категорию без выхода из формы"
+    size="sm"
     :showActions="false"
     @close="closeCreateCategoryModal"
     @cancel="closeCreateCategoryModal"
   >
-    <form class="w-full max-w-md space-y-4" @submit.prevent="submitCreateCategory">
-      <label class="block text-sm font-medium text-gray-700" for="newCategoryName">Название категории</label>
-      <input
-        id="newCategoryName"
-        v-model.trim="newCategoryName"
-        type="text"
-        class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-brand-dark focus:outline-none focus:ring-2 focus:ring-brand-dark/20"
-        placeholder="Например, Мороженое"
-        required
-      />
-      <p v-if="createCategoryError" class="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-600">
+    <form class="space-y-4" @submit.prevent="submitCreateCategory">
+      <label class="flex flex-col gap-2 text-sm font-medium text-gray-700">
+        Название категории
+        <input
+          v-model.trim="newCategoryName"
+          type="text"
+          class="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-brand-dark focus:outline-none focus:ring-2 focus:ring-brand-dark/20"
+          placeholder="Например, Мороженое"
+          required
+        />
+      </label>
+      <p v-if="createCategoryError" class="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-600">
         {{ createCategoryError }}
       </p>
       <div class="flex gap-3 pt-2">
@@ -361,7 +363,7 @@
         </button>
         <button
           type="button"
-          class="flex-1 rounded-lg bg-gray-100 px-4 py-2 text-sm font-medium text-gray-700 transition hover:bg-gray-200"
+          class="flex-1 rounded-lg bg-gray-200 px-4 py-2 text-sm font-medium text-gray-700 transition hover:bg-gray-300"
           @click="closeCreateCategoryModal"
         >
           Отмена
@@ -374,36 +376,35 @@
     :isOpen="showCreateGroupModal"
     title="Новая линейка"
     :description="currentCategoryName ? `Категория: ${currentCategoryName}` : 'Выберите категорию'"
+    size="sm"
     :showActions="false"
     @close="closeCreateGroupModal"
     @cancel="closeCreateGroupModal"
   >
-    <form class="w-full max-w-md space-y-4" @submit.prevent="submitCreateGroup">
-      <div>
-        <label class="block text-sm font-medium text-gray-700" for="newGroupName">Название линейки</label>
+    <form class="space-y-4" @submit.prevent="submitCreateGroup">
+      <label class="flex flex-col gap-2 text-sm font-medium text-gray-700">
+        Название линейки
         <input
-          id="newGroupName"
           v-model.trim="newGroupName"
           type="text"
-          class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-brand-dark focus:outline-none focus:ring-2 focus:ring-brand-dark/20"
+          class="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-brand-dark focus:outline-none focus:ring-2 focus:ring-brand-dark/20"
           placeholder="Например, Кремовая"
           required
         />
-      </div>
-      <div>
-        <label class="block text-sm font-medium text-gray-700" for="parentGroup">Родительская линейка</label>
+      </label>
+      <label class="flex flex-col gap-2 text-sm font-medium text-gray-700">
+        Родительская линейка
         <select
-          id="parentGroup"
           v-model="selectedParentGroupId"
-          class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-brand-dark focus:outline-none focus:ring-2 focus:ring-brand-dark/20"
+          class="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-brand-dark focus:outline-none focus:ring-2 focus:ring-brand-dark/20"
         >
           <option value="">Без родителя</option>
           <option v-for="group in availableGroups" :key="group.id" :value="group.id">
             {{ `${'— '.repeat(group.depth ?? 0)}${group.name}`.trim() }}
           </option>
         </select>
-      </div>
-      <p v-if="createGroupError" class="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-600">
+      </label>
+      <p v-if="createGroupError" class="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-600">
         {{ createGroupError }}
       </p>
       <div class="flex gap-3 pt-2">

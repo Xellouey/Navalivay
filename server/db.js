@@ -133,11 +133,19 @@ function seedIfEmpty() {
     const categoriesPath = path.resolve(__dirname, './seed/categories.json');
     if (fs.existsSync(categoriesPath)) {
       const categories = JSON.parse(fs.readFileSync(categoriesPath, 'utf8'));
-      const stmt = db.prepare('INSERT INTO categories (id, slug, name, [order]) VALUES (?, ?, ?, ?)');
+      const stmt = db.prepare('INSERT INTO categories (id, slug, name, [order], cover_image, hide_empty, display_mode) VALUES (?, ?, ?, ?, ?, ?, ?)');
       const tx = db.transaction((rows) => {
         for (const r of rows) {
           const slug = r.slug || slugify(r.name, { lower: true, strict: true, locale: 'ru' });
-          stmt.run(r.id, slug, r.name, r.order ?? 0);
+          stmt.run(
+            r.id,
+            slug,
+            r.name,
+            r.order ?? 0,
+            r.coverImage || null,
+            r.hideEmpty ? 1 : 0,
+            r.displayMode || 'default'
+          );
         }
       });
       tx(categories);
@@ -145,18 +153,69 @@ function seedIfEmpty() {
     }
   }
 
+  const countGroups = db.prepare('SELECT COUNT(*) as c FROM category_groups').get().c;
+  if (countGroups === 0) {
+    const groupsPath = path.resolve(__dirname, './seed/category_groups.json');
+    if (fs.existsSync(groupsPath)) {
+      const groups = JSON.parse(fs.readFileSync(groupsPath, 'utf8'));
+      const stmt = db.prepare(`
+        INSERT INTO category_groups (id, categoryId, slug, name, cover_image, [order], hide_empty, parent_group_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      const tx = db.transaction((rows) => {
+        for (const r of rows) {
+          const slug = r.slug || slugify(r.name, { lower: true, strict: true, locale: 'ru' });
+          stmt.run(
+            r.id,
+            r.categoryId,
+            slug,
+            r.name,
+            r.coverImage || null,
+            r.order ?? 0,
+            r.hideEmpty ? 1 : 0,
+            r.parentGroupId || null
+          );
+        }
+      });
+      tx(groups);
+      console.log(`[navalivay:db] Seeded category groups: ${groups.length}`);
+    }
+  }
+
   if (countProd === 0) {
     const productsPath = path.resolve(__dirname, './seed/products.json');
     if (fs.existsSync(productsPath)) {
       const products = JSON.parse(fs.readFileSync(productsPath, 'utf8'));
-      const stmtProd = db.prepare('INSERT INTO products (id, categoryId, title, priceRub, description, createdAt) VALUES (?, ?, ?, ?, ?, ?)');
+      const stmtProd = db.prepare(`
+        INSERT INTO products (id, categoryId, groupId, title, priceRub, description, strength, cost_price, stock, min_stock, createdAt)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
       const stmtImg = db.prepare('INSERT INTO product_images (productId, url, position) VALUES (?, ?, ?)');
+      const stmtLink = db.prepare('INSERT INTO product_links (productId, label, url, position) VALUES (?, ?, ?, ?)');
       const tx = db.transaction((rows) => {
         for (const p of rows) {
           const createdAt = new Date().toISOString();
-          stmtProd.run(p.id, p.categoryId, p.title || null, p.priceRub, p.description || null, createdAt);
+          stmtProd.run(
+            p.id,
+            p.categoryId,
+            p.groupId || null,
+            p.title || null,
+            p.priceRub,
+            p.description || null,
+            p.strength || null,
+            typeof p.costPrice === 'number' ? p.costPrice : 0,
+            typeof p.stock === 'number' ? p.stock : 0,
+            typeof p.minStock === 'number' ? p.minStock : 0,
+            createdAt
+          );
           if (Array.isArray(p.images)) {
             p.images.forEach((url, idx) => stmtImg.run(p.id, url, idx));
+          }
+          if (Array.isArray(p.links)) {
+            p.links.forEach((link, idx) => {
+              if (!link || !link.url) return;
+              stmtLink.run(p.id, link.label || null, link.url, idx);
+            });
           }
         }
       });
@@ -171,10 +230,18 @@ function seedIfEmpty() {
     const bannersPath = path.resolve(__dirname, './seed/banners.json');
     if (fs.existsSync(bannersPath)) {
       const banners = JSON.parse(fs.readFileSync(bannersPath, 'utf8'));
-      const stmt = db.prepare('INSERT INTO banners (id, image, href, active, [order]) VALUES (?, ?, ?, ?, ?)');
+      const stmt = db.prepare('INSERT INTO banners (id, image, href, active, [order], title, openInNewTab) VALUES (?, ?, ?, ?, ?, ?, ?)');
       const tx = db.transaction((rows) => {
         for (const b of rows) {
-          stmt.run(b.id, b.image, b.href || null, b.active ? 1 : 0, b.order || 0);
+          stmt.run(
+            b.id,
+            b.image,
+            b.href || null,
+            b.active ? 1 : 0,
+            b.order || 0,
+            b.title || null,
+            b.openInNewTab ? 1 : 0
+          );
         }
       });
       tx(banners);

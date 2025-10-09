@@ -2,6 +2,15 @@ import { createRouter, createWebHistory } from 'vue-router'
 import HomeView from '../views/HomeView.vue'
 import { useAdminStore } from '@/stores/admin'
 
+const requireAdminAuth = (to: any, from: any, next: any) => {
+  const adminStore = useAdminStore()
+  if (!adminStore.isAuthenticated) {
+    next('/admin')
+  } else {
+    next()
+  }
+}
+
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
   routes: [
@@ -25,126 +34,69 @@ const router = createRouter({
     {
       path: '/admin',
       name: 'Admin',
-      component: () => import('@/views/AdminView.vue')
-    },
-    {
-      path: '/admin/crm/dashboard',
-      name: 'CrmDashboard',
-      component: () => import('@/views/admin/crm/CrmDashboard.vue'),
-      beforeEnter: (to, from, next) => {
-        const adminStore = useAdminStore()
-        if (!adminStore.isAuthenticated) {
-          next('/admin')
-        } else {
-          next()
+      component: () => import('@/views/AdminView.vue'),
+      children: [
+        {
+          path: 'crm',
+          redirect: { name: 'CrmDashboard' }
+        },
+        {
+          path: 'crm/dashboard',
+          name: 'CrmDashboard',
+          component: () => import('@/views/admin/crm/CrmDashboard.vue'),
+          beforeEnter: requireAdminAuth
+        },
+        {
+          path: 'crm/orders',
+          name: 'CrmOrders',
+          component: () => import('@/views/admin/crm/CrmOrders.vue'),
+          beforeEnter: requireAdminAuth
+        },
+        {
+          path: 'crm/orders/:id',
+          name: 'CrmOrderDetail',
+          component: () => import('@/views/admin/crm/CrmOrderDetail.vue'),
+          props: true,
+          beforeEnter: requireAdminAuth
+        },
+        {
+          path: 'crm/customers',
+          name: 'CrmCustomers',
+          component: () => import('@/views/admin/crm/CrmCustomers.vue'),
+          beforeEnter: requireAdminAuth
+        },
+        {
+          path: 'crm/customers/:id',
+          name: 'CrmCustomerDetail',
+          component: () => import('@/views/admin/crm/CrmCustomerDetail.vue'),
+          props: true,
+          beforeEnter: requireAdminAuth
+        },
+        {
+          path: 'crm/procurements',
+          name: 'CrmProcurements',
+          component: () => import('@/views/admin/crm/CrmProcurements.vue'),
+          beforeEnter: requireAdminAuth
+        },
+        {
+          path: 'crm/finances',
+          name: 'CrmFinances',
+          component: () => import('@/views/admin/crm/CrmFinances.vue'),
+          beforeEnter: requireAdminAuth
+        },
+        {
+          path: 'crm/employees',
+          name: 'CrmEmployees',
+          component: () => import('@/views/admin/crm/CrmEmployees.vue'),
+          beforeEnter: requireAdminAuth
+        },
+        {
+          path: 'crm/write-offs',
+          name: 'CrmWriteOffs',
+          component: () => import('@/views/admin/crm/CrmWriteOffs.vue'),
+          beforeEnter: requireAdminAuth
         }
-      }
-    },
-    {
-      path: '/admin/crm/orders',
-      name: 'CrmOrders',
-      component: () => import('@/views/admin/crm/CrmOrders.vue'),
-      beforeEnter: (to, from, next) => {
-        const adminStore = useAdminStore()
-        if (!adminStore.isAuthenticated) {
-          next('/admin')
-        } else {
-          next()
-        }
-      }
-    },
-    {
-      path: '/admin/crm/orders/:id',
-      name: 'CrmOrderDetail',
-      component: () => import('@/views/admin/crm/CrmOrderDetail.vue'),
-      props: true,
-      beforeEnter: (to, from, next) => {
-        const adminStore = useAdminStore()
-        if (!adminStore.isAuthenticated) {
-          next('/admin')
-        } else {
-          next()
-        }
-      }
-    },
-    {
-      path: '/admin/crm/customers',
-      name: 'CrmCustomers',
-      component: () => import('@/views/admin/crm/CrmCustomers.vue'),
-      beforeEnter: (to, from, next) => {
-        const adminStore = useAdminStore()
-        if (!adminStore.isAuthenticated) {
-          next('/admin')
-        } else {
-          next()
-        }
-      }
-    },
-    {
-      path: '/admin/crm/customers/:id',
-      name: 'CrmCustomerDetail',
-      component: () => import('@/views/admin/crm/CrmCustomerDetail.vue'),
-      props: true,
-      beforeEnter: (to, from, next) => {
-        const adminStore = useAdminStore()
-        if (!adminStore.isAuthenticated) {
-          next('/admin')
-        } else {
-          next()
-        }
-      }
-    },
-    {
-      path: '/admin/crm/procurements',
-      name: 'CrmProcurements',
-      component: () => import('@/views/admin/crm/CrmProcurements.vue'),
-      beforeEnter: (to, from, next) => {
-        const adminStore = useAdminStore()
-        if (!adminStore.isAuthenticated) {
-          next('/admin')
-        } else {
-          next()
-        }
-      }
-    },
-    {
-      path: '/admin/crm/finances',
-      name: 'CrmFinances',
-      component: () => import('@/views/admin/crm/CrmFinances.vue'),
-      beforeEnter: (to, from, next) => {
-        const adminStore = useAdminStore()
-        if (!adminStore.isAuthenticated) {
-          next('/admin')
-        } else {
-          next()
-        }
-      }
-    },
-    {
-      path: '/admin/crm/employees',
-      name: 'CrmEmployees',
-      component: () => import('@/views/admin/crm/CrmEmployees.vue'),
-      beforeEnter: (to, from, next) => {
-        const adminStore = useAdminStore()
-        if (!adminStore.isAuthenticated) {
-          next('/admin')
-        } else {
-          next()
-        }
-      }
-    },
-    {
-      path: '/admin/crm/write-offs',
-      name: 'CrmWriteOffs',
-      component: () => import('@/views/admin/crm/CrmWriteOffs.vue'),
-      beforeEnter: (to, from, next) => {
-        const adminStore = useAdminStore()
-        if (!adminStore.isAuthenticated) {
-          next('/admin')
-        } else {
-          next()
-        }
-      }
+      ]
     },
     {
       path: '/:pathMatch(.*)*',

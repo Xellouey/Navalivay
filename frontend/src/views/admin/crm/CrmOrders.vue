@@ -1,17 +1,8 @@
 <template>
-  <div class="min-h-screen bg-gray-50 p-6">
-    <div class="max-w-7xl mx-auto space-y-6">
+  <div class="min-h-screen bg-gray-50 px-4 py-6 sm:px-6 lg:px-8">
+    <div class="mx-auto w-full max-w-7xl space-y-6">
       <div class="flex flex-wrap items-center justify-between gap-4">
-        <button
-          @click="$router.push('/admin?tab=crm')"
-          class="inline-flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50"
-        >
-          <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-          </svg>
-          Назад в админку
-        </button>
-        <div class="flex flex-wrap items-center justify-end gap-2">
+        <div class="flex w-full flex-wrap items-center justify-start gap-2 sm:w-auto sm:justify-end">
           <button
             @click="refreshOrders()"
             :disabled="isRefreshing"
@@ -56,7 +47,7 @@
           </button>
           <button
             @click="showCreateModal = true"
-            class="rounded-lg bg-blue-600 px-5 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-700"
+            class="w-full rounded-lg bg-blue-600 px-5 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-700 sm:w-auto"
           >
             Создать заказ
           </button>
@@ -64,8 +55,8 @@
       </div>
 
       <header class="flex flex-col gap-2">
-        <h1 class="text-3xl font-bold text-gray-900">Заказы</h1>
-        <p class="text-gray-600">Канбан доска для статусов «Новый → Собран → Выдан»</p>
+        <h1 class="text-2xl font-bold text-gray-900 sm:text-3xl">Заказы</h1>
+        <p class="text-sm text-gray-600 sm:text-base">Канбан доска для статусов «Новый → Собран → Выдан»</p>
       </header>
 
       <div class="flex flex-wrap items-center gap-4 text-xs text-gray-500">

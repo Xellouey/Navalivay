@@ -1,20 +1,13 @@
 <template>
-  <div class="min-h-screen bg-gray-50 p-6">
-    <div class="max-w-7xl mx-auto">
+  <div class="min-h-screen bg-gray-50 px-4 py-6 sm:px-6 lg:px-8">
+    <div class="mx-auto w-full max-w-7xl space-y-8">
       <!-- Back Button -->
-      <button @click="$router.push('/admin?tab=crm')" class="mb-4 inline-flex items-center px-4 py-2 bg-white border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors">
-        <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"/>
-        </svg>
-        Назад в админку
-      </button>
-      
-      <div class="mb-8 flex items-center justify-between">
+      <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 class="text-3xl font-bold text-gray-900">Сотрудники</h1>
-          <p class="text-gray-600 mt-2">Управление командой</p>
+          <h1 class="text-2xl font-bold text-gray-900 sm:text-3xl">Сотрудники</h1>
+          <p class="mt-2 text-sm text-gray-600 sm:text-base">Управление командой</p>
         </div>
-        <button @click="showCreateModal = true" class="px-6 py-3 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700">Добавить сотрудника</button>
+        <button @click="showCreateModal = true" class="w-full rounded-lg bg-blue-600 px-6 py-3 text-sm font-medium text-white transition hover:bg-blue-700 sm:w-auto">Добавить сотрудника</button>
       </div>
 
       <div v-if="loadingEmployees" class="text-center py-12">
@@ -22,8 +15,9 @@
         <p class="mt-4 text-gray-600">Загрузка...</p>
       </div>
 
-      <div v-else-if="employees.length > 0" class="bg-white rounded-lg shadow-sm">
-        <table class="w-full">
+      <div v-else-if="employees.length > 0" class="rounded-lg bg-white shadow-sm">
+        <div class="overflow-x-auto">
+          <table class="w-full min-w-[600px]">
           <thead class="bg-gray-50 border-b">
             <tr>
               <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Имя</th>
@@ -49,7 +43,8 @@
               </td>
             </tr>
           </tbody>
-        </table>
+          </table>
+        </div>
       </div>
 
       <div v-else class="text-center py-12 bg-white rounded-lg shadow-sm">
