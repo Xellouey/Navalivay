@@ -1,50 +1,46 @@
 <template>
-  <div class="card-base p-4 sm:p-6 space-y-4">
-    <!-- Header с кнопкой создания -->
-    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-      <div class="flex items-center gap-4">
-        <div>
-          <h2 class="text-xl font-bold text-gray-900">Товары</h2>
-          <p class="text-sm text-gray-600 mt-1">Управление товарами в каталоге</p>
-        </div>
-        <span v-if="filteredProducts.length" class="px-2 py-1 text-xs bg-gray-100 text-gray-600 rounded-full">
-          {{ filteredProducts.length }} из {{ props.products?.length || 0 }}
-        </span>
-      </div>
-      <button
-        @click="$emit('create')"
-        class="
-          flex items-center justify-center gap-2 px-4 py-2 sm:px-6 sm:py-3
-          bg-brand-dark text-white rounded-lg font-medium
-          hover:bg-brand-dark/90 active:bg-brand-dark/95
-          focus:outline-none focus:ring-2 focus:ring-brand-primary focus:ring-opacity-50
-          transition-all duration-200 touch-manipulation shadow-lg hover:shadow-xl
-        "
-      >
-        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
-        </svg>
-        <span class="hidden sm:inline">Создать товар</span>
-        <span class="sm:hidden">Создать</span>
-      </button>
-    </div>
+  <div class="space-y-6">
+    <AdminSectionHero
+      title="Товары"
+      description="Управление товарами в каталоге"
+      :icon="CubeIcon"
+      eyebrow="Каталог"
+      tone="brand"
+    >
+      <template #actions>
+        <button
+          @click="$emit('create')"
+          class="flex items-center justify-center gap-2 rounded-xl bg-white/15 px-5 py-3 text-sm font-semibold text-white shadow-lg transition-all duration-200 hover:bg-white/25 focus:outline-none focus:ring-2 focus:ring-white/60 focus:ring-offset-2 focus:ring-offset-transparent"
+        >
+          <PlusIcon class="h-4 w-4" />
+          <span>Создать товар</span>
+        </button>
+      </template>
+    </AdminSectionHero>
 
-    <!-- Filters -->
-    <div class="bg-white rounded-lg border p-4 space-y-3">
-      <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
-        <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-3 flex-1 min-w-0">
-          <input
-            v-model="search"
-            type="text"
-            placeholder="Поиск по названию..."
-            class="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-gray-900 focus:border-transparent focus:ring-2 focus:ring-brand-primary"
-            @input="onFiltersChanged"
-          />
-          <div class="hidden sm:flex flex-wrap items-center gap-2">
-            <div class="flex items-center gap-1">
+    <div class="relative overflow-hidden rounded-3xl border border-white/60 bg-white/85 p-4 sm:p-6 shadow-xl backdrop-blur space-y-4">
+      <div class="pointer-events-none absolute -top-16 -right-14 h-44 w-44 rounded-full bg-rose-200/35 blur-3xl"></div>
+      <div class="pointer-events-none absolute bottom-0 left-6 h-28 w-28 rounded-full bg-brand-dark/10 blur-2xl"></div>
+
+      <div class="relative flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+        <div class="flex flex-1 flex-col gap-3 sm:flex-row sm:items-center sm:gap-3">
+          <div class="relative flex-1 min-w-0">
+            <span class="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-rose-300">
+              <MagnifyingGlassIcon class="h-5 w-5" />
+            </span>
+            <input
+              v-model="search"
+              type="text"
+              placeholder="Поиск по названию..."
+              class="w-full rounded-2xl border border-white/60 bg-white/85 px-4 py-3 pl-12 text-sm font-medium text-gray-900 shadow-inner transition focus:border-rose-200 focus:outline-none focus:ring-2 focus:ring-rose-200/70"
+              @input="onFiltersChanged"
+            />
+          </div>
+          <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-3">
+            <div class="flex items-center gap-2">
               <select
                 v-model="category"
-                class="rounded-lg border border-gray-300 bg-white px-3 py-2 text-gray-900 focus:border-transparent focus:ring-2 focus:ring-brand-primary"
+                class="rounded-2xl border border-white/60 bg-white/85 px-4 py-3 text-sm font-medium text-gray-900 shadow-inner transition focus:border-rose-200 focus:outline-none focus:ring-2 focus:ring-rose-200/70"
                 @change="onCategoryFilterChange"
               >
                 <option value="">Все категории</option>
@@ -52,7 +48,7 @@
               </select>
               <button
                 type="button"
-                class="inline-flex items-center justify-center rounded-lg border border-gray-300 bg-white p-2 text-gray-600 transition hover:bg-gray-100 hover:text-gray-800"
+                class="inline-flex items-center justify-center rounded-xl border border-white/60 bg-white/85 p-2 text-rose-500 transition hover:bg-white hover:text-rose-600"
                 title="Создать категорию"
                 @click="openInlineCategoryModal"
               >
@@ -60,11 +56,11 @@
                 <span class="sr-only">Создать категорию</span>
               </button>
             </div>
-            <div class="flex items-center gap-1">
+            <div class="flex items-center gap-2">
               <select
                 v-model="group"
                 :disabled="!groupFilterOptions.length"
-                class="rounded-lg border border-gray-300 bg-white px-3 py-2 text-gray-900 focus:border-transparent focus:ring-2 focus:ring-brand-primary disabled:bg-gray-100 disabled:text-gray-400"
+                class="rounded-2xl border border-white/60 bg-white/85 px-4 py-3 text-sm font-medium text-gray-900 shadow-inner transition focus:border-rose-200 focus:outline-none focus:ring-2 focus:ring-rose-200/70 disabled:bg-gray-100 disabled:text-gray-400"
                 @change="onFiltersChanged"
               >
                 <option value="">Все линейки</option>
@@ -74,7 +70,7 @@
               </select>
               <button
                 type="button"
-                class="inline-flex items-center justify-center rounded-lg border border-gray-300 bg-white p-2 text-gray-600 transition hover:bg-gray-100 hover:text-gray-800 disabled:cursor-not-allowed disabled:opacity-40"
+                class="inline-flex items-center justify-center rounded-xl border border-white/60 bg-white/85 p-2 text-rose-500 transition hover:bg-white hover:text-rose-600 disabled:cursor-not-allowed disabled:opacity-40"
                 :disabled="!category"
                 :title="category ? 'Создать линейку' : 'Сначала выберите категорию'"
                 @click="openInlineGroupModal"
@@ -85,11 +81,52 @@
             </div>
           </div>
         </div>
-        <div class="hidden sm:flex items-center gap-2">
-          <label class="text-sm text-gray-600">На странице</label>
+
+        <div class="hidden lg:flex items-center gap-4">
+          <div class="flex items-center gap-1 rounded-2xl border border-white/60 bg-white/85 p-1 shadow-inner">
+            <button
+              @click="viewMode = 'table'"
+              :class="[
+                'flex items-center justify-center rounded-xl px-3 py-2 text-sm font-medium transition-all',
+                viewMode === 'table'
+                  ? 'bg-white text-gray-900 shadow'
+                  : 'text-gray-500 hover:text-gray-700'
+              ]"
+              title="Вид таблицы"
+            >
+              Таблица
+            </button>
+            <button
+              @click="viewMode = 'list'"
+              :class="[
+                'flex items-center justify-center rounded-xl px-3 py-2 text-sm font-medium transition-all',
+                viewMode === 'list'
+                  ? 'bg-white text-gray-900 shadow'
+                  : 'text-gray-500 hover:text-gray-700'
+              ]"
+              title="Вид списка"
+            >
+              Список
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div class="flex flex-wrap items-center justify-between gap-3 text-xs font-semibold uppercase tracking-[0.25em] text-gray-400">
+        <div class="flex flex-wrap items-center gap-2">
+          <span>Показано {{ total === 0 ? 0 : (to - from + 1) }} из {{ total }}</span>
+          <span
+            v-if="selectedIds.length"
+            class="inline-flex items-center gap-2 rounded-full bg-rose-100 px-3 py-1 text-[0.6rem] font-semibold uppercase tracking-[0.25em] text-rose-700"
+          >
+            Выбрано {{ selectedIds.length }}
+          </span>
+        </div>
+        <div class="flex w-full items-center justify-between gap-2 rounded-2xl border border-white/60 bg-white/85 px-3 py-2 text-[0.65rem] font-semibold uppercase tracking-[0.3em] text-gray-500 sm:w-auto sm:justify-end">
+          <span>На странице</span>
           <select
             v-model.number="pageSize"
-            class="rounded-lg border border-gray-300 bg-white px-3 py-2 text-gray-900 focus:border-transparent focus:ring-2 focus:ring-brand-primary"
+            class="rounded-xl border border-white/60 bg-white/90 px-3 py-1 text-sm font-medium text-gray-900 shadow-inner transition focus:border-rose-200 focus:outline-none focus:ring-2 focus:ring-rose-200/70"
             @change="onPageSizeChange"
           >
             <option :value="10">10</option>
@@ -97,171 +134,241 @@
             <option :value="50">50</option>
           </select>
         </div>
-        <div class="hidden sm:flex items-center gap-1 rounded-lg bg-gray-100 p-1">
-          <button
-            @click="viewMode = 'table'"
-            :class="[
-              'flex items-center justify-center rounded-md p-2 transition-all',
-              viewMode === 'table' 
-                ? 'bg-white text-gray-900 shadow-sm' 
-                : 'text-gray-500 hover:text-gray-700'
-            ]"
-            title="Вид таблицы"
-          >
-            <svg class="h-5 w-5" fill="currentColor" viewBox="0 0 20 20">
-              <path d="M3 3a1 1 0 000 2h11a1 1 0 100-2H3zM3 7a1 1 0 000 2h5a1 1 0 000-2H3zM3 11a1 1 0 100 2h4a1 1 0 100-2H3zM13 16a1 1 0 102 0v-5.586l1.293 1.293a1 1 0 001.414-1.414l-3-3a1 1 0 00-1.414 0l-3 3a1 1 0 101.414 1.414L13 10.414V16z"/>
-            </svg>
-          </button>
-          <button
-            @click="viewMode = 'list'"
-            :class="[
-              'flex items-center justify-center rounded-md p-2 transition-all',
-              viewMode === 'list' 
-                ? 'bg-white text-gray-900 shadow-sm' 
-                : 'text-gray-500 hover:text-gray-700'
-            ]"
-            title="Вид списка"
-          >
-            <svg class="h-5 w-5" fill="currentColor" viewBox="0 0 20 20">
-              <path fill-rule="evenodd" d="M3 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z" clip-rule="evenodd"/>
-            </svg>
-          </button>
-        </div>
       </div>
 
-      <div class="flex flex-wrap items-stretch gap-2 sm:hidden">
+      <div class="flex flex-wrap items-center gap-2 sm:hidden">
         <button
           type="button"
-          class="inline-flex flex-1 items-center justify-center gap-2 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 transition hover:bg-gray-100 hover:text-gray-900"
+          class="inline-flex flex-1 items-center justify-center gap-2 rounded-2xl border border-white/60 bg-white/85 px-4 py-2 text-sm font-medium text-gray-700 shadow-inner transition hover:bg-white hover:text-gray-900"
           @click="showFiltersModal = true"
         >
           <FunnelIcon class="h-5 w-5" />
           <span>Фильтры</span>
         </button>
-        <div class="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-600">
-          <label class="text-sm text-gray-600">На странице</label>
-          <select
-            v-model.number="pageSize"
-            class="rounded-md border border-gray-300 bg-white px-2 py-1 text-gray-900 focus:border-transparent focus:ring-2 focus:ring-brand-primary"
-            @change="onPageSizeChange"
-          >
-            <option :value="10">10</option>
-            <option :value="20">20</option>
-            <option :value="50">50</option>
-          </select>
-        </div>
-        <div class="flex items-center gap-1 rounded-lg bg-gray-100 p-1">
+        <div class="flex items-center gap-1 rounded-2xl border border-white/60 bg-white/85 p-1 shadow-inner">
           <button
             @click="viewMode = 'table'"
             :class="[
-              'flex items-center justify-center rounded-md p-2 transition-all',
-              viewMode === 'table' 
-                ? 'bg-white text-gray-900 shadow-sm' 
+              'flex items-center justify-center rounded-xl px-3 py-2 text-sm font-medium transition-all',
+              viewMode === 'table'
+                ? 'bg-white text-gray-900 shadow'
                 : 'text-gray-500 hover:text-gray-700'
             ]"
             title="Вид таблицы"
           >
-            <svg class="h-5 w-5" fill="currentColor" viewBox="0 0 20 20">
-              <path d="M3 3a1 1 0 000 2h11a1 1 0 100-2H3zM3 7a1 1 0 000 2h5a1 1 0 000-2H3zM3 11a1 1 0 100 2h4a1 1 0 100-2H3zM13 16a1 1 0 102 0v-5.586l1.293 1.293a1 1 0 001.414-1.414l-3-3a1 1 0 00-1.414 0l-3 3a1 1 0 101.414 1.414L13 10.414V16z"/>
-            </svg>
+            Таблица
           </button>
           <button
             @click="viewMode = 'list'"
             :class="[
-              'flex items-center justify-center rounded-md p-2 transition-all',
-              viewMode === 'list' 
-                ? 'bg-white text-gray-900 shadow-sm' 
+              'flex items-center justify-center rounded-xl px-3 py-2 text-sm font-medium transition-all',
+              viewMode === 'list'
+                ? 'bg-white text-gray-900 shadow'
                 : 'text-gray-500 hover:text-gray-700'
             ]"
             title="Вид списка"
           >
-            <svg class="h-5 w-5" fill="currentColor" viewBox="0 0 20 20">
-              <path fill-rule="evenodd" d="M3 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z" clip-rule="evenodd"/>
-            </svg>
+            Список
           </button>
         </div>
       </div>
     </div>
 
-    <!-- Batch operations -->
-    <div v-if="selectedIds.length" class="space-y-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-        <div class="flex items-center justify-between">
-          <span class="text-sm font-medium text-blue-800">Выбрано: {{ selectedIds.length }}</span>
-          <button
-            @click="clearSelection"
-            class="px-2 py-1 text-xs bg-gray-100 text-gray-700 rounded hover:bg-gray-200 transition-colors"
-          >
-            ✕ Отменить
-          </button>
-        </div>
-        <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
-          <button
-            @click="batchChangeCategory"
-            class="w-full px-3 py-2 text-sm bg-green-100 text-green-700 rounded hover:bg-green-200 transition-colors flex items-center justify-center gap-1"
-          >
-            <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-              <path fill-rule="evenodd" d="M17.707 9.293a1 1 0 010 1.414l-7 7a1 1 0 01-1.414 0l-7-7A.997.997 0 012 10V5a3 3 0 013-3h5c.256 0 .512.098.707.293l7 7zM5 6a1 1 0 100-2 1 1 0 000 2z" clip-rule="evenodd" />
-            </svg>
-            Сменить категорию
-          </button>
-          <button
-            @click="batchChangeGroup"
-            class="w-full px-3 py-2 text-sm bg-purple-100 text-purple-700 rounded hover:bg-purple-200 transition-colors flex items-center justify-center gap-1"
-          >
-            <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
-              <path d="M4 5a1 1 0 011-1h4.382a1 1 0 01.894.553L11 6h9a1 1 0 011 1v2a1 1 0 01-1 1h-1.382l-1.447 2.894A1 1 0 0116.236 13H11l-.724 1.447A1 1 0 019.382 15H5a1 1 0 01-1-1V5z" />
-            </svg>
-            Назначить линейку
-          </button>
-          <button
-            @click="batchDelete"
-            class="w-full px-3 py-2 text-sm bg-red-100 text-red-700 rounded hover:bg-red-200 transition-colors flex items-center justify-center gap-1"
-          >
-            <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-              <path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd" />
-            </svg>
-            Удалить
-          </button>
-        </div>
+    <div v-if="selectedIds.length" class="relative overflow-hidden rounded-3xl border border-rose-200/70 bg-white/90 p-4 sm:p-5 shadow-xl backdrop-blur space-y-3">
+      <div class="pointer-events-none absolute -top-12 right-0 h-28 w-28 rounded-full bg-rose-200/35 blur-3xl"></div>
+      <div class="pointer-events-none absolute bottom-0 left-4 h-24 w-24 rounded-full bg-brand-dark/10 blur-2xl"></div>
+      <div class="relative flex items-center justify-between">
+        <span class="text-sm font-semibold text-rose-900">Выбрано: {{ selectedIds.length }}</span>
+        <button
+          @click="clearSelection"
+          class="inline-flex items-center gap-1 rounded-full border border-rose-400/40 bg-white/70 px-3 py-1 text-xs font-semibold text-rose-800 shadow-sm transition hover:border-rose-500/60 hover:bg-white"
+        >
+          ✕ Отменить
+        </button>
+      </div>
+      <div class="relative grid grid-cols-1 gap-2 sm:grid-cols-3">
+        <button
+          @click="batchChangeCategory"
+          class="flex w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-emerald-500/15 via-emerald-400/10 to-emerald-500/20 px-3 py-2 text-sm font-semibold text-emerald-700 shadow-sm transition hover:shadow-md hover:from-emerald-500/25 hover:via-emerald-400/20 hover:to-emerald-500/30"
+        >
+          <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+            <path fill-rule="evenodd" d="M17.707 9.293a1 1 0 010 1.414l-7 7a1 1 0 01-1.414 0l-7-7A.997.997 0 012 10V5a3 3 0 013-3h5c.256 0 .512.098.707.293l7 7zM5 6a1 1 0 100-2 1 1 0 000 2z" clip-rule="evenodd" />
+          </svg>
+          Сменить категорию
+        </button>
+        <button
+          @click="batchChangeGroup"
+          class="flex w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-purple-500/15 via-purple-400/10 to-purple-500/20 px-3 py-2 text-sm font-semibold text-purple-700 shadow-sm transition hover:shadow-md hover:from-purple-500/25 hover:via-purple-400/20 hover:to-purple-500/30"
+        >
+          <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+            <path d="M4 5a1 1 0 011-1h4.382a1 1 0 01.894.553L11 6h9a1 1 0 011 1v2a1 1 0 01-1 1h-1.382l-1.447 2.894A1 1 0 0116.236 13H11l-.724 1.447A1 1 0 019.382 15H5a1 1 0 01-1-1V5z" />
+          </svg>
+          Назначить линейку
+        </button>
+        <button
+          @click="batchDelete"
+          class="flex w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-rose-500/15 via-red-500/10 to-rose-500/20 px-3 py-2 text-sm font-semibold text-rose-700 shadow-sm transition hover:shadow-md hover:from-rose-500/25 hover:via-red-500/20 hover:to-rose-500/30"
+        >
+          <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+            <path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd" />
+          </svg>
+          Удалить
+        </button>
+      </div>
     </div>
 
     <!-- Table View -->
-    <div v-if="viewMode === 'table'" class="bg-white rounded-xl shadow-sm border overflow-x-auto">
-      <table class="w-full text-left text-sm">
-        <thead class="bg-gray-50 border-b">
-          <tr class="text-gray-600">
-            <th class="w-12 px-4 py-3">
-              <input
-                type="checkbox"
-                :checked="isAllSelected"
-                @change="toggleSelectAll"
-                class="rounded border-gray-300 text-brand-dark focus:ring-brand-dark"
+    <div v-if="viewMode === 'table'" class="relative overflow-hidden rounded-3xl border border-white/70 bg-white shadow-xl">
+      <div class="pointer-events-none absolute inset-x-0 top-0 h-24 bg-gradient-to-b from-rose-50/60 to-transparent"></div>
+      <div class="relative overflow-x-auto">
+        <table ref="tableRef" class="w-full text-left text-sm">
+          <colgroup>
+            <col v-for="(width, index) in displayedColumnWidths" :key="index" :style="width ? { width: `${width}px` } : undefined" />
+          </colgroup>
+          <thead class="bg-gradient-to-r from-white via-rose-50/70 to-white border-b border-rose-100">
+            <tr class="text-gray-600">
+              <th class="w-12 px-4 py-3" :style="columnStyle(0)">
+                <input
+                  type="checkbox"
+                  :checked="isAllSelected"
+                  @change="toggleSelectAll"
+                  class="rounded border-rose-200 text-brand-dark focus:ring-brand-dark"
+                >
+              </th>
+
+              <th
+                class="px-4 py-3 text-left text-[0.7rem] font-semibold uppercase tracking-[0.25em] text-gray-500 whitespace-normal break-words"
+                :style="columnStyle(1)"
+                :aria-sort="ariaSort('title')"
               >
-            </th>
-            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Товар</th>
-            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Категория</th>
-            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Линейка</th>
-            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Крепость</th>
-            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Себестоимость</th>
-            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Остаток</th>
-            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Цена</th>
-            <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Действия</th>
-          </tr>
-        </thead>
-        <tbody class="divide-y divide-gray-200">
-          <tr v-if="isLoading">
-            <td colspan="9" class="py-8 text-center text-gray-600">Загрузка...</td>
-          </tr>
-          <tr 
-            v-for="p in paged" 
-            :key="p.id" 
-            class="hover:bg-gray-50 transition-colors"
-            :class="[
-              selectedIds.includes(p.id) ? 'bg-blue-50' : '',
-              isBelowMin(p) ? 'ring-1 ring-red-300 ring-inset' : ''
-            ]"
-          >
-            <td class="px-4 py-4">
+                <button
+                  type="button"
+                  class="inline-flex items-center gap-1 text-left transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-rose-200/70"
+                  @click="toggleSort('title')"
+                >
+                  <span>Товар</span>
+                  <ChevronUpDownIcon v-if="sortKey !== 'title'" class="h-4 w-4 text-gray-400" />
+                  <ChevronUpIcon v-else-if="sortDirection === 'asc'" class="h-4 w-4 text-brand-dark" />
+                  <ChevronDownIcon v-else class="h-4 w-4 text-brand-dark" />
+                </button>
+              </th>
+              <th
+                class="px-4 py-3 text-left text-[0.7rem] font-semibold uppercase tracking-[0.25em] text-gray-500 whitespace-normal break-words"
+                :style="columnStyle(2)"
+                :aria-sort="ariaSort('category')"
+              >
+                <button
+                  type="button"
+                  class="inline-flex items-center gap-1 text-left transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-rose-200/70"
+                  @click="toggleSort('category')"
+                >
+                  <span>Категория</span>
+                  <ChevronUpDownIcon v-if="sortKey !== 'category'" class="h-4 w-4 text-gray-400" />
+                  <ChevronUpIcon v-else-if="sortDirection === 'asc'" class="h-4 w-4 text-brand-dark" />
+                  <ChevronDownIcon v-else class="h-4 w-4 text-brand-dark" />
+                </button>
+              </th>
+              <th
+                class="px-4 py-3 text-left text-[0.7rem] font-semibold uppercase tracking-[0.25em] text-gray-500 whitespace-normal break-words"
+                :style="columnStyle(3)"
+                :aria-sort="ariaSort('group')"
+              >
+                <button
+                  type="button"
+                  class="inline-flex items-center gap-1 text-left transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-rose-200/70"
+                  @click="toggleSort('group')"
+                >
+                  <span>Группа</span>
+                  <ChevronUpDownIcon v-if="sortKey !== 'group'" class="h-4 w-4 text-gray-400" />
+                  <ChevronUpIcon v-else-if="sortDirection === 'asc'" class="h-4 w-4 text-brand-dark" />
+                  <ChevronDownIcon v-else class="h-4 w-4 text-brand-dark" />
+                </button>
+              </th>
+              <th
+                class="px-4 py-3 text-left text-[0.7rem] font-semibold uppercase tracking-[0.25em] text-gray-500 whitespace-normal break-words"
+                :style="columnStyle(4)"
+                :aria-sort="ariaSort('strength')"
+              >
+                <button
+                  type="button"
+                  class="inline-flex items-center gap-1 text-left transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-rose-200/70"
+                  @click="toggleSort('strength')"
+                >
+                  <span>Крепость</span>
+                  <ChevronUpDownIcon v-if="sortKey !== 'strength'" class="h-4 w-4 text-gray-400" />
+                  <ChevronUpIcon v-else-if="sortDirection === 'asc'" class="h-4 w-4 text-brand-dark" />
+                  <ChevronDownIcon v-else class="h-4 w-4 text-brand-dark" />
+                </button>
+              </th>
+              <th
+                class="px-4 py-3 text-left text-[0.7rem] font-semibold uppercase tracking-[0.25em] text-gray-500 whitespace-normal break-words"
+                :style="columnStyle(5)"
+                :aria-sort="ariaSort('costPrice')"
+              >
+                <button
+                  type="button"
+                  class="inline-flex items-center gap-1 text-left transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-rose-200/70"
+                  @click="toggleSort('costPrice')"
+                >
+                  <span>Себестоимость</span>
+                  <ChevronUpDownIcon v-if="sortKey !== 'costPrice'" class="h-4 w-4 text-gray-400" />
+                  <ChevronUpIcon v-else-if="sortDirection === 'asc'" class="h-4 w-4 text-brand-dark" />
+                  <ChevronDownIcon v-else class="h-4 w-4 text-brand-dark" />
+                </button>
+              </th>
+              <th
+                class="px-4 py-3 text-left text-[0.7rem] font-semibold uppercase tracking-[0.25em] text-gray-500 whitespace-normal break-words"
+                :style="columnStyle(6)"
+                :aria-sort="ariaSort('stock')"
+              >
+                <button
+                  type="button"
+                  class="inline-flex items-center gap-1 text-left transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-rose-200/70"
+                  @click="toggleSort('stock')"
+                >
+                  <span>Остаток</span>
+                  <ChevronUpDownIcon v-if="sortKey !== 'stock'" class="h-4 w-4 text-gray-400" />
+                  <ChevronUpIcon v-else-if="sortDirection === 'asc'" class="h-4 w-4 text-brand-dark" />
+                  <ChevronDownIcon v-else class="h-4 w-4 text-brand-dark" />
+                </button>
+              </th>
+              <th
+                class="px-4 py-3 text-left text-[0.7rem] font-semibold uppercase tracking-[0.25em] text-gray-500 whitespace-normal break-words"
+                :style="columnStyle(7)"
+                :aria-sort="ariaSort('priceRub')"
+              >
+                <button
+                  type="button"
+                  class="inline-flex items-center gap-1 text-left transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-rose-200/70"
+                  @click="toggleSort('priceRub')"
+                >
+                  <span>Цена</span>
+                  <ChevronUpDownIcon v-if="sortKey !== 'priceRub'" class="h-4 w-4 text-gray-400" />
+                  <ChevronUpIcon v-else-if="sortDirection === 'asc'" class="h-4 w-4 text-brand-dark" />
+                  <ChevronDownIcon v-else class="h-4 w-4 text-brand-dark" />
+                </button>
+              </th>
+              <th
+                class="px-4 py-3 text-right text-[0.7rem] font-semibold uppercase tracking-[0.25em] text-gray-500 whitespace-normal break-words"
+                :style="columnStyle(8)"
+              >Действия</th>
+              >Действия</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-rose-50">
+            <tr v-if="isLoading">
+              <td colspan="9" class="py-8 text-center text-gray-600">Загрузка...</td>
+            </tr>
+            <tr 
+              v-for="p in paged" 
+              :key="p.id" 
+              class="transition-colors hover:bg-rose-50/50"
+              :class="[
+                selectedIds.includes(p.id) ? 'bg-rose-50/70' : '',
+                isBelowMin(p) ? 'ring-1 ring-rose-200 ring-inset' : ''
+              ]"
+            >
+            <td class="px-4 py-4" :style="columnStyle(0)">
               <input
                 type="checkbox"
                 :checked="selectedIds.includes(p.id)"
@@ -269,7 +376,7 @@
                 class="rounded border-gray-300 text-brand-dark focus:ring-brand-dark"
               >
             </td>
-            <td class="px-4 py-4 min-w-[220px]">
+            <td class="px-4 py-4 min-w-[220px]" :style="columnStyle(1)">
               <div class="flex items-center gap-3 min-w-0">
                 <img :src="getProductCover(p)" class="w-12 h-12 object-cover rounded border" />
                 <div class="min-w-0">
@@ -278,34 +385,34 @@
                 </div>
               </div>
             </td>
-            <td class="px-4 py-4 text-gray-700">{{ categoryName(p.categoryId) }}</td>
-            <td class="px-4 py-4 text-gray-700">
+            <td class="px-4 py-4 text-gray-700" :style="columnStyle(2)">{{ categoryName(p.categoryId) }}</td>
+            <td class="px-4 py-4 text-gray-700" :style="columnStyle(3)">
               <span v-if="p.groupName">{{ p.groupName }}</span>
               <span v-else class="text-gray-400">—</span>
             </td>
-            <td class="px-4 py-4 text-gray-700">
+            <td class="px-4 py-4 text-gray-700" :style="columnStyle(4)">
               <span v-if="p.strength && p.strength.trim().length" class="font-medium text-gray-900">{{ p.strength }}</span>
               <span v-else class="text-gray-400">—</span>
             </td>
-            <td class="px-4 py-4 text-gray-700">
+            <td class="px-4 py-4 text-gray-700" :style="columnStyle(5)">
               <span class="font-medium text-gray-900">{{ formatRub(p.costPrice) }}</span>
             </td>
-            <td class="px-4 py-4">
-              <div class="flex items-center gap-2">
+            <td class="px-4 py-4" :style="columnStyle(6)">
+              <div class="flex items-center gap-2 whitespace-nowrap">
                 <span :class="isBelowMin(p) ? 'text-red-600 font-semibold' : 'text-gray-900 font-medium'">
                   {{ Number(p.stock ?? 0) }}
                 </span>
-                <span v-if="Number(p.minStock ?? 0) > 0" class="text-xs text-gray-500">
+                <span v-if="Number(p.minStock ?? 0) > 0" class="text-xs text-gray-500 whitespace-nowrap">
                   мин. {{ Number(p.minStock ?? 0) }}
                 </span>
               </div>
             </td>
-            <td class="px-4 py-4 text-gray-700">{{ formatRub(p.priceRub) }}</td>
-            <td class="px-4 py-4 text-right">
+            <td class="px-4 py-4 text-gray-700" :style="columnStyle(7)">{{ formatRub(p.priceRub) }}</td>
+            <td class="px-4 py-4 text-right" :style="columnStyle(8)">
               <div class="flex items-center justify-end gap-2">
                 <button 
                   @click="copyProductLink(p.id)"
-                  class="p-1.5 text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded transition-all"
+                  class="rounded-full bg-gray-500/10 p-2 text-gray-600 transition hover:bg-gray-500/20 hover:text-gray-800"
                   title="Копировать ссылку на товар"
                 >
                   <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
@@ -315,7 +422,7 @@
                 </button>
                 <button 
                   @click="$emit('edit', p)" 
-                  class="p-1.5 text-blue-600 hover:text-blue-800 hover:bg-blue-100 rounded transition-all"
+                  class="rounded-full bg-blue-500/10 p-2 text-blue-600 transition hover:bg-blue-500/20 hover:text-blue-800"
                   title="Редактировать"
                 >
                   <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
@@ -324,7 +431,7 @@
                 </button>
                 <button 
                   @click="$emit('delete', p)" 
-                  class="p-1.5 text-red-600 hover:text-red-800 hover:bg-red-100 rounded transition-all"
+                  class="rounded-full bg-rose-500/10 p-2 text-rose-600 transition hover:bg-rose-500/20 hover:text-rose-800"
                   title="Удалить"
                 >
                   <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
@@ -334,16 +441,18 @@
               </div>
             </td>
           </tr>
-          <tr v-if="!isLoading && !paged.length">
-            <td colspan="9" class="py-8 text-center text-gray-600">Ничего не найдено</td>
-          </tr>
-        </tbody>
-      </table>
+            <tr v-if="!isLoading && !paged.length">
+              <td colspan="9" class="py-8 text-center text-gray-600">Ничего не найдено</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
     </div>
 
     <!-- List View -->
-    <div v-else-if="viewMode === 'list'" class="bg-white rounded-xl shadow-sm border">
-      <div class="p-4 bg-gray-50 border-b flex items-center justify-between">
+    <div v-else-if="viewMode === 'list'" class="relative overflow-hidden rounded-3xl border border-white/70 bg-white shadow-xl">
+      <div class="pointer-events-none absolute inset-x-0 top-0 h-24 bg-gradient-to-b from-rose-50/60 to-transparent"></div>
+      <div class="relative p-4 bg-white/80 border-b border-rose-100 flex items-center justify-between">
         <div class="flex items-center gap-3">
           <input
             type="checkbox"
@@ -353,7 +462,7 @@
           >
           <span class="text-sm text-gray-600">Выбрать все</span>
         </div>
-        <span class="text-xs text-gray-500">Найдено: {{ paged.length }}</span>
+        <span class="text-xs text-gray-500">Показано {{ total === 0 ? 0 : (to - from + 1) }} из {{ total }}</span>
       </div>
       
       <div v-if="isLoading" class="py-12 text-center text-gray-600">
@@ -364,12 +473,12 @@
         Ничего не найдено
       </div>
       
-      <div v-else class="divide-y divide-gray-200">
+      <div v-else class="divide-y divide-rose-50">
         <div 
           v-for="p in paged" 
           :key="p.id" 
-          class="p-2 sm:p-4 hover:bg-gray-50 transition-colors"
-          :class="{ 'bg-blue-50': selectedIds.includes(p.id) }"
+          class="p-2 sm:p-4 transition-colors hover:bg-rose-50/50"
+          :class="{ 'bg-rose-50/70': selectedIds.includes(p.id) }"
         >
           <!-- Мобильная версия - компактный лейаут -->
           <div class="block sm:hidden">
@@ -398,13 +507,13 @@
                       Линейка: <span class="font-semibold">{{ p.groupName }}</span>
                     </p>
                     <p v-if="p.strength" class="text-xs text-gray-600 leading-snug">
-                      Крепость: <span class="font-semibold text-gray-900">{{ p.strength }}</span>
+                      Креп: <span class="font-semibold text-gray-900">{{ p.strength }}</span>
                     </p>
                     <p class="text-base text-gray-900 mt-0.5">
                       {{ formatRub(p.priceRub) }}
                     </p>
                     <p class="text-xs text-gray-600 leading-snug">
-                      Себестоимость: <span class="font-semibold">{{ formatRub(p.costPrice) }}</span>
+                      Себес: <span class="font-semibold">{{ formatRub(p.costPrice) }}</span>
                     </p>
                     <p class="text-xs leading-snug" :class="isBelowMin(p) ? 'text-red-600 font-semibold' : 'text-gray-600'">
                       Остаток: {{ Number(p.stock ?? 0) }}<span v-if="Number(p.minStock ?? 0) > 0"> / мин. {{ Number(p.minStock ?? 0) }}</span>
@@ -412,10 +521,10 @@
                     </div>
                   </div>
                   <!-- Компактные кнопки действий в вертикальной группе -->
-                  <div class="flex flex-col gap-0.5 flex-shrink-0">
+                  <div class="flex flex-col gap-1 flex-shrink-0">
                     <button 
                       @click="copyProductLink(p.id)"
-                      class="flex items-center justify-center w-7 h-7 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded transition-colors touch-manipulation"
+                      class="flex items-center justify-center rounded-full bg-gray-500/10 p-1.5 text-gray-500 transition-colors hover:bg-gray-500/20 hover:text-gray-700 touch-manipulation"
                       title="Копировать ссылку"
                     >
                       <svg class="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
@@ -425,7 +534,7 @@
                     </button>
                     <button 
                       @click="$emit('edit', p)" 
-                      class="flex items-center justify-center w-7 h-7 text-blue-500 hover:text-blue-700 hover:bg-blue-50 rounded transition-colors touch-manipulation"
+                      class="flex items-center justify-center rounded-full bg-blue-500/10 p-1.5 text-blue-600 transition-colors hover:bg-blue-500/20 hover:text-blue-800 touch-manipulation"
                       title="Редактировать"
                     >
                       <svg class="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
@@ -434,7 +543,7 @@
                     </button>
                     <button 
                       @click="$emit('delete', p)" 
-                      class="flex items-center justify-center w-7 h-7 text-red-500 hover:text-red-700 hover:bg-red-50 rounded transition-colors touch-manipulation"
+                      class="flex items-center justify-center rounded-full bg-rose-500/10 p-1.5 text-rose-600 transition-colors hover:bg-rose-500/20 hover:text-rose-800 touch-manipulation"
                       title="Удалить"
                     >
                       <svg class="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
@@ -448,7 +557,7 @@
           </div>
           
           <!-- Десктопная версия - горизонтальный лейаут -->
-          <div class="hidden sm:flex items-start gap-4">
+            <div class="hidden sm:flex items-start gap-4">
             <input
               type="checkbox"
               :checked="selectedIds.includes(p.id)"
@@ -476,11 +585,11 @@
                       Линейка: <span class="font-medium">{{ p.groupName }}</span>
                     </p>
                     <p v-if="p.strength" class="text-sm text-gray-600">
-                      Крепость: <span class="font-medium text-gray-900">{{ p.strength }}</span>
+                      Креп: <span class="font-medium text-gray-900">{{ p.strength }}</span>
                     </p>
                     <div class="flex flex-wrap gap-4 text-sm">
                       <span class="text-gray-600">
-                        Себестоимость: <span class="font-medium">{{ formatRub(p.costPrice) }}</span>
+                        Себес: <span class="font-medium">{{ formatRub(p.costPrice) }}</span>
                       </span>
                       <span :class="isBelowMin(p) ? 'text-red-600 font-semibold' : 'text-gray-600'">
                         Остаток: {{ Number(p.stock ?? 0) }}<span v-if="Number(p.minStock ?? 0) > 0"> / мин. {{ Number(p.minStock ?? 0) }}</span>
@@ -494,10 +603,10 @@
                       {{ formatRub(p.priceRub) }}
                     </div>
                   </div>
-                  <div class="flex items-center gap-2">
+                <div class="flex items-center gap-2">
                     <button 
                       @click="copyProductLink(p.id)"
-                      class="p-2 text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded-lg transition-all"
+                    class="rounded-full bg-gray-500/10 p-2 text-gray-600 transition hover:bg-gray-500/20 hover:text-gray-800"
                       title="Копировать ссылку на товар"
                     >
                       <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
@@ -507,7 +616,7 @@
                     </button>
                     <button 
                       @click="$emit('edit', p)" 
-                      class="p-2 text-blue-600 hover:text-blue-800 hover:bg-blue-100 rounded-lg transition-all"
+                    class="rounded-full bg-blue-500/10 p-2 text-blue-600 transition hover:bg-blue-500/20 hover:text-blue-800"
                       title="Редактировать"
                     >
                       <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
@@ -516,7 +625,7 @@
                     </button>
                     <button 
                       @click="$emit('delete', p)" 
-                      class="p-2 text-red-600 hover:text-red-800 hover:bg-red-100 rounded-lg transition-all"
+                    class="rounded-full bg-rose-500/10 p-2 text-rose-600 transition hover:bg-rose-500/20 hover:text-rose-800"
                       title="Удалить"
                     >
                       <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
@@ -533,8 +642,9 @@
     </div>
     
     <!-- Help text -->
-    <div class="px-6 py-3 bg-gray-50 border text-xs text-gray-500 text-center rounded-lg">
-      Используйте чекбоксы для массовых операций с товарами.
+    <div class="relative overflow-hidden rounded-2xl border border-dashed border-rose-200/60 bg-rose-50/40 px-6 py-3 text-center text-[0.65rem] font-semibold uppercase tracking-[0.28em] text-rose-500 shadow-inner">
+      <div class="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(244,63,94,0.12),transparent_55%)]"></div>
+      <div class="relative">Используйте чекбоксы для массовых операций с товарами.</div>
     </div>
 
     <!-- Category Change Modal -->
@@ -628,14 +738,25 @@
     </div>
 
     <!-- Pagination -->
-    <div class="flex items-center justify-between pt-2">
-      <div class="text-sm text-gray-600">
-        Показано {{ from }}–{{ to }} из {{ total }}
-      </div>
-      <div class="flex items-center gap-2">
-        <button class="btn-ghost" :disabled="page <= 1" @click="go(page - 1)">Назад</button>
-        <div class="text-sm text-gray-700">Стр. {{ page }} / {{ totalPages }}</div>
-        <button class="btn-ghost" :disabled="page >= totalPages" @click="go(page + 1)">Вперёд</button>
+    <div class="pt-6">
+      <div class="mx-auto flex w-full max-w-sm items-center justify-center gap-3 rounded-2xl border border-white/60 bg-white/90 px-4 py-3 text-sm font-semibold text-gray-700 shadow-lg shadow-rose-100/40 backdrop-blur">
+        <button
+          class="inline-flex items-center gap-2 rounded-xl border border-rose-100/70 bg-white/75 px-4 py-2 text-xs uppercase tracking-[0.25em] text-gray-600 transition-all duration-200 hover:-translate-y-0.5 hover:bg-white hover:text-gray-900 focus:outline-none focus:ring-2 focus:ring-rose-200/60 focus:ring-offset-2 focus:ring-offset-white disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:translate-y-0 disabled:hover:bg-white"
+          :disabled="page <= 1"
+          @click="go(page - 1)"
+        >
+          Назад
+        </button>
+        <div class="rounded-xl border border-white/70 bg-white px-5 py-2 text-xs uppercase tracking-[0.35em] text-gray-500 shadow-inner">
+          Стр. {{ page }} / {{ totalPages }}
+        </div>
+        <button
+          class="inline-flex items-center gap-2 rounded-xl border border-rose-100/70 bg-white/75 px-4 py-2 text-xs uppercase tracking-[0.25em] text-gray-600 transition-all duration-200 hover:-translate-y-0.5 hover:bg-white hover:text-gray-900 focus:outline-none focus:ring-2 focus:ring-rose-200/60 focus:ring-offset-2 focus:ring-offset-white disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:translate-y-0 disabled:hover:bg-white"
+          :disabled="page >= totalPages"
+          @click="go(page + 1)"
+        >
+          Вперёд
+        </button>
       </div>
     </div>
     
@@ -807,8 +928,9 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch, onMounted, onUnmounted } from 'vue'
-import { PlusIcon, FunnelIcon, XMarkIcon } from '@heroicons/vue/24/outline'
+import { computed, ref, watch, onMounted, onUnmounted, nextTick } from 'vue'
+import { PlusIcon, FunnelIcon, XMarkIcon, CubeIcon, MagnifyingGlassIcon, ChevronUpDownIcon, ChevronUpIcon, ChevronDownIcon } from '@heroicons/vue/24/outline'
+import AdminSectionHero from '@/components/admin/layout/AdminSectionHero.vue'
 import { useAdminStore } from '@/stores/admin'
 
 interface ProductLink { label?: string; url: string }
@@ -829,6 +951,9 @@ interface Product {
   minStock?: number
 }
 interface Pagination { page: number; limit: number; total: number; totalPages: number }
+
+type SortKey = 'title' | 'category' | 'group' | 'strength' | 'costPrice' | 'stock' | 'priceRub'
+type SortDirection = 'asc' | 'desc'
 
 const props = withDefaults(defineProps<{
   products: Product[]
@@ -866,9 +991,24 @@ const adminStore = useAdminStore()
 const showGroupModal = ref(false)
 const selectedGroupId = ref('')
 const groupModalCategoryId = ref('')
+const sortKey = ref<SortKey | null>(null)
+const sortDirection = ref<SortDirection>('asc')
 const groupModalLoading = ref(false)
 const modalFetchedCategories = new Set<string>()
 const showFiltersModal = ref(false)
+const tableRef = ref<HTMLTableElement | null>(null)
+const columnWidths = ref<(number | undefined)[]>([])
+const COLUMN_COUNT = 9
+const displayedColumnWidths = computed(() => {
+  if (!columnWidths.value.length) {
+    return Array.from({ length: COLUMN_COUNT }, () => undefined)
+  }
+  if (columnWidths.value.length >= COLUMN_COUNT) {
+    return columnWidths.value.slice(0, COLUMN_COUNT)
+  }
+  return [...columnWidths.value, ...Array.from({ length: COLUMN_COUNT - columnWidths.value.length }, () => undefined)]
+})
+let measureRaf: number | null = null
 
 const groupFilterOptions = computed(() => {
   const currentCategory = category.value
@@ -894,6 +1034,86 @@ const modalGroupOptions = computed(() => {
     .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
 })
 
+function measureColumnWidths() {
+  const table = tableRef.value
+  if (!table) return
+
+  const rows = Array.from(table.querySelectorAll('tbody tr'))
+  const dataRows = rows.filter(row => {
+    const cells = Array.from(row.cells)
+    if (!cells.length) return false
+    if (cells.length === 1 && cells[0].colSpan > 1) return false
+    return true
+  })
+
+  if (!dataRows.length) {
+    columnWidths.value = []
+    return
+  }
+
+  const widths = new Array(COLUMN_COUNT).fill(0)
+  const measureContainer = document.createElement('div')
+  measureContainer.style.position = 'absolute'
+  measureContainer.style.visibility = 'hidden'
+  measureContainer.style.pointerEvents = 'none'
+  measureContainer.style.zIndex = '-1'
+  measureContainer.style.top = '0'
+  measureContainer.style.left = '0'
+  measureContainer.style.whiteSpace = 'nowrap'
+  measureContainer.style.width = 'max-content'
+  measureContainer.style.height = '0'
+  measureContainer.style.overflow = 'hidden'
+
+  const host = table.parentElement || table
+  host.appendChild(measureContainer)
+
+  dataRows.forEach(row => {
+    Array.from(row.cells).forEach((cell, index) => {
+      if (index >= COLUMN_COUNT) return
+      const clone = cell.cloneNode(true) as HTMLElement
+      clone.style.width = 'auto'
+      clone.style.minWidth = 'max-content'
+      clone.style.maxWidth = 'none'
+      clone.style.position = 'static'
+      clone.style.pointerEvents = 'none'
+      measureContainer.appendChild(clone)
+      const width = Math.ceil(clone.getBoundingClientRect().width)
+      measureContainer.removeChild(clone)
+      if (width > widths[index]) {
+        widths[index] = width
+      }
+    })
+  })
+
+  measureContainer.remove()
+  widths[0] = Math.max(widths[0], 48)
+  columnWidths.value = widths.map(value => (value > 0 ? value : undefined))
+}
+
+function queueColumnMeasurement() {
+  if (viewMode.value !== 'table') {
+    columnWidths.value = []
+    return
+  }
+  if (measureRaf !== null) {
+    cancelAnimationFrame(measureRaf)
+  }
+  measureRaf = requestAnimationFrame(() => {
+    measureRaf = null
+    void nextTick(() => measureColumnWidths())
+  })
+}
+
+function columnStyle(index: number) {
+  const width = displayedColumnWidths.value[index]
+  if (!width) return undefined
+  return {
+    width: `${width}px`,
+    maxWidth: `${width}px`,
+    minWidth: `${width}px`
+  }
+}
+
 // Media query для отслеживания мобильных устройств
 const checkIsMobile = () => {
   const next = window.innerWidth < 768
@@ -911,11 +1131,18 @@ const checkIsMobile = () => {
 
 onMounted(() => {
   checkIsMobile()
+  queueColumnMeasurement()
   window.addEventListener('resize', checkIsMobile)
+  window.addEventListener('resize', queueColumnMeasurement)
 })
 
 onUnmounted(() => {
   window.removeEventListener('resize', checkIsMobile)
+  window.removeEventListener('resize', queueColumnMeasurement)
+  if (measureRaf !== null) {
+    cancelAnimationFrame(measureRaf)
+    measureRaf = null
+  }
 })
 
 watch(() => props.pagination, (pg) => {
@@ -923,6 +1150,7 @@ watch(() => props.pagination, (pg) => {
     page.value = pg.page
     pageSize.value = pg.limit
   }
+  queueColumnMeasurement()
 })
 
 watch(groupModalCategoryId, (val) => {
@@ -931,6 +1159,7 @@ watch(groupModalCategoryId, (val) => {
     void ensureModalGroups(val)
   }
 })
+
 
 function onFiltersChanged() {
   emit('filters', { search: search.value.trim(), category: category.value, group: group.value })
@@ -1002,6 +1231,15 @@ function isBelowMin(product: Product) {
 }
 
 // Computed для фильтрации (нужен для вычисления selectedIds)
+function normalizeString(value: unknown) {
+  return String(value ?? '').trim().toLowerCase()
+}
+
+function numericValue(value: unknown) {
+  const num = Number(value ?? 0)
+  return Number.isFinite(num) ? num : 0
+}
+
 const filteredProducts = computed(() => {
   const s = search.value.toLowerCase()
   const cid = category.value
@@ -1016,7 +1254,35 @@ const filteredProducts = computed(() => {
   })
 })
 
-const filtered = computed(() => filteredProducts.value)
+const sortedProducts = computed(() => {
+  const key = sortKey.value
+  if (!key) {
+    return filteredProducts.value.slice()
+  }
+  const direction = sortDirection.value === 'asc' ? 1 : -1
+  return filteredProducts.value.slice().sort((a, b) => {
+    switch (key) {
+      case 'title':
+        return normalizeString(a.title).localeCompare(normalizeString(b.title), 'ru', { sensitivity: 'base' }) * direction
+      case 'category':
+        return normalizeString(categoryName(a.categoryId)).localeCompare(normalizeString(categoryName(b.categoryId)), 'ru', { sensitivity: 'base' }) * direction
+      case 'group':
+        return normalizeString(a.groupName).localeCompare(normalizeString(b.groupName), 'ru', { sensitivity: 'base' }) * direction
+      case 'strength':
+        return normalizeString(a.strength).localeCompare(normalizeString(b.strength), 'ru', { sensitivity: 'base' }) * direction
+      case 'costPrice':
+        return (numericValue(a.costPrice) - numericValue(b.costPrice)) * direction
+      case 'stock':
+        return (numericValue(a.stock) - numericValue(b.stock)) * direction
+      case 'priceRub':
+        return (numericValue(a.priceRub) - numericValue(b.priceRub)) * direction
+      default:
+        return 0
+    }
+  })
+})
+
+const filtered = computed(() => sortedProducts.value)
 
 // Selection logic
 const isAllSelected = computed(() => {
@@ -1037,6 +1303,33 @@ const paged = computed(() => {
   return filtered.value.filter(p => p && p.id).slice(start, start + pageSize.value)
 })
 
+watch(paged, () => {
+  queueColumnMeasurement()
+}, { deep: true })
+
+watch(filteredProducts, () => {
+  queueColumnMeasurement()
+}, { deep: true })
+
+watch([sortKey, sortDirection], () => {
+  if (!props.pagination) {
+    page.value = 1
+  }
+  queueColumnMeasurement()
+})
+
+watch(() => viewMode.value, (next) => {
+  if (next === 'table') {
+    queueColumnMeasurement()
+  } else {
+    columnWidths.value = []
+  }
+})
+
+watch(() => props.isLoading, () => {
+  queueColumnMeasurement()
+})
+
 function go(p: number) {
   const newPage = Math.min(Math.max(1, p), totalPages.value)
   page.value = newPage
@@ -1045,6 +1338,26 @@ function go(p: number) {
 
 const from = computed(() => (total.value === 0 ? 0 : ((page.value - 1) * pageSize.value) + 1))
 const to = computed(() => Math.min(page.value * pageSize.value, total.value))
+
+function ariaSort(key: SortKey): 'none' | 'ascending' | 'descending' {
+  if (sortKey.value !== key) return 'none'
+  return sortDirection.value === 'asc' ? 'ascending' : 'descending'
+}
+
+function toggleSort(key: SortKey) {
+  if (sortKey.value !== key) {
+    sortKey.value = key
+    sortDirection.value = 'asc'
+    return
+  }
+
+  if (sortDirection.value === 'asc') {
+    sortDirection.value = 'desc'
+  } else {
+    sortKey.value = null
+    sortDirection.value = 'asc'
+  }
+}
 
 function categoryName(id: string) {
   return props.categories.find(c => c.id === id)?.name || '-'
@@ -1197,5 +1510,6 @@ function fallbackCopy(text: string) {
 // Watch props - очищаем выбор при изменении товаров
 watch(() => props.products, () => {
   selectedIds.value = []
+  queueColumnMeasurement()
 }, { deep: true })
 </script>
