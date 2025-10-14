@@ -68,14 +68,24 @@ function applyDiscounts(totalAmount, discountAmount, discountPercent) {
 // =========================
 crmOperationsRouter.get('/api/admin/crm/orders', authMiddleware, (req, res) => {
   try {
-    const { status, page = 1, limit = 20 } = req.query;
+    const { status, search, page = 1, limit = 20 } = req.query;
     
     let whereClause = '';
     const params = [];
+    const conditions = [];
     
     if (status) {
-      whereClause = 'WHERE o.status = ?';
+      conditions.push('o.status = ?');
       params.push(status);
+    }
+    
+    if (search) {
+      conditions.push('CAST(o.order_number AS TEXT) LIKE ?');
+      params.push(`%${search}%`);
+    }
+    
+    if (conditions.length > 0) {
+      whereClause = 'WHERE ' + conditions.join(' AND ');
     }
 
     const offset = (parseInt(page) - 1) * parseInt(limit);

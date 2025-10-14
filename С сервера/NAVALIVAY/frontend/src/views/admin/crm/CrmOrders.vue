@@ -54,9 +54,37 @@
         </div>
       </div>
 
-      <header class="flex flex-col gap-2">
-        <h1 class="text-2xl font-bold text-gray-900 sm:text-3xl">Заказы</h1>
-        <p class="text-sm text-gray-600 sm:text-base">Канбан доска для статусов «Новый → Собран → Выдан»</p>
+      <header class="flex flex-col gap-4">
+        <div>
+          <h1 class="text-2xl font-bold text-gray-900 sm:text-3xl">Заказы</h1>
+          <p class="text-sm text-gray-600 sm:text-base">Канбан доска для статусов «Новый → Собран → Выдан»</p>
+        </div>
+        
+        <div class="relative max-w-md">
+          <input
+            v-model.trim="orderSearch"
+            type="search"
+            placeholder="Поиск по номеру заказа..."
+            class="w-full rounded-lg border border-gray-300 px-4 py-2 pl-10 text-sm transition focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
+          />
+          <svg 
+            class="absolute left-3 top-2.5 h-5 w-5 text-gray-400" 
+            fill="none" 
+            stroke="currentColor" 
+            viewBox="0 0 24 24"
+          >
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+          </svg>
+          <button
+            v-if="orderSearch"
+            @click="orderSearch = ''"
+            class="absolute right-3 top-2.5 text-gray-400 transition hover:text-gray-600"
+          >
+            <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
       </header>
 
       <div class="flex flex-wrap items-center gap-4 text-xs text-gray-500">
@@ -481,6 +509,7 @@ const previewLimit = 4
 const deliveredModalOpen = ref(false)
 const deliveredFilter = ref<DeliveredFilter>('today')
 const deliveredSearch = ref('')
+const orderSearch = ref('')
 const deliveredFilterOptions: Array<{ value: DeliveredFilter; label: string }> = [
   { value: 'today', label: 'Сегодня' },
   { value: 'week', label: '7 дней' },
@@ -525,10 +554,22 @@ const kanbanConfig: KanbanColumnConfig[] = [
 ]
 
 const kanbanColumns = computed(() =>
-  kanbanConfig.map((column) => ({
-    ...column,
-    orders: orders.value.filter((order) => column.statuses.includes(order.status))
-  }))
+  kanbanConfig.map((column) => {
+    let filtered = orders.value.filter((order) => column.statuses.includes(order.status))
+    
+    // Локальная фильтрация по поиску
+    if (orderSearch.value) {
+      const query = orderSearch.value.toLowerCase()
+      filtered = filtered.filter((order) =>
+        String(order.order_number).includes(query)
+      )
+    }
+    
+    return {
+      ...column,
+      orders: filtered
+    }
+  })
 )
 
 const deliveredOrdersList = computed(() =>
@@ -607,7 +648,18 @@ const deliveredSummaryLabel = computed(() => {
   }
 })
 
-const cancelledOrders = computed(() => orders.value.filter((order) => order.status === 'cancelled'))
+const cancelledOrders = computed(() => {
+  let filtered = orders.value.filter((order) => order.status === 'cancelled')
+  
+  if (orderSearch.value) {
+    const query = orderSearch.value.toLowerCase()
+    filtered = filtered.filter((order) =>
+      String(order.order_number).includes(query)
+    )
+  }
+  
+  return filtered
+})
 
 const unseenOrdersCount = computed(() => unseenOrderIds.value.size)
 

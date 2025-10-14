@@ -351,11 +351,12 @@ export const useCrmStore = defineStore('crm', () => {
     totalPages: 0
   })
 
-  async function fetchOrders(params?: { status?: string; page?: number; limit?: number }) {
+  async function fetchOrders(params?: { status?: string; search?: string; page?: number; limit?: number }) {
     loadingOrders.value = true
     try {
       const query = new URLSearchParams()
       if (params?.status) query.append('status', params.status)
+      if (params?.search) query.append('search', params.search)
       if (params?.page) query.append('page', params.page.toString())
       if (params?.limit) query.append('limit', params.limit.toString())
 
