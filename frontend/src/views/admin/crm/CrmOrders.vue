@@ -102,10 +102,15 @@
                     <button
                       v-if="column.key === 'delivered'"
                       type="button"
-                      class="inline-flex items-center rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-100"
+                      class="inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-70"
+                      :class="profitUnlocked
+                        ? 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+                        : 'bg-gray-100 text-gray-500 hover:bg-gray-200'"
+                      :disabled="!profitUnlocked && verifyingPassword"
                       @click="openDeliveredModal('today')"
                     >
-                      Смотреть все
+                      <LockClosedIcon v-if="!profitUnlocked" class="h-4 w-4" />
+                      <span>{{ profitUnlocked ? 'Смотреть все' : verifyingPassword ? 'Проверяем…' : 'Открыть доступ' }}</span>
                     </button>
                   </div>
                   <p class="text-xs text-gray-500">{{ column.description }}</p>
@@ -160,10 +165,14 @@
                     <button
                       v-if="deliveredStatuses.includes(order.status)"
                       type="button"
-                      class="rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold text-emerald-700 transition hover:bg-emerald-200"
+                      class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold transition"
+                      :class="profitUnlocked
+                        ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200'
+                        : 'bg-gray-100 text-gray-500 hover:bg-gray-200'"
                       @click.stop="openDeliveredModal()"
                     >
-                      {{ orderStatusLabel(order.status) }}
+                      <LockClosedIcon v-if="!profitUnlocked" class="h-3.5 w-3.5" />
+                      <span>{{ orderStatusLabel(order.status) }}</span>
                     </button>
                   </div>
                   <span :class="['rounded-full px-2 py-0.5 text-xs font-medium', deliveryBadgeClass(order)]">
@@ -323,6 +332,47 @@
     </AdminModal>
 
     <AdminModal
+      :isOpen="showPasswordModal"
+      title="Подтверждение доступа"
+      description="Введите пароль, чтобы открыть финансовую статистику по заказам."
+      size="sm"
+      :showActions="false"
+      @close="closePasswordModal"
+      @cancel="closePasswordModal"
+    >
+      <form class="space-y-4" @submit.prevent="submitPassword">
+        <div>
+          <label class="mb-1 block text-sm font-medium text-gray-700">Пароль</label>
+          <input
+            v-model="passwordInput"
+            type="password"
+            class="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-100"
+            placeholder="Введите пароль"
+            :disabled="verifyingPassword"
+          />
+          <p v-if="passwordError" class="mt-2 text-sm text-red-600">{{ passwordError }}</p>
+        </div>
+        <div class="flex gap-3 pt-2">
+          <button
+            type="submit"
+            class="flex-1 rounded-md bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-emerald-400"
+            :disabled="verifyingPassword"
+          >
+            {{ verifyingPassword ? 'Проверяем…' : 'Подтвердить' }}
+          </button>
+          <button
+            type="button"
+            class="flex-1 rounded-md bg-gray-200 px-4 py-2 text-sm font-medium text-gray-700 transition hover:bg-gray-300"
+            @click="closePasswordModal"
+            :disabled="verifyingPassword"
+          >
+            Отмена
+          </button>
+        </div>
+      </form>
+    </AdminModal>
+
+    <AdminModal
       :isOpen="deliveredModalOpen"
       title="Доставленные заказы"
       description="Статистика выполненных заказов и доставок."
@@ -445,9 +495,10 @@ import type { Order } from '@/stores/crm'
 import { useCrmStore } from '@/stores/crm'
 import OrderCreateModal from '@/components/crm/OrderCreateModal.vue'
 import AdminModal from '@/components/AdminModal.vue'
+import { LockClosedIcon } from '@heroicons/vue/24/outline'
 
 const crmStore = useCrmStore()
-const { orders, loadingOrders, cashAccounts } = storeToRefs(crmStore)
+const { orders, loadingOrders, cashAccounts, profitUnlocked, verifyingProfitAccess } = storeToRefs(crmStore)
 
 const router = useRouter()
 
@@ -487,6 +538,11 @@ const deliveredFilterOptions: Array<{ value: DeliveredFilter; label: string }> =
   { value: 'month', label: '30 дней' },
   { value: 'all', label: 'За всё время' }
 ]
+const pendingDeliveredPreset = ref<DeliveredFilter | null>(null)
+const showPasswordModal = ref(false)
+const passwordInput = ref('')
+const passwordError = ref('')
+const verifyingPassword = computed(() => verifyingProfitAccess.value)
 
 type KanbanColumnConfig = {
   key: 'new' | 'in_progress' | 'delivered'
@@ -780,6 +836,37 @@ async function submitPayment() {
   }
 }
 
+function openPasswordModal() {
+  if (verifyingPassword.value) return
+  passwordInput.value = ''
+  passwordError.value = ''
+  showPasswordModal.value = true
+}
+
+function closePasswordModal() {
+  if (verifyingPassword.value) return
+  showPasswordModal.value = false
+  passwordInput.value = ''
+  passwordError.value = ''
+}
+
+async function submitPassword() {
+  if (!passwordInput.value.trim()) {
+    passwordError.value = 'Введите пароль'
+    return
+  }
+
+  passwordError.value = ''
+  try {
+    await crmStore.verifyProfitPassword(passwordInput.value.trim())
+    showPasswordModal.value = false
+    passwordInput.value = ''
+    passwordError.value = ''
+  } catch (error) {
+    passwordError.value = 'Неверный пароль'
+  }
+}
+
 async function refreshOrders(options: { skipNotify?: boolean } = {}) {
   if (isRefreshing.value) return
   isRefreshing.value = true
@@ -949,6 +1036,15 @@ async function ensureNotificationPermission() {
   }
 }
 
+watch(profitUnlocked, (unlocked) => {
+  if (!unlocked) {
+    deliveredModalOpen.value = false
+    showPasswordModal.value = false
+    passwordInput.value = ''
+    passwordError.value = ''
+  }
+})
+
 watch(autoRefreshEnabled, () => {
   scheduleAutoRefresh()
 })
@@ -977,6 +1073,10 @@ watch(
 )
 
 function openDeliveredModal(preset: DeliveredFilter = deliveredFilter.value) {
+  if (!profitUnlocked.value) {
+    openPasswordModal()
+    return
+  }
   deliveredFilter.value = preset
   deliveredSearch.value = ''
   deliveredModalOpen.value = true

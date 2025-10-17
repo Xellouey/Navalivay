@@ -60,16 +60,17 @@
               <div v-if="profitUnlocked" class="text-3xl font-bold text-blue-600">
                 {{ formatCurrency(dashboardStats.stats.profit) }}
               </div>
-              <div v-else class="relative">
-                <div class="text-3xl font-bold text-blue-600 select-none blur-sm">
+              <div v-else class="relative flex items-center justify-between gap-3">
+                <div class="text-3xl font-bold text-blue-600 select-none blur-sm" aria-hidden="true">
                   {{ formatCurrency(dashboardStats.stats.profit) }}
                 </div>
                 <button
                   type="button"
-                  class="absolute inset-0 flex items-center justify-center text-sm font-semibold text-blue-600 transition hover:text-blue-800"
+                  class="inline-flex items-center gap-2 rounded-full border border-blue-200 bg-blue-50 px-4 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-blue-700 transition hover:border-blue-300 hover:bg-blue-100"
                   @click="openPasswordModal"
                 >
-                  Показать
+                  <LockClosedIcon class="h-4 w-4" />
+                  <span>Открыть</span>
                 </button>
               </div>
             </div>
@@ -192,13 +193,14 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, watch } from 'vue'
+import { ref, onMounted, watch, computed } from 'vue'
 import { useCrmStore } from '@/stores/crm'
 import { storeToRefs } from 'pinia'
 import AdminModal from '@/components/AdminModal.vue'
+import { LockClosedIcon } from '@heroicons/vue/24/outline'
 
 const crmStore = useCrmStore()
-const { dashboardStats, loadingDashboard } = storeToRefs(crmStore)
+const { dashboardStats, loadingDashboard, profitUnlocked, verifyingProfitAccess } = storeToRefs(crmStore)
 
 const periods = [
   { value: 'today', label: 'Сегодня' },
@@ -208,11 +210,10 @@ const periods = [
 ] as const
 
 const selectedPeriod = ref<'today' | 'week' | 'month' | 'year'>('today')
-const profitUnlocked = ref(false)
 const showPasswordModal = ref(false)
 const passwordInput = ref('')
 const passwordError = ref('')
-const verifyingPassword = ref(false)
+const verifyingPassword = computed(() => verifyingProfitAccess.value)
 
 watch(selectedPeriod, (newPeriod) => {
   crmStore.fetchDashboard(newPeriod)
@@ -259,16 +260,12 @@ async function submitPassword() {
     return
   }
 
-  verifyingPassword.value = true
   passwordError.value = ''
   try {
     await crmStore.verifyProfitPassword(passwordInput.value)
-    profitUnlocked.value = true
     closePasswordModal()
   } catch (error) {
     passwordError.value = 'Неверный пароль'
-  } finally {
-    verifyingPassword.value = false
   }
 }
 </script>

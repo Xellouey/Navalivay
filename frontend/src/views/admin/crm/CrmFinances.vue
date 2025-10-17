@@ -7,87 +7,154 @@
         <p class="mt-2 text-sm text-gray-600 sm:text-base">Управление счетами и транзакциями</p>
       </div>
 
-      <!-- Cash Accounts -->
-      <div class="mb-8">
-        <div class="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <h2 class="text-xl font-bold text-gray-900">Счета и кассы</h2>
-          <button @click="showAccountModal = true" class="w-full rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-blue-700 sm:w-auto">Добавить счет</button>
-        </div>
-        <div class="grid grid-cols-1 gap-4 md:grid-cols-3">
-          <div v-for="account in cashAccounts" :key="account.id" class="bg-white rounded-lg shadow-sm p-6">
-            <div class="flex items-center justify-between mb-2">
-              <h3 class="font-medium text-gray-900">{{ account.name }}</h3>
-              <span v-if="account.is_default" class="px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs font-medium">По умолчанию</span>
+      <template v-if="profitUnlocked">
+        <!-- Cash Accounts -->
+        <div class="mb-8">
+          <div class="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <h2 class="text-xl font-bold text-gray-900">Счета и кассы</h2>
+            <button @click="showAccountModal = true" class="w-full rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-blue-700 sm:w-auto">Добавить счет</button>
+          </div>
+          <div class="grid grid-cols-1 gap-4 md:grid-cols-3">
+            <div v-for="account in cashAccounts" :key="account.id" class="bg-white rounded-lg shadow-sm p-6">
+              <div class="flex items-center justify-between mb-2">
+                <h3 class="font-medium text-gray-900">{{ account.name }}</h3>
+                <span v-if="account.is_default" class="px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs font-medium">По умолчанию</span>
+              </div>
+              <div class="text-2xl font-bold text-gray-900">{{ formatCurrency(account.balance) }}</div>
             </div>
-            <div class="text-2xl font-bold text-gray-900">{{ formatCurrency(account.balance) }}</div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Transactions -->
-      <div class="rounded-lg bg-white p-6 shadow-sm">
-        <div class="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <h2 class="text-xl font-bold text-gray-900">Транзакции</h2>
-          <div class="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:justify-end">
-            <button @click="transactionFilter = null" :class="filterBtnClass(null)">Все</button>
-            <button @click="transactionFilter = 'income'" :class="filterBtnClass('income')">Приход</button>
-            <button @click="transactionFilter = 'expense'" :class="filterBtnClass('expense')">Расход</button>
-            <button @click="showTransactionModal = true" class="w-full rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-green-700 sm:w-auto sm:ml-2">Добавить</button>
           </div>
         </div>
 
-        <div v-if="cashTransactions.length > 0" class="overflow-x-auto">
-          <table class="w-full">
-            <thead class="border-b">
-              <tr>
-                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Дата</th>
-                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Счет</th>
-                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Тип</th>
-                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Описание</th>
-                <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Сумма</th>
-                <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Действия</th>
-              </tr>
-            </thead>
-            <tbody class="divide-y">
-              <tr v-for="transaction in cashTransactions" :key="transaction.id" class="hover:bg-gray-50">
-                <td class="px-4 py-3 text-sm text-gray-500">{{ formatDate(transaction.created_at) }}</td>
-                <td class="px-4 py-3 text-sm text-gray-900">{{ transaction.account_name }}</td>
-                <td class="px-4 py-3">
-                  <span :class="transaction.type === 'income' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'" class="px-2 py-1 rounded-full text-xs font-medium">
-                    {{ transaction.type === 'income' ? 'Приход' : 'Расход' }}
-                  </span>
-                </td>
-                <td class="px-4 py-3 text-sm text-gray-900">{{ transaction.description || '—' }}</td>
-                <td class="px-4 py-3 text-sm text-right font-medium" :class="transaction.type === 'income' ? 'text-green-600' : 'text-red-600'">
-                  {{ transaction.type === 'income' ? '+' : '-' }}{{ formatCurrency(transaction.amount) }}
-                </td>
-                <td class="px-4 py-3">
-                  <div class="flex justify-end gap-2">
-                    <button
-                      @click="openEditTransaction(transaction)"
-                      :disabled="!!transaction.order_id"
-                      class="admin-link-button admin-link-button--edit disabled:cursor-not-allowed disabled:opacity-40"
-                      :title="transaction.order_id ? 'Транзакция создана автоматически и редактируется из заказа' : 'Редактировать транзакцию'"
-                    >
-                      Редактировать
-                    </button>
-                    <button
-                      @click="deleteTransaction(transaction)"
-                      :disabled="!!transaction.order_id"
-                      class="admin-link-button admin-link-button--danger disabled:cursor-not-allowed disabled:opacity-40"
-                      :title="transaction.order_id ? 'Операция создана автоматически. Удалите оплату в заказе.' : 'Удалить транзакцию'"
-                    >
-                      Удалить
-                    </button>
-                  </div>
-                </td>
-              </tr>
-            </tbody>
-          </table>
+        <!-- Transactions -->
+        <div class="rounded-lg bg-white p-6 shadow-sm">
+          <div class="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <h2 class="text-xl font-bold text-gray-900">Транзакции</h2>
+            <div class="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:justify-end">
+              <button @click="transactionFilter = null" :class="filterBtnClass(null)">Все</button>
+              <button @click="transactionFilter = 'income'" :class="filterBtnClass('income')">Приход</button>
+              <button @click="transactionFilter = 'expense'" :class="filterBtnClass('expense')">Расход</button>
+              <button @click="showTransactionModal = true" class="w-full rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-green-700 sm:w-auto sm:ml-2">Добавить</button>
+            </div>
+          </div>
+
+          <div v-if="cashTransactions.length > 0" class="overflow-x-auto">
+            <table class="w-full">
+              <thead class="border-b">
+                <tr>
+                  <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Дата</th>
+                  <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Счет</th>
+                  <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Тип</th>
+                  <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Описание</th>
+                  <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Сумма</th>
+                  <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Действия</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y">
+                <tr v-for="transaction in cashTransactions" :key="transaction.id" class="hover:bg-gray-50">
+                  <td class="px-4 py-3 text-sm text-gray-500">{{ formatDate(transaction.created_at) }}</td>
+                  <td class="px-4 py-3 text-sm text-gray-900">{{ transaction.account_name }}</td>
+                  <td class="px-4 py-3">
+                    <span :class="transaction.type === 'income' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'" class="px-2 py-1 rounded-full text-xs font-medium">
+                      {{ transaction.type === 'income' ? 'Приход' : 'Расход' }}
+                    </span>
+                  </td>
+                  <td class="px-4 py-3 text-sm text-gray-900">{{ transaction.description || '—' }}</td>
+                  <td class="px-4 py-3 text-sm text-right font-medium" :class="transaction.type === 'income' ? 'text-green-600' : 'text-red-600'">
+                    {{ transaction.type === 'income' ? '+' : '-' }}{{ formatCurrency(transaction.amount) }}
+                  </td>
+                  <td class="px-4 py-3">
+                    <div class="flex justify-end gap-2">
+                      <button
+                        @click="openEditTransaction(transaction)"
+                        :disabled="!!transaction.order_id"
+                        class="admin-link-button admin-link-button--edit disabled:cursor-not-allowed disabled:opacity-40"
+                        :title="transaction.order_id ? 'Транзакция создана автоматически и редактируется из заказа' : 'Редактировать транзакцию'"
+                      >
+                        Редактировать
+                      </button>
+                      <button
+                        @click="deleteTransaction(transaction)"
+                        :disabled="!!transaction.order_id"
+                        class="admin-link-button admin-link-button--danger disabled:cursor-not-allowed disabled:opacity-40"
+                        :title="transaction.order_id ? 'Операция создана автоматически. Удалите оплату в заказе.' : 'Удалить транзакцию'"
+                      >
+                        Удалить
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div v-else class="text-center py-8 text-gray-500">Транзакций нет</div>
         </div>
-        <div v-else class="text-center py-8 text-gray-500">Транзакций нет</div>
+      </template>
+
+      <div v-else class="relative overflow-hidden rounded-3xl border border-dashed border-blue-200 bg-white/80 p-10 text-center shadow-inner">
+        <div class="mx-auto flex max-w-xl flex-col items-center gap-5">
+          <span class="inline-flex h-16 w-16 items-center justify-center rounded-full bg-blue-100 text-blue-600">
+            <LockClosedIcon class="h-8 w-8" />
+          </span>
+          <div class="space-y-2">
+            <h2 class="text-2xl font-semibold text-gray-900">Финансовые данные скрыты</h2>
+            <p class="text-sm text-gray-600">
+              Введите пароль, чтобы просмотреть кассы, балансы и историю транзакций.
+            </p>
+          </div>
+          <button
+            type="button"
+            class="inline-flex items-center gap-2 rounded-full bg-blue-600 px-5 py-2 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-400"
+            @click="openPasswordModal"
+            :disabled="verifyingPassword"
+          >
+            <LockClosedIcon class="h-5 w-5" />
+            <span>{{ verifyingPassword ? 'Проверяем…' : 'Открыть доступ' }}</span>
+          </button>
+        </div>
       </div>
     </div>
+
+    <!-- Profit Password Modal -->
+    <AdminModal
+      :isOpen="showPasswordModal"
+      title="Подтверждение доступа"
+      description="Введите пароль, чтобы открыть финансовую информацию."
+      size="sm"
+      :showActions="false"
+      @close="closePasswordModal"
+      @cancel="closePasswordModal"
+    >
+      <form class="space-y-4" @submit.prevent="submitPassword">
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Пароль</label>
+          <input
+            v-model="passwordInput"
+            type="password"
+            class="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
+            placeholder="Введите пароль"
+            :disabled="verifyingPassword"
+          />
+          <p v-if="passwordError" class="mt-2 text-sm text-red-600">{{ passwordError }}</p>
+        </div>
+        <div class="flex gap-3 pt-2">
+          <button
+            type="submit"
+            class="flex-1 rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-400"
+            :disabled="verifyingPassword"
+          >
+            {{ verifyingPassword ? 'Проверяем…' : 'Показать' }}
+          </button>
+          <button
+            type="button"
+            class="flex-1 rounded-md bg-gray-200 px-4 py-2 text-sm font-medium text-gray-700 transition hover:bg-gray-300"
+            @click="closePasswordModal"
+            :disabled="verifyingPassword"
+          >
+            Отмена
+          </button>
+        </div>
+      </form>
+    </AdminModal>
 
     <!-- Add Transaction Modal -->
     <AdminModal
@@ -214,14 +281,15 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, watch, reactive } from 'vue'
+import { ref, onMounted, watch, reactive, computed } from 'vue'
 import { useCrmStore } from '@/stores/crm'
 import { storeToRefs } from 'pinia'
 import AdminModal from '@/components/AdminModal.vue'
 import type { CashTransaction } from '@/stores/crm'
+import { LockClosedIcon } from '@heroicons/vue/24/outline'
 
 const crmStore = useCrmStore()
-const { cashAccounts, cashTransactions } = storeToRefs(crmStore)
+const { cashAccounts, cashTransactions, profitUnlocked, verifyingProfitAccess } = storeToRefs(crmStore)
 const showAccountModal = ref(false)
 const showTransactionModal = ref(false)
 const transactionFilter = ref<'income' | 'expense' | null>(null)
@@ -237,6 +305,18 @@ const editTransactionForm = reactive({
 })
 const editTransactionError = ref('')
 const savingTransaction = ref(false)
+const showPasswordModal = ref(false)
+const passwordInput = ref('')
+const passwordError = ref('')
+const verifyingPassword = computed(() => verifyingProfitAccess.value)
+watch(profitUnlocked, (unlocked) => {
+  if (!unlocked) {
+    showAccountModal.value = false
+    showTransactionModal.value = false
+    showEditTransactionModal.value = false
+    showPasswordModal.value = false
+  }
+})
 
 watch(transactionFilter, () => {
   crmStore.fetchCashTransactions({ type: transactionFilter.value || undefined })
@@ -317,6 +397,33 @@ function resetNewAccount() {
 function closeAccountModal() {
   showAccountModal.value = false
   resetNewAccount()
+}
+
+function openPasswordModal() {
+  passwordInput.value = ''
+  passwordError.value = ''
+  showPasswordModal.value = true
+}
+
+function closePasswordModal() {
+  showPasswordModal.value = false
+  passwordInput.value = ''
+  passwordError.value = ''
+}
+
+async function submitPassword() {
+  if (!passwordInput.value.trim()) {
+    passwordError.value = 'Введите пароль'
+    return
+  }
+
+  passwordError.value = ''
+  try {
+    await crmStore.verifyProfitPassword(passwordInput.value.trim())
+    closePasswordModal()
+  } catch (error) {
+    passwordError.value = 'Неверный пароль'
+  }
 }
 
 function openEditTransaction(transaction: CashTransaction) {

@@ -230,6 +230,15 @@ async function fetchAPI<T>(endpoint: string, options?: RequestInit): Promise<T> 
 }
 
 export const useCrmStore = defineStore('crm', () => {
+  // Profit access
+  const profitUnlocked = ref(false)
+  const verifyingProfitAccess = ref(false)
+  const isProfitUnlocked = computed(() => profitUnlocked.value)
+
+  function lockProfitAccess() {
+    profitUnlocked.value = false
+  }
+
   // Dashboard
   const dashboardStats = ref<DashboardStats | null>(null)
   const loadingDashboard = ref(false)
@@ -568,10 +577,24 @@ export const useCrmStore = defineStore('crm', () => {
   }
 
   async function verifyProfitPassword(password: string) {
-    return fetchAPI<{ ok: boolean }>(`/api/admin/settings/profit-password/verify`, {
-      method: 'POST',
-      body: JSON.stringify({ password })
-    })
+    verifyingProfitAccess.value = true
+    try {
+      const result = await fetchAPI<{ ok: boolean }>(`/api/admin/settings/profit-password/verify`, {
+        method: 'POST',
+        body: JSON.stringify({ password })
+      })
+
+      if (result.ok) {
+        profitUnlocked.value = true
+      }
+
+      return result
+    } catch (error) {
+      profitUnlocked.value = false
+      throw error
+    } finally {
+      verifyingProfitAccess.value = false
+    }
   }
 
   // Write-offs
@@ -771,6 +794,12 @@ export const useCrmStore = defineStore('crm', () => {
   }
 
   return {
+    // Profit access
+    profitUnlocked,
+    isProfitUnlocked,
+    verifyingProfitAccess,
+    lockProfitAccess,
+
     // Dashboard
     dashboardStats,
     loadingDashboard,

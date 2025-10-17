@@ -379,7 +379,17 @@
               <span v-else class="text-gray-400">—</span>
             </td>
             <td class="px-4 py-4 text-right text-gray-700" :style="columnStyle(5)">
-              <span class="font-medium text-gray-900">{{ formatRub(p.costPrice) }}</span>
+              <div class="flex items-center justify-end">
+                <span v-if="profitUnlocked" class="font-medium text-gray-900">{{ formatRub(p.costPrice) }}</span>
+                <span
+                  v-else
+                  class="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2 py-1 text-[0.65rem] font-semibold uppercase tracking-[0.12em] text-gray-500"
+                  :aria-label="`Себестоимость скрыта`"
+                >
+                  <LockClosedIcon class="h-4 w-4 text-gray-400" />
+                  Скрыто
+                </span>
+              </div>
             </td>
             <td class="px-4 py-4 text-right" :style="columnStyle(6)">
               <div class="flex items-center justify-end gap-2 whitespace-nowrap">
@@ -496,7 +506,12 @@
                       {{ formatRub(p.priceRub) }}
                     </p>
                     <p class="text-xs text-gray-600 leading-snug">
-                      Себес: <span class="font-semibold">{{ formatRub(p.costPrice) }}</span>
+                      Себес:
+                      <span v-if="profitUnlocked" class="font-semibold">{{ formatRub(p.costPrice) }}</span>
+                      <span v-else class="inline-flex items-center gap-1 text-gray-400 font-semibold uppercase tracking-[0.12em]">
+                        <LockClosedIcon class="h-3.5 w-3.5" />
+                        Скрыто
+                      </span>
                     </p>
                     <p class="text-xs leading-snug" :class="isBelowMin(p) ? 'text-red-600 font-semibold' : 'text-gray-600'">
                       Остаток: {{ Number(p.stock ?? 0) }}<span v-if="Number(p.minStock ?? 0) > 0"> / мин. {{ Number(p.minStock ?? 0) }}</span>
@@ -572,7 +587,16 @@
                     </p>
                     <div class="flex flex-wrap gap-4 text-sm">
                       <span class="text-gray-600">
-                        Себес: <span class="font-medium">{{ formatRub(p.costPrice) }}</span>
+                        Себес:
+                        <span v-if="profitUnlocked" class="font-medium">{{ formatRub(p.costPrice) }}</span>
+                        <span
+                          v-else
+                          class="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2 py-1 text-[0.65rem] font-semibold uppercase tracking-[0.12em] text-gray-500"
+                          :aria-label="`Себестоимость скрыта`"
+                        >
+                          <LockClosedIcon class="h-4 w-4 text-gray-400" />
+                          Скрыто
+                        </span>
                       </span>
                       <span :class="isBelowMin(p) ? 'text-red-600 font-semibold' : 'text-gray-600'">
                         Остаток: {{ Number(p.stock ?? 0) }}<span v-if="Number(p.minStock ?? 0) > 0"> / мин. {{ Number(p.minStock ?? 0) }}</span>
@@ -926,9 +950,11 @@
 
 <script setup lang="ts">
 import { computed, ref, watch, onMounted, onUnmounted, nextTick } from 'vue'
-import { PlusIcon, FunnelIcon, XMarkIcon, CubeIcon, MagnifyingGlassIcon } from '@heroicons/vue/24/outline'
+import { PlusIcon, FunnelIcon, XMarkIcon, CubeIcon, MagnifyingGlassIcon, LockClosedIcon } from '@heroicons/vue/24/outline'
 import AdminSectionHero from '@/components/admin/layout/AdminSectionHero.vue'
 import { useAdminStore } from '@/stores/admin'
+import { useCrmStore } from '@/stores/crm'
+import { storeToRefs } from 'pinia'
 
 interface ProductLink { label?: string; url: string }
 interface Category { id: string; name: string }
@@ -985,6 +1011,8 @@ const isMobile = ref(false)
 const viewMode = ref<'table' | 'list'>('table')
 const isInitialized = ref(false)
 const adminStore = useAdminStore()
+const crmStore = useCrmStore()
+const { profitUnlocked } = storeToRefs(crmStore)
 const showGroupModal = ref(false)
 const selectedGroupId = ref('')
 const groupModalCategoryId = ref('')
@@ -1360,6 +1388,10 @@ watch(() => viewMode.value, (next) => {
 })
 
 watch(() => props.isLoading, () => {
+  queueColumnMeasurement()
+})
+
+watch(profitUnlocked, () => {
   queueColumnMeasurement()
 })
 

@@ -772,7 +772,7 @@ const router = useRouter()
 const route = useRoute()
 const adminStore = useAdminStore()
 const crmStore = useCrmStore()
-const { dashboardStats, loadingDashboard } = storeToRefs(crmStore)
+const { dashboardStats, loadingDashboard, profitUnlocked, verifyingProfitAccess } = storeToRefs(crmStore)
 const isCrmRoute = computed(() => route.path.startsWith('/admin/crm'))
 
 const overviewPeriods = [
@@ -784,11 +784,10 @@ const overviewPeriods = [
 type OverviewPeriod = typeof overviewPeriods[number]['value']
 const overviewPeriod = ref<OverviewPeriod>('today')
 const activeOverviewLabel = computed(() => overviewPeriods.find(option => option.value === overviewPeriod.value)?.label || '')
-const profitUnlocked = ref(false)
 const showProfitModal = ref(false)
 const profitPassword = ref('')
 const profitError = ref('')
-const verifyingProfit = ref(false)
+const verifyingProfit = computed(() => verifyingProfitAccess.value)
 
 type CategoryGroupNode = CategoryGroup & { children: CategoryGroupNode[] }
 
@@ -1058,16 +1057,12 @@ async function submitProfitPassword() {
     profitError.value = 'Введите пароль'
     return
   }
-  verifyingProfit.value = true
   profitError.value = ''
   try {
     await crmStore.verifyProfitPassword(profitPassword.value.trim())
-    profitUnlocked.value = true
     closeProfitModal()
   } catch (error) {
     profitError.value = 'Неверный пароль'
-  } finally {
-    verifyingProfit.value = false
   }
 }
 
@@ -1106,7 +1101,7 @@ async function handleProfitPasswordUpdate() {
       currentPassword: current,
       newPassword: next
     })
-    profitUnlocked.value = false
+    crmStore.lockProfitAccess()
     profitPasswordForm.value.current = ''
     profitPasswordForm.value.next = ''
     profitPasswordForm.value.confirm = ''
@@ -1656,7 +1651,7 @@ watch(() => adminStore.isAuthenticated, async (loggedIn) => {
   if (loggedIn) {
     await crmStore.fetchDashboard(overviewPeriod.value)
   } else {
-    profitUnlocked.value = false
+    crmStore.lockProfitAccess()
   }
 })
 
