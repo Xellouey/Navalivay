@@ -180,6 +180,16 @@ export interface VisitLog {
   visited_at: string
 }
 
+export interface MessageTemplate {
+  id: string
+  name: string
+  content: string
+  type: string
+  active: number
+  created_at: string
+  updated_at: string | null
+}
+
 export interface DashboardStats {
   period: string
   stats: {
@@ -360,13 +370,14 @@ export const useCrmStore = defineStore('crm', () => {
     totalPages: 0
   })
 
-  async function fetchOrders(params?: { status?: string; page?: number; limit?: number }) {
+  async function fetchOrders(params?: { status?: string; page?: number; limit?: number; search?: string }) {
     loadingOrders.value = true
     try {
       const query = new URLSearchParams()
       if (params?.status) query.append('status', params.status)
       if (params?.page) query.append('page', params.page.toString())
       if (params?.limit) query.append('limit', params.limit.toString())
+      if (params?.search) query.append('search', params.search)
 
       const response = await fetchAPI<{ orders: Order[]; pagination: typeof ordersPagination.value }>(
         `${API_BASE}/orders?${query}`
@@ -793,6 +804,63 @@ export const useCrmStore = defineStore('crm', () => {
     })) as CrmProductSummary[]
   }
 
+  // Generate message for order contact
+  async function generateOrderMessage(orderId: string, templateId?: string) {
+    return await fetchAPI<{ message: string; telegramUsername: string | null; templateUsed: string }>(
+      `${API_BASE}/orders/${orderId}/generate-message`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ templateId })
+      }
+    )
+  }
+
+  // Message Templates
+  const messageTemplates = ref<MessageTemplate[]>([])
+  const loadingTemplates = ref(false)
+
+  async function fetchMessageTemplates() {
+    loadingTemplates.value = true
+    try {
+      messageTemplates.value = await fetchAPI<MessageTemplate[]>(`${API_BASE}/message-templates`)
+    } finally {
+      loadingTemplates.value = false
+    }
+  }
+
+  async function createMessageTemplate(data: {
+    name: string
+    content: string
+    type?: string
+  }) {
+    const template = await fetchAPI<MessageTemplate>(`${API_BASE}/message-templates`, {
+      method: 'POST',
+      body: JSON.stringify(data)
+    })
+    messageTemplates.value.push(template)
+    return template
+  }
+
+  async function updateMessageTemplate(
+    id: string,
+    data: Partial<Omit<MessageTemplate, 'id' | 'created_at' | 'updated_at'>>
+  ) {
+    const template = await fetchAPI<MessageTemplate>(`${API_BASE}/message-templates/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data)
+    })
+    const index = messageTemplates.value.findIndex((t) => t.id === id)
+    if (index !== -1) {
+      messageTemplates.value[index] = template
+    }
+    return template
+  }
+
+  async function deleteMessageTemplate(id: string) {
+    await fetchAPI(`${API_BASE}/message-templates/${id}`, { method: 'DELETE' })
+    messageTemplates.value = messageTemplates.value.filter((t) => t.id !== id)
+  }
+
   return {
     // Profit access
     profitUnlocked,
@@ -870,6 +938,15 @@ export const useCrmStore = defineStore('crm', () => {
     fetchLowStockProducts,
 
     searchCrmProducts,
+    generateOrderMessage,
+
+    // Message Templates
+    messageTemplates,
+    loadingTemplates,
+    fetchMessageTemplates,
+    createMessageTemplate,
+    updateMessageTemplate,
+    deleteMessageTemplate,
 
     // Payments management
     deleteOrderPayment,

@@ -398,3 +398,211 @@ publicRouter.get('/api/settings', (req, res) => {
     });
   }
 });
+
+// Helper functions
+function generateId(prefix) {
+  return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function getNextNumber(table, field) {
+  const row = db.prepare(`SELECT MAX(${field}) as maxNum FROM ${table}`).get();
+  return (row?.maxNum || 0) + 1;
+}
+
+// Create order (public endpoint)
+publicRouter.post('/api/orders', (req, res) => {
+  try {
+    const {
+      telegram_id,
+      telegram_username,
+      first_name,
+      last_name,
+      phone,
+      delivery_type = 'pickup',
+      delivery_address,
+      notes,
+      items
+    } = req.body;
+
+    if (!Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({ error: 'items_required', message: 'Товары обязательны' });
+    }
+
+    // Validate delivery requirements
+    if (delivery_type === 'delivery') {
+      if (!phone || !phone.trim()) {
+        return res.status(400).json({ error: 'phone_required', message: 'Укажите телефон для доставки' });
+      }
+      if (!delivery_address || !delivery_address.trim()) {
+        return res.status(400).json({ error: 'address_required', message: 'Укажите адрес доставки' });
+      }
+    }
+
+    const tx = db.transaction(() => {
+      // Find or create customer
+      let customerId = null;
+      
+      if (telegram_id) {
+        const existing = db.prepare('SELECT id FROM customers WHERE telegram_id = ?').get(telegram_id);
+        if (existing) {
+          customerId = existing.id;
+          // Update customer info
+          db.prepare(`
+            UPDATE customers
+            SET telegram_username = ?,
+                first_name = ?,
+                last_name = ?,
+                phone = COALESCE(?, phone),
+                last_visit_at = DATETIME('now'),
+                updated_at = DATETIME('now')
+            WHERE id = ?
+          `).run(
+            telegram_username || null,
+            first_name || null,
+            last_name || null,
+            phone || null,
+            customerId
+          );
+        } else {
+          // Create new customer
+          customerId = generateId('cust');
+          db.prepare(`
+            INSERT INTO customers (
+              id, telegram_id, telegram_username, first_name, last_name, phone,
+              first_visit_at, last_visit_at, total_orders, total_spent
+            ) VALUES (?, ?, ?, ?, ?, ?, DATETIME('now'), DATETIME('now'), 0, 0)
+          `).run(
+            customerId,
+            telegram_id,
+            telegram_username || null,
+            first_name || null,
+            last_name || null,
+            phone || null
+          );
+        }
+      }
+
+      // Generate order
+      const orderId = generateId('order');
+      const orderNumber = getNextNumber('orders', 'order_number');
+
+      // Calculate totals
+      let totalAmount = 0;
+      let totalCost = 0;
+
+      const orderItems = items.map(item => {
+        const product = db.prepare('SELECT * FROM products WHERE id = ?').get(item.product_id);
+        if (!product) {
+          throw new Error(`Товар не найден: ${item.product_id}`);
+        }
+
+        // Check stock
+        if (product.stock !== null && product.stock < item.quantity) {
+          throw new Error(`Недостаточно товара: ${product.title}`);
+        }
+
+        const pricePerUnit = item.price_per_unit || product.priceRub;
+        const costPerUnit = product.cost_price || 0;
+        const totalPrice = pricePerUnit * item.quantity;
+        const totalItemCost = costPerUnit * item.quantity;
+
+        totalAmount += totalPrice;
+        totalCost += totalItemCost;
+
+        return {
+          id: generateId('oi'),
+          product_id: item.product_id,
+          product_title: product.title || 'Без названия',
+          quantity: item.quantity,
+          price_per_unit: pricePerUnit,
+          cost_per_unit: costPerUnit,
+          discount_amount: 0,
+          total_price: totalPrice,
+          total_cost: totalItemCost
+        };
+      });
+
+      const finalAmount = totalAmount;
+      const profit = finalAmount - totalCost;
+
+      // Insert order
+      db.prepare(`
+        INSERT INTO orders (
+          id, order_number, customer_id, status, delivery_type, delivery_address,
+          total_amount, discount_amount, discount_percent, final_amount, profit, notes, phone
+        ) VALUES (?, ?, ?, 'new', ?, ?, ?, 0, 0, ?, ?, ?, ?)
+      `).run(
+        orderId,
+        orderNumber,
+        customerId,
+        delivery_type,
+        delivery_address || null,
+        totalAmount,
+        finalAmount,
+        profit,
+        notes || null,
+        phone || null
+      );
+
+      // Insert order items
+      const itemStmt = db.prepare(`
+        INSERT INTO order_items (
+          id, order_id, product_id, product_title, quantity,
+          price_per_unit, cost_per_unit, discount_amount, total_price, total_cost
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+
+      for (const item of orderItems) {
+        itemStmt.run(
+          item.id,
+          orderId,
+          item.product_id,
+          item.product_title,
+          item.quantity,
+          item.price_per_unit,
+          item.cost_per_unit,
+          item.discount_amount,
+          item.total_price,
+          item.total_cost
+        );
+
+        // Update stock
+        if (db.prepare('SELECT stock FROM products WHERE id = ?').get(item.product_id).stock !== null) {
+          db.prepare('UPDATE products SET stock = stock - ? WHERE id = ?').run(
+            item.quantity,
+            item.product_id
+          );
+        }
+      }
+
+      // Update customer stats
+      if (customerId) {
+        db.prepare(`
+          UPDATE customers
+          SET total_orders = total_orders + 1,
+              total_spent = total_spent + ?,
+              last_order_at = DATETIME('now'),
+              updated_at = DATETIME('now')
+          WHERE id = ?
+        `).run(finalAmount, customerId);
+      }
+
+      return { orderId, orderNumber };
+    });
+
+    const result = tx();
+
+    res.json({
+      success: true,
+      order_id: result.orderId,
+      order_number: result.orderNumber,
+      message: 'Заказ успешно создан'
+    });
+  } catch (error) {
+    console.error('[public] Create order error:', error);
+    res.status(500).json({
+      error: 'failed',
+      message: error.message || 'Не удалось создать заказ'
+    });
+  }
+});

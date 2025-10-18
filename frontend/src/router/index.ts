@@ -32,6 +32,11 @@ const router = createRouter({
       props: true
     },
     {
+      path: '/checkout',
+      name: 'checkout',
+      component: () => import('../views/CheckoutView.vue')
+    },
+    {
       path: '/admin',
       name: 'Admin',
       component: () => import('@/views/AdminView.vue'),
@@ -94,6 +99,12 @@ const router = createRouter({
           path: 'crm/write-offs',
           name: 'CrmWriteOffs',
           component: () => import('@/views/admin/crm/CrmWriteOffs.vue'),
+          beforeEnter: requireAdminAuth
+        },
+        {
+          path: 'crm/message-templates',
+          name: 'CrmMessageTemplates',
+          component: () => import('@/views/admin/crm/CrmMessageTemplates.vue'),
           beforeEnter: requireAdminAuth
         }
       ]

@@ -68,34 +68,49 @@ function applyDiscounts(totalAmount, discountAmount, discountPercent) {
 // =========================
 crmOperationsRouter.get('/api/admin/crm/orders', authMiddleware, (req, res) => {
   try {
-    const { status, page = 1, limit = 20 } = req.query;
+    const { status, page = 1, limit = 20, search } = req.query;
     
-    let whereClause = '';
+    const whereClauses = [];
     const params = [];
     
     if (status) {
-      whereClause = 'WHERE o.status = ?';
+      whereClauses.push('o.status = ?');
       params.push(status);
     }
+    
+    if (search) {
+      const searchTerm = String(search).trim();
+      if (searchTerm) {
+        // Поиск по номеру заказа, имени клиента или username
+        whereClauses.push('(o.order_number LIKE ? OR c.first_name LIKE ? OR c.last_name LIKE ? OR c.telegram_username LIKE ?)');
+        const likePattern = `%${searchTerm}%`;
+        params.push(likePattern, likePattern, likePattern, likePattern);
+      }
+    }
+    
+    const whereClause = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
 
     const offset = (parseInt(page) - 1) * parseInt(limit);
     
+    const countSql = `SELECT COUNT(*) as count FROM orders o LEFT JOIN customers c ON c.id = o.customer_id ${whereClause}`;
     const total = params.length > 0
-      ? db.prepare(`SELECT COUNT(*) as count FROM orders o ${whereClause}`).get(...params).count
+      ? db.prepare(countSql).get(...params).count
       : db.prepare(`SELECT COUNT(*) as count FROM orders o`).get().count;
 
+    const ordersSql = `
+      SELECT 
+        o.*,
+        c.telegram_username,
+        c.first_name || ' ' || COALESCE(c.last_name, '') as customer_name
+      FROM orders o
+      LEFT JOIN customers c ON c.id = o.customer_id
+      ${whereClause}
+      ORDER BY o.created_at DESC
+      LIMIT ? OFFSET ?
+    `;
+    
     const orders = params.length > 0
-      ? db.prepare(`
-          SELECT 
-            o.*,
-            c.telegram_username,
-            c.first_name || ' ' || COALESCE(c.last_name, '') as customer_name
-          FROM orders o
-          LEFT JOIN customers c ON c.id = o.customer_id
-          ${whereClause}
-          ORDER BY o.created_at DESC
-          LIMIT ? OFFSET ?
-        `).all(...params, parseInt(limit), offset)
+      ? db.prepare(ordersSql).all(...params, parseInt(limit), offset)
       : db.prepare(`
           SELECT 
             o.*,

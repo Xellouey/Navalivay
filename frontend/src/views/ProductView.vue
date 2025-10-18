@@ -243,8 +243,19 @@
                     </p>
                   </div>
 
-                  <!-- Buy Button -->
-                  <div class="space-y-4">
+                  <!-- Action Buttons -->
+                  <div class="space-y-3">
+                    <button
+                      @click="addToCart"
+                      class="w-full py-4 bg-gray-900 text-white rounded-xl font-bold text-lg uppercase tracking-wide shadow-lg hover:shadow-xl hover:-translate-y-1 active:scale-98 transition-all duration-300"
+                    >
+                      <span class="flex items-center justify-center gap-3">
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" />
+                        </svg>
+                        <span>Добавить в корзину</span>
+                      </span>
+                    </button>
                     <button
                       @click="buyNow"
                       class="w-full py-4 bg-brand-primary text-brand-dark rounded-xl font-bold text-lg uppercase tracking-wide shadow-lg hover:shadow-xl hover:-translate-y-1 active:scale-98 transition-all duration-300"
@@ -297,16 +308,29 @@
             </div>
           </div>
 
-          <!-- Buy Button -->
-          <button
-            @click="buyNow"
-            class="w-full py-3.5 bg-brand-primary text-brand-dark rounded-xl font-bold text-base uppercase tracking-wide shadow-md hover:shadow-lg hover:-translate-y-0.5 active:scale-[0.98] transition-all duration-200"
-          >
-            <span class="flex items-center justify-center gap-2">
-              <ShoppingBagIcon class="w-5 h-5" />
-              <span>Купить сейчас</span>
-            </span>
-          </button>
+          <!-- Action Buttons -->
+          <div class="space-y-2">
+            <button
+              @click="addToCart"
+              class="w-full py-3 bg-gray-900 text-white rounded-xl font-bold text-base uppercase tracking-wide shadow-md hover:shadow-lg hover:-translate-y-0.5 active:scale-[0.98] transition-all duration-200"
+            >
+              <span class="flex items-center justify-center gap-2">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" />
+                </svg>
+                <span>В корзину</span>
+              </span>
+            </button>
+            <button
+              @click="buyNow"
+              class="w-full py-3 bg-brand-primary text-brand-dark rounded-xl font-bold text-base uppercase tracking-wide shadow-md hover:shadow-lg hover:-translate-y-0.5 active:scale-[0.98] transition-all duration-200"
+            >
+              <span class="flex items-center justify-center gap-2">
+                <ShoppingBagIcon class="w-5 h-5" />
+                <span>Купить сейчас</span>
+              </span>
+            </button>
+          </div>
 
         </div>
 
@@ -329,6 +353,7 @@
 import { ref, computed, onMounted, nextTick, watch } from 'vue'
 import { useRouter, onBeforeRouteUpdate } from 'vue-router'
 import { useCatalogStore } from '@/stores/catalog'
+import { useCartStore } from '@/stores/cart'
 
 // Import new components
 import ProductHero from '@/components/product/ProductHero.vue'
@@ -351,6 +376,7 @@ import {
 // Props and stores
 const props = defineProps<{ id: string }>()
 const catalogStore = useCatalogStore()
+const cartStore = useCartStore()
 const router = useRouter()
 
 // State
@@ -406,6 +432,18 @@ const productBadges = computed(() => {
 
 
 // Actions
+function addToCart() {
+  if (!product.value) return
+  
+  cartStore.addItem(product.value, 1)
+  hapticFeedback('success')
+  
+  // Show notification
+  if (window.Telegram?.WebApp) {
+    window.Telegram.WebApp.showAlert('Товар добавлен в корзину')
+  }
+}
+
 function buyNow() {
   if (!product.value) return
   

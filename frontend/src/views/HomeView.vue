@@ -256,6 +256,7 @@ import { useRouter } from 'vue-router'
 import { ExclamationTriangleIcon, PhotoIcon } from '@heroicons/vue/24/outline'
 
 import { useCatalogStore, type Product, type Category, type CategoryGroup, type ProductBadge } from '@/stores/catalog'
+import { useCartStore } from '@/stores/cart'
 import SmokeParticles from '@/components/SmokeParticles.vue'
 import DeliveryInfo from '@/components/DeliveryInfo.vue'
 import BannerCarousel from '@/components/BannerCarousel.vue'
@@ -263,6 +264,7 @@ import LiquidLineCard from '@/components/product/liquid/LiquidLineCard.vue'
 import LiquidFlavorRow from '@/components/product/liquid/LiquidFlavorRow.vue'
 
 const catalogStore = useCatalogStore()
+const cartStore = useCartStore()
 const router = useRouter()
 
 const searchQuery = ref('')
@@ -449,8 +451,8 @@ const showProducts = computed(() => {
   return catalogStore.activeGroup !== null
 })
 
-const totalCartItems = computed(() => 163)
-const totalCartAmount = computed(() => 163)
+const totalCartItems = computed(() => cartStore.totalItems)
+const totalCartAmount = computed(() => cartStore.totalAmount.toFixed(2))
 
 function getProductBadges(product: Product): ProductBadge[] {
   if (!Array.isArray(product.badges)) {
@@ -545,7 +547,7 @@ function openProduct(product: Product) {
 }
 
 function goToCheckout() {
-  // TODO: Implement checkout logic
+  router.push('/checkout')
 }
 
 function toggleGroupExpansion(groupId: string) {

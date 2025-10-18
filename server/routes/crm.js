@@ -420,4 +420,157 @@ crmRouter.get('/api/customers/:telegramId/check-blocks', (req, res) => {
   }
 });
 
-// Продолжение в следующем сообщении (файл слишком большой)
+// =========================
+// MESSAGE TEMPLATES (Шаблоны сообщений)
+// =========================
+
+// Получить все шаблоны
+crmRouter.get('/api/admin/crm/message-templates', authMiddleware, (req, res) => {
+  try {
+    const templates = db.prepare(`
+      SELECT * FROM message_templates
+      WHERE active = 1
+      ORDER BY created_at DESC
+    `).all();
+    res.json(templates);
+  } catch (error) {
+    console.error('[crm] Get message templates error:', error);
+    res.status(500).json({ error: 'failed', message: error.message });
+  }
+});
+
+// Получить шаблон по ID
+crmRouter.get('/api/admin/crm/message-templates/:id', authMiddleware, (req, res) => {
+  try {
+    const { id } = req.params;
+    const template = db.prepare('SELECT * FROM message_templates WHERE id = ?').get(id);
+    
+    if (!template) {
+      return res.status(404).json({ error: 'not_found' });
+    }
+    
+    res.json(template);
+  } catch (error) {
+    console.error('[crm] Get message template error:', error);
+    res.status(500).json({ error: 'failed', message: error.message });
+  }
+});
+
+// Создать шаблон
+crmRouter.post('/api/admin/crm/message-templates', authMiddleware, (req, res) => {
+  try {
+    const { name, content, type = 'order_contact' } = req.body;
+    
+    if (!name || !content) {
+      return res.status(400).json({ error: 'missing_fields' });
+    }
+    
+    const id = generateId('tpl');
+    db.prepare(`
+      INSERT INTO message_templates (id, name, content, type, active)
+      VALUES (?, ?, ?, ?, 1)
+    `).run(id, name, content, type);
+    
+    const template = db.prepare('SELECT * FROM message_templates WHERE id = ?').get(id);
+    res.json(template);
+  } catch (error) {
+    console.error('[crm] Create message template error:', error);
+    res.status(500).json({ error: 'failed', message: error.message });
+  }
+});
+
+// Обновить шаблон
+crmRouter.patch('/api/admin/crm/message-templates/:id', authMiddleware, (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name, content, type, active } = req.body;
+    
+    const current = db.prepare('SELECT * FROM message_templates WHERE id = ?').get(id);
+    if (!current) {
+      return res.status(404).json({ error: 'not_found' });
+    }
+    
+    db.prepare(`
+      UPDATE message_templates
+      SET name = ?, content = ?, type = ?, active = ?, updated_at = DATETIME('now')
+      WHERE id = ?
+    `).run(
+      name !== undefined ? name : current.name,
+      content !== undefined ? content : current.content,
+      type !== undefined ? type : current.type,
+      active !== undefined ? (active ? 1 : 0) : current.active,
+      id
+    );
+    
+    const updated = db.prepare('SELECT * FROM message_templates WHERE id = ?').get(id);
+    res.json(updated);
+  } catch (error) {
+    console.error('[crm] Update message template error:', error);
+    res.status(500).json({ error: 'failed', message: error.message });
+  }
+});
+
+// Удалить шаблон
+crmRouter.delete('/api/admin/crm/message-templates/:id', authMiddleware, (req, res) => {
+  try {
+    const { id } = req.params;
+    db.prepare('DELETE FROM message_templates WHERE id = ?').run(id);
+    res.json({ ok: true });
+  } catch (error) {
+    console.error('[crm] Delete message template error:', error);
+    res.status(500).json({ error: 'failed', message: error.message });
+  }
+});
+
+// Сгенерировать сообщение по шаблону для заказа
+crmRouter.post('/api/admin/crm/orders/:orderId/generate-message', authMiddleware, (req, res) => {
+  try {
+    const { orderId } = req.params;
+    const { templateId } = req.body;
+    
+    const order = db.prepare(`
+      SELECT 
+        o.*,
+        c.telegram_username,
+        c.phone,
+        c.first_name,
+        c.last_name
+      FROM orders o
+      LEFT JOIN customers c ON c.id = o.customer_id
+      WHERE o.id = ?
+    `).get(orderId);
+    
+    if (!order) {
+      return res.status(404).json({ error: 'order_not_found' });
+    }
+    
+    const template = templateId
+      ? db.prepare('SELECT * FROM message_templates WHERE id = ? AND active = 1').get(templateId)
+      : db.prepare('SELECT * FROM message_templates WHERE type = ? AND active = 1 ORDER BY created_at DESC LIMIT 1').get('order_contact');
+    
+    if (!template) {
+      return res.status(404).json({ error: 'template_not_found' });
+    }
+    
+    // Получить позиции заказа
+    const items = db.prepare('SELECT * FROM order_items WHERE order_id = ?').all(orderId);
+    const itemsText = items.map(item => `• ${item.product_title} × ${item.quantity} — ${item.total_price}₽`).join('\n');
+    
+    // Заменить переменные в шаблоне
+    let message = template.content;
+    message = message.replace(/\[order_number\]/g, order.order_number || '');
+    message = message.replace(/\[items\]/g, itemsText || 'Нет позиций');
+    message = message.replace(/\[total\]/g, order.final_amount || order.total_amount || 0);
+    message = message.replace(/\[phone\]/g, order.phone || 'не указан');
+    message = message.replace(/\[address\]/g, order.delivery_address || 'не указан');
+    
+    res.json({
+      message,
+      telegramUsername: order.telegram_username,
+      templateUsed: template.name
+    });
+  } catch (error) {
+    console.error('[crm] Generate message error:', error);
+    res.status(500).json({ error: 'failed', message: error.message });
+  }
+});

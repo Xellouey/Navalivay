@@ -46,6 +46,15 @@
             {{ soundEnabled ? 'Звук' : 'Звук выкл' }}
           </button>
           <button
+            @click="$router.push('/admin/crm/message-templates')"
+            class="inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-100"
+          >
+            <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+            </svg>
+            Шаблоны
+          </button>
+          <button
             @click="showCreateModal = true"
             class="w-full rounded-lg bg-blue-600 px-5 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-700 sm:w-auto"
           >
@@ -58,6 +67,21 @@
         <h1 class="text-2xl font-bold text-gray-900 sm:text-3xl">Заказы</h1>
         <p class="text-sm text-gray-600 sm:text-base">Канбан доска для статусов «Новый → Собран → Выдан»</p>
       </header>
+
+      <div class="flex flex-col sm:flex-row gap-3">
+        <div class="relative flex-1">
+          <input
+            v-model="searchQuery"
+            type="search"
+            placeholder="Поиск по номеру заказа, имени клиента или username..."
+            class="w-full rounded-lg border border-gray-300 px-4 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
+            @input="handleSearch"
+          />
+          <svg v-if="!searchQuery" class="absolute right-3 top-1/2 h-5 w-5 -translate-y-1/2 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+          </svg>
+        </div>
+      </div>
 
       <div class="flex flex-wrap items-center gap-4 text-xs text-gray-500">
         <span class="inline-flex items-center gap-1">
@@ -172,7 +196,7 @@
                       @click.stop="openDeliveredModal()"
                     >
                       <LockClosedIcon v-if="!profitUnlocked" class="h-3.5 w-3.5" />
-                      <span>{{ orderStatusLabel(order.status) }}</span>
+                      <span>{{ orderStatusLabel(order.status, order.delivery_type) }}</span>
                     </button>
                   </div>
                   <span :class="['rounded-full px-2 py-0.5 text-xs font-medium', deliveryBadgeClass(order)]">
@@ -512,6 +536,9 @@ const paymentNotes = ref('')
 const isIssuing = ref(false)
 const dragOrder = ref<Order | null>(null)
 const activeDropColumn = ref<string | null>(null)
+
+const searchQuery = ref('')
+let searchDebounceTimer: ReturnType<typeof setTimeout> | null = null
 
 const autoRefreshEnabled = ref(true)
 const notificationsEnabled = ref(true)
@@ -867,6 +894,15 @@ async function submitPassword() {
   }
 }
 
+function handleSearch() {
+  if (searchDebounceTimer) {
+    clearTimeout(searchDebounceTimer)
+  }
+  searchDebounceTimer = setTimeout(() => {
+    void refreshOrders({ skipNotify: true })
+  }, 400)
+}
+
 async function refreshOrders(options: { skipNotify?: boolean } = {}) {
   if (isRefreshing.value) return
   isRefreshing.value = true
@@ -874,7 +910,8 @@ async function refreshOrders(options: { skipNotify?: boolean } = {}) {
   const previousIds = new Set<string>(orders.value.map((order) => order.id))
 
   try {
-    await crmStore.fetchOrders({ limit: 200 })
+    const searchParam = searchQuery.value.trim() || undefined
+    await crmStore.fetchOrders({ limit: 200, search: searchParam })
     lastUpdateAt.value = new Date()
 
     if (options.skipNotify) {
@@ -920,6 +957,10 @@ onUnmounted(() => {
   if (highlightTimer) {
     clearTimeout(highlightTimer)
     highlightTimer = null
+  }
+  if (searchDebounceTimer) {
+    clearTimeout(searchDebounceTimer)
+    searchDebounceTimer = null
   }
 })
 
@@ -1086,16 +1127,16 @@ function closeDeliveredModal() {
   deliveredModalOpen.value = false
 }
 
-function orderStatusLabel(status: Order['status']) {
+function orderStatusLabel(status: Order['status'], deliveryType?: 'pickup' | 'delivery') {
   switch (status) {
     case 'new':
       return 'Новый'
     case 'in_progress':
       return 'Собран'
     case 'delivered':
-      return 'Доставлено'
     case 'completed':
-      return 'Завершён'
+      // Условные статусы: доставка → доставлена, самовывоз → выдан
+      return deliveryType === 'delivery' ? 'Доставлена' : 'Выдан'
     case 'cancelled':
       return 'Отменён'
     default:

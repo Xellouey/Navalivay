@@ -21,6 +21,20 @@
             Обновить
           </button>
           <button
+            v-if="currentOrder && currentOrder.telegram_username"
+            @click="contactClient"
+            class="inline-flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-medium text-blue-700 transition hover:bg-blue-100"
+            :disabled="isGeneratingMessage"
+          >
+            <svg v-if="isGeneratingMessage" class="h-4 w-4 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+            <svg v-else class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+            </svg>
+            <span>{{ isGeneratingMessage ? 'Генерируем…' : 'Связаться с клиентом' }}</span>
+          </button>
+          <button
             v-if="canRemovePayment"
             @click="removePayment"
             class="inline-flex items-center gap-2 rounded-lg border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-600 transition hover:bg-red-50"
@@ -84,7 +98,7 @@
               </p>
             </div>
             <div class="text-right">
-              <span :class="statusBadgeClass(editableStatus)" class="inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-wide">{{ statusLabel(editableStatus) }}</span>
+              <span :class="statusBadgeClass(editableStatus)" class="inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-wide">{{ statusLabel(editableStatus, deliveryType) }}</span>
               <div v-if="hasPayment" class="mt-2 text-sm text-emerald-600">
                 Оплачено: {{ formatCurrency(currentOrder.paid_amount || 0) }}
                 <div class="text-xs text-gray-500">{{ paymentDescription }}</div>
@@ -362,6 +376,7 @@ const saveError = ref('')
 const saveSuccess = ref('')
 const deletingPayment = ref(false)
 const reactivating = ref(false)
+const isGeneratingMessage = ref(false)
 
 const statusOptions: Array<{ value: Order['status']; label: string }> = [
   { value: 'new', label: 'Новый' },
@@ -657,7 +672,11 @@ function statusBadgeClass(status: Order['status']) {
   }
 }
 
-function statusLabel(status: Order['status']) {
+function statusLabel(status: Order['status'], deliveryType?: 'pickup' | 'delivery') {
+  if ((status === 'delivered' || status === 'completed') && deliveryType) {
+    // Условные статусы: доставка → доставлена, самовывоз → выдан
+    return deliveryType === 'delivery' ? 'Доставлена' : 'Выдан'
+  }
   return statusOptions.find((option) => option.value === status)?.label ?? status
 }
 
@@ -678,6 +697,31 @@ function formatFullDate(dateString?: string | null) {
     hour: '2-digit',
     minute: '2-digit'
   })
+}
+
+async function contactClient() {
+  if (!currentOrder.value || isGeneratingMessage.value) return
+  
+  isGeneratingMessage.value = true
+  saveError.value = ''
+  
+  try {
+    const data = await crmStore.generateOrderMessage(currentOrder.value.id)
+    const { message, telegramUsername } = data
+    
+    if (telegramUsername) {
+      const encodedMessage = encodeURIComponent(message)
+      const telegramUrl = `https://t.me/${telegramUsername}?text=${encodedMessage}`
+      window.open(telegramUrl, '_blank')
+    } else {
+      saveError.value = 'У клиента нет Telegram'
+    }
+  } catch (error: any) {
+    console.error('[CRM] Generate message error', error)
+    saveError.value = error?.message || 'Не удалось сгенерировать сообщение'
+  } finally {
+    isGeneratingMessage.value = false
+  }
 }
 
 const showSearchHint = computed(() => {

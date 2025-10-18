@@ -19,6 +19,8 @@ import { migrateOrderPaymentFields } from './migrations/add_payment_fields_to_or
 import { migrateCategoryGroupHierarchy } from './migrations/add_parent_to_category_groups.js';
 import { migrateOrderStatusHistory } from './migrations/add_order_status_history.js';
 import { migrateProductBadges } from './migrations/add_product_badges.js';
+import { migrateMessageTemplates } from './migrations/add_message_templates.js';
+import { addPhoneToOrders } from './migrations/add_phone_to_orders.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -123,6 +125,8 @@ export function initDb() {
   migrateProductBadges();
   migrateOrderPaymentFields();
   migrateOrderStatusHistory();
+  migrateMessageTemplates();
+  addPhoneToOrders();
 
   seedIfEmpty();
 }
