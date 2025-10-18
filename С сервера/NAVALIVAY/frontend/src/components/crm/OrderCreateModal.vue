@@ -53,15 +53,29 @@
               </div>
             </div>
 
-            <label v-if="form.deliveryType === 'delivery'" class="flex flex-col gap-2">
-              <span class="text-sm font-medium text-gray-700">Адрес доставки</span>
-              <textarea
-                v-model.trim="form.deliveryAddress"
-                rows="2"
-                class="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
-                placeholder="Улица, дом, подъезд, комментарии"
-              />
-            </label>
+            <div v-if="form.deliveryType === 'delivery'" class="space-y-4">
+              <label class="flex flex-col gap-2">
+                <span class="text-sm font-medium text-gray-700">Телефон клиента <span class="text-red-500">*</span></span>
+                <input
+                  v-model.trim="form.phone"
+                  type="tel"
+                  class="rounded-lg border px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
+                  :class="phoneError ? 'border-red-300' : 'border-gray-300'"
+                  placeholder="+7 (___) ___-__-__"
+                />
+                <span v-if="phoneError" class="text-xs text-red-600">{{ phoneError }}</span>
+              </label>
+              
+              <label class="flex flex-col gap-2">
+                <span class="text-sm font-medium text-gray-700">Адрес доставки <span class="text-red-500">*</span></span>
+                <textarea
+                  v-model.trim="form.deliveryAddress"
+                  rows="2"
+                  class="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
+                  placeholder="Улица, дом, подъезд, комментарии"
+                />
+              </label>
+            </div>
 
             <div class="space-y-3">
               <div>
@@ -314,6 +328,7 @@ const form = reactive({
   customerId: '',
   deliveryType: 'pickup' as 'pickup' | 'delivery',
   deliveryAddress: '',
+  phone: '',
   discountAmount: 0,
   discountPercent: 0,
   notes: '',
@@ -350,9 +365,19 @@ const finalAmount = computed(() => {
   return Math.max(amount, 0)
 })
 
+const phoneError = computed(() => {
+  if (form.deliveryType === 'delivery' && !form.phone.trim()) {
+    return 'Телефон обязателен для доставки'
+  }
+  return ''
+})
+
 const canSubmit = computed(() => {
   if (!form.items.length) return false
-  if (form.deliveryType === 'delivery' && !form.deliveryAddress.trim()) return false
+  if (form.deliveryType === 'delivery') {
+    if (!form.deliveryAddress.trim()) return false
+    if (!form.phone.trim()) return false
+  }
   return true
 })
 
@@ -361,6 +386,7 @@ watch(
   (type) => {
     if (type === 'pickup') {
       form.deliveryAddress = ''
+      form.phone = ''
     }
   }
 )
@@ -396,6 +422,7 @@ function resetForm() {
   form.customerId = ''
   form.deliveryType = 'pickup'
   form.deliveryAddress = ''
+  form.phone = ''
   form.discountAmount = 0
   form.discountPercent = 0
   form.notes = ''
@@ -456,6 +483,7 @@ async function handleSubmit() {
       customer_id: form.customerId || undefined,
       delivery_type: form.deliveryType,
       delivery_address: form.deliveryType === 'delivery' ? form.deliveryAddress.trim() || undefined : undefined,
+      delivery_phone: form.deliveryType === 'delivery' ? form.phone.trim() || undefined : undefined,
       discount_amount: Math.max(form.discountAmount, 0) || undefined,
       discount_percent: Math.max(form.discountPercent, 0) || undefined,
       notes: form.notes || undefined,

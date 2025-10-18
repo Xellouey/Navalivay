@@ -54,6 +54,7 @@ export interface Order {
   status: 'new' | 'in_progress' | 'completed' | 'delivered' | 'cancelled'
   delivery_type: 'pickup' | 'delivery'
   delivery_address: string | null
+  delivery_phone: string | null
   total_amount: number
   discount_amount: number
   discount_percent: number
@@ -182,6 +183,8 @@ export interface VisitLog {
 
 export interface DashboardStats {
   period: string
+  startDate: string | null
+  endDate: string | null
   stats: {
     totalSales: number
     revenue: number
@@ -201,6 +204,12 @@ export interface DashboardStats {
   deliveryStats?: {
     deliveries: number
     revenue: number
+    profit: number
+  }
+  pickupStats?: {
+    pickups: number
+    revenue: number
+    profit: number
   }
 }
 
@@ -234,11 +243,23 @@ export const useCrmStore = defineStore('crm', () => {
   const dashboardStats = ref<DashboardStats | null>(null)
   const loadingDashboard = ref(false)
 
-  async function fetchDashboard(period: 'today' | 'week' | 'month' | 'year' = 'today') {
+  async function fetchDashboard(params: { 
+    period?: 'today' | 'week' | 'month' | 'year'
+    startDate?: string
+    endDate?: string
+  } = { period: 'today' }) {
     loadingDashboard.value = true
     try {
+      const query = new URLSearchParams()
+      if (params.startDate && params.endDate) {
+        query.append('startDate', params.startDate)
+        query.append('endDate', params.endDate)
+      } else if (params.period) {
+        query.append('period', params.period)
+      }
+      
       dashboardStats.value = await fetchAPI<DashboardStats>(
-        `${API_BASE}/dashboard?period=${period}`
+        `${API_BASE}/dashboard?${query}`
       )
     } finally {
       loadingDashboard.value = false

@@ -17,21 +17,52 @@
         <p class="mt-2 text-sm text-gray-600 sm:text-base">Статистика и аналитика продаж</p>
       </div>
 
-      <!-- Period Filter -->
-      <div class="flex flex-wrap gap-2">
-        <button
-          v-for="period in periods"
-          :key="period.value"
-          @click="selectedPeriod = period.value"
-          :class="[
-            'w-full rounded-lg px-4 py-2 text-sm font-medium transition-colors sm:w-auto',
-            selectedPeriod === period.value
-              ? 'bg-blue-600 text-white'
-              : 'bg-white text-gray-700 hover:bg-gray-100'
-          ]"
-        >
-          {{ period.label }}
-        </button>
+      <!-- Period Filter with Navigation -->
+      <div class="space-y-4">
+        <div class="flex flex-wrap gap-2">
+          <button
+            v-for="period in periods"
+            :key="period.value"
+            @click="selectPeriodType(period.value)"
+            :class="[
+              'w-full rounded-lg px-4 py-2 text-sm font-medium transition-colors sm:w-auto',
+              selectedPeriodType === period.value
+                ? 'bg-blue-600 text-white'
+                : 'bg-white text-gray-700 hover:bg-gray-100'
+            ]"
+          >
+            {{ period.label }}
+          </button>
+        </div>
+
+        <!-- Period Navigation -->
+        <div class="flex items-center justify-between rounded-lg bg-white px-4 py-3 shadow-sm">
+          <button
+            @click="navigatePeriod(-1)"
+            class="inline-flex items-center gap-2 rounded-lg border border-gray-200 px-3 py-2 text-sm font-medium text-gray-700 transition hover:bg-gray-50"
+          >
+            <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
+            </svg>
+            Предыдущий
+          </button>
+
+          <div class="text-center">
+            <div class="text-lg font-semibold text-gray-900">{{ currentPeriodLabel }}</div>
+            <div class="text-xs text-gray-500">{{ periodRangeLabel }}</div>
+          </div>
+
+          <button
+            @click="navigatePeriod(1)"
+            :disabled="!canNavigateForward"
+            class="inline-flex items-center gap-2 rounded-lg border border-gray-200 px-3 py-2 text-sm font-medium text-gray-700 transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Следующий
+            <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+            </svg>
+          </button>
+        </div>
       </div>
 
       <div v-if="loadingDashboard" class="text-center py-12">
@@ -112,15 +143,37 @@
 
         <div class="grid gap-6 sm:grid-cols-2">
           <div class="bg-white rounded-lg shadow-sm p-6">
-            <h2 class="text-xl font-bold text-gray-900 mb-4">Доставка</h2>
-            <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <h2 class="text-xl font-bold text-gray-900 mb-4">Доставка курьером</h2>
+            <div class="grid grid-cols-1 gap-4 sm:grid-cols-3">
               <div class="rounded-lg border border-gray-100 bg-gray-50 p-4">
-                <div class="text-xs uppercase text-gray-500">Количество доставок</div>
-                <div class="mt-1 text-2xl font-semibold text-gray-900">{{ dashboardStats.deliveryStats?.deliveries || 0 }}</div>
+                <div class="text-xs uppercase text-gray-500">Количество</div>
+                <div class="mt-1 text-2xl font-semibold text-rose-700">{{ dashboardStats.deliveryStats?.deliveries || 0 }}</div>
               </div>
               <div class="rounded-lg border border-gray-100 bg-gray-50 p-4">
-                <div class="text-xs uppercase text-gray-500">Выручка доставок</div>
+                <div class="text-xs uppercase text-gray-500">Выручка</div>
                 <div class="mt-1 text-2xl font-semibold text-gray-900">{{ formatCurrency(dashboardStats.deliveryStats?.revenue || 0) }}</div>
+              </div>
+              <div class="rounded-lg border border-gray-100 bg-gray-50 p-4">
+                <div class="text-xs uppercase text-gray-500">Прибыль</div>
+                <div class="mt-1 text-2xl font-semibold text-emerald-700">{{ formatCurrency(dashboardStats.deliveryStats?.profit || 0) }}</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="bg-white rounded-lg shadow-sm p-6">
+            <h2 class="text-xl font-bold text-gray-900 mb-4">Самовывоз</h2>
+            <div class="grid grid-cols-1 gap-4 sm:grid-cols-3">
+              <div class="rounded-lg border border-gray-100 bg-gray-50 p-4">
+                <div class="text-xs uppercase text-gray-500">Количество</div>
+                <div class="mt-1 text-2xl font-semibold text-blue-700">{{ dashboardStats.pickupStats?.pickups || 0 }}</div>
+              </div>
+              <div class="rounded-lg border border-gray-100 bg-gray-50 p-4">
+                <div class="text-xs uppercase text-gray-500">Выручка</div>
+                <div class="mt-1 text-2xl font-semibold text-gray-900">{{ formatCurrency(dashboardStats.pickupStats?.revenue || 0) }}</div>
+              </div>
+              <div class="rounded-lg border border-gray-100 bg-gray-50 p-4">
+                <div class="text-xs uppercase text-gray-500">Прибыль</div>
+                <div class="mt-1 text-2xl font-semibold text-emerald-700">{{ formatCurrency(dashboardStats.pickupStats?.profit || 0) }}</div>
               </div>
             </div>
           </div>
@@ -192,7 +245,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, watch } from 'vue'
+import { ref, onMounted, watch, computed } from 'vue'
 import { useCrmStore } from '@/stores/crm'
 import { storeToRefs } from 'pinia'
 import AdminModal from '@/components/AdminModal.vue'
@@ -201,25 +254,158 @@ const crmStore = useCrmStore()
 const { dashboardStats, loadingDashboard } = storeToRefs(crmStore)
 
 const periods = [
-  { value: 'today', label: 'Сегодня' },
+  { value: 'today', label: 'День' },
   { value: 'week', label: 'Неделя' },
   { value: 'month', label: 'Месяц' },
   { value: 'year', label: 'Год' }
 ] as const
 
-const selectedPeriod = ref<'today' | 'week' | 'month' | 'year'>('today')
+type PeriodType = 'today' | 'week' | 'month' | 'year'
+
+const selectedPeriodType = ref<PeriodType>('today')
+const currentDate = ref(new Date())
 const profitUnlocked = ref(false)
 const showPasswordModal = ref(false)
 const passwordInput = ref('')
 const passwordError = ref('')
 const verifyingPassword = ref(false)
 
-watch(selectedPeriod, (newPeriod) => {
-  crmStore.fetchDashboard(newPeriod)
+const canNavigateForward = computed(() => {
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  
+  const current = new Date(currentDate.value)
+  current.setHours(0, 0, 0, 0)
+  
+  return current < today
+})
+
+const currentPeriodLabel = computed(() => {
+  const date = currentDate.value
+  
+  switch (selectedPeriodType.value) {
+    case 'today':
+      return date.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' })
+    
+    case 'week': {
+      const weekStart = getWeekStart(date)
+      const weekEnd = new Date(weekStart)
+      weekEnd.setDate(weekEnd.getDate() + 6)
+      return `${weekStart.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })} — ${weekEnd.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', year: 'numeric' })}`
+    }
+    
+    case 'month':
+      return date.toLocaleDateString('ru-RU', { month: 'long', year: 'numeric' })
+    
+    case 'year':
+      return date.toLocaleDateString('ru-RU', { year: 'numeric' })
+    
+    default:
+      return ''
+  }
+})
+
+const periodRangeLabel = computed(() => {
+  const { startDate, endDate } = getPeriodDates()
+  if (!startDate || !endDate) return ''
+  
+  const start = new Date(startDate)
+  const end = new Date(endDate)
+  
+  return `${start.toLocaleDateString('ru-RU')} — ${end.toLocaleDateString('ru-RU')}`
+})
+
+function getWeekStart(date: Date): Date {
+  const d = new Date(date)
+  const day = d.getDay()
+  const diff = d.getDate() - day + (day === 0 ? -6 : 1) // Monday as first day
+  return new Date(d.setDate(diff))
+}
+
+function getPeriodDates(): { startDate: string; endDate: string } {
+  const date = new Date(currentDate.value)
+  let startDate: Date
+  let endDate: Date
+  
+  switch (selectedPeriodType.value) {
+    case 'today':
+      startDate = new Date(date)
+      endDate = new Date(date)
+      break
+    
+    case 'week': {
+      startDate = getWeekStart(date)
+      endDate = new Date(startDate)
+      endDate.setDate(endDate.getDate() + 6)
+      break
+    }
+    
+    case 'month':
+      startDate = new Date(date.getFullYear(), date.getMonth(), 1)
+      endDate = new Date(date.getFullYear(), date.getMonth() + 1, 0)
+      break
+    
+    case 'year':
+      startDate = new Date(date.getFullYear(), 0, 1)
+      endDate = new Date(date.getFullYear(), 11, 31)
+      break
+    
+    default:
+      startDate = new Date(date)
+      endDate = new Date(date)
+  }
+  
+  startDate.setHours(0, 0, 0, 0)
+  endDate.setHours(23, 59, 59, 999)
+  
+  return {
+    startDate: startDate.toISOString().split('T')[0],
+    endDate: endDate.toISOString().split('T')[0]
+  }
+}
+
+function selectPeriodType(type: PeriodType) {
+  selectedPeriodType.value = type
+  currentDate.value = new Date() // Reset to today when changing period type
+  loadDashboard()
+}
+
+function navigatePeriod(direction: number) {
+  const date = new Date(currentDate.value)
+  
+  switch (selectedPeriodType.value) {
+    case 'today':
+      date.setDate(date.getDate() + direction)
+      break
+    
+    case 'week':
+      date.setDate(date.getDate() + (direction * 7))
+      break
+    
+    case 'month':
+      date.setMonth(date.getMonth() + direction)
+      break
+    
+    case 'year':
+      date.setFullYear(date.getFullYear() + direction)
+      break
+  }
+  
+  currentDate.value = date
+  loadDashboard()
+}
+
+function loadDashboard() {
+  const { startDate, endDate } = getPeriodDates()
+  crmStore.fetchDashboard({ startDate, endDate })
+}
+
+watch([selectedPeriodType, currentDate], () => {
+  loadDashboard()
 })
 
 onMounted(() => {
-  crmStore.fetchDashboard(selectedPeriod.value)
+  loadDashboard()
 })
 
 function formatCurrency(value: number): string {

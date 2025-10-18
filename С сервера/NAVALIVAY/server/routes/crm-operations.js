@@ -191,6 +191,7 @@ crmOperationsRouter.post('/api/admin/crm/orders', authMiddleware, (req, res) => 
       customer_id, 
       delivery_type = 'pickup',
       delivery_address,
+      delivery_phone,
       items,
       discount_amount = 0,
       discount_percent = 0,
@@ -253,11 +254,11 @@ crmOperationsRouter.post('/api/admin/crm/orders', authMiddleware, (req, res) => 
       // Вставляем заказ
       db.prepare(`
         INSERT INTO orders (
-          id, order_number, customer_id, status, delivery_type, delivery_address,
+          id, order_number, customer_id, status, delivery_type, delivery_address, delivery_phone,
           total_amount, discount_amount, discount_percent, final_amount, profit, notes
-        ) VALUES (?, ?, ?, 'new', ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, 'new', ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
-        orderId, orderNumber, customer_id || null, delivery_type, delivery_address || null,
+        orderId, orderNumber, customer_id || null, delivery_type, delivery_address || null, delivery_phone || null,
         totalAmount, discount_amount, discount_percent, finalAmount, profit, notes || null
       );
 

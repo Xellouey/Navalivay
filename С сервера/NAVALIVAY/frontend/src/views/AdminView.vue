@@ -1644,7 +1644,7 @@ onMounted(async () => {
       adminStore.fetchProducts({ page: 1, limit: 10 }),
       adminStore.fetchCategoryGroups(),
       adminStore.fetchSettings(),
-      crmStore.fetchDashboard(overviewPeriod.value)
+      crmStore.fetchDashboard({ period: overviewPeriod.value })
     ])
     
     // Заполняем форму настроек менеджера
@@ -1654,7 +1654,7 @@ onMounted(async () => {
 
 watch(() => adminStore.isAuthenticated, async (loggedIn) => {
   if (loggedIn) {
-    await crmStore.fetchDashboard(overviewPeriod.value)
+    await crmStore.fetchDashboard({ period: overviewPeriod.value })
   } else {
     profitUnlocked.value = false
   }
@@ -1662,7 +1662,7 @@ watch(() => adminStore.isAuthenticated, async (loggedIn) => {
 
 watch(overviewPeriod, async (period) => {
   if (adminStore.isAuthenticated) {
-    await crmStore.fetchDashboard(period)
+    await crmStore.fetchDashboard({ period })
   }
 })
 

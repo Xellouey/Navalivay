@@ -21,29 +21,41 @@ function getNextNumber(table, field) {
 // =========================
 crmRouter.get('/api/admin/crm/dashboard', authMiddleware, (req, res) => {
   try {
-    const { period = 'today' } = req.query;
+    const { period = 'today', startDate, endDate } = req.query;
     
     let dateFilter = '';
+    let filterParams = { period, startDate: null, endDate: null };
     const now = new Date();
     
-    switch (period) {
-      case 'today':
-        dateFilter = `DATE(created_at) = DATE('now')`;
-        break;
-      case 'week':
-        const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-        dateFilter = `created_at >= '${weekAgo.toISOString()}'`;
-        break;
-      case 'month':
-        const monthAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-        dateFilter = `created_at >= '${monthAgo.toISOString()}'`;
-        break;
-      case 'year':
-        const yearAgo = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000);
-        dateFilter = `created_at >= '${yearAgo.toISOString()}'`;
-        break;
-      default:
-        dateFilter = `DATE(created_at) = DATE('now')`;
+    // Если переданы конкретные даты, используем их
+    if (startDate && endDate) {
+      const start = new Date(startDate);
+      const end = new Date(endDate);
+      end.setHours(23, 59, 59, 999); // Конец дня
+      dateFilter = `created_at >= '${start.toISOString()}' AND created_at <= '${end.toISOString()}'`;
+      filterParams.startDate = start.toISOString();
+      filterParams.endDate = end.toISOString();
+    } else {
+      // Иначе используем старую логику с периодами
+      switch (period) {
+        case 'today':
+          dateFilter = `DATE(created_at) = DATE('now')`;
+          break;
+        case 'week':
+          const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+          dateFilter = `created_at >= '${weekAgo.toISOString()}'`;
+          break;
+        case 'month':
+          const monthAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+          dateFilter = `created_at >= '${monthAgo.toISOString()}'`;
+          break;
+        case 'year':
+          const yearAgo = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000);
+          dateFilter = `created_at >= '${yearAgo.toISOString()}'`;
+          break;
+        default:
+          dateFilter = `DATE(created_at) = DATE('now')`;
+      }
     }
 
     // Выручка, прибыль, количество продаж
@@ -83,18 +95,32 @@ crmRouter.get('/api/admin/crm/dashboard', authMiddleware, (req, res) => {
       GROUP BY status
     `).all();
 
+    // Статистика по доставкам с прибылью
     const deliveryStats = db.prepare(`
       SELECT 
         COUNT(*) as deliveries,
-        COALESCE(SUM(final_amount), 0) as delivery_revenue
+        COALESCE(SUM(final_amount), 0) as delivery_revenue,
+        COALESCE(SUM(profit), 0) as delivery_profit
       FROM orders
       WHERE delivery_type = 'delivery'
         AND status IN ('completed', 'delivered')
         AND ${dateFilter}
     `).get();
 
+    // Статистика по самовывозу с прибылью
+    const pickupStats = db.prepare(`
+      SELECT 
+        COUNT(*) as pickups,
+        COALESCE(SUM(final_amount), 0) as pickup_revenue,
+        COALESCE(SUM(profit), 0) as pickup_profit
+      FROM orders
+      WHERE delivery_type = 'pickup'
+        AND status IN ('completed', 'delivered')
+        AND ${dateFilter}
+    `).get();
+
     res.json({
-      period,
+      ...filterParams,
       stats: {
         totalSales: stats.total_sales,
         revenue: stats.revenue,
@@ -105,7 +131,13 @@ crmRouter.get('/api/admin/crm/dashboard', authMiddleware, (req, res) => {
       ordersByStatus,
       deliveryStats: {
         deliveries: deliveryStats?.deliveries || 0,
-        revenue: deliveryStats?.delivery_revenue || 0
+        revenue: deliveryStats?.delivery_revenue || 0,
+        profit: deliveryStats?.delivery_profit || 0
+      },
+      pickupStats: {
+        pickups: pickupStats?.pickups || 0,
+        revenue: pickupStats?.pickup_revenue || 0,
+        profit: pickupStats?.pickup_profit || 0
       }
     });
   } catch (error) {

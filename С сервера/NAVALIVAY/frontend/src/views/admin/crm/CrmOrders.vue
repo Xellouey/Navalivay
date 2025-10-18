@@ -64,7 +64,7 @@
           <input
             v-model.trim="orderSearch"
             type="search"
-            placeholder="Поиск по номеру заказа..."
+            placeholder="Поиск по номеру, клиенту, товарам..."
             class="w-full rounded-lg border border-gray-300 px-4 py-2 pl-10 text-sm transition focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
           />
           <svg 
@@ -226,27 +226,39 @@
                   </li>
                 </ul>
 
-                <div class="mt-4 flex items-center justify-between">
-                  <div>
-                    <div class="text-base font-semibold text-gray-900">{{ formatCurrency(order.final_amount) }}</div>
-                    <div class="text-[11px] text-gray-400">Создан {{ formatDate(order.created_at) }}</div>
+                <div class="mt-4 flex flex-col gap-2">
+                  <div class="flex items-center justify-between">
+                    <div>
+                      <div class="text-base font-semibold text-gray-900">{{ formatCurrency(order.final_amount) }}</div>
+                      <div class="text-[11px] text-gray-400">Создан {{ formatDate(order.created_at) }}</div>
+                    </div>
+                    <div class="flex items-center gap-2">
+                      <button
+                        @click.stop="viewOrder(order.id)"
+                        class="admin-link-button admin-link-button--compact admin-link-button--muted"
+                      >
+                        Подробнее
+                      </button>
+                      <button
+                        v-if="canAdvance(order)"
+                        @click.stop="advanceOrder(order)"
+                        class="admin-link-button admin-link-button--compact"
+                        :class="advanceButtonClass(order)"
+                      >
+                        {{ nextStatusLabel(order.status, order.delivery_type) }}
+                      </button>
+                    </div>
                   </div>
-                  <div class="flex items-center gap-2">
-                    <button
-                      @click.stop="viewOrder(order.id)"
-                      class="admin-link-button admin-link-button--compact admin-link-button--muted"
-                    >
-                      Подробнее
-                    </button>
-                    <button
-                      v-if="canAdvance(order)"
-                      @click.stop="advanceOrder(order)"
-                      class="admin-link-button admin-link-button--compact"
-                      :class="advanceButtonClass(order)"
-                    >
-                      {{ nextStatusLabel(order.status) }}
-                    </button>
-                  </div>
+                  <button
+                    v-if="order.telegram_username"
+                    @click.stop="contactClient(order)"
+                    class="flex items-center justify-center gap-1.5 rounded-lg bg-sky-50 px-3 py-2 text-xs font-medium text-sky-700 transition hover:bg-sky-100"
+                  >
+                    <svg class="h-4 w-4" fill="currentColor" viewBox="0 0 24 24">
+                      <path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.894 8.221l-1.97 9.28c-.145.658-.537.818-1.084.508l-3-2.21-1.446 1.394c-.14.18-.357.295-.6.295-.002 0-.003 0-.005 0l.213-3.054 5.56-5.022c.24-.213-.054-.334-.373-.121l-6.869 4.326-2.96-.924c-.64-.203-.658-.64.135-.954l11.566-4.458c.538-.196 1.006.128.832.941z"/>
+                    </svg>
+                    Связаться с клиентом
+                  </button>
                 </div>
               </article>
             </div>
@@ -392,19 +404,19 @@
             <p class="text-xs text-gray-500">{{ deliveredSummaryLabel }}</p>
           </div>
           <div class="rounded-lg border border-gray-200 bg-gray-50 p-4">
-            <div class="text-xs uppercase text-gray-500">Выручка</div>
-            <div class="mt-2 text-2xl font-semibold text-emerald-700">{{ formatCurrency(deliveredSummary.totalAmount) }}</div>
-            <p class="text-xs text-gray-500">Все доставленные заказы</p>
+            <div class="text-xs uppercase text-gray-500">Прибыль общая</div>
+            <div class="mt-2 text-2xl font-semibold text-emerald-700">{{ formatCurrency(deliveredSummary.totalProfit) }}</div>
+            <p class="text-xs text-gray-500">Со всех заказов</p>
           </div>
           <div class="rounded-lg border border-gray-200 bg-gray-50 p-4">
-            <div class="text-xs uppercase text-gray-500">Доставок курьером</div>
+            <div class="text-xs uppercase text-gray-500">Доставка курьером</div>
             <div class="mt-2 text-2xl font-semibold text-rose-700">{{ deliveredSummary.deliveryCount }}</div>
-            <p class="text-xs text-rose-600">{{ formatCurrency(deliveredSummary.deliveryAmount) }}</p>
+            <p class="text-xs text-rose-600">Прибыль: {{ formatCurrency(deliveredSummary.deliveryProfit) }}</p>
           </div>
           <div class="rounded-lg border border-gray-200 bg-gray-50 p-4">
-            <div class="text-xs uppercase text-gray-500">Самовывозов</div>
+            <div class="text-xs uppercase text-gray-500">Самовывоз</div>
             <div class="mt-2 text-2xl font-semibold text-blue-700">{{ deliveredSummary.pickupCount }}</div>
-            <p class="text-xs text-blue-600">{{ formatCurrency(deliveredSummary.pickupAmount) }}</p>
+            <p class="text-xs text-blue-600">Прибыль: {{ formatCurrency(deliveredSummary.pickupProfit) }}</p>
           </div>
         </div>
 
@@ -546,8 +558,8 @@ const kanbanConfig: KanbanColumnConfig[] = [
   },
   {
     key: 'delivered',
-    label: 'Доставлено',
-    description: 'Оплаченные и выданные заказы',
+    label: 'Выдано',
+    description: 'Оплаченные и выданные заказы (доставлено/выдано)',
     statuses: deliveredStatuses,
     badgeClass: 'bg-emerald-100 text-emerald-700'
   }
@@ -560,9 +572,31 @@ const kanbanColumns = computed(() =>
     // Локальная фильтрация по поиску
     if (orderSearch.value) {
       const query = orderSearch.value.toLowerCase()
-      filtered = filtered.filter((order) =>
-        String(order.order_number).includes(query)
-      )
+      filtered = filtered.filter((order) => {
+        // Поиск по номеру заказа
+        if (String(order.order_number).includes(query)) return true
+        
+        // Поиск по имени клиента
+        if (order.customer_name && order.customer_name.toLowerCase().includes(query)) return true
+        
+        // Поиск по telegram username
+        if (order.telegram_username && order.telegram_username.toLowerCase().includes(query)) return true
+        
+        // Поиск по адресу доставки
+        if (order.delivery_address && order.delivery_address.toLowerCase().includes(query)) return true
+        
+        // Поиск по примечаниям
+        if (order.notes && order.notes.toLowerCase().includes(query)) return true
+        
+        // Поиск по товарам в заказе
+        if (order.items && order.items.length > 0) {
+          return order.items.some((item) => 
+            item.product_title && item.product_title.toLowerCase().includes(query)
+          )
+        }
+        
+        return false
+      })
     }
     
     return {
@@ -624,14 +658,14 @@ const deliveredSummary = computed(() => {
   const list = filteredDeliveredOrders.value
   const deliveryOrders = list.filter((order) => order.delivery_type === 'delivery')
   const pickupOrders = list.filter((order) => order.delivery_type === 'pickup')
-  const sum = (items: Order[]) => items.reduce((total, item) => total + (item.final_amount ?? item.total_amount ?? 0), 0)
+  const sumProfit = (items: Order[]) => items.reduce((total, item) => total + (item.profit ?? 0), 0)
   return {
     totalCount: list.length,
-    totalAmount: sum(list),
+    totalProfit: sumProfit(list),
     deliveryCount: deliveryOrders.length,
-    deliveryAmount: sum(deliveryOrders),
+    deliveryProfit: sumProfit(deliveryOrders),
     pickupCount: pickupOrders.length,
-    pickupAmount: sum(pickupOrders)
+    pickupProfit: sumProfit(pickupOrders)
   }
 })
 
@@ -653,9 +687,21 @@ const cancelledOrders = computed(() => {
   
   if (orderSearch.value) {
     const query = orderSearch.value.toLowerCase()
-    filtered = filtered.filter((order) =>
-      String(order.order_number).includes(query)
-    )
+    filtered = filtered.filter((order) => {
+      // Поиск по номеру заказа
+      if (String(order.order_number).includes(query)) return true
+      
+      // Поиск по имени клиента
+      if (order.customer_name && order.customer_name.toLowerCase().includes(query)) return true
+      
+      // Поиск по telegram username
+      if (order.telegram_username && order.telegram_username.toLowerCase().includes(query)) return true
+      
+      // Поиск по примечаниям
+      if (order.notes && order.notes.toLowerCase().includes(query)) return true
+      
+      return false
+    })
   }
   
   return filtered
@@ -713,9 +759,11 @@ function deliveryBadgeClass(order: Order) {
     : 'bg-gray-100 text-gray-600'
 }
 
-function nextStatusLabel(status: Order['status']) {
+function nextStatusLabel(status: Order['status'], deliveryType?: Order['delivery_type']) {
   if (status === 'new') return 'Собрано'
-  if (status === 'in_progress') return 'Выдать'
+  if (status === 'in_progress') {
+    return deliveryType === 'delivery' ? 'Доставлено' : 'Выдано'
+  }
   return ''
 }
 
@@ -733,7 +781,8 @@ async function advanceOrder(order: Order) {
   const nextStatus = nextStatusMap[order.status]
   if (!nextStatus) return
 
-  if (nextStatus === 'delivered') {
+  // Для статуса "Собран" определяем финальный статус в зависимости от типа доставки
+  if (order.status === 'in_progress') {
     await openPaymentModal(order)
     return
   }
@@ -815,12 +864,19 @@ async function submitPayment() {
   if (!paymentOrder.value || !selectedAccountId.value || paymentAmount.value <= 0) return
   isIssuing.value = true
   try {
+    // Определяем финальный статус в зависимости от типа доставки
+    const finalStatus = paymentOrder.value.delivery_type === 'delivery' ? 'delivered' : 'completed'
+    
     await crmStore.issueOrder(paymentOrder.value.id, {
       payment_type: paymentMethod.value,
       payment_account_id: selectedAccountId.value,
       amount: paymentAmount.value,
       payment_notes: paymentNotes.value || undefined
     })
+    
+    // Обновляем статус после оплаты
+    await crmStore.updateOrder(paymentOrder.value.id, { status: finalStatus })
+    
     paymentModalOpen.value = false
     paymentOrder.value = null
     paymentNotes.value = ''
@@ -1053,5 +1109,62 @@ function orderStatusLabel(status: Order['status']) {
     default:
       return status
   }
+}
+
+function contactClient(order: Order) {
+  if (!order.telegram_username) return
+  
+  const message = generateOrderMessage(order)
+  const encodedMessage = encodeURIComponent(message)
+  const telegramUrl = `https://t.me/${order.telegram_username.replace('@', '')}?text=${encodedMessage}`
+  
+  window.open(telegramUrl, '_blank')
+}
+
+function generateOrderMessage(order: Order): string {
+  // Базовый шаблон (можно вынести в настройки)
+  let template = `Привет! Пишу по поводу заказа [order_number].
+
+Состав заказа:
+[items]
+
+К оплате будет [total]`
+
+  // Добавляем информацию о доставке если есть
+  if (order.delivery_type === 'delivery') {
+    if (order.delivery_phone) {
+      template += `\n\nТелефон: [phone]`
+    }
+    if (order.delivery_address) {
+      template += `\nАдрес доставки: [address]`
+    }
+  }
+
+  // Заменяем переменные
+  let message = template
+  
+  // [order_number]
+  message = message.replace('[order_number]', `#${order.order_number}`)
+  
+  // [items] - формируем список товаров
+  const itemsList = order.items
+    ?.map((item, index) => `${index + 1}. ${item.product_title} × ${item.quantity}`)
+    .join('\n') || 'Нет товаров'
+  message = message.replace('[items]', itemsList)
+  
+  // [total]
+  message = message.replace('[total]', formatCurrency(order.final_amount))
+  
+  // [phone]
+  if (order.delivery_phone) {
+    message = message.replace('[phone]', order.delivery_phone)
+  }
+  
+  // [address]
+  if (order.delivery_address) {
+    message = message.replace('[address]', order.delivery_address)
+  }
+  
+  return message
 }
 </script>
