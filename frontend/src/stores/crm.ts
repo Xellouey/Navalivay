@@ -197,6 +197,7 @@ export interface DashboardStats {
     revenue: number
     profit: number
     averageCheck: number
+    uniqueCustomers: number
   }
   topProducts: Array<{
     group_id: string
@@ -210,7 +211,11 @@ export interface DashboardStats {
   }>
   deliveryStats?: {
     deliveries: number
-    revenue: number
+    profit: number
+  }
+  pickupStats?: {
+    pickups: number
+    profit: number
   }
 }
 
@@ -253,11 +258,11 @@ export const useCrmStore = defineStore('crm', () => {
   const dashboardStats = ref<DashboardStats | null>(null)
   const loadingDashboard = ref(false)
 
-  async function fetchDashboard(period: 'today' | 'week' | 'month' | 'year' = 'today') {
+  async function fetchDashboard(period: 'today' | 'week' | 'month' | 'year' = 'today', offset: number = 0) {
     loadingDashboard.value = true
     try {
       dashboardStats.value = await fetchAPI<DashboardStats>(
-        `${API_BASE}/dashboard?period=${period}`
+        `${API_BASE}/dashboard?period=${period}&offset=${offset}`
       )
     } finally {
       loadingDashboard.value = false

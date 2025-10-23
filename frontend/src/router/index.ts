@@ -43,13 +43,7 @@ const router = createRouter({
       children: [
         {
           path: 'crm',
-          redirect: { name: 'CrmDashboard' }
-        },
-        {
-          path: 'crm/dashboard',
-          name: 'CrmDashboard',
-          component: () => import('@/views/admin/crm/CrmDashboard.vue'),
-          beforeEnter: requireAdminAuth
+          redirect: { name: 'CrmOrders' }
         },
         {
           path: 'crm/orders',

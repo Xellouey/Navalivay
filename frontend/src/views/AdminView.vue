@@ -37,14 +37,37 @@
           <RouterView v-if="isCrmRoute" />
           <template v-else>
             <!-- Overview -->
-            <div v-if="activeTab === 'dashboard'" class="space-y-8">
+            <template v-if="activeTab === 'dashboard'">
+              <div v-if="!profitUnlocked" class="flex justify-center py-12">
+                <div class="w-full max-w-sm rounded-2xl bg-white p-6 shadow">
+                  <h3 class="text-lg font-semibold text-gray-900 text-center mb-3">Введите код доступа</h3>
+                  <form class="space-y-4" @submit.prevent="submitOverviewAccess">
+                    <input
+                      v-model="profitPassword"
+                      type="password"
+                      class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-brand-dark focus:outline-none focus:ring-2 focus:ring-brand-dark/20"
+                      placeholder="Пароль"
+                    />
+                    <p v-if="profitError" class="text-sm text-red-600">{{ profitError }}</p>
+                    <button
+                      type="submit"
+                      class="w-full rounded-lg bg-brand-dark px-4 py-2 text-sm font-semibold text-white hover:bg-brand-dark/90 disabled:cursor-not-allowed disabled:bg-brand-dark/60"
+                      :disabled="verifyingProfit"
+                    >
+                      {{ verifyingProfit ? 'Проверяем…' : 'Войти' }}
+                    </button>
+                  </form>
+                </div>
+              </div>
+              <div v-else class="space-y-8">
             <section class="relative overflow-hidden rounded-3xl bg-gradient-to-br from-brand-dark via-red-600 to-brand-primary text-white shadow-xl">
               <div class="absolute inset-0">
                 <div class="absolute -top-16 -left-24 h-64 w-64 rounded-full bg-white/15 blur-3xl"></div>
                 <div class="absolute -bottom-20 right-0 h-72 w-72 rounded-full bg-white/10 blur-2xl"></div>
               </div>
-              <div class="relative z-10 space-y-8 p-6 sm:p-8 lg:p-10">
-                <div class="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
+              <Transition name="dash-fade" mode="out-in">
+                <div :key="`${overviewPeriod}-${overviewOffset}-hero`" class="relative z-10 space-y-8 p-6 sm:p-8 lg:p-10">
+                  <div class="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
                   <div class="flex-1 min-w-0 space-y-6">
                     <div class="flex flex-wrap items-center gap-3">
                       <span class="relative inline-flex items-center gap-3 rounded-full border border-white/25 bg-white/10 px-5 py-2 text-[0.65rem] font-semibold uppercase tracking-[0.35em] text-white/80 shadow-[0_10px_30px_rgba(0,0,0,0.18)] backdrop-blur-sm">
@@ -60,15 +83,21 @@
                     <div v-if="overviewStats" class="grid w-full min-w-0 gap-3 sm:grid-cols-2 md:grid-cols-3">
                       <div class="rounded-2xl border border-white/20 bg-white/10 px-4 py-3 backdrop-blur">
                         <p class="text-[0.65rem] font-semibold uppercase tracking-[0.25em] text-white/70">Сделок</p>
-                        <p class="mt-1 text-xl font-semibold">{{ overviewStats?.totalSales ?? '—' }}</p>
+                        <p class="mt-1 text-xl font-semibold">
+                          <CountUp :value="overviewStats?.totalSales ?? 0" :key="`${overviewPeriod}-${overviewOffset}-sales`" />
+                        </p>
                       </div>
                       <div class="rounded-2xl border border-white/20 bg-white/10 px-4 py-3 backdrop-blur">
                         <p class="text-[0.65rem] font-semibold uppercase tracking-[0.25em] text-white/70">Выручка</p>
-                        <p class="mt-1 text-xl font-semibold">{{ formatCurrency(overviewStats?.revenue) }}</p>
+                        <p class="mt-1 text-xl font-semibold">
+                          <CountUpCurrency :value="overviewStats?.revenue ?? 0" :key="`${overviewPeriod}-${overviewOffset}-rev`" />
+                        </p>
                       </div>
                       <div class="rounded-2xl border border-white/20 bg-white/10 px-4 py-3 backdrop-blur">
                         <p class="text-[0.65rem] font-semibold uppercase tracking-[0.25em] text-white/70">Средний чек</p>
-                        <p class="mt-1 text-xl font-semibold">{{ formatCurrency(overviewStats?.averageCheck) }}</p>
+                        <p class="mt-1 text-xl font-semibold">
+                          <CountUpCurrency :value="overviewStats?.averageCheck ?? 0" :key="`${overviewPeriod}-${overviewOffset}-avg`" />
+                        </p>
                       </div>
                     </div>
 
@@ -77,7 +106,9 @@
                         <div class="flex flex-col items-start gap-4 sm:flex-row sm:items-start sm:justify-between">
                           <div class="space-y-2">
                             <p class="text-xs font-semibold uppercase tracking-[0.25em] text-white/60">Продажи</p>
-                            <p class="text-3xl font-semibold">{{ overviewStats?.totalSales ?? '—' }}</p>
+                            <p class="text-3xl font-semibold">
+                              <CountUp :value="overviewStats?.totalSales ?? 0" :key="`${overviewPeriod}-${overviewOffset}-bigsales`" />
+                            </p>
                           </div>
                           <span class="rounded-xl bg-white/20 p-2 text-white">
                             <ArrowTrendingUpIcon class="h-6 w-6" />
@@ -90,7 +121,9 @@
                         <div class="flex flex-col items-start gap-4 sm:flex-row sm:items-start sm:justify-between">
                           <div class="space-y-2">
                             <p class="text-xs font-semibold uppercase tracking-[0.25em] text-white/60">Выручка</p>
-                            <p class="text-3xl font-semibold">{{ formatCurrency(overviewStats?.revenue) }}</p>
+                            <p class="text-3xl font-semibold">
+                              <CountUpCurrency :value="overviewStats?.revenue ?? 0" :key="`${overviewPeriod}-${overviewOffset}-bigrev`" />
+                            </p>
                           </div>
                           <span class="rounded-xl bg-white/20 p-2 text-white">
                             <CurrencyDollarIcon class="h-6 w-6" />
@@ -103,7 +136,9 @@
                         <div class="flex flex-col items-start gap-4 sm:flex-row sm:items-start sm:justify-between">
                           <div class="space-y-2">
                             <p class="text-xs font-semibold uppercase tracking-[0.25em] text-white/60">Средний чек</p>
-                            <p class="text-3xl font-semibold">{{ formatCurrency(overviewStats?.averageCheck) }}</p>
+                            <p class="text-3xl font-semibold">
+                              <CountUpCurrency :value="overviewStats?.averageCheck ?? 0" :key="`${overviewPeriod}-${overviewOffset}-bigavg`" />
+                            </p>
                           </div>
                           <span class="rounded-xl bg-white/20 p-2 text-white">
                             <ChartBarIcon class="h-6 w-6" />
@@ -138,7 +173,9 @@
                         <div class="space-y-3">
                           <p class="text-xs font-semibold uppercase tracking-[0.25em] text-white/60">Прибыль</p>
                           <div v-if="profitUnlocked" class="space-y-2">
-                            <p class="text-2xl font-semibold text-white">{{ formatCurrency(overviewStats?.profit) }}</p>
+                            <p class="text-2xl font-semibold text-white">
+                              <CountUpCurrency :value="overviewStats?.profit ?? 0" :key="`${overviewPeriod}-${overviewOffset}-profit`" />
+                            </p>
                             <p v-if="profitMargin !== null" class="text-xs text-white/70">Маржинальность {{ profitMargin }}%</p>
                           </div>
                           <div v-else class="space-y-4">
@@ -176,19 +213,26 @@
                     type="button"
                     class="w-full rounded-full px-4 py-2 text-center text-xs font-semibold uppercase tracking-[0.2em] transition sm:w-auto sm:tracking-[0.3em]"
                     :class="overviewPeriod === option.value ? 'bg-white text-brand-dark shadow-lg' : 'bg-white/15 text-white/80 hover:bg-white/25'"
-                    @click="overviewPeriod = option.value"
+                    @click="overviewPeriod = option.value; overviewOffset = 0"
                   >
                     {{ option.label }}
                   </button>
                 </div>
-              </div>
+
+                <div class="mt-3 flex items-center gap-3 text-xs font-semibold uppercase tracking-[0.25em] text-white/80">
+                  <button @click="prevOverviewRange" class="rounded-md border border-white/20 px-2 py-1 hover:bg-white/10"><</button>
+                  <span>{{ overviewRangeLabel }}</span>
+                  <button @click="nextOverviewRange" :disabled="isAtCurrentOverview" class="rounded-md border border-white/20 px-2 py-1 hover:bg-white/10 disabled:opacity-40">></button>
+                </div>
+                </div>
+              </Transition>
             </section>
 
-            <div v-if="loadingDashboard" class="flex items-center justify-center py-16">
-              <div class="h-12 w-12 animate-spin rounded-full border-4 border-brand-dark border-t-transparent"></div>
-            </div>
-            <template v-else>
-              <div v-if="dashboardStats" class="space-y-8">
+            <Transition name="dash-fade" mode="out-in">
+              <div v-if="loadingDashboard" key="loading" class="flex items-center justify-center py-16">
+                <div class="h-12 w-12 animate-spin rounded-full border-4 border-brand-dark border-t-transparent"></div>
+              </div>
+              <div v-else-if="dashboardStats" :key="`${overviewPeriod}-${overviewOffset}`" class="space-y-8">
                 <section class="grid gap-6 xl:grid-cols-[1.6fr,1fr]">
                   <div class="card-base relative overflow-hidden rounded-3xl border border-red-100/60 bg-white p-6 shadow-lg">
                     <div class="flex flex-col items-start gap-4 sm:flex-row sm:items-start sm:justify-between">
@@ -275,83 +319,88 @@
                           <p class="mt-2 text-3xl font-semibold text-brand-dark">{{ overviewDeliveries.deliveries }}</p>
                         </div>
                         <div class="rounded-2xl bg-brand-primary/10 px-4 py-3 text-center text-sm text-brand-dark sm:text-left">
-                          Выручка с доставок: <strong>{{ formatCurrency(overviewDeliveries.revenue) }}</strong>
+                          Прибыль с доставок: <strong>{{ formatCurrency(overviewDeliveries.profit) }}</strong>
                         </div>
                       </div>
                     </div>
                   </div>
                 </section>
               </div>
-              <div v-else class="rounded-3xl border border-dashed border-gray-200 bg-white p-10 text-center text-gray-500 shadow-sm">
+              <div v-else key="empty" class="rounded-3xl border border-dashed border-gray-200 bg-white p-10 text-center text-gray-500 shadow-sm">
                 Нет данных для выбранного периода.
               </div>
-            </template>
+            </Transition>
 
           </div>
 
-          <!-- Banners -->
-          <div v-else-if="activeTab === 'banners'" class="space-y-6">
-            <AdminBannersList
-              :banners="adminStore.banners"
-              :isLoading="adminStore.isLoading"
-              @create="handleCreateBanner"
-              @edit="handleEditBanner"
-              @delete="handleDeleteBanner"
-              @batchDelete="handleBatchDeleteBanners"
-              @batchToggle="handleBatchToggleBannerStatus"
-              @reorder="handleReorderBanners"
-              @toggleStatus="handleToggleBannerStatus"
-            />
-          </div>
+          </template>
+          <template v-else-if="activeTab === 'banners'">
+            <div class="space-y-6">
+              <AdminBannersList
+                :banners="adminStore.banners"
+                :isLoading="adminStore.isLoading"
+                @create="handleCreateBanner"
+                @edit="handleEditBanner"
+                @delete="handleDeleteBanner"
+                @batchDelete="handleBatchDeleteBanners"
+                @batchToggle="handleBatchToggleBannerStatus"
+                @reorder="handleReorderBanners"
+                @toggleStatus="handleToggleBannerStatus"
+              />
+            </div>
+          </template>
 
-          <!-- Categories -->
-          <div v-else-if="activeTab === 'categories'" class="space-y-6">
-            <AdminCategoriesList
-              :categories="adminStore.categories"
-              :isLoading="adminStore.isLoading"
-            :group-counts="groupCounts"
-            :cross-sell-counts="crossSellCounts"
-              @create="handleCreateCategory"
-              @edit="handleEditCategory"
-              @delete="handleDeleteCategory"
-              @reorder="handleReorderCategories"
-            @manage-groups="handleManageGroups"
-            @manage-cross-sell="handleManageCrossSell"
-            />
-          </div>
+          <template v-else-if="activeTab === 'categories'">
+            <div class="space-y-6">
+              <AdminCategoriesList
+                :categories="adminStore.categories"
+                :isLoading="adminStore.isLoading"
+                :group-counts="groupCounts"
+                :cross-sell-counts="crossSellCounts"
+                @create="handleCreateCategory"
+                @edit="handleEditCategory"
+                @delete="handleDeleteCategory"
+                @reorder="handleReorderCategories"
+                @manage-groups="handleManageGroups"
+                @manage-cross-sell="handleManageCrossSell"
+              />
+            </div>
+          </template>
 
-          <!-- Products -->
-          <div v-else-if="activeTab === 'products'" class="space-y-6">
-            <AdminProductsTable
-              :products="adminStore.products || []"
-              :categories="adminStore.categories || []"
-              :pagination="adminStore.productsPagination"
-              :isLoading="adminStore.isLoading"
-              @create="handleCreateProduct"
-              @edit="handleEditProduct"
-              @delete="handleDeleteProduct"
-              @changePage="handleProductsPageChange"
-              @changePageSize="handleProductsPageSizeChange"
-              @filters="handleProductsFilters"
-              @batchDelete="handleBatchDeleteProducts"
-              @batchChangeCategory="handleBatchChangeProductCategory"
-              @batchChangeGroup="handleBatchChangeProductGroup"
-              @createCategory="handleCreateCategoryFromProducts"
-              @createGroup="handleCreateGroupFromProducts"
-            />
-          </div>
+          <template v-else-if="activeTab === 'products'">
+            <div class="space-y-6">
+              <AdminProductsTable
+                :products="adminStore.products || []"
+                :categories="adminStore.categories || []"
+                :pagination="adminStore.productsPagination"
+                :isLoading="adminStore.isLoading"
+                @create="handleCreateProduct"
+                @edit="handleEditProduct"
+                @delete="handleDeleteProduct"
+                @changePage="handleProductsPageChange"
+                @changePageSize="handleProductsPageSizeChange"
+                @filters="handleProductsFilters"
+                @batchDelete="handleBatchDeleteProducts"
+                @batchChangeCategory="handleBatchChangeProductCategory"
+                @batchChangeGroup="handleBatchChangeProductGroup"
+                @createCategory="handleCreateCategoryFromProducts"
+                @createGroup="handleCreateGroupFromProducts"
+              />
+            </div>
+          </template>
 
           <!-- Settings -->
-          <div v-else class="space-y-6">
-            <AdminSectionHero
-              title="Настройки"
-              :description="currentTabDescription"
-              :icon="Cog6ToothIcon"
-              tone="slate"
-            />
+          <template v-else-if="activeTab === 'settings'">
+            <div class="space-y-6">
+              <AdminSectionHero
+                title="Настройки"
+                :description="currentTabDescription"
+                :icon="Cog6ToothIcon"
+                tone="slate"
+              />
 
-            <div class="mx-auto w-full max-w-7xl space-y-6">
-              <div class="grid gap-6 lg:grid-cols-2">
+              <div class="mx-auto w-full max-w-7xl space-y-6">
+                <div class="grid gap-6 lg:grid-cols-2">
                 <section class="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
                   <div class="space-y-1">
                     <h3 class="text-lg font-semibold text-gray-900">Смена пароля администратора</h3>
@@ -485,6 +534,7 @@
             </div>
           </div>
           </template>
+          </template>
         </template>
       </AdminLayout>
 
@@ -606,9 +656,9 @@
                     Удалить
                   </button>
                 </div>
+                </div>
               </div>
             </div>
-          </div>
         </div>
         <p v-else class="text-sm text-gray-500">Линеек пока нет. Создайте первую.</p>
       </div>
@@ -682,7 +732,7 @@
                 <p class="text-xs text-gray-500">ID: {{ product.id }}</p>
               </div>
             </div>
-            <p class="text-sm font-semibold text-gray-800 sm:text-right">{{ formatPrice(product.priceRub) }} ₽</p>
+            <p class="text-sm font-semibold text-gray-800 sm:text-right">{{ formatPrice(product.priceRub) }} ?</p>
           </label>
         </div>
       </div>
@@ -750,7 +800,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, computed, watch } from 'vue'
+import { ref, onMounted, computed, watch, reactive } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import { ChevronUpIcon, ChevronDownIcon, PencilSquareIcon, TrashIcon, PlusIcon, ArrowTrendingUpIcon, CurrencyDollarIcon, ChartBarIcon, BoltIcon, TruckIcon, ClipboardDocumentCheckIcon, SparklesIcon, LockOpenIcon, Cog6ToothIcon } from '@heroicons/vue/24/outline'
@@ -766,6 +816,8 @@ import AdminLayout from '@/components/admin/layout/AdminLayout.vue'
 import AdminSectionHero from '@/components/admin/layout/AdminSectionHero.vue'
 import AdminProductsTable from '@/components/admin/AdminProductsTable.vue'
 import AdminCategoryGroupForm from '@/components/admin/AdminCategoryGroupForm.vue'
+import CountUp from '@/components/CountUp.vue'
+import CountUpCurrency from '@/components/CountUpCurrency.vue'
 import { adminTabs, crmLinks, adminTabOptions, type AdminTabId } from '@/constants/adminNavigation'
 
 const router = useRouter()
@@ -783,7 +835,39 @@ const overviewPeriods = [
 ] as const
 type OverviewPeriod = typeof overviewPeriods[number]['value']
 const overviewPeriod = ref<OverviewPeriod>('today')
+const overviewOffset = ref(0)
 const activeOverviewLabel = computed(() => overviewPeriods.find(option => option.value === overviewPeriod.value)?.label || '')
+
+const isAtCurrentOverview = computed(() => overviewOffset.value >= 0)
+const overviewRangeLabel = computed(() => {
+  const now = new Date()
+  const off = overviewOffset.value
+  if (overviewPeriod.value === 'today') {
+    const d = new Date(now)
+    d.setUTCDate(d.getUTCDate() + off)
+    return d.toLocaleDateString('ru-RU', { day: '2-digit', month: 'long', year: 'numeric' })
+  }
+  if (overviewPeriod.value === 'week') {
+    const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()))
+    const day = d.getUTCDay() || 7
+    const monday = new Date(d.getTime() - (day - 1) * 86400000 + off * 7 * 86400000)
+    const sunday = new Date(monday.getTime() + 6 * 86400000)
+    return `${monday.toLocaleDateString('ru-RU')} — ${sunday.toLocaleDateString('ru-RU')}`
+  }
+  if (overviewPeriod.value === 'month') {
+    const y = now.getUTCFullYear(); const m = now.getUTCMonth() + off
+    const d = new Date(Date.UTC(y, m, 1))
+    return d.toLocaleDateString('ru-RU', { month: 'long', year: 'numeric' })
+  }
+  if (overviewPeriod.value === 'year') {
+    const y = now.getUTCFullYear() + off
+    return `${y}`
+  }
+  return ''
+})
+
+function prevOverviewRange() { overviewOffset.value = overviewOffset.value - 1 }
+function nextOverviewRange() { if (isAtCurrentOverview.value) return; overviewOffset.value = overviewOffset.value + 1 }
 const showProfitModal = ref(false)
 const profitPassword = ref('')
 const profitError = ref('')
@@ -841,6 +925,115 @@ function showToast(message: string, type: 'success' | 'error' = 'success', timeo
   }, timeout)
 }
 
+function resetLoadedState() {
+  ;(Object.keys(dataLoaded) as DataSliceKey[]).forEach((key) => {
+    dataLoaded[key] = false
+  })
+}
+
+async function runDataLoaders(loaders: Array<{ key: DataSliceKey; loader: () => Promise<unknown> }>) {
+  if (!loaders.length) {
+    return true
+  }
+
+  const results = await Promise.allSettled(loaders.map((item) => item.loader()))
+  let hadError = false
+
+  results.forEach((result, index) => {
+    const { key } = loaders[index]
+    if (result.status === 'fulfilled') {
+      dataLoaded[key] = true
+    } else {
+      hadError = true
+      console.error(`[AdminView] Failed to load data chunk "${key}"`, result.reason)
+    }
+  })
+
+  return !hadError
+}
+
+async function ensureTabData(tab: AdminTabId) {
+  if (!adminStore.isAuthenticated) {
+    return
+  }
+
+  if (tab === 'dashboard') {
+    if (dataLoaded.dashboard || !profitUnlocked.value) {
+      return
+    }
+
+    const success = await runDataLoaders([{
+      key: 'dashboard',
+      loader: () => crmStore.fetchDashboard(overviewPeriod.value, overviewOffset.value)
+    }])
+
+    if (!success) {
+      showToast('Не удалось обновить показатели дашборда. Попробуйте ещё раз.', 'error', 4000)
+    }
+    return
+  }
+
+  const loaders: Array<{ key: DataSliceKey; loader: () => Promise<unknown> }> = []
+
+  if (tab === 'banners' && !dataLoaded.banners) {
+    loaders.push({ key: 'banners', loader: () => adminStore.fetchBanners() })
+  }
+
+  if (tab === 'categories') {
+    if (!dataLoaded.categories) {
+      loaders.push({ key: 'categories', loader: () => adminStore.fetchCategories() })
+    }
+    if (!dataLoaded.categoryGroups) {
+      loaders.push({ key: 'categoryGroups', loader: () => adminStore.fetchCategoryGroups() })
+    }
+  }
+
+  if (tab === 'products') {
+    if (!dataLoaded.products) {
+      const page = adminStore.productsPagination?.page ?? 1
+      const limit = adminStore.productsPagination?.limit ?? 10
+      loaders.push({ key: 'products', loader: () => adminStore.fetchProducts({ page, limit }) })
+    }
+    if (!dataLoaded.categories) {
+      loaders.push({ key: 'categories', loader: () => adminStore.fetchCategories() })
+    }
+    if (!dataLoaded.categoryGroups) {
+      loaders.push({ key: 'categoryGroups', loader: () => adminStore.fetchCategoryGroups() })
+    }
+  }
+
+  if (tab === 'settings' && !dataLoaded.settings) {
+    loaders.push({ key: 'settings', loader: () => adminStore.fetchSettings() })
+  }
+
+  const success = await runDataLoaders(loaders)
+  if (!success) {
+    showToast('Не удалось загрузить данные раздела. Попробуйте обновить страницу.', 'error', 5000)
+  }
+}
+
+async function loadInitialAdminData() {
+  const loaders: Array<{ key: DataSliceKey; loader: () => Promise<unknown> }> = [
+    { key: 'banners', loader: () => adminStore.fetchBanners() },
+    { key: 'categories', loader: () => adminStore.fetchCategories() },
+    { key: 'categoryGroups', loader: () => adminStore.fetchCategoryGroups() },
+    { key: 'products', loader: () => adminStore.fetchProducts({ page: 1, limit: 10 }) },
+    { key: 'settings', loader: () => adminStore.fetchSettings() }
+  ]
+
+  if (profitUnlocked.value) {
+    loaders.push({
+      key: 'dashboard',
+      loader: () => crmStore.fetchDashboard(overviewPeriod.value, overviewOffset.value)
+    })
+  }
+
+  const success = await runDataLoaders(loaders)
+  if (!success) {
+    showToast('Не удалось загрузить часть данных админки. Откройте нужный раздел повторно.', 'error', 5000)
+  }
+}
+
 function buildGroupTreeForCategory(categoryId: string): CategoryGroupNode[] {
   const groups = (adminStore.categoryGroups || []).filter(group => group.categoryId === categoryId)
   const map = new Map<string, CategoryGroupNode>()
@@ -882,6 +1075,16 @@ function flattenGroupTree(nodes: CategoryGroupNode[], depth = 0): CategoryGroupW
 
 const tabOptions = adminTabOptions
 
+type DataSliceKey = 'banners' | 'categories' | 'categoryGroups' | 'products' | 'settings' | 'dashboard'
+const dataLoaded = reactive<Record<DataSliceKey, boolean>>({
+  banners: false,
+  categories: false,
+  categoryGroups: false,
+  products: false,
+  settings: false,
+  dashboard: false
+})
+
 const getInitialTab = (): AdminTabId => {
   const tabParam = route.query.tab as string | undefined
   if (tabParam && tabOptions.includes(tabParam as AdminTabId)) {
@@ -898,6 +1101,10 @@ const layoutTab = computed<AdminTabId>({
     const query = value === 'dashboard' ? {} : { tab: value }
     router.push({ path: '/admin', query }).catch(() => {})
   }
+})
+
+watch(activeTab, (tab) => {
+  void ensureTabData(tab)
 })
 
 const loginForm = ref({ username: '', password: '' })
@@ -930,7 +1137,7 @@ const profitMargin = computed(() => {
 })
 const overviewDeliveries = computed(() => ({
   deliveries: dashboardStats.value?.deliveryStats?.deliveries ?? 0,
-  revenue: dashboardStats.value?.deliveryStats?.revenue ?? 0
+  profit: dashboardStats.value?.deliveryStats?.profit ?? 0
 }))
 const overviewStatuses = computed(() => {
   const mapping: Record<string, string> = {
@@ -1018,12 +1225,9 @@ async function handleLogin() {
     await adminStore.login(loginForm.value)
     // Load data after successful login
     if (adminStore.isAuthenticated) {
-      await Promise.all([
-        adminStore.fetchBanners(),
-        adminStore.fetchCategories(),
-        adminStore.fetchProducts({ page: 1, limit: 10 }),
-        adminStore.fetchCategoryGroups(),
-      ])
+      resetLoadedState()
+      await loadInitialAdminData()
+      updateManagerForm()
     }
   } catch (error) {
     console.error('Login failed:', error)
@@ -1032,6 +1236,8 @@ async function handleLogin() {
 
 function handleLogout() {
   adminStore.logout()
+  resetLoadedState()
+  crmStore.lockProfitAccess()
   router.push('/')
 }
 
@@ -1039,6 +1245,36 @@ function handleLogout() {
 function handleOverviewClick(tabId: 'banners' | 'categories' | 'products' | 'settings') {
   activeTab.value = tabId
 }
+
+watch([overviewPeriod, overviewOffset, profitUnlocked], async ([p, off, unlocked]) => {
+  if (!adminStore.isAuthenticated) {
+    return
+  }
+  if (!unlocked) {
+    dataLoaded.dashboard = false
+    return
+  }
+  try {
+    await crmStore.fetchDashboard(p as any, off as number)
+    dataLoaded.dashboard = true
+  } catch (error) {
+    console.error('Failed to update dashboard stats:', error)
+    showToast('Не удалось обновить показатели дашборда', 'error', 4000)
+  }
+})
+
+onMounted(() => {
+  if (profitUnlocked.value && adminStore.isAuthenticated) {
+    void (async () => {
+      try {
+        await crmStore.fetchDashboard(overviewPeriod.value, overviewOffset.value)
+        dataLoaded.dashboard = true
+      } catch (error) {
+        console.error('Failed to fetch dashboard stats on init:', error)
+      }
+    })()
+  }
+})
 
 function openProfitModal() {
   profitPassword.value = ''
@@ -1061,6 +1297,23 @@ async function submitProfitPassword() {
   try {
     await crmStore.verifyProfitPassword(profitPassword.value.trim())
     closeProfitModal()
+    await crmStore.fetchDashboard(overviewPeriod.value, overviewOffset.value)
+    dataLoaded.dashboard = true
+  } catch (error) {
+    profitError.value = 'Неверный пароль'
+  }
+}
+
+async function submitOverviewAccess() {
+  if (!profitPassword.value.trim()) {
+    profitError.value = 'Введите пароль'
+    return
+  }
+  profitError.value = ''
+  try {
+    await crmStore.verifyProfitPassword(profitPassword.value.trim())
+    await crmStore.fetchDashboard(overviewPeriod.value, overviewOffset.value)
+    dataLoaded.dashboard = true
   } catch (error) {
     profitError.value = 'Неверный пароль'
   }
@@ -1630,34 +1883,19 @@ async function handlePasswordChange() {
 
 // Init
 onMounted(async () => {
+  resetLoadedState()
   // @ts-ignore - checkAuth method exists in adminStore
   await adminStore.checkAuth()
   if (adminStore.isAuthenticated) {
-    await Promise.all([
-      adminStore.fetchBanners(),
-      adminStore.fetchCategories(),
-      adminStore.fetchProducts({ page: 1, limit: 10 }),
-      adminStore.fetchCategoryGroups(),
-      adminStore.fetchSettings(),
-      crmStore.fetchDashboard(overviewPeriod.value)
-    ])
-    
-    // Заполняем форму настроек менеджера
+    await loadInitialAdminData()
     updateManagerForm()
   }
 })
 
-watch(() => adminStore.isAuthenticated, async (loggedIn) => {
-  if (loggedIn) {
-    await crmStore.fetchDashboard(overviewPeriod.value)
-  } else {
+watch(() => adminStore.isAuthenticated, (loggedIn) => {
+  if (!loggedIn) {
     crmStore.lockProfitAccess()
-  }
-})
-
-watch(overviewPeriod, async (period) => {
-  if (adminStore.isAuthenticated) {
-    await crmStore.fetchDashboard(period)
+    resetLoadedState()
   }
 })
 
@@ -1743,6 +1981,20 @@ function formatPrice(value: number) {
   return new Intl.NumberFormat('ru-RU').format(value)
 }
 </script>
+
+<style scoped>
+.dash-fade-enter-active, .dash-fade-leave-active {
+  transition: opacity 320ms ease, transform 320ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.dash-fade-enter-from {
+  opacity: 0;
+  transform: translateY(14px) scale(0.99);
+}
+.dash-fade-leave-to {
+  opacity: 0;
+  transform: translateY(-8px) scale(0.995);
+}
+</style>
 
 <style scoped>
 /* РАДИКАЛЬНОЕ переопределение всех стилей */

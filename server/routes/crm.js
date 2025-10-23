@@ -22,36 +22,56 @@ function getNextNumber(table, field) {
 crmRouter.get('/api/admin/crm/dashboard', authMiddleware, (req, res) => {
   try {
     const { period = 'today' } = req.query;
-    
-    let dateFilter = '';
-    const now = new Date();
-    
-    switch (period) {
-      case 'today':
-        dateFilter = `DATE(created_at) = DATE('now')`;
-        break;
-      case 'week':
-        const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-        dateFilter = `created_at >= '${weekAgo.toISOString()}'`;
-        break;
-      case 'month':
-        const monthAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-        dateFilter = `created_at >= '${monthAgo.toISOString()}'`;
-        break;
-      case 'year':
-        const yearAgo = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000);
-        dateFilter = `created_at >= '${yearAgo.toISOString()}'`;
-        break;
-      default:
-        dateFilter = `DATE(created_at) = DATE('now')`;
+    const offset = Number(req.query.offset || 0) || 0;
+
+    function getPeriodRange(p, off) {
+      const now = new Date();
+      // Use UTC boundaries to match ISO timestamps stored in DB
+      function startOfUTCDay(d) {
+        return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+      }
+      if (p === 'today') {
+        const base = startOfUTCDay(now);
+        const start = new Date(base.getTime() + off * 24 * 60 * 60 * 1000);
+        const end = new Date(start.getTime() + 24 * 60 * 60 * 1000);
+        return { start, end };
+      }
+      if (p === 'week') {
+        const d = startOfUTCDay(now);
+        // ISO week starts on Monday
+        const day = d.getUTCDay() || 7; // 1..7
+        const monday = new Date(d.getTime() - (day - 1) * 24 * 60 * 60 * 1000);
+        const start = new Date(monday.getTime() + off * 7 * 24 * 60 * 60 * 1000);
+        const end = new Date(start.getTime() + 7 * 24 * 60 * 60 * 1000);
+        return { start, end };
+      }
+      if (p === 'month') {
+        const y = now.getUTCFullYear();
+        const m = now.getUTCMonth();
+        const start = new Date(Date.UTC(y, m + off, 1));
+        const end = new Date(Date.UTC(y, m + off + 1, 1));
+        return { start, end };
+      }
+      if (p === 'year') {
+        const y = now.getUTCFullYear();
+        const start = new Date(Date.UTC(y + off, 0, 1));
+        const end = new Date(Date.UTC(y + off + 1, 0, 1));
+        return { start, end };
+      }
+      const base = startOfUTCDay(now);
+      return { start: base, end: new Date(base.getTime() + 24 * 60 * 60 * 1000) };
     }
+
+    const { start, end } = getPeriodRange(period, offset);
+    const dateFilter = `created_at >= '${start.toISOString()}' AND created_at < '${end.toISOString()}'`;
 
     // Выручка, прибыль, количество продаж
     const stats = db.prepare(`
       SELECT 
         COUNT(*) as total_sales,
         COALESCE(SUM(final_amount), 0) as revenue,
-        COALESCE(SUM(profit), 0) as profit
+        COALESCE(SUM(profit), 0) as profit,
+        COALESCE(COUNT(DISTINCT customer_id), 0) as unique_customers
       FROM orders
       WHERE status IN ('completed', 'delivered') AND ${dateFilter}
     `).get();
@@ -69,8 +89,8 @@ crmRouter.get('/api/admin/crm/dashboard', authMiddleware, (req, res) => {
       LEFT JOIN category_groups g ON g.id = p.groupId
       WHERE o.status IN ('completed', 'delivered') AND ${dateFilter}
       GROUP BY group_id, group_name
-      ORDER BY total_quantity DESC
-      LIMIT 10
+      ORDER BY total_revenue DESC
+      LIMIT 5
     `).all();
 
     // Статистика по статусам заказов
@@ -86,9 +106,19 @@ crmRouter.get('/api/admin/crm/dashboard', authMiddleware, (req, res) => {
     const deliveryStats = db.prepare(`
       SELECT 
         COUNT(*) as deliveries,
-        COALESCE(SUM(final_amount), 0) as delivery_revenue
+        COALESCE(SUM(profit), 0) as delivery_profit
       FROM orders
       WHERE delivery_type = 'delivery'
+        AND status IN ('completed', 'delivered')
+        AND ${dateFilter}
+    `).get();
+
+    const pickupStats = db.prepare(`
+      SELECT 
+        COUNT(*) as pickups,
+        COALESCE(SUM(profit), 0) as pickup_profit
+      FROM orders
+      WHERE delivery_type = 'pickup'
         AND status IN ('completed', 'delivered')
         AND ${dateFilter}
     `).get();
@@ -99,13 +129,18 @@ crmRouter.get('/api/admin/crm/dashboard', authMiddleware, (req, res) => {
         totalSales: stats.total_sales,
         revenue: stats.revenue,
         profit: stats.profit,
-        averageCheck: stats.total_sales > 0 ? stats.revenue / stats.total_sales : 0
+        averageCheck: stats.total_sales > 0 ? stats.revenue / stats.total_sales : 0,
+        uniqueCustomers: stats.unique_customers || 0
       },
       topProducts,
       ordersByStatus,
       deliveryStats: {
         deliveries: deliveryStats?.deliveries || 0,
-        revenue: deliveryStats?.delivery_revenue || 0
+        profit: deliveryStats?.delivery_profit || 0
+      },
+      pickupStats: {
+        pickups: pickupStats?.pickups || 0,
+        profit: pickupStats?.pickup_profit || 0
       }
     });
   } catch (error) {
