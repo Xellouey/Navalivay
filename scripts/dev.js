@@ -2,6 +2,7 @@
 import { spawn } from 'child_process';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
+import { networkInterfaces } from 'os';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -32,6 +33,23 @@ const colors = {
   reset: '\x1b[0m'
 };
 
+function getLocalIPv4() {
+  const nets = networkInterfaces();
+  const results = [];
+
+  Object.values(nets).forEach((interfaces) => {
+    interfaces?.forEach((net) => {
+      if (net.family === 'IPv4' && !net.internal) {
+        results.push(net.address);
+      }
+    });
+  });
+
+  return results;
+}
+
+const localIPs = getLocalIPv4();
+
 // Function to add colored prefix to output
 function addPrefix(data, prefix, color) {
   const lines = data.toString().split('\n').filter(line => line.trim());
@@ -42,7 +60,7 @@ function addPrefix(data, prefix, color) {
 
 // Start frontend development server
 console.log('🎨 Starting frontend development server...');
-const frontend = spawnProcess('npm', ['run', 'dev'], {
+const frontend = spawnProcess('npm', ['run', 'dev', '--', '--host', '0.0.0.0', '--port', '5173'], {
   cwd: join(projectRoot, 'frontend')
 });
 
@@ -140,7 +158,17 @@ server.on('exit', (code, signal) => {
 
 console.log('✅ Development environment started!');
 console.log(`📱 Frontend: http://localhost:5173`);
-console.log(`🔧 Backend: http://localhost:8081`);
+console.log(`🔧 Backend: http://localhost:8082`);
+if (localIPs.length) {
+  console.log('\n🌐 Доступ из локальной сети:');
+  localIPs.forEach((ip) => {
+    console.log(`   • Frontend: http://${ip}:5173`);
+    console.log(`   • Backend:  http://${ip}:8082`);
+  });
+  console.log('\n📱 Откройте один из адресов выше на телефоне, подключённом к той же сети.');
+} else {
+  console.log('\n⚠️ Не удалось определить локальный IP-адрес. Проверьте настройки сети.');
+}
 if (botMode) {
   console.log(`🤖 Telegram Bot: Active`);
 }

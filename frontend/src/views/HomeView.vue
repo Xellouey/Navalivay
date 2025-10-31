@@ -18,89 +18,116 @@
     </div>
 
     <div class="max-w-screen-xl mx-auto px-4 relative z-10 pb-16">
-      <h1 class="navalivay-title text-center mb-8 main-title-adaptive" style="margin-top: 2rem; color: var(--navalivay-black); font-weight: bold;">
+      <h1 class="navalivay-title text-center mb-12 main-title-adaptive" style="margin-top: 2rem; color: var(--navalivay-black); font-weight: bold;">
         ЧТО ХОТИТЕ КУПИТЬ<span class="question-mark">?</span>
       </h1>
 
-      <div class="relative mb-10 max-w-3xl mx-auto">
-        <input
-          v-model="searchQuery"
-          type="text"
-          placeholder="Быстрый поиск товаров..."
-          class="input-navalivay w-full text-center search-field"
-          @input="handleSearch"
-        />
-      </div>
-
       <section class="space-y-6">
-        <div class="section-header-navalivay items-center justify-between">
-          <h2 class="navalivay-title text-white text-xl sm:text-2xl">Категории</h2>
-          <span class="text-xs sm:text-sm text-white/70 font-semibold tracking-wide">{{ categories.length }} доступно</span>
-        </div>
-
-        <div class="grid gap-4 sm:gap-6 grid-cols-2 sm:grid-cols-3 lg:grid-cols-4">
-          <button
-            v-for="category in categoryCards"
-            :key="category.id"
-            class="category-card-new"
-            :class="{ active: category.isActive }"
-            @click="selectCategory(category.slug)"
+        <Transition name="fade" mode="out-in">
+          <div
+            v-if="!selectedCategory"
+            key="category-grid"
+            class="category-grid"
           >
-            <div class="category-card-media" :style="{ backgroundImage: `url(${category.previewImage})` }"></div>
-            <div class="category-card-body">
-              <span
-                v-if="category.displayMode !== 'default'"
-                class="category-card-mode"
-              >
-                {{ category.displayModeLabel }}
-              </span>
-              <p class="category-card-title">{{ category.name }}</p>
-              <div class="flex items-center justify-between">
-                <p class="category-card-meta">{{ category.productCount }} товаров</p>
-                <p v-if="category.groupsCount > 0" class="category-card-badge">
-                  {{ category.groupsCount }} {{ category.groupsCount === 1 ? 'линейка' : category.groupsCount < 5 ? 'линейки' : 'линеек' }}
-                </p>
+            <button
+              v-for="category in categoryCards"
+              :key="category.id"
+              class="category-card-new"
+              :class="{ active: category.isActive }"
+              @click="selectCategory(category.slug)"
+            >
+              <div class="category-card-media" :style="{ backgroundImage: `url(${category.previewImage})` }"></div>
+              <div class="category-card-body">
+                <span
+                  v-if="category.displayMode !== 'default'"
+                  class="category-card-mode"
+                >
+                  {{ category.displayModeLabel }}
+                </span>
+                <p class="category-card-title">{{ category.name }}</p>
+                <div class="flex items-center justify-between">
+                  <p class="category-card-meta">{{ category.productCount }} товаров</p>
+                  <p v-if="category.groupsCount > 0" class="category-card-badge">
+                    {{ category.groupsCount }} {{ category.groupsCount === 1 ? 'линейка' : category.groupsCount < 5 ? 'линейки' : 'линеек' }}
+                  </p>
+                </div>
               </div>
+            </button>
+          </div>
+
+          <div
+            v-else
+            key="category-focus"
+            class="category-focus-panel"
+          >
+            <div class="category-focus-media" :style="categoryFocusStyle"></div>
+            <div class="category-focus-overlay"></div>
+            <div class="category-focus-content">
+              <div class="category-focus-top">
+                <button class="back-chip" @click="backToCategories">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M15 18l-6-6 6-6" />
+                  </svg>
+                  Все категории
+                </button>
+                <span class="category-focus-label">{{ displayModeLabels[resolvedDisplayMode] }}</span>
+              </div>
+              <h2 class="category-focus-title">{{ selectedCategory?.name }}</h2>
+              <p class="category-focus-meta">
+                {{ selectedCategory?.productCount }} товаров
+                <template v-if="selectedCategory?.groups.length"> · {{ selectedCategory?.groups.length }} {{ selectedCategory?.groups.length === 1 ? 'подгруппа' : selectedCategory?.groups.length < 5 ? 'подгруппы' : 'подгрупп' }}</template>
+              </p>
             </div>
-          </button>
-        </div>
+          </div>
+        </Transition>
       </section>
 
-      <section v-if="selectedCategory" class="mt-12 space-y-6">
-        <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <div class="flex items-center gap-3">
-            <button class="back-chip" @click="backToCategories">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M15 18l-6-6 6-6" />
-              </svg>
-              Все категории
-            </button>
-            <h2 class="navalivay-title text-2xl sm:text-3xl" style="color: var(--navalivay-black)">
-              {{ selectedCategory.name }}
-            </h2>
-          </div>
-          <div v-if="catalogStore.activeGroup" class="flex justify-end">
-            <button class="link-chip" @click="backToGroups">Вернуться к подгруппам</button>
-          </div>
-        </div>
-
-        <div v-if="groupCards.length && !showLiquidShowcase" class="grid gap-4 sm:gap-6 grid-cols-2 sm:grid-cols-3 lg:grid-cols-4">
-          <button
-            v-for="group in groupCards"
-            :key="group.id"
-            class="group-card"
-            :class="{ active: group.isActive }"
-            :style="group.depth ? { marginLeft: `${Math.min(group.depth * 1.25, 3)}rem` } : undefined"
-            @click="selectGroup(group.slug)"
+      <section v-if="selectedCategory" class="mt-12 space-y-8">
+        <Transition name="fade" mode="out-in">
+          <div
+            v-if="groupCards.length && !showLiquidShowcase && activeGroupCard"
+            key="group-focus"
+            class="group-focus-panel"
           >
-            <div class="group-card-media" :style="{ backgroundImage: `url(${group.previewImage})` }"></div>
-            <div class="group-card-body">
-              <p class="group-card-title">{{ group.name }}</p>
-              <p class="group-card-meta">{{ group.totalProductCount ?? group.productCount }} вкусов</p>
+            <div class="group-focus-media" :style="groupFocusStyle"></div>
+            <div class="group-focus-overlay"></div>
+            <div class="group-focus-content">
+              <div class="group-focus-top">
+                <button class="back-chip" @click="backToGroups">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M15 18l-6-6 6-6" />
+                  </svg>
+                  {{ selectedCategory?.name }}
+                </button>
+                <span class="group-focus-count">{{ activeGroupCard?.totalProductCount ?? activeGroupCard?.productCount }} вкусов</span>
+              </div>
+              <h3 class="group-focus-title">{{ activeGroupCard?.name }}</h3>
+              <p class="group-focus-meta">Линейка выбрана и готова к просмотру</p>
             </div>
-          </button>
-        </div>
-        <p v-else-if="!showLiquidShowcase" class="text-gray-600 bg-gray-100 border border-dashed border-gray-300 rounded-xl px-5 py-4 text-sm font-medium">
+          </div>
+
+          <div
+            v-else-if="groupCards.length && !showLiquidShowcase"
+            key="group-grid"
+            class="grid gap-4 sm:gap-6 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4"
+          >
+            <button
+              v-for="group in groupCards"
+              :key="group.id"
+              class="group-card"
+              :class="{ active: group.isActive }"
+              :style="group.depth ? { marginLeft: `${Math.min(group.depth * 1.25, 3)}rem` } : undefined"
+              @click="selectGroup(group.slug)"
+            >
+              <div class="group-card-media" :style="{ backgroundImage: `url(${group.previewImage})` }"></div>
+              <div class="group-card-body">
+                <p class="group-card-title">{{ group.name }}</p>
+                <p class="group-card-meta">{{ group.totalProductCount ?? group.productCount }} вкусов</p>
+              </div>
+            </button>
+          </div>
+        </Transition>
+        <p v-if="!groupCards.length && !showLiquidShowcase" class="text-gray-600 bg-gray-100 border border-dashed border-gray-300 rounded-xl px-5 py-4 text-sm font-medium">
           Для категории пока не добавлены подгруппы — товары будут показаны в общем списке ниже.
         </p>
 
@@ -120,6 +147,12 @@
 
           <div v-if="liquidUngrouped.length" class="liquid-ungrouped">
             <h3 class="liquid-ungrouped-title">Без линейки</h3>
+            <div class="liquid-product-header">
+              <span class="liquid-header-cell liquid-header-title">Вкус</span>
+              <span class="liquid-header-cell liquid-header-strength">Крепость</span>
+              <span class="liquid-header-cell liquid-header-price">Цена</span>
+              <span class="liquid-header-cell liquid-header-stock">Наличие</span>
+            </div>
             <ul class="liquid-product-list">
               <LiquidFlavorRow
                 v-for="product in liquidUngrouped"
@@ -223,7 +256,7 @@
           <ExclamationTriangleIcon class="w-16 h-16 text-gray-400 mx-auto mb-4" />
           <h3 class="text-xl font-bold text-black mb-3">Товары не найдены</h3>
           <p class="text-gray-600 mb-6">
-            {{ searchQuery ? 'Попробуйте другой запрос' : 'Выберите другую категорию или подгруппу' }}
+            Выберите другую категорию или подгруппу
           </p>
           <button @click="catalogStore.activeGroup ? backToGroups() : backToCategories()" class="btn-navalivay">
             <span>Вернуться</span>
@@ -251,7 +284,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ExclamationTriangleIcon, PhotoIcon } from '@heroicons/vue/24/outline'
 
@@ -267,8 +300,7 @@ const catalogStore = useCatalogStore()
 const cartStore = useCartStore()
 const router = useRouter()
 
-const searchQuery = ref('')
-const searchDebounceTimer = ref<ReturnType<typeof setTimeout> | null>(null)
+
 
 const PLACEHOLDER_IMAGE = '/placeholder-category.png'
 
@@ -280,10 +312,43 @@ const displayModeLabels: Record<'default' | 'liquid' | 'visual', string> = {
   visual: 'Витрина'
 }
 
+const LIQUID_SLUG_KEYWORDS = ['liquid', 'liq', 'zhidk', 'juice', 'salt']
+const LIQUID_NAME_KEYWORDS = ['жидк', 'солев', 'liquid', 'juice', 'salt']
+
+function resolveCategoryDisplayMode(category: Category | null): 'default' | 'liquid' | 'visual' {
+  if (!category) return 'default'
+  if (category.displayMode === 'liquid' || category.displayMode === 'visual') {
+    return category.displayMode
+  }
+
+  const slug = (category.slug || '').toLowerCase()
+  if (LIQUID_SLUG_KEYWORDS.some(keyword => slug.includes(keyword))) {
+    return 'liquid'
+  }
+
+  const name = (category.name || '').toLowerCase()
+  if (LIQUID_NAME_KEYWORDS.some(keyword => name.includes(keyword))) {
+    return 'liquid'
+  }
+
+  const productsPool = catalogStore.allProducts.length ? catalogStore.allProducts : catalogStore.products
+  if (productsPool.length) {
+    const inCategory = productsPool.filter(product => product.categoryId === category.id)
+    if (inCategory.length) {
+      const withStrength = inCategory.filter(product => typeof product.strength === 'string' && product.strength.trim().length > 0)
+      if (withStrength.length >= Math.max(1, Math.round(inCategory.length * 0.4))) {
+        return 'liquid'
+      }
+    }
+  }
+
+  return 'default'
+}
+
 const categoryCards = computed(() => {
   return categories.value.map(category => {
     const previewImage = category.coverImage || category.groups.find(group => group.coverImage)?.coverImage || PLACEHOLDER_IMAGE
-    const displayMode = category.displayMode ?? 'default'
+    const displayMode = resolveCategoryDisplayMode(category)
     const visibleGroups = category.groups?.filter(group => (group.totalProductCount ?? group.productCount ?? 0) > 0) ?? []
     return {
       id: category.id,
@@ -305,8 +370,14 @@ const selectedCategory = computed<Category | null>(() => {
   return categories.value.find(category => category.slug === catalogStore.activeCategory) ?? null
 })
 
-const isLiquidCategory = computed(() => selectedCategory.value?.displayMode === 'liquid')
-const showLiquidShowcase = computed(() => isLiquidCategory.value && !searchQuery.value.trim())
+const selectedCategoryCard = computed(() => {
+  if (!selectedCategory.value) return null
+  return categoryCards.value.find(card => card.slug === selectedCategory.value?.slug) ?? null
+})
+
+const resolvedDisplayMode = computed<'default' | 'liquid' | 'visual'>(() => resolveCategoryDisplayMode(selectedCategory.value))
+const isLiquidCategory = computed(() => resolvedDisplayMode.value === 'liquid')
+const showLiquidShowcase = computed(() => isLiquidCategory.value)
 
 type GroupCard = CategoryGroup & { depth: number; previewImage: string; isActive: boolean }
 type GroupCardNode = GroupCard & { children: GroupCardNode[] }
@@ -418,12 +489,19 @@ watch(
     }
 
     const nextState: Record<string, boolean> = {}
-    ids.forEach((id, index) => {
-      nextState[id] = liquidExpansionState.value[id] ?? index === 0
+    ids.forEach((id) => {
+      nextState[id] = liquidExpansionState.value[id] ?? false
     })
     liquidExpansionState.value = nextState
   },
   { immediate: true }
+)
+
+watch(
+  () => selectedCategory.value?.id,
+  () => {
+    liquidExpansionState.value = {}
+  }
 )
 
 const crossSellItems = computed<Product[]>(() => {
@@ -432,17 +510,29 @@ const crossSellItems = computed<Product[]>(() => {
   return catalogStore.crossSellProducts[slug] ?? []
 })
 
+const activeGroupCard = computed(() => {
+  if (!catalogStore.activeGroup) return null
+  return groupCards.value.find(group => group.slug === catalogStore.activeGroup) ?? null
+})
+
+const categoryFocusStyle = computed(() => {
+  const image = selectedCategoryCard.value?.previewImage || selectedCategory.value?.coverImage || PLACEHOLDER_IMAGE
+  return { backgroundImage: `url(${image})` }
+})
+
+const groupFocusStyle = computed(() => {
+  const image = activeGroupCard.value?.previewImage || selectedCategoryCard.value?.previewImage || selectedCategory.value?.coverImage || PLACEHOLDER_IMAGE
+  return { backgroundImage: `url(${image})` }
+})
+
 const showProducts = computed(() => {
-  if (searchQuery.value.trim()) {
-    return true
-  }
   if (showLiquidShowcase.value) {
     return false
   }
   if (!selectedCategory.value) {
     return false
   }
-  if (selectedCategory.value.displayMode === 'visual') {
+  if (resolvedDisplayMode.value === 'visual') {
     return true
   }
   if (!selectedCategory.value.groups.length) {
@@ -502,36 +592,15 @@ function getProductImage(product: Product): string | null {
   return null
 }
 
-function handleSearch() {
-  if (searchDebounceTimer.value) {
-    clearTimeout(searchDebounceTimer.value)
-  }
-
-  searchDebounceTimer.value = setTimeout(async () => {
-    const value = searchQuery.value.trim()
-    if (value) {
-      if (catalogStore.activeGroup) {
-        catalogStore.activeGroup = null
-      }
-      await catalogStore.searchProducts(value)
-    } else {
-      await catalogStore.clearSearch()
-    }
-  }, 300)
-}
-
 async function selectCategory(slug: string | null) {
-  searchQuery.value = ''
   await catalogStore.setActiveCategory(slug)
 }
 
 async function selectGroup(slug: string | null) {
-  searchQuery.value = ''
   await catalogStore.setActiveGroup(slug)
 }
 
 async function backToCategories() {
-  searchQuery.value = ''
   await catalogStore.setActiveGroup(null)
   await catalogStore.setActiveCategory(null)
 }
@@ -577,11 +646,7 @@ onMounted(async () => {
   }
 })
 
-onUnmounted(() => {
-  if (searchDebounceTimer.value) {
-    clearTimeout(searchDebounceTimer.value)
-  }
-})
+
 </script>
 
 <style scoped>
@@ -605,15 +670,6 @@ onUnmounted(() => {
   display: inline-block;
   font-size: 1.15em;
   line-height: 1;
-}
-
-.search-field {
-  background: #f5f5f5;
-  border: none;
-  border-radius: 16px;
-  padding: 1rem 1.5rem;
-  font-size: 1rem;
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.08);
 }
 
 @media (max-width: 768px) {
@@ -655,16 +711,288 @@ onUnmounted(() => {
   box-shadow: var(--navalivay-shadow-hover);
 }
 
+.category-grid {
+  display: grid;
+  gap: clamp(0.75rem, 3vw, 1rem);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+@media (max-width: 360px) {
+  .category-grid {
+    grid-template-columns: repeat(1, minmax(0, 1fr));
+    gap: 0.85rem;
+  }
+}
+
+@media (min-width: 640px) {
+  .category-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 1.2rem;
+  }
+}
+
+@media (min-width: 1024px) {
+  .category-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 1.5rem;
+  }
+}
+
+@media (min-width: 1280px) {
+  .category-grid {
+    gap: 1.75rem;
+  }
+}
+
+.category-focus-panel {
+  position: relative;
+  border-radius: 32px;
+  overflow: hidden;
+  border: 4px solid var(--navalivay-black);
+  background: var(--navalivay-white);
+  min-height: 320px;
+  box-shadow: var(--navalivay-shadow-hover);
+}
+
+.category-focus-media {
+  position: absolute;
+  inset: 0;
+  background-size: cover;
+  background-position: center;
+  filter: blur(8px) brightness(0.72);
+  transform: scale(1.12);
+}
+
+.category-focus-overlay {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at top right, rgba(255, 255, 255, 0.16), transparent 45%), linear-gradient(135deg, rgba(255, 255, 255, 0.82), rgba(255, 255, 255, 0.68));
+}
+
+.category-focus-content {
+  position: relative;
+  z-index: 2;
+  padding: clamp(1.75rem, 4vw, 3rem);
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  color: var(--navalivay-black);
+}
+
+.category-focus-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+}
+
+.category-focus-label {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.4rem 0.9rem;
+  border-radius: 9999px;
+  background: rgba(0, 0, 0, 0.08);
+  font-size: 0.65rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.category-focus-title {
+  font-family: var(--font-display);
+  font-size: clamp(2rem, 4vw, 2.8rem);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.category-focus-meta {
+  font-size: 0.85rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(0, 0, 0, 0.6);
+}
+
+.group-focus-panel {
+  position: relative;
+  border-radius: 28px;
+  overflow: hidden;
+  border: 3px solid var(--navalivay-black);
+  background: var(--navalivay-white);
+  min-height: 240px;
+  box-shadow: var(--navalivay-shadow);
+}
+
+.group-focus-media {
+  position: absolute;
+  inset: 0;
+  background-size: cover;
+  background-position: center;
+  filter: blur(6px) brightness(0.78);
+  transform: scale(1.08);
+}
+
+.group-focus-overlay {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.85), rgba(255, 255, 255, 0.65));
+}
+
+.group-focus-content {
+  position: relative;
+  padding: clamp(1.5rem, 3vw, 2.4rem);
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.group-focus-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+}
+
+.group-focus-count {
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: rgba(0, 0, 0, 0.55);
+}
+
+.group-focus-title {
+  font-family: var(--font-display);
+  font-size: clamp(1.6rem, 3vw, 2.1rem);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--navalivay-black);
+}
+
+.group-focus-meta {
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: rgba(0, 0, 0, 0.5);
+}
+
+@media (max-width: 1024px) {
+  .category-focus-panel {
+    border-radius: 26px;
+  }
+
+  .category-focus-content {
+    padding: clamp(1.5rem, 4vw, 2.2rem);
+  }
+
+  .group-focus-panel {
+    border-radius: 22px;
+  }
+}
+
+@media (max-width: 768px) {
+  .category-focus-panel {
+    min-height: 260px;
+    border-width: 3px;
+  }
+
+  .category-focus-media {
+    filter: blur(6px) brightness(0.78);
+    transform: scale(1.08);
+  }
+
+  .category-focus-content {
+    padding: 1.5rem;
+    gap: 1rem;
+  }
+
+  .category-focus-top {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.75rem;
+  }
+
+  .category-focus-title {
+    font-size: clamp(1.6rem, 7vw, 2.2rem);
+  }
+
+  .group-focus-panel {
+    min-height: 200px;
+    border-width: 2px;
+  }
+
+  .group-focus-content {
+    padding: 1.25rem;
+    gap: 0.75rem;
+  }
+
+  .group-focus-top {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.75rem;
+  }
+
+  .group-focus-title {
+    font-size: clamp(1.2rem, 6vw, 1.75rem);
+  }
+}
+
+@media (max-width: 480px) {
+  .category-focus-panel {
+    border-radius: 20px;
+  }
+
+  .category-focus-content {
+    padding: 1.3rem;
+  }
+
+  .category-focus-title {
+    font-size: clamp(1.4rem, 8vw, 1.9rem);
+  }
+
+  .category-focus-meta {
+    font-size: 0.75rem;
+  }
+
+  .group-focus-panel {
+    border-radius: 18px;
+  }
+
+  .group-focus-content {
+    padding: 1.1rem;
+  }
+}
+
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.25s ease, transform 0.25s ease;
+}
+
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
+  transform: translateY(16px);
+}
+
+.fade-enter-to,
+.fade-leave-from {
+  opacity: 1;
+  transform: translateY(0);
+}
+
 .category-card-media {
   position: relative;
   width: 100%;
-  padding-bottom: 70%;
+  padding-bottom: 100%;
   background-size: cover;
   background-position: center;
+  background-repeat: no-repeat;
 }
 
 .category-card-body {
-  padding: 1rem;
+  padding: clamp(0.75rem, 2.8vw, 1rem);
   display: flex;
   flex-direction: column;
   gap: 0.25rem;
@@ -672,11 +1000,11 @@ onUnmounted(() => {
 
 .category-card-mode {
   align-self: flex-start;
-  font-size: 0.6rem;
+  font-size: clamp(0.55rem, 2vw, 0.65rem);
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  padding: 0.25rem 0.6rem;
+  padding: 0.25rem 0.55rem;
   border-radius: 9999px;
   background: rgba(0, 0, 0, 0.08);
   color: var(--navalivay-black);
@@ -684,21 +1012,22 @@ onUnmounted(() => {
 
 .category-card-title {
   font-family: var(--font-display);
-  font-size: 1rem;
+  font-size: clamp(0.95rem, 3.2vw, 1.05rem);
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: var(--navalivay-black);
+  line-height: 1.25;
 }
 
 .category-card-meta {
-  font-size: 0.75rem;
+  font-size: clamp(0.66rem, 2.4vw, 0.78rem);
   font-weight: 600;
   color: var(--navalivay-gray);
   letter-spacing: 0.05em;
 }
 
 .category-card-badge {
-  font-size: 0.65rem;
+  font-size: clamp(0.58rem, 2.2vw, 0.7rem);
   font-weight: 700;
   color: var(--navalivay-white);
   background: var(--navalivay-red);
@@ -706,6 +1035,33 @@ onUnmounted(() => {
   border-radius: 8px;
   text-transform: uppercase;
   letter-spacing: 0.08em;
+}
+
+@media (max-width: 768px) {
+  .category-card-new {
+    border-width: 3px;
+    border-radius: 18px;
+  }
+
+  .category-card-body {
+    padding: clamp(0.7rem, 3vw, 0.85rem);
+    gap: 0.2rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .category-card-new {
+    border-width: 2px;
+    border-radius: 16px;
+  }
+
+  .category-card-media {
+    border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+  }
+
+  .category-card-body {
+    padding: clamp(0.6rem, 4vw, 0.75rem);
+  }
 }
 
 .group-card {
@@ -790,16 +1146,16 @@ onUnmounted(() => {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 0.25rem 0.6rem;
+  padding: 0.35rem 0.75rem;
   border-radius: 9999px;
-  background: rgba(230, 0, 0, 0.85);
-  border: 1px solid rgba(230, 0, 0, 0.9);
-  font-size: 0.6rem;
-  font-weight: 700;
+  background: #e60000;
+  border: 2px solid #ffffff;
+  font-size: 0.65rem;
+  font-weight: 900;
   text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--navalivay-white);
-  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.15);
+  letter-spacing: 0.1em;
+  color: #ffffff;
+  box-shadow: 0 6px 16px rgba(230, 0, 0, 0.4), 0 2px 4px rgba(0, 0, 0, 0.2);
 }
 
 .cross-sell-media img,
@@ -930,142 +1286,6 @@ onUnmounted(() => {
   display: none;
 }
 
-:deep(.liquid-group) {
-  border-radius: 24px;
-  border: 3px solid var(--navalivay-black);
-  background: var(--navalivay-white);
-  overflow: hidden;
-  box-shadow: var(--navalivay-shadow);
-}
-
-:deep(.liquid-group-header) {
-  width: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 1.1rem 1.4rem;
-  background: rgba(0, 0, 0, 0.02);
-  transition: background 0.2s ease;
-}
-
-:deep(.liquid-group-header:hover) {
-  background: rgba(0, 0, 0, 0.05);
-}
-
-:deep(.liquid-group-meta) {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 0.2rem;
-}
-
-:deep(.liquid-group-title) {
-  font-family: var(--font-display);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  font-size: 1.05rem;
-  color: var(--navalivay-black);
-}
-
-:deep(.liquid-group-count) {
-  font-size: 0.7rem;
-  font-weight: 700;
-  color: var(--navalivay-gray);
-  letter-spacing: 0.08em;
-}
-
-:deep(.liquid-group-icon) {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  border-radius: 50%;
-  border: 2px solid var(--navalivay-black);
-  background: var(--navalivay-white);
-  color: var(--navalivay-black);
-}
-
-:deep(.liquid-group-body) {
-  padding: 0.75rem 0 1.2rem;
-}
-
-:deep(.liquid-product-list) {
-  display: flex;
-  flex-direction: column;
-  gap: 0.6rem;
-  padding: 0 1.2rem;
-}
-
-:deep(.liquid-product) {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-  padding: 0.85rem 1rem;
-  border-radius: 18px;
-  border: 2px solid rgba(0, 0, 0, 0.06);
-  background: linear-gradient(135deg, rgba(255,255,255,0.98) 0%, rgba(247,247,247,0.98) 100%);
-  cursor: pointer;
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
-}
-
-:deep(.liquid-product:hover) {
-  transform: translate(-3px, -3px);
-  box-shadow: var(--navalivay-shadow-hover);
-}
-
-:deep(.liquid-product-info) {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-  max-width: 65%;
-}
-
-:deep(.liquid-product-title) {
-  font-weight: 800;
-  font-size: 0.95rem;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--navalivay-black);
-  line-height: 1.35;
-}
-
-:deep(.liquid-product-variant),
-:deep(.liquid-product-strength) {
-  font-size: 0.7rem;
-  font-weight: 700;
-  color: var(--navalivay-gray);
-  letter-spacing: 0.08em;
-}
-
-:deep(.liquid-product-meta) {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 0.25rem;
-  min-width: 120px;
-}
-
-:deep(.liquid-product-price) {
-  font-weight: 900;
-  color: var(--navalivay-red);
-  font-size: 1rem;
-  letter-spacing: 0.05em;
-}
-
-:deep(.liquid-product-stock) {
-  font-size: 0.65rem;
-  font-weight: 700;
-  color: var(--navalivay-gray);
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-}
-
-:deep(.liquid-product-stock.low) {
-  color: var(--navalivay-red);
-}
-
 :deep(.liquid-ungrouped) {
   border-radius: 24px;
   border: 3px dashed var(--navalivay-black);
@@ -1080,6 +1300,40 @@ onUnmounted(() => {
   font-size: 1rem;
   color: var(--navalivay-black);
   margin-bottom: 1rem;
+}
+
+:deep(.liquid-product-header) {
+  display: grid;
+  grid-template-columns: minmax(0, 2.4fr) minmax(0, 1fr) minmax(120px, 0.8fr) minmax(120px, 0.9fr);
+  gap: 1rem;
+  padding: 0.9rem 1rem 0.4rem;
+  font-size: 0.7rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: rgba(0, 0, 0, 0.48);
+}
+
+:deep(.liquid-header-cell) {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+:deep(.liquid-header-title) {
+  padding-left: 0.2rem;
+}
+
+:deep(.liquid-header-strength),
+:deep(.liquid-header-price),
+:deep(.liquid-header-stock) {
+  justify-content: flex-start;
+}
+
+@media (max-width: 720px) {
+  :deep(.liquid-product-header) {
+    display: none;
+  }
 }
 
 :deep(.liquid-collapse-enter-active),
