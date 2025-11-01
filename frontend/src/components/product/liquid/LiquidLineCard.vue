@@ -59,9 +59,6 @@
               <span class="liquid-flavor-title">{{ product.title }}</span>
             </div>
             <div class="liquid-flavor-actions">
-              <span v-if="getStockMessage(product)" class="liquid-flavor-stock-note">
-                {{ getStockMessage(product) }}
-              </span>
               <div
                 v-if="getQuantity(product.id) > 0"
                 class="liquid-flavor-quantity"
@@ -79,8 +76,8 @@
                 <button
                   type="button"
                   class="flavor-qty-btn flavor-qty-btn-plus"
-                  :disabled="isAtStockLimit(product)"
-                  @click.stop="incrementQuantity(product)"
+                  :class="{ 'is-disabled': isAtStockLimit(product) }"
+                  @click.stop="handleIncrement(product)"
                   aria-label="Добавить еще"
                 >
                   <PlusIcon class="flavor-qty-icon" />
@@ -90,8 +87,8 @@
                 v-else
                 type="button"
                 class="liquid-flavor-add"
-                :disabled="!canAdd(product)"
-                @click.stop="addToCart(product)"
+                :class="{ 'is-disabled': !canAdd(product) }"
+                @click.stop="handleAdd(product)"
                 aria-label="Добавить в корзину"
               >
                 <PlusIcon class="flavor-add-icon" />
@@ -124,6 +121,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'toggle', groupId: string): void
+  (e: 'showToast', message: string, type: 'error' | 'success' | 'info'): void
 }>()
 
 const cartStore = useCartStore()
@@ -238,33 +236,36 @@ function isAtStockLimit(product: Product) {
   return false
 }
 
-function getStockMessage(product: Product) {
-  if (product.isAvailable === false) {
-    return 'нет в наличии'
-  }
-  if (typeof product.stock === 'number') {
-    const stock = Math.max(product.stock, 0)
-    if (stock === 0) {
-      return 'нет в наличии'
+
+function handleAdd(product: Product) {
+  if (!canAdd(product)) {
+    if (product.isAvailable === false || (typeof product.stock === 'number' && product.stock <= 0)) {
+      emit('showToast', 'Товара нет в наличии', 'error')
+    } else {
+      emit('showToast', 'В наличии больше нет', 'error')
     }
-    if (getQuantity(product.id) >= stock) {
-      return 'в наличии больше нет'
-    }
+    return
   }
-  return null
+  addToCart(product)
 }
 
 function addToCart(product: Product) {
-  if (!canAdd(product)) {
-    return
-  }
   cartStore.addItem(product, 1)
 }
 
-function incrementQuantity(product: Product) {
+function handleIncrement(product: Product) {
   if (!canAdd(product)) {
+    if (product.isAvailable === false || (typeof product.stock === 'number' && product.stock <= 0)) {
+      emit('showToast', 'Товара нет в наличии', 'error')
+    } else {
+      emit('showToast', 'В наличии больше нет', 'error')
+    }
     return
   }
+  incrementQuantity(product)
+}
+
+function incrementQuantity(product: Product) {
   const currentQty = getQuantity(product.id)
   if (currentQty > 0) {
     cartStore.updateQuantity(product.id, currentQty + 1)
@@ -487,15 +488,7 @@ function decrementQuantity(product: Product) {
   flex-shrink: 0;
 }
 
-.liquid-flavor-stock-note {
-  font-size: 0.7rem;
-  font-weight: 700;
-  letter-spacing: 0.01em;
-  text-transform: lowercase;
-  color: #ed1d24;
-  text-align: right;
-  order: -1;
-}
+
 
 .liquid-flavor-add {
   width: 48px;
@@ -512,14 +505,16 @@ function decrementQuantity(product: Product) {
   flex-shrink: 0;
 }
 
-.liquid-flavor-add:hover:not(:disabled) {
+.liquid-flavor-add:hover:not(:disabled):not(.is-disabled) {
   opacity: 0.9;
 }
 
-.liquid-flavor-add:disabled {
+.liquid-flavor-add:disabled,
+.liquid-flavor-add.is-disabled {
   background: #d9d9d9;
   color: #9b9b9b;
   cursor: not-allowed;
+  pointer-events: auto;
 }
 
 .flavor-add-icon {
@@ -550,15 +545,17 @@ function decrementQuantity(product: Product) {
   flex-shrink: 0;
 }
 
-.flavor-qty-btn:hover:not(:disabled) {
+.flavor-qty-btn:hover:not(:disabled):not(.is-disabled) {
   opacity: 0.9;
 }
 
-.flavor-qty-btn:disabled {
+.flavor-qty-btn:disabled,
+.flavor-qty-btn.is-disabled {
   background: #d9d9d9;
   color: #9b9b9b;
   cursor: not-allowed;
   opacity: 0.6;
+  pointer-events: auto;
 }
 
 .flavor-qty-btn-minus {

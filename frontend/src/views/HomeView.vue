@@ -107,9 +107,6 @@
                 </div>
               </div>
               <div class="liquid-line-single-side">
-                <span v-if="getCrossSellStockMessage(item)" class="liquid-flavor-stock-note">
-                  {{ getCrossSellStockMessage(item) }}
-                </span>
                 <div
                   v-if="getCrossSellQuantity(item.id) > 0"
                   class="liquid-flavor-quantity"
@@ -124,22 +121,22 @@
                     <MinusIcon class="flavor-qty-icon" />
                   </button>
                   <span class="flavor-qty-value">{{ getCrossSellQuantity(item.id) }}</span>
-                  <button
-                    type="button"
-                    class="flavor-qty-btn flavor-qty-btn-plus"
-                    :disabled="isCrossSellAtStockLimit(item)"
-                    @click.stop="incrementCrossSellQuantity(item)"
-                    aria-label="Добавить еще"
-                  >
-                    <PlusIcon class="flavor-qty-icon" />
-                  </button>
+                    <button
+                      type="button"
+                      class="flavor-qty-btn flavor-qty-btn-plus"
+                      :class="{ 'is-disabled': isCrossSellAtStockLimit(item) }"
+                      @click.stop="handleCrossSellIncrement(item)"
+                      aria-label="Добавить еще"
+                    >
+                      <PlusIcon class="flavor-qty-icon" />
+                    </button>
                 </div>
                 <button
                   v-else
                   type="button"
                   class="liquid-flavor-add"
-                  :disabled="!canAddCrossSell(item)"
-                  @click.stop="addCrossSellToCart(item)"
+                  :class="{ 'is-disabled': !canAddCrossSell(item) }"
+                  @click.stop="handleCrossSellAdd(item)"
                   aria-label="Добавить в корзину"
                 >
                   <PlusIcon class="flavor-add-icon" />
@@ -199,24 +196,60 @@
 
         <section v-if="showLiquidShowcase" class="px-4 space-y-4">
           <!-- NiCa Booster - always first -->
-          <div v-if="nicaBoosterProduct" class="rounded-2xl border-2 border-gray-200 bg-white p-5 shadow-sm">
-            <div class="flex items-center justify-between gap-4">
-              <div v-if="nicaBoosterProduct.images?.length" class="h-16 w-16 flex-shrink-0 overflow-hidden rounded-xl border-2 border-gray-200">
-                <img :src="nicaBoosterProduct.images[0]" :alt="nicaBoosterProduct.title" class="h-full w-full object-cover" />
+          <div v-if="nicaBoosterProduct" class="liquid-line-card-single">
+            <div class="liquid-line-single-header">
+              <div class="liquid-line-single-main">
+                <div v-if="getProductImage(nicaBoosterProduct)" class="liquid-line-image">
+                  <img :src="getProductImage(nicaBoosterProduct)!" :alt="nicaBoosterProduct.title" />
+                </div>
+                <div class="liquid-line-info">
+                  <span
+                    v-for="(badge, badgeIndex) in getProductBadges(nicaBoosterProduct)"
+                    v-if="getProductBadges(nicaBoosterProduct).length"
+                    :key="`${badge.type || 'badge'}-${badgeIndex}`"
+                    class="liquid-line-badge"
+                    :style="getBadgeStyle(badge)"
+                  >
+                    {{ getBadgeLabel(badge) }}
+                  </span>
+                  <h3 class="liquid-line-title">{{ nicaBoosterProduct.title || 'Без названия' }}</h3>
+                  <p v-if="nicaBoosterProduct.description" class="liquid-line-description">{{ nicaBoosterProduct.description }}</p>
+                </div>
               </div>
-              <div class="flex-1 min-w-0">
-                <h3 class="text-xl font-bold text-gray-900">{{ nicaBoosterProduct.title }}</h3>
-                <p v-if="nicaBoosterProduct.description" class="text-sm text-gray-500 mt-1">{{ nicaBoosterProduct.description }}</p>
-              </div>
-              <div class="flex items-center gap-3 flex-shrink-0">
-                <span class="text-base font-bold text-red-600 whitespace-nowrap">{{ formatPrice(nicaBoosterProduct.priceRub) }} ₽</span>
-                <button
-                  class="flex items-center justify-center w-10 h-10 rounded-xl bg-blue-500 border-2 border-blue-600 text-white hover:bg-blue-600 transition"
-                  @click="openProduct(nicaBoosterProduct)"
+              <div class="liquid-line-single-side">
+                <div
+                  v-if="getUngroupedQuantity(nicaBoosterProduct.id) > 0"
+                  class="liquid-flavor-quantity"
+                  :class="{ 'is-limit': isUngroupedAtStockLimit(nicaBoosterProduct) }"
                 >
-                  <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path>
-                  </svg>
+                  <button
+                    type="button"
+                    class="flavor-qty-btn flavor-qty-btn-minus"
+                    @click.stop="decrementUngroupedQuantity(nicaBoosterProduct)"
+                    aria-label="Убавить количество"
+                  >
+                    <MinusIcon class="flavor-qty-icon" />
+                  </button>
+                  <span class="flavor-qty-value">{{ getUngroupedQuantity(nicaBoosterProduct.id) }}</span>
+                  <button
+                    type="button"
+                    class="flavor-qty-btn flavor-qty-btn-plus"
+                    :class="{ 'is-disabled': isUngroupedAtStockLimit(nicaBoosterProduct) }"
+                    @click.stop="handleUngroupedIncrement(nicaBoosterProduct)"
+                    aria-label="Добавить еще"
+                  >
+                    <PlusIcon class="flavor-qty-icon" />
+                  </button>
+                </div>
+                <button
+                  v-else
+                  type="button"
+                  class="liquid-flavor-add"
+                  :class="{ 'is-disabled': !canAddUngrouped(nicaBoosterProduct) }"
+                  @click.stop="handleUngroupedAdd(nicaBoosterProduct)"
+                  aria-label="Добавить в корзину"
+                >
+                  <PlusIcon class="flavor-add-icon" />
                 </button>
               </div>
             </div>
@@ -234,24 +267,70 @@
             :subgroups="[]"
             :expanded="isGroupExpanded(group.id)"
             @toggle="toggleGroupExpansion"
+            @show-toast="showToast"
           />
 
-          <div v-if="liquidUngrouped.length" class="rounded-2xl border-2 border-dashed border-gray-300 bg-gray-50 px-5 py-5">
-            <h3 class="text-sm font-bold uppercase tracking-wide text-gray-600 mb-3">Дополнительные вкусы</h3>
-            <div class="space-y-2">
-              <div
-                v-for="product in liquidUngrouped"
-                :key="product.id"
-                class="flex items-center justify-between gap-3 rounded-xl bg-white border border-gray-200 px-4 py-3 hover:border-gray-300 transition cursor-pointer"
-                @click="openProduct(product)"
-              >
-                <div class="flex-1 min-w-0">
-                  <span class="text-base font-semibold text-gray-900">{{ product.title }}</span>
-                  <p v-if="product.description" class="text-xs text-gray-500 mt-0.5 line-clamp-1">
-                    {{ product.description }}
-                  </p>
+          <div v-if="liquidUngrouped.length" class="px-4">
+            <div
+              v-for="product in liquidUngrouped"
+              :key="product.id"
+              class="liquid-line-card-single"
+            >
+              <div class="liquid-line-single-header">
+                <div class="liquid-line-single-main">
+                  <div v-if="getProductImage(product)" class="liquid-line-image">
+                    <img :src="getProductImage(product)!" :alt="product.title" />
+                  </div>
+                  <div class="liquid-line-info">
+                    <span
+                      v-for="(badge, badgeIndex) in getProductBadges(product)"
+                      v-if="getProductBadges(product).length"
+                      :key="`${badge.type || 'badge'}-${badgeIndex}`"
+                      class="liquid-line-badge"
+                      :style="getBadgeStyle(badge)"
+                    >
+                      {{ getBadgeLabel(badge) }}
+                    </span>
+                    <h3 class="liquid-line-title">{{ product.title || 'Без названия' }}</h3>
+                    <p v-if="product.description" class="liquid-line-description">{{ product.description }}</p>
+                  </div>
                 </div>
-                <span class="text-base font-bold text-red-600 whitespace-nowrap">{{ formatPrice(product.priceRub) }} ₽</span>
+                <div class="liquid-line-single-side">
+                  <div
+                    v-if="getUngroupedQuantity(product.id) > 0"
+                    class="liquid-flavor-quantity"
+                    :class="{ 'is-limit': isUngroupedAtStockLimit(product) }"
+                  >
+                    <button
+                      type="button"
+                      class="flavor-qty-btn flavor-qty-btn-minus"
+                      @click.stop="decrementUngroupedQuantity(product)"
+                      aria-label="Убавить количество"
+                    >
+                      <MinusIcon class="flavor-qty-icon" />
+                    </button>
+                    <span class="flavor-qty-value">{{ getUngroupedQuantity(product.id) }}</span>
+                    <button
+                      type="button"
+                      class="flavor-qty-btn flavor-qty-btn-plus"
+                      :class="{ 'is-disabled': isUngroupedAtStockLimit(product) }"
+                      @click.stop="handleUngroupedIncrement(product)"
+                      aria-label="Добавить еще"
+                    >
+                      <PlusIcon class="flavor-qty-icon" />
+                    </button>
+                  </div>
+                  <button
+                    v-else
+                    type="button"
+                    class="liquid-flavor-add"
+                    :class="{ 'is-disabled': !canAddUngrouped(product) }"
+                    @click.stop="handleUngroupedAdd(product)"
+                    aria-label="Добавить в корзину"
+                  >
+                    <PlusIcon class="flavor-add-icon" />
+                  </button>
+                </div>
               </div>
             </div>
           </div>
@@ -343,6 +422,9 @@
         </button>
       </div>
     </Transition>
+    
+    <!-- Toast Notification -->
+    <ToastNotification v-if="toastMessage" :key="toastKey" :message="toastMessage" :type="toastType" />
   </div>
 </template>
 
@@ -357,10 +439,26 @@ import SmokeParticles from '@/components/SmokeParticles.vue'
 import BannerCarousel from '@/components/BannerCarousel.vue'
 import LiquidLineCard from '@/components/product/liquid/LiquidLineCard.vue'
 import LiquidFlavorRow from '@/components/product/liquid/LiquidFlavorRow.vue'
+import ToastNotification from '@/components/ToastNotification.vue'
 
 const catalogStore = useCatalogStore()
 const cartStore = useCartStore()
 const router = useRouter()
+
+// Toast notification
+const toastMessage = ref('')
+const toastType = ref<'error' | 'success' | 'info'>('info')
+const toastKey = ref(0)
+
+function showToast(message: string, type: 'error' | 'success' | 'info' = 'info') {
+  toastMessage.value = message
+  toastType.value = type
+  toastKey.value++
+  
+  setTimeout(() => {
+    toastMessage.value = ''
+  }, 3500)
+}
 
 // Cross-sell refs
 const crossSellContainer = ref<HTMLElement | null>(null)
@@ -743,6 +841,8 @@ function getCrossSellQuantity(productId: string): number {
 }
 
 function canAddCrossSell(product: Product) {
+  const currentQty = getCrossSellQuantity(product.id)
+  
   if (product.isAvailable === false) {
     return false
   }
@@ -751,7 +851,7 @@ function canAddCrossSell(product: Product) {
     if (stock === 0) {
       return false
     }
-    return getCrossSellQuantity(product.id) < stock
+    return currentQty < stock
   }
   return true
 }
@@ -770,33 +870,36 @@ function isCrossSellAtStockLimit(product: Product) {
   return false
 }
 
-function getCrossSellStockMessage(product: Product) {
-  if (product.isAvailable === false) {
-    return 'нет в наличии'
-  }
-  if (typeof product.stock === 'number') {
-    const stock = Math.max(product.stock, 0)
-    if (stock === 0) {
-      return 'нет в наличии'
+
+function handleCrossSellAdd(product: Product) {
+  if (!canAddCrossSell(product)) {
+    if (product.isAvailable === false || (typeof product.stock === 'number' && product.stock <= 0)) {
+      showToast('Товара нет в наличии', 'error')
+    } else {
+      showToast('В наличии больше нет', 'error')
     }
-    if (getCrossSellQuantity(product.id) >= stock) {
-      return 'в наличии больше нет'
-    }
+    return
   }
-  return null
+  addCrossSellToCart(product)
 }
 
 function addCrossSellToCart(product: Product) {
-  if (!canAddCrossSell(product)) {
-    return
-  }
   cartStore.addItem(product, 1)
 }
 
-function incrementCrossSellQuantity(product: Product) {
+function handleCrossSellIncrement(product: Product) {
   if (!canAddCrossSell(product)) {
+    if (product.isAvailable === false || (typeof product.stock === 'number' && product.stock <= 0)) {
+      showToast('Товара нет в наличии', 'error')
+    } else {
+      showToast('В наличии больше нет', 'error')
+    }
     return
   }
+  incrementCrossSellQuantity(product)
+}
+
+function incrementCrossSellQuantity(product: Product) {
   const currentQty = getCrossSellQuantity(product.id)
   if (currentQty > 0) {
     cartStore.updateQuantity(product.id, currentQty + 1)
@@ -807,6 +910,87 @@ function incrementCrossSellQuantity(product: Product) {
 
 function decrementCrossSellQuantity(product: Product) {
   const currentQty = getCrossSellQuantity(product.id)
+  if (currentQty > 1) {
+    cartStore.updateQuantity(product.id, currentQty - 1)
+  } else if (currentQty === 1) {
+    cartStore.removeItem(product.id)
+  }
+}
+
+// Ungrouped товары без линейки - cart functions
+function getUngroupedQuantity(productId: string): number {
+  const item = cartStore.items.find(item => item.productId === productId)
+  return item ? item.quantity : 0
+}
+
+function canAddUngrouped(product: Product) {
+  if (product.isAvailable === false) {
+    return false
+  }
+  if (typeof product.stock === 'number') {
+    const stock = Math.max(product.stock, 0)
+    if (stock === 0) {
+      return false
+    }
+    return getUngroupedQuantity(product.id) < stock
+  }
+  return true
+}
+
+function isUngroupedAtStockLimit(product: Product) {
+  if (product.isAvailable === false) {
+    return true
+  }
+  if (typeof product.stock === 'number') {
+    const stock = Math.max(product.stock, 0)
+    if (stock === 0) {
+      return true
+    }
+    return getUngroupedQuantity(product.id) >= stock
+  }
+  return false
+}
+
+
+function handleUngroupedAdd(product: Product) {
+  if (!canAddUngrouped(product)) {
+    if (product.isAvailable === false || (typeof product.stock === 'number' && product.stock <= 0)) {
+      showToast('Товара нет в наличии', 'error')
+    } else {
+      showToast('В наличии больше нет', 'error')
+    }
+    return
+  }
+  addUngroupedToCart(product)
+}
+
+function addUngroupedToCart(product: Product) {
+  cartStore.addItem(product, 1)
+}
+
+function handleUngroupedIncrement(product: Product) {
+  if (!canAddUngrouped(product)) {
+    if (product.isAvailable === false || (typeof product.stock === 'number' && product.stock <= 0)) {
+      showToast('Товара нет в наличии', 'error')
+    } else {
+      showToast('В наличии больше нет', 'error')
+    }
+    return
+  }
+  incrementUngroupedQuantity(product)
+}
+
+function incrementUngroupedQuantity(product: Product) {
+  const currentQty = getUngroupedQuantity(product.id)
+  if (currentQty > 0) {
+    cartStore.updateQuantity(product.id, currentQty + 1)
+  } else {
+    cartStore.addItem(product, 1)
+  }
+}
+
+function decrementUngroupedQuantity(product: Product) {
+  const currentQty = getUngroupedQuantity(product.id)
   if (currentQty > 1) {
     cartStore.updateQuantity(product.id, currentQty - 1)
   } else if (currentQty === 1) {
@@ -2012,6 +2196,7 @@ onMounted(async () => {
   flex-shrink: 0;
 }
 
+
 .liquid-line-price {
   display: flex;
   align-items: baseline;
@@ -2022,15 +2207,6 @@ onMounted(async () => {
   order: 1;
 }
 
-.liquid-flavor-stock-note {
-  font-size: 0.7rem;
-  font-weight: 700;
-  letter-spacing: 0.01em;
-  text-transform: lowercase;
-  color: #ed1d24;
-  text-align: right;
-  order: -1;
-}
 
 .liquid-flavor-add {
   width: 48px;
@@ -2052,10 +2228,12 @@ onMounted(async () => {
   opacity: 0.9;
 }
 
-.liquid-flavor-add:disabled {
+.liquid-flavor-add:disabled,
+.liquid-flavor-add.is-disabled {
   background: #d9d9d9;
   color: #9b9b9b;
   cursor: not-allowed;
+  pointer-events: auto;
 }
 
 .flavor-add-icon {
@@ -2091,11 +2269,13 @@ onMounted(async () => {
   opacity: 0.9;
 }
 
-.flavor-qty-btn:disabled {
+.flavor-qty-btn:disabled,
+.flavor-qty-btn.is-disabled {
   background: #d9d9d9;
   color: #9b9b9b;
   cursor: not-allowed;
   opacity: 0.6;
+  pointer-events: auto;
 }
 
 .flavor-qty-btn-minus {

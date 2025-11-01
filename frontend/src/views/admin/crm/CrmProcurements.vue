@@ -6,7 +6,7 @@
           <h1 class="text-2xl font-bold text-gray-900 sm:text-3xl">Закупки</h1>
           <p class="text-sm text-gray-600 sm:text-base">Планируйте поставки, контролируйте себестоимость и пополняйте остатки</p>
         </div>
-        <div class="flex w-full flex-wrap gap-3 sm:w-auto sm:justify-end">
+        <div v-if="profitUnlocked" class="flex w-full flex-wrap gap-3 sm:w-auto sm:justify-end">
           <button
             @click="refreshProcurements"
             class="w-full rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-100 sm:w-auto"
@@ -22,6 +22,7 @@
         </div>
       </div>
 
+      <template v-if="profitUnlocked">
       <div class="mb-6 grid grid-cols-1 gap-4 md:grid-cols-3">
         <div class="rounded-xl bg-white p-5 shadow-sm">
           <div class="text-sm text-gray-500">Черновиков</div>
@@ -130,7 +131,73 @@
           Создать закупку
         </button>
       </div>
+      </template>
+
+      <div v-else class="relative overflow-hidden rounded-3xl border border-dashed border-blue-200 bg-white/80 p-10 text-center shadow-inner">
+        <div class="mx-auto flex max-w-xl flex-col items-center gap-5">
+          <span class="inline-flex h-16 w-16 items-center justify-center rounded-full bg-blue-100 text-blue-600">
+            <LockClosedIcon class="h-8 w-8" />
+          </span>
+          <div class="space-y-2">
+            <h2 class="text-2xl font-semibold text-gray-900">Закупки скрыты</h2>
+            <p class="text-sm text-gray-600">
+              Введите пароль, чтобы просмотреть историю закупок и создать новые.
+            </p>
+          </div>
+          <button
+            type="button"
+            class="inline-flex items-center gap-2 rounded-full bg-blue-600 px-5 py-2 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-400"
+            @click="openPasswordModal"
+            :disabled="verifyingPassword"
+          >
+            <LockClosedIcon class="h-5 w-5" />
+            <span>{{ verifyingPassword ? 'Проверяем…' : 'Открыть доступ' }}</span>
+          </button>
+        </div>
+      </div>
     </div>
+
+    <!-- Profit Password Modal -->
+    <AdminModal
+      :isOpen="showPasswordModal"
+      title="Подтверждение доступа"
+      description="Введите пароль, чтобы открыть раздел закупок."
+      size="sm"
+      :showActions="false"
+      @close="closePasswordModal"
+      @cancel="closePasswordModal"
+    >
+      <form class="space-y-4" @submit.prevent="submitPassword">
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Пароль</label>
+          <input
+            v-model="passwordInput"
+            type="password"
+            class="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
+            placeholder="Введите пароль"
+            :disabled="verifyingPassword"
+          />
+          <p v-if="passwordError" class="mt-2 text-sm text-red-600">{{ passwordError }}</p>
+        </div>
+        <div class="flex gap-3 pt-2">
+          <button
+            type="submit"
+            class="flex-1 rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-400"
+            :disabled="verifyingPassword"
+          >
+            {{ verifyingPassword ? 'Проверяем…' : 'Показать' }}
+          </button>
+          <button
+            type="button"
+            class="flex-1 rounded-md bg-gray-200 px-4 py-2 text-sm font-medium text-gray-700 transition hover:bg-gray-300"
+            @click="closePasswordModal"
+            :disabled="verifyingPassword"
+          >
+            Отмена
+          </button>
+        </div>
+      </form>
+    </AdminModal>
 
     <AdminModal
       :isOpen="showCreateModal"
@@ -725,6 +792,7 @@ import { storeToRefs } from 'pinia'
 import { useCrmStore, type Procurement, type CrmProductSummary } from '@/stores/crm'
 import { useAdminStore } from '@/stores/admin'
 import AdminModal from '@/components/AdminModal.vue'
+import { LockClosedIcon } from '@heroicons/vue/24/outline'
 
 interface DraftProcurementItem {
   product: CrmProductSummary
@@ -734,7 +802,7 @@ interface DraftProcurementItem {
 
 const crmStore = useCrmStore()
 const adminStore = useAdminStore()
-const { procurements, loadingProcurements, lowStockProducts } = storeToRefs(crmStore)
+const { procurements, loadingProcurements, lowStockProducts, profitUnlocked, verifyingProfitAccess } = storeToRefs(crmStore)
 
 const showCreateModal = ref(false)
 const editingProcurementId = ref<string | null>(null)
@@ -779,6 +847,11 @@ const detailLoading = ref(false)
 const activeProcurement = ref<Procurement | null>(null)
 const completingProcurement = ref(false)
 
+const showPasswordModal = ref(false)
+const passwordInput = ref('')
+const passwordError = ref('')
+const verifyingPassword = computed(() => verifyingProfitAccess.value)
+
 const draftCount = computed(() => procurements.value.filter((p) => p.status === 'draft').length)
 const completedCount = computed(() => procurements.value.filter((p) => p.status === 'completed').length)
 const draftAmount = computed(() => procurements.value
@@ -820,8 +893,23 @@ const showSearchHint = computed(() => {
 let searchDebounce: ReturnType<typeof setTimeout> | null = null
 
 onMounted(async () => {
-  await crmStore.fetchProcurements()
+  if (profitUnlocked.value) {
+    await crmStore.fetchProcurements()
+  }
   void ensureCategoriesLoaded()
+})
+
+watch(profitUnlocked, async (unlocked) => {
+  if (unlocked) {
+    await crmStore.fetchProcurements()
+  } else {
+    showCreateModal.value = false
+    detailModalOpen.value = false
+    showQuickProductModal.value = false
+    showQuickCategoryModal.value = false
+    showQuickGroupModal.value = false
+    showPasswordModal.value = false
+  }
 })
 
 watch(productSearch, (query) => {
@@ -906,7 +994,40 @@ async function loadProducts(search?: string) {
   }
 }
 
+function openPasswordModal() {
+  passwordInput.value = ''
+  passwordError.value = ''
+  showPasswordModal.value = true
+}
+
+function closePasswordModal() {
+  showPasswordModal.value = false
+  passwordInput.value = ''
+  passwordError.value = ''
+}
+
+async function submitPassword() {
+  if (!passwordInput.value.trim()) {
+    passwordError.value = 'Введите пароль'
+    return
+  }
+
+  passwordError.value = ''
+  try {
+    await crmStore.verifyProfitPassword(passwordInput.value.trim())
+    closePasswordModal()
+    await crmStore.fetchProcurements()
+  } catch (error) {
+    passwordError.value = 'Неверный пароль'
+  }
+}
+
 async function openCreateModal() {
+  if (!profitUnlocked.value) {
+    openPasswordModal()
+    return
+  }
+  
   editingProcurementId.value = null
   supplierName.value = ''
   draftNotes.value = ''

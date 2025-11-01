@@ -86,16 +86,6 @@
               </th>
               <th
                 class="px-6 py-3 text-left text-xs font-medium uppercase"
-                :class="sortHeaderClass('total_spent')"
-                @click="toggleSort('total_spent')"
-              >
-                <span class="flex items-center gap-1">
-                  Потрачено
-                  <span class="text-[10px]" :class="sortIndicatorClass('total_spent')">{{ sortIndicator('total_spent') }}</span>
-                </span>
-              </th>
-              <th
-                class="px-6 py-3 text-left text-xs font-medium uppercase"
                 :class="sortHeaderClass('last_order_at')"
                 @click="toggleSort('last_order_at')"
               >
@@ -152,7 +142,6 @@
                 <span v-else class="text-sm text-gray-400">Нет username</span>
               </td>
               <td class="px-6 py-4 text-sm text-gray-900">{{ customer.total_orders }}</td>
-              <td class="px-6 py-4 text-sm font-medium text-gray-900">{{ formatCurrency(customer.total_spent) }}</td>
               <td class="px-6 py-4 text-sm text-gray-500">
                 {{ customer.last_order_at ? formatDate(customer.last_order_at) : 'Никогда' }}
               </td>

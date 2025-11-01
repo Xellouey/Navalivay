@@ -55,7 +55,7 @@
               </DialogDescription>
               
               <!-- Content Slot - МОБИЛЬНО АДАПТИВНОЕ -->
-              <div class="flex-1 overflow-y-auto overflow-x-hidden mb-2 w-full">
+              <div class="flex-1 overflow-y-auto overflow-x-hidden mb-2 w-full -mx-1 px-1">
                 <slot />
               </div>
               

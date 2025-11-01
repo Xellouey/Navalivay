@@ -692,48 +692,56 @@
       @close="closeCrossSellModal"
     >
       <div v-if="activeCrossSellCategory">
-        <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
-          <div>
-            <p class="text-sm text-gray-600">Выбрано товаров: <strong>{{ crossSellSelection.length }}</strong></p>
-            <p class="text-xs text-gray-500">Отобразятся в блоке «А вдруг пригодится?»</p>
-          </div>
-          <div class="flex flex-col sm:flex-row sm:items-center gap-2 w-full sm:w-auto">
-            <input
-              v-model="crossSellSearch"
-              type="text"
-              placeholder="Поиск по названию"
-              class="w-full sm:w-64 px-3 py-2 border border-gray-200 rounded-lg focus:ring-1 focus:ring-brand-dark/40 focus:border-brand-dark/40 text-sm"
-            />
+        <div class="flex flex-col gap-3 mb-4">
+          <div class="flex items-center justify-between">
+            <p class="text-sm text-gray-600">Выбрано: <strong>{{ crossSellSelection.length }}</strong></p>
             <button
-              class="px-4 py-2 text-sm font-semibold rounded-lg bg-brand-dark text-white hover:bg-brand-dark/90 disabled:opacity-50"
+              class="px-4 py-2 text-sm font-semibold rounded-lg bg-brand-dark text-white hover:bg-brand-dark/90 disabled:opacity-50 flex-shrink-0"
               :disabled="crossSellSubmitting"
               @click="saveCrossSell"
             >
               {{ crossSellSubmitting ? 'Сохранение...' : 'Сохранить' }}
             </button>
           </div>
+          <input
+            v-model="crossSellSearch"
+            type="text"
+            placeholder="Поиск по названию"
+            class="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-1 focus:ring-brand-dark/40 focus:border-brand-dark/40 text-sm"
+          />
+          <div v-if="crossSellFilteredCount > 0" class="flex items-center gap-2 px-3 py-2 bg-blue-50 border border-blue-200 rounded-lg text-sm">
+            <svg class="w-4 h-4 text-blue-600 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+              <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd" />
+            </svg>
+            <span class="text-blue-800">
+              <strong>{{ crossSellFilteredCount }}</strong> {{ crossSellFilteredCount === 1 ? 'товар скрыт' : crossSellFilteredCount < 5 ? 'товара скрыто' : 'товаров скрыто' }} (уже добавлен{{ crossSellFilteredCount === 1 ? '' : 'ы' }} в категорию)
+            </span>
+          </div>
         </div>
 
-        <div class="space-y-2 max-h-[70vh] overflow-y-auto pr-1 sm:pr-2">
+        <div v-if="availableCrossSellProducts.length" class="space-y-2">
           <label
             v-for="product in availableCrossSellProducts"
             :key="product.id"
-            class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border border-gray-200 rounded-lg px-3 py-2 hover:bg-gray-50"
+            class="flex items-center justify-between gap-3 border border-gray-200 rounded-lg px-3 py-2 hover:bg-gray-50 cursor-pointer"
           >
-            <div class="flex items-center gap-3">
+            <div class="flex items-center gap-3 flex-1 min-w-0">
               <input
                 type="checkbox"
-                class="w-4 h-4 text-brand-dark border-gray-300 rounded"
+                class="w-4 h-4 text-brand-dark border-gray-300 rounded flex-shrink-0 cursor-pointer"
                 :value="product.id"
                 v-model="crossSellSelection"
               />
-              <div>
-                <p class="text-sm font-semibold text-gray-900">{{ product.title || 'Без названия' }}</p>
-                <p class="text-xs text-gray-500">ID: {{ product.id }}</p>
-              </div>
+              <p class="text-sm font-semibold text-gray-900 truncate flex-1">{{ product.title || 'Без названия' }}</p>
             </div>
-            <p class="text-sm font-semibold text-gray-800 sm:text-right">{{ formatPrice(product.priceRub) }} ?</p>
           </label>
+        </div>
+        <div v-else-if="crossSellFilteredCount > 0" class="py-8 text-center">
+          <p class="text-sm text-gray-600">Все товары уже добавлены в эту категорию</p>
+          <p class="text-xs text-gray-500 mt-1">Используйте функцию "Вдруг пригодится?" для товаров из других категорий</p>
+        </div>
+        <div v-else class="py-8 text-center text-sm text-gray-500">
+          Товары не найдены
         </div>
       </div>
     </AdminModal>
@@ -1198,11 +1206,35 @@ const groupNameById = computed<Record<string, string>>(() => {
 })
 
 const availableCrossSellProducts = computed<Product[]>(() => {
+  if (!activeCrossSellCategory.value) return []
+  
+  const categoryId = activeCrossSellCategory.value.id
   const query = crossSellSearch.value.trim().toLowerCase()
+  
+  // Получаем ID товаров, которые уже есть в категории как обычные товары
+  const regularProductIds = new Set(
+    (adminStore.products || [])
+      .filter(p => p.categoryId === categoryId)
+      .map(p => p.id)
+  )
+  
   return (adminStore.products || []).filter(product => {
+    // Исключаем товары, которые уже есть в категории
+    if (regularProductIds.has(product.id)) return false
+    
     const title = (product.title || '').toLowerCase()
     return !query || title.includes(query)
   })
+})
+
+const crossSellFilteredCount = computed(() => {
+  if (!activeCrossSellCategory.value) return 0
+  
+  const categoryId = activeCrossSellCategory.value.id
+  const allProducts = adminStore.products || []
+  
+  // Считаем сколько товаров отфильтровано (уже в категории)
+  return allProducts.filter(p => p.categoryId === categoryId).length
 })
 
 const groupFormOptions = computed(() => {

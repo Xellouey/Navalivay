@@ -97,7 +97,7 @@
                   <span class="font-semibold text-gray-900">{{ props.groupCounts?.[category.id] ?? 0 }}</span>
                 </div>
                 <div class="flex items-center gap-1 text-sm text-gray-600">
-                  <span>Cross-sell:</span>
+                  <span>Вдруг пригодится:</span>
                   <span class="font-semibold text-gray-900">{{ props.crossSellCounts?.[category.id] ?? 0 }}</span>
                 </div>
               </div>
