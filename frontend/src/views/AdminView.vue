@@ -577,7 +577,7 @@
     <!-- Category Groups Modal -->
     <AdminModal
       :isOpen="showGroupModal"
-      :title="activeGroupCategory ? `Подгруппы: ${activeGroupCategory.name}` : 'Подгруппы'"
+      :title="activeGroupCategory ? `Линейки: ${activeGroupCategory.name}` : 'Линейки'"
       size="lg"
       :showActions="false"
       @cancel="closeGroupModal"
@@ -594,13 +594,13 @@
             @click="openGroupForm(undefined, activeGroupCategory)"
           >
             <PlusIcon class="w-4 h-4" />
-            Добавить подгруппу
+            Добавить линейку
           </button>
         </div>
 
         <p v-if="groupModalLoading" class="text-xs text-gray-500 mb-3">Синхронизация…</p>
 
-        <div v-if="editableGroups.length" class="space-y-3 max-h-[70vh] overflow-y-auto pr-1 sm:pr-2">
+        <div v-if="editableGroups.length" class="space-y-3">
           <div
             v-for="(group, index) in editableGroups"
             :key="group.id"
@@ -609,12 +609,11 @@
             <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between mb-3">
             <div class="space-y-2" :style="{ paddingLeft: `${(group.depth ?? 0) * 12}px` }">
                 <p class="text-base font-semibold text-gray-900">{{ group.name }}</p>
-                <p class="text-xs text-gray-500 font-mono">{{ group.slug }}</p>
               <p v-if="group.parentId" class="text-xs text-gray-500">Внутри: {{ groupNameById[group.parentId] || '—' }}</p>
                 <div class="mt-2 text-xs text-gray-500 space-x-2">
                   <span>Порядок: <strong>{{ index + 1 }}</strong></span>
-                  <span>Прямо в линейке: <strong>{{ group.productCount ?? 0 }}</strong></span>
-                  <span>Всего с вложенными: <strong>{{ group.totalProductCount ?? group.productCount ?? 0 }}</strong></span>
+                  <span>Товаров в этой линейке: <strong>{{ group.productCount ?? 0 }}</strong></span>
+                  <span>Товаров включая дочерние линейки: <strong>{{ group.totalProductCount ?? group.productCount ?? 0 }}</strong></span>
                   <span v-if="group.hideEmpty" class="inline-flex items-center gap-1 text-orange-600">
                     <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path d="M10 18a8 8 0 100-16 8 8 0 000 16zm-.75-5.25h1.5v1.5h-1.5v-1.5zm0-6h1.5v4.5h-1.5v-4.5z"/></svg>
                     Скрывать пустую
@@ -667,7 +666,7 @@
     <!-- Category Group Form Modal -->
     <AdminModal
       :isOpen="showGroupFormModal"
-      :title="editingGroup ? 'Редактировать подгруппу' : 'Добавить подгруппу'"
+      :title="editingGroup ? 'Редактировать линейку' : 'Добавить линейку'"
       size="md"
       :showActions="false"
       @cancel="closeGroupForm"
@@ -1701,7 +1700,7 @@ async function openManageGroups(category: Category) {
     await adminStore.fetchCategoryGroups(category.id)
   } catch (error) {
     console.error('Failed to load groups:', error)
-    showToast('Не удалось загрузить подгруппы', 'error')
+    showToast('Не удалось загрузить линейки', 'error')
   }
   syncEditableGroups(category.id)
   showGroupModal.value = true
@@ -1759,7 +1758,7 @@ async function handleGroupFormSubmit(payload: { name: string; slug?: string; cov
         hideEmpty: payload.hideEmpty,
         parentId: payload.parentId ?? null
       })
-      showToast('Подгруппа обновлена', 'success')
+      showToast('Линейка обновлена', 'success')
     } else {
       await adminStore.createCategoryGroup({
         categoryId,
@@ -1769,7 +1768,7 @@ async function handleGroupFormSubmit(payload: { name: string; slug?: string; cov
         hideEmpty: payload.hideEmpty,
         parentId: payload.parentId ?? null
       })
-      showToast('Подгруппа создана', 'success')
+      showToast('Линейка создана', 'success')
     }
     await adminStore.fetchCategoryGroups(categoryId)
     syncEditableGroups(categoryId)
@@ -1778,7 +1777,7 @@ async function handleGroupFormSubmit(payload: { name: string; slug?: string; cov
     showGroupModal.value = true
   } catch (error) {
     console.error('Failed to save group:', error)
-    showToast('Не удалось сохранить подгруппу', 'error')
+    showToast('Не удалось сохранить линейку', 'error')
   } finally {
     groupFormSubmitting.value = false
   }
@@ -1835,16 +1834,16 @@ function moveGroupDown(index: number) {
 
 async function deleteGroup(group: CategoryGroupWithDepth) {
   if (!activeGroupCategory.value || !group.id) return
-  if (!confirm(`Удалить подгруппу "${group.name}"?`)) return
+  if (!confirm(`Удалить линейку "${group.name}"?`)) return
   groupModalLoading.value = true
   try {
     await adminStore.deleteCategoryGroup(group.id)
     await adminStore.fetchCategoryGroups(activeGroupCategory.value.id)
     syncEditableGroups(activeGroupCategory.value.id)
-    showToast('Подгруппа удалена', 'success')
+    showToast('Линейка удалена', 'success')
   } catch (error) {
     console.error('Failed to delete group:', error)
-    showToast('Не удалось удалить подгруппу', 'error')
+    showToast('Не удалось удалить линейку', 'error')
   } finally {
     groupModalLoading.value = false
   }

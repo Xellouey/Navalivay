@@ -171,23 +171,18 @@
 
           <div
             v-else-if="groupCards.length && !showLiquidShowcase"
-            key="group-grid"
-            class="grid gap-4 sm:gap-6 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4"
+            key="group-list"
+            class="space-y-4"
           >
-            <button
+            <GroupLineItem
               v-for="group in groupCards"
               :key="group.id"
-              class="group-card"
-              :class="{ active: group.isActive }"
-              :style="group.depth ? { marginLeft: `${Math.min(group.depth * 1.25, 3)}rem` } : undefined"
-              @click="selectGroup(group.slug)"
-            >
-              <div class="group-card-media" :style="{ backgroundImage: `url(${group.previewImage})` }"></div>
-              <div class="group-card-body">
-                <p class="group-card-title">{{ group.name }}</p>
-                <p class="group-card-meta">{{ group.totalProductCount ?? group.productCount }} вкусов</p>
-              </div>
-            </button>
+              :node="group"
+              :expanded-groups="groupExpansionState"
+              @toggle="toggleGroupExpansion"
+              @productClick="openProduct"
+              @showToast="showToast"
+            />
           </div>
         </Transition>
         <p v-if="!groupCards.length && !showLiquidShowcase" class="text-gray-600 bg-gray-100 border border-dashed border-gray-300 rounded-xl px-5 py-4 text-sm font-medium">
@@ -255,19 +250,13 @@
             </div>
           </div>
           
-          <LiquidLineCard
+          <LiquidLineTree
             v-for="group in liquidGroups"
             :key="group.id"
-            :group-id="group.id"
-            :title="group.name"
-            :products="group.products"
-            :cover-image="group.coverImage"
-            :badge="group.badge ?? undefined"
-            :badge-color="group.badgeColor ?? undefined"
-            :subgroups="[]"
-            :expanded="isGroupExpanded(group.id)"
-            @toggle="toggleGroupExpansion"
-            @show-toast="showToast"
+            :group="group"
+            :expanded-groups="liquidExpansionState"
+            @toggle="toggleLiquidExpansion"
+            @showToast="showToast"
           />
 
           <div v-if="liquidUngrouped.length" class="px-4">
@@ -438,8 +427,10 @@ import { useCartStore } from '@/stores/cart'
 import SmokeParticles from '@/components/SmokeParticles.vue'
 import BannerCarousel from '@/components/BannerCarousel.vue'
 import LiquidLineCard from '@/components/product/liquid/LiquidLineCard.vue'
+import LiquidLineTree from '@/components/product/liquid/LiquidLineTree.vue'
 import LiquidFlavorRow from '@/components/product/liquid/LiquidFlavorRow.vue'
 import ToastNotification from '@/components/ToastNotification.vue'
+import GroupLineItem from '@/components/product/GroupLineItem.vue'
 
 const catalogStore = useCatalogStore()
 const cartStore = useCartStore()
@@ -550,7 +541,7 @@ const isLiquidCategory = computed(() => resolvedDisplayMode.value === 'liquid')
 const showLiquidShowcase = computed(() => isLiquidCategory.value)
 
 type GroupCard = CategoryGroup & { depth: number; previewImage: string; isActive: boolean }
-type GroupCardNode = GroupCard & { children: GroupCardNode[] }
+type GroupCardNode = GroupCard & { children: GroupCardNode[]; products: Product[] }
 type LiquidGroup = {
   id: string
   name: string
@@ -559,26 +550,47 @@ type LiquidGroup = {
   products: Product[]
   badge?: string | null
   badgeColor?: string | null
+  children: LiquidGroup[]
 }
 
-const groupCards = computed<GroupCard[]>(() => {
+// Состояние раскрытия для линеек (включая подлинейки)
+const groupExpansionState = ref<Record<string, boolean>>({})
+
+function isGroupExpanded(groupId: string): boolean {
+  return groupExpansionState.value[groupId] ?? false
+}
+
+function toggleGroupExpansion(groupId: string) {
+  groupExpansionState.value = {
+    ...groupExpansionState.value,
+    [groupId]: !isGroupExpanded(groupId)
+  }
+}
+
+// Строим иерархическое дерево линеек с товарами
+const groupCards = computed<GroupCardNode[]>(() => {
   if (!selectedCategory.value) return []
 
   const groups = selectedCategory.value.groups
+  const categoryProducts = catalogStore.products.filter(p => p.categoryId === selectedCategory.value!.id)
   const nodes = new Map<string, GroupCardNode>()
 
+  // Создаём узлы для всех групп
   groups.forEach((group) => {
+    const groupProducts = categoryProducts.filter(p => p.groupId === group.id)
     nodes.set(group.id, {
       ...group,
       depth: 0,
       previewImage: group.coverImage || PLACEHOLDER_IMAGE,
       isActive: catalogStore.activeGroup === group.slug,
-      children: []
+      children: [],
+      products: groupProducts
     })
   })
 
   const roots: GroupCardNode[] = []
 
+  // Строим иерархию
   nodes.forEach((node) => {
     const parentId = node.parentId ? String(node.parentId) : null
     if (parentId && nodes.has(parentId)) {
@@ -590,23 +602,15 @@ const groupCards = computed<GroupCard[]>(() => {
     }
   })
 
-  const flatten: GroupCard[] = []
-  const visit = (list: GroupCardNode[]) => {
-    list
-      .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
-      .forEach(item => {
-        if ((item.totalProductCount ?? item.productCount ?? 0) > 0) {
-          const { children, ...rest } = item
-          flatten.push(rest)
-        }
-        if (item.children.length) {
-          visit(item.children)
-        }
-      })
+  // Сортируем детей рекурсивно
+  const sortChildren = (node: GroupCardNode) => {
+    node.children.sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+    node.children.forEach(sortChildren)
   }
+  roots.forEach(sortChildren)
+  roots.sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
 
-  visit(roots)
-  return flatten
+  return roots.filter(node => (node.totalProductCount ?? node.productCount ?? 0) > 0)
 })
 
 const liquidStructure = computed(() => {
@@ -616,24 +620,54 @@ const liquidStructure = computed(() => {
 
   const category = selectedCategory.value
   const fallbackCover = category.coverImage || PLACEHOLDER_IMAGE
-  const groupMap = new Map<string, LiquidGroup>()
-
-  category.groups.forEach(group => {
-    groupMap.set(group.slug, {
-      id: group.id,
-      name: group.name,
-      order: group.order ?? 0,
-      coverImage: group.coverImage || fallbackCover,
-      products: [],
-      badge: group.badge ?? null,
-      badgeColor: group.badgeColor ?? null
-    })
-  })
-
-  const ungrouped: Product[] = []
-  const categoryProducts = catalogStore.products.filter(product => product.categoryId === category.id)
+  const categoryProducts = catalogStore.products.filter(p => p.categoryId === category.id)
   
-  // Find NiCa Booster
+  // Строим иерархическое дерево для liquid-режима
+  const buildLiquidTree = (): LiquidGroup[] => {
+    const groupMap = new Map<string, LiquidGroup>()
+    
+    // Создаём узлы для всех групп
+    category.groups.forEach(group => {
+      const groupProducts = categoryProducts.filter(p => p.groupId === group.id)
+      groupMap.set(group.id, {
+        id: group.id,
+        name: group.name,
+        order: group.order ?? 0,
+        coverImage: group.coverImage || fallbackCover,
+        products: groupProducts,
+        badge: group.badge ?? null,
+        badgeColor: group.badgeColor ?? null,
+        children: []
+      })
+    })
+    
+    const roots: LiquidGroup[] = []
+    
+    // Строим иерархию
+    groupMap.forEach(group => {
+      const parentId = category.groups.find(g => g.id === group.id)?.parentId
+      if (parentId && groupMap.has(parentId)) {
+        groupMap.get(parentId)!.children.push(group)
+      } else {
+        roots.push(group)
+      }
+    })
+    
+    // Сортируем рекурсивно
+    const sortChildren = (node: LiquidGroup) => {
+      node.children.sort((a, b) => a.order - b.order)
+      node.children.forEach(sortChildren)
+    }
+    roots.forEach(sortChildren)
+    roots.sort((a, b) => a.order - b.order)
+    
+    return roots.filter(g => g.products.length > 0 || g.children.length > 0)
+  }
+
+  const liquidGroups = buildLiquidTree()
+  const ungrouped: Product[] = []
+  
+  // Find NiCa Booster - ищем среди товаров без группы
   let nicaBooster: Product | null = null
 
   categoryProducts.forEach(product => {
@@ -646,9 +680,8 @@ const liquidStructure = computed(() => {
       return
     }
     
-    if (product.groupSlug && groupMap.has(product.groupSlug)) {
-      groupMap.get(product.groupSlug)!.products.push(product)
-    } else {
+    // Товары без группы добавляем в ungrouped
+    if (!product.groupId) {
       ungrouped.push(product)
     }
   })
@@ -658,11 +691,7 @@ const liquidStructure = computed(() => {
     ungrouped.unshift(nicaBooster)
   }
 
-  const groups = Array.from(groupMap.values())
-    .filter(group => group.products.length > 0)
-    .sort((a, b) => a.order - b.order)
-
-  return { groups, ungrouped }
+  return { groups: liquidGroups, ungrouped }
 })
 
 const liquidGroups = computed(() => liquidStructure.value.groups)
@@ -707,6 +736,7 @@ watch(
   () => selectedCategory.value?.id,
   () => {
     liquidExpansionState.value = {}
+    groupExpansionState.value = {}
   }
 )
 
@@ -799,11 +829,8 @@ function getProductImage(product: Product): string | null {
 }
 
 async function selectCategory(slug: string | null) {
+  groupExpansionState.value = {}
   await catalogStore.setActiveCategory(slug)
-}
-
-async function selectGroup(slug: string | null) {
-  await catalogStore.setActiveGroup(slug)
 }
 
 async function backToCategories() {
@@ -825,14 +852,17 @@ function goToCheckout() {
   router.push('/checkout')
 }
 
-function toggleGroupExpansion(groupId: string) {
-  const current = liquidExpansionState.value[groupId] ?? false
-  liquidExpansionState.value = { ...liquidExpansionState.value, [groupId]: !current }
+function toggleLiquidExpansion(groupId: string) {
+  liquidExpansionState.value = {
+    ...liquidExpansionState.value,
+    [groupId]: !isLiquidGroupExpanded(groupId)
+  }
 }
 
-function isGroupExpanded(groupId: string) {
+function isLiquidGroupExpanded(groupId: string): boolean {
   return liquidExpansionState.value[groupId] ?? false
 }
+
 
 // Cross-sell cart functions
 function getCrossSellQuantity(productId: string): number {

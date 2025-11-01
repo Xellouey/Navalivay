@@ -213,11 +213,14 @@ publicRouter.get('/api/products', (req, res) => {
       p.cost_price AS costPrice,
       p.stock AS stock,
       p.min_stock AS minStock,
+      p.use_category_image AS useCategoryImage,
       p.createdAt,
       g.slug as groupSlug,
-      g.name as groupName
+      g.name as groupName,
+      c.cover_image AS categoryCoverImage
     FROM products p
     LEFT JOIN category_groups g ON p.groupId = g.id
+    LEFT JOIN categories c ON p.categoryId = c.id
     ${where}
     ${orderBy}
     LIMIT ? OFFSET ?
@@ -236,8 +239,19 @@ publicRouter.get('/api/products', (req, res) => {
   `);
   const enriched = products.map((p) => {
     const stockValue = typeof p.stock === 'number' ? p.stock : null;
+    const productImages = stmtImgs.all(p.id).map(r => r.url);
+    
+    // Если у товара включена опция "использовать изображение категории" и у него нет своих изображений,
+    // используем обложку категории
+    const images = (p.useCategoryImage && productImages.length === 0 && p.categoryCoverImage) 
+      ? [p.categoryCoverImage] 
+      : productImages;
+    
+    // Удаляем categoryCoverImage из ответа
+    const { categoryCoverImage, ...productData } = p;
+    
     return {
-      ...p,
+      ...productData,
       stock: stockValue,
       costPrice: typeof p.costPrice === 'number' ? p.costPrice : null,
       minStock: typeof p.minStock === 'number' ? p.minStock : null,
@@ -247,7 +261,7 @@ publicRouter.get('/api/products', (req, res) => {
         color: badge.color || null
       })),
       isAvailable: stockValue === null ? true : stockValue > 0,
-      images: stmtImgs.all(p.id).map(r => r.url),
+      images,
       links: stmtLinks.all(p.id).map(link => ({ label: link.label ?? '', url: link.url }))
     };
   });
@@ -270,15 +284,24 @@ publicRouter.get('/api/product/:id', (req, res) => {
       p.cost_price AS costPrice,
       p.stock AS stock,
       p.min_stock AS minStock,
+      p.use_category_image AS useCategoryImage,
       p.createdAt,
       g.slug AS groupSlug,
-      g.name AS groupName
+      g.name AS groupName,
+      c.cover_image AS categoryCoverImage
     FROM products p
     LEFT JOIN category_groups g ON p.groupId = g.id
+    LEFT JOIN categories c ON p.categoryId = c.id
     WHERE p.id = ?
   `).get(id);
   if (!p) return res.status(404).json({ error: 'Not found' });
-  const images = db.prepare('SELECT url FROM product_images WHERE productId = ? ORDER BY position ASC').all(id).map(r => r.url);
+  const productImages = db.prepare('SELECT url FROM product_images WHERE productId = ? ORDER BY position ASC').all(id).map(r => r.url);
+  
+  // Если у товара включена опция "использовать изображение категории" и у него нет своих изображений,
+  // используем обложку категории
+  const images = (p.useCategoryImage && productImages.length === 0 && p.categoryCoverImage) 
+    ? [p.categoryCoverImage] 
+    : productImages;
   const links = db.prepare('SELECT label, url FROM product_links WHERE productId = ? ORDER BY position ASC').all(id).map(link => ({
     label: link.label ?? '',
     url: link.url
@@ -290,8 +313,12 @@ publicRouter.get('/api/product/:id', (req, res) => {
     ORDER BY rowid ASC
   `).all(id);
   const stockValue = typeof p.stock === 'number' ? p.stock : null;
+  
+  // Удаляем categoryCoverImage из ответа, так как оно уже включено в images
+  const { categoryCoverImage, ...productData } = p;
+  
   res.json({
-    ...p,
+    ...productData,
     stock: stockValue,
     costPrice: typeof p.costPrice === 'number' ? p.costPrice : null,
     minStock: typeof p.minStock === 'number' ? p.minStock : null,
@@ -332,14 +359,17 @@ publicRouter.get('/api/cross-sells', (req, res) => {
       p.cost_price AS costPrice,
       p.stock AS stock,
       p.min_stock AS minStock,
+      p.use_category_image AS useCategoryImage,
       p.createdAt,
       p.categoryId,
       p.groupId,
       g.slug as groupSlug,
-      g.name as groupName
+      g.name as groupName,
+      c.cover_image AS categoryCoverImage
     FROM category_cross_sells cs
     JOIN products p ON p.id = cs.productId
     LEFT JOIN category_groups g ON p.groupId = g.id
+    LEFT JOIN categories c ON p.categoryId = c.id
     WHERE cs.categoryId = ?
       AND (p.stock IS NULL OR p.stock > 0)
     ORDER BY cs.[order] ASC
@@ -354,30 +384,41 @@ publicRouter.get('/api/cross-sells', (req, res) => {
     WHERE product_id = ?
     ORDER BY rowid ASC
   `);
-  const payload = rows.map(row => ({
-    id: row.productId,
-    title: row.title,
-    priceRub: row.priceRub,
-    description: row.description,
-    variant: row.variant,
-    strength: row.strength,
-    costPrice: typeof row.costPrice === 'number' ? row.costPrice : null,
-    stock: typeof row.stock === 'number' ? row.stock : null,
-    minStock: typeof row.minStock === 'number' ? row.minStock : null,
-    isAvailable: row.stock === null ? true : row.stock > 0,
-    createdAt: row.createdAt,
-    categoryId: row.categoryId,
-    groupId: row.groupId,
-    groupSlug: row.groupSlug,
-    groupName: row.groupName,
-    images: imageStmt.all(row.productId).map(r => r.url),
-    links: linkStmt.all(row.productId).map(link => ({ label: link.label ?? '', url: link.url })),
-    badges: badgeStmt.all(row.productId).map((badge) => ({
-      type: badge.type || null,
-      label: badge.label || null,
-      color: badge.color || null
-    }))
-  }));
+  const payload = rows.map(row => {
+    const productImages = imageStmt.all(row.productId).map(r => r.url);
+    
+    // Если у товара включена опция "использовать изображение категории" и у него нет своих изображений,
+    // используем обложку категории
+    const images = (row.useCategoryImage && productImages.length === 0 && row.categoryCoverImage) 
+      ? [row.categoryCoverImage] 
+      : productImages;
+    
+    // Не включаем categoryCoverImage и useCategoryImage в ответ
+    return {
+      id: row.productId,
+      title: row.title,
+      priceRub: row.priceRub,
+      description: row.description,
+      variant: row.variant,
+      strength: row.strength,
+      costPrice: typeof row.costPrice === 'number' ? row.costPrice : null,
+      stock: typeof row.stock === 'number' ? row.stock : null,
+      minStock: typeof row.minStock === 'number' ? row.minStock : null,
+      isAvailable: row.stock === null ? true : row.stock > 0,
+      createdAt: row.createdAt,
+      categoryId: row.categoryId,
+      groupId: row.groupId,
+      groupSlug: row.groupSlug,
+      groupName: row.groupName,
+      images,
+      links: linkStmt.all(row.productId).map(link => ({ label: link.label ?? '', url: link.url })),
+      badges: badgeStmt.all(row.productId).map((badge) => ({
+        type: badge.type || null,
+        label: badge.label || null,
+        color: badge.color || null
+      }))
+    };
+  });
 
   res.json(payload);
 });

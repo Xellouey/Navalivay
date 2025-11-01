@@ -93,7 +93,7 @@
                   <span class="text-base font-semibold text-emerald-600">{{ category.productCount || 0 }}</span>
                 </div>
                 <div class="flex items-center gap-1 text-sm text-gray-600">
-                  <span>Подгрупп:</span>
+                  <span>Линеек:</span>
                   <span class="font-semibold text-gray-900">{{ props.groupCounts?.[category.id] ?? 0 }}</span>
                 </div>
                 <div class="flex items-center gap-1 text-sm text-gray-600">

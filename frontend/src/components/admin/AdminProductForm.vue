@@ -176,7 +176,7 @@
     </div>
 
     <!-- Links -->
-    <div class="space-y-3 w-full">
+    <div class="space-y-3 w-full" v-if="!form.useCategoryImage">
       <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
         <label class="block text-sm font-medium text-gray-700">Ссылки на товар</label>
         <button
@@ -245,8 +245,27 @@
       <p class="text-xs text-gray-500">URL должны начинаться с https://. Название помогает отличать ссылки в интерфейсе.</p>
     </div>
 
+    <!-- Use Category Image Checkbox -->
+    <div class="w-full">
+      <label class="flex items-start gap-3 cursor-pointer group">
+        <input
+          type="checkbox"
+          v-model="form.useCategoryImage"
+          class="mt-1 w-4 h-4 text-brand-dark border-gray-300 rounded focus:ring-2 focus:ring-brand-dark cursor-pointer"
+        />
+        <div class="flex-1">
+          <span class="text-sm font-medium text-gray-700 group-hover:text-gray-900">
+            Использовать изображение категории
+          </span>
+          <p class="text-xs text-gray-500 mt-1">
+            Если включено, товар будет использовать обложку своей категории. Отключите, чтобы добавить собственные изображения.
+          </p>
+        </div>
+      </label>
+    </div>
+
     <!-- Images - МОБИЛЬНО АДАПТИВНОЕ -->
-    <div class="space-y-3 w-full">
+    <div class="space-y-3 w-full" v-if="!form.useCategoryImage">
       <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <label class="text-sm font-medium break-words" :class="!hasMedia ? 'text-red-600' : 'text-gray-700'">
           Медиа (фото или ссылки)
@@ -444,6 +463,7 @@ interface Product {
   title?: string
   priceRub: number
   description?: string
+  useCategoryImage?: boolean
   images: string[]
   links?: ProductLink[]
   createdAt?: string
@@ -474,6 +494,7 @@ const form = reactive<Omit<Product, 'id'>>({
   costPrice: props.product?.costPrice ?? 0,
   stock: props.product?.stock ?? 0,
   minStock: props.product?.minStock ?? 0,
+  useCategoryImage: props.product?.useCategoryImage ?? true,
   images: [...(props.product?.images || [])],
   links: [...(props.product?.links || [])]
 })
@@ -557,7 +578,12 @@ const validLinks = computed(() => (form.links || [])
   .map(link => link?.url?.trim() || '')
   .filter(url => url.length > 0))
 
-const hasMedia = computed(() => form.images.length > 0 || validLinks.value.length > 0)
+const hasMedia = computed(() => {
+  // Если включен чекбокс "использовать изображение категории", медиа не требуется
+  if (form.useCategoryImage) return true
+  // Иначе проверяем наличие своих изображений или ссылок
+  return form.images.length > 0 || validLinks.value.length > 0
+})
 
 function openCreateCategoryModal() {
   newCategoryName.value = ''
@@ -674,6 +700,7 @@ watch(() => props.product, (p) => {
   form.costPrice = p?.costPrice ?? 0
   form.stock = p?.stock ?? 0
   form.minStock = p?.minStock ?? 0
+  form.useCategoryImage = p?.useCategoryImage ?? true
   form.images = [...(p?.images || [])]
   form.links = [...(p?.links || [])]
   if (form.categoryId) {
@@ -870,6 +897,7 @@ async function onSubmit() {
       costPrice: Number(form.costPrice ?? 0),
       stock: Number(form.stock ?? 0),
       minStock: Number(form.minStock ?? 0),
+      useCategoryImage: form.useCategoryImage,
       images: [...form.images],
       links: normalizedLinks.length ? normalizedLinks : []
     }

@@ -21,6 +21,7 @@ import { migrateOrderStatusHistory } from './migrations/add_order_status_history
 import { migrateProductBadges } from './migrations/add_product_badges.js';
 import { migrateMessageTemplates } from './migrations/add_message_templates.js';
 import { addPhoneToOrders } from './migrations/add_phone_to_orders.js';
+import { migrateUseCategoryImage } from './migrations/add_use_category_image_to_products.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -56,6 +57,7 @@ export function initDb() {
       title TEXT,
       priceRub INTEGER NOT NULL,
       description TEXT,
+      use_category_image INTEGER NOT NULL DEFAULT 1,
       createdAt TEXT NOT NULL
     );
 
@@ -127,6 +129,7 @@ export function initDb() {
   migrateOrderStatusHistory();
   migrateMessageTemplates();
   addPhoneToOrders();
+  migrateUseCategoryImage();
 
   seedIfEmpty();
 }
@@ -193,14 +196,15 @@ function seedIfEmpty() {
     if (fs.existsSync(productsPath)) {
       const products = JSON.parse(fs.readFileSync(productsPath, 'utf8'));
       const stmtProd = db.prepare(`
-        INSERT INTO products (id, categoryId, groupId, title, priceRub, description, variant, strength, cost_price, stock, min_stock, createdAt)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO products (id, categoryId, groupId, title, priceRub, description, variant, strength, cost_price, stock, min_stock, use_category_image, createdAt)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
       const stmtImg = db.prepare('INSERT INTO product_images (productId, url, position) VALUES (?, ?, ?)');
       const stmtLink = db.prepare('INSERT INTO product_links (productId, label, url, position) VALUES (?, ?, ?, ?)');
       const tx = db.transaction((rows) => {
         for (const p of rows) {
           const createdAt = new Date().toISOString();
+          const useCategoryImage = p.useCategoryImage !== undefined ? (p.useCategoryImage ? 1 : 0) : 1;
           stmtProd.run(
             p.id,
             p.categoryId,
@@ -213,6 +217,7 @@ function seedIfEmpty() {
             typeof p.costPrice === 'number' ? p.costPrice : 0,
             typeof p.stock === 'number' ? p.stock : 0,
             typeof p.minStock === 'number' ? p.minStock : 0,
+            useCategoryImage,
             createdAt
           );
           if (Array.isArray(p.images)) {

@@ -205,13 +205,15 @@ adminRouter.post('/api/admin/products', authMiddleware, (req, res) => {
     costPrice,
     stock,
     min_stock,
-    minStock
+    minStock,
+    useCategoryImage
   } = req.body || {};
   if (!categoryId || !Number.isFinite(Number(priceRub))) return res.status(400).json({ error: 'missing_fields' });
 
   const normalizedCostPrice = cost_price ?? costPrice ?? 0;
   const normalizedStock = stock ?? 0;
   const normalizedMinStock = min_stock ?? minStock ?? 0;
+  const normalizedUseCategoryImage = useCategoryImage === true ? 1 : 0;
 
   const categoryExists = db.prepare('SELECT id FROM categories WHERE id = ?').get(categoryId);
   if (!categoryExists) {
@@ -238,7 +240,7 @@ adminRouter.post('/api/admin/products', authMiddleware, (req, res) => {
     
     // First create the product without transaction to ensure it works
     try {
-      db.prepare('INSERT INTO products (id, categoryId, groupId, title, priceRub, description, strength, cost_price, stock, min_stock, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      db.prepare('INSERT INTO products (id, categoryId, groupId, title, priceRub, description, strength, cost_price, stock, min_stock, use_category_image, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
         .run(
           id,
           categoryId,
@@ -250,6 +252,7 @@ adminRouter.post('/api/admin/products', authMiddleware, (req, res) => {
           Number(normalizedCostPrice) || 0,
           Number(normalizedStock) || 0,
           Number(normalizedMinStock) || 0,
+          normalizedUseCategoryImage,
           createdAt
         );
       console.log(`[admin] Product ${id} created in database`);
@@ -342,6 +345,7 @@ adminRouter.post('/api/admin/products', authMiddleware, (req, res) => {
         p.cost_price AS costPrice,
         p.stock,
         p.min_stock AS minStock,
+        p.use_category_image AS useCategoryImage,
         p.createdAt,
         g.slug AS groupSlug,
         g.name AS groupName
@@ -405,11 +409,15 @@ adminRouter.patch('/api/admin/products/:id', authMiddleware, (req, res) => {
     costPrice,
     stock,
     min_stock,
-    minStock
+    minStock,
+    useCategoryImage
   } = req.body || {};
 
   const normalizedCostPrice = cost_price ?? costPrice;
   const normalizedMinStock = min_stock ?? minStock;
+  const normalizedUseCategoryImage = useCategoryImage !== undefined 
+    ? (useCategoryImage === true ? 1 : 0)
+    : cur.use_category_image;
 
   let nextCategoryId = categoryId || cur.categoryId;
   const categoryExists = db.prepare('SELECT id FROM categories WHERE id = ?').get(nextCategoryId);
@@ -441,7 +449,7 @@ adminRouter.patch('/api/admin/products/:id', authMiddleware, (req, res) => {
     }
   }
 
-  db.prepare('UPDATE products SET categoryId = ?, groupId = ?, title = ?, priceRub = ?, description = ?, strength = ?, cost_price = ?, stock = ?, min_stock = ? WHERE id = ?')
+  db.prepare('UPDATE products SET categoryId = ?, groupId = ?, title = ?, priceRub = ?, description = ?, strength = ?, cost_price = ?, stock = ?, min_stock = ?, use_category_image = ? WHERE id = ?')
     .run(
       nextCategoryId,
       nextGroupId,
@@ -452,6 +460,7 @@ adminRouter.patch('/api/admin/products/:id', authMiddleware, (req, res) => {
       (normalizedCostPrice !== undefined ? Number(normalizedCostPrice) : (cur.cost_price ?? 0)),
       (stock !== undefined ? Number(stock) : (cur.stock ?? 0)),
       (normalizedMinStock !== undefined ? Number(normalizedMinStock) : (cur.min_stock ?? 0)),
+      normalizedUseCategoryImage,
       id
     );
 
@@ -532,6 +541,7 @@ adminRouter.get('/api/admin/products', authMiddleware, (req, res) => {
           p.cost_price AS costPrice,
           p.stock,
           p.min_stock AS minStock,
+          p.use_category_image AS useCategoryImage,
           p.createdAt,
           g.name as groupName,
           g.slug as groupSlug
@@ -555,6 +565,7 @@ adminRouter.get('/api/admin/products', authMiddleware, (req, res) => {
           p.cost_price AS costPrice,
           p.stock,
           p.min_stock AS minStock,
+          p.use_category_image AS useCategoryImage,
           p.createdAt,
           g.name as groupName,
           g.slug as groupSlug
@@ -592,6 +603,7 @@ adminRouter.get('/api/admin/products/:id', authMiddleware, (req, res) => {
       p.cost_price AS costPrice,
       p.stock,
       p.min_stock AS minStock,
+      p.use_category_image AS useCategoryImage,
       p.createdAt,
       g.name as groupName,
       g.slug as groupSlug

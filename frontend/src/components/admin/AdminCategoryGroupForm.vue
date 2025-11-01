@@ -1,7 +1,7 @@
 <template>
   <form @submit.prevent="onSubmit" class="space-y-4">
     <div>
-      <label class="block text-sm font-medium text-gray-700 mb-2">Название подгруппы *</label>
+      <label class="block text-sm font-medium text-gray-700 mb-2">Название линейки *</label>
       <input
         v-model="form.name"
         type="text"
@@ -12,10 +12,10 @@
       <p v-if="nameError" class="mt-1 text-sm text-red-600">{{ nameError }}</p>
     </div>
 
-    <div class="space-y-3">
+      <div class="space-y-3">
       <div class="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <span class="block text-sm font-medium text-gray-700">Обложка подгруппы</span>
+          <span class="block text-sm font-medium text-gray-700">Обложка линейки</span>
         </div>
         <div class="inline-flex rounded-lg border border-gray-200 bg-gray-50 p-1 text-xs font-medium text-gray-600">
           <button
@@ -111,7 +111,7 @@
     </div>
 
     <div>
-      <label class="block text-sm font-medium text-gray-700 mb-2">Родительская подгруппа</label>
+      <label class="block text-sm font-medium text-gray-700 mb-2">Родительская линейка</label>
       <select
         v-model="form.parentId"
         class="w-full rounded-lg border border-gray-300 px-3 py-2 focus:ring-2 focus:ring-brand-dark focus:border-transparent text-sm"
@@ -130,8 +130,8 @@
 
     <div class="flex items-center justify-between gap-3">
       <div>
-        <p class="text-sm font-medium text-gray-700">Скрывать пустую подгруппу</p>
-        <p class="text-xs text-gray-500 mt-1">Если нет товаров, подгруппа не будет показана на витрине</p>
+        <p class="text-sm font-medium text-gray-700">Скрывать пустую линейку</p>
+        <p class="text-xs text-gray-500 mt-1">Если нет товаров, линейка не будет показана на витрине</p>
       </div>
       <label class="inline-flex items-center">
         <input
@@ -155,7 +155,7 @@
         :disabled="isSubmitting"
         class="px-4 py-2 bg-brand-dark text-white rounded-lg hover:bg-brand-dark/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
       >
-        {{ isSubmitting ? 'Сохранение...' : (editingGroup ? 'Сохранить изменения' : 'Создать подгруппу') }}
+        {{ isSubmitting ? 'Сохранение...' : (editingGroup ? 'Сохранить изменения' : 'Создать линейку') }}
       </button>
     </div>
   </form>
