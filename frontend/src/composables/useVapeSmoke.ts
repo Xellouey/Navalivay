@@ -36,6 +36,10 @@ const maxPoolSize = 100
 const MAX_ACTIVE_PUFFS = 3 // Максимум 3 затяжки одновременно для предотвращения фризов
 const MAX_PARTICLES_PER_PUFF = 10 // Уменьшено с 18 до 10
 const MAX_PUFF_LIFETIME = 2400 // мс (соответствует ~2.4 секундам)
+const MOBILE_PUFF_LIFETIME = 2000 // мс (2 секунды для мобильных устройств)
+
+// Определяем, мобильное ли устройство
+const isMobileDevice = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent)
 
 function getParticleFromPool(): Particle | null {
   return particlePool.pop() || null
@@ -79,8 +83,13 @@ function generateParticles(count: number = MAX_PARTICLES_PER_PUFF): Particle[] {
     particle.offsetX = (Math.random() - 0.5) * 35
     particle.offsetY = Math.random() * -15
     particle.size = Math.random() * 40 + 30 // Меньше: 30-70px вместо 40-100px
-    particle.duration = Math.random() * 0.8 + 1.2 // Быстрее: 1.2-2s вместо 1.5-2.5s
-    particle.delay = Math.random() * 0.3
+    // На мобильных устройствах анимация быстрее, чтобы завершиться за 2 секунды
+    particle.duration = isMobileDevice 
+      ? Math.random() * 0.5 + 0.8 // 0.8-1.3s для мобильных
+      : Math.random() * 0.8 + 1.2 // 1.2-2s для десктопа
+    particle.delay = isMobileDevice
+      ? Math.random() * 0.15 // 0-0.15s для мобильных
+      : Math.random() * 0.3 // 0-0.3s для десктопа
     particle.rotation = Math.random() * 360
     particle.driftX = (Math.random() - 0.5) * 120
     particle.startTime = now
@@ -93,8 +102,14 @@ function generateParticles(count: number = MAX_PARTICLES_PER_PUFF): Particle[] {
 
 // Создание затяжки
 function createPuff(x: number, y: number) {
-  // Проверяем лимит активных затяжек
-  if (activePuffs.value.length >= MAX_ACTIVE_PUFFS) {
+  // На мобильных устройствах удаляем все существующие затяжки перед созданием новой
+  if (isMobileDevice && activePuffs.value.length > 0) {
+    // Копируем массив для безопасного удаления
+    const puffsToRemove = [...activePuffs.value]
+    puffsToRemove.forEach(puff => removePuff(puff.id))
+  }
+  // На десктопе проверяем лимит активных затяжек
+  else if (activePuffs.value.length >= MAX_ACTIVE_PUFFS) {
     const oldest = activePuffs.value[0]
     if (oldest) {
       removePuff(oldest.id)
@@ -111,9 +126,11 @@ function createPuff(x: number, y: number) {
   
   activePuffs.value.push(puff)
 
+  // Используем меньший timeout для мобильных устройств
+  const lifetime = isMobileDevice ? MOBILE_PUFF_LIFETIME : MAX_PUFF_LIFETIME
   puff.timeoutId = window.setTimeout(() => {
     removePuff(puff.id)
-  }, MAX_PUFF_LIFETIME)
+  }, lifetime)
 }
 
 function removePuff(puffId: number) {

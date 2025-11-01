@@ -10,6 +10,8 @@ export interface CategoryGroup {
   productCount: number
   totalProductCount?: number
   parentId?: string | null
+  badge?: string | null
+  badgeColor?: string | null
 }
 
 export interface Category {
@@ -173,7 +175,9 @@ export const useCatalogStore = defineStore('catalog', () => {
               coverImage: group.coverImage ?? null,
               productCount: group.productCount ?? 0,
               totalProductCount: group.totalProductCount ?? group.productCount ?? 0,
-              parentId: group.parentId ?? null
+              parentId: group.parentId ?? null,
+              badge: group.badge ?? null,
+              badgeColor: group.badgeColor ?? null
             }))
           : []
       }))

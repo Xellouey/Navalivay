@@ -1,19 +1,7 @@
 <script setup lang="ts">
 import { RouterView } from 'vue-router'
-import { onMounted, computed } from 'vue'
-import { useRoute } from 'vue-router'
-import ScrollToTopButton from '@/components/ScrollToTopButton.vue'
+import { onMounted } from 'vue'
 import VapeSmoke from '@/components/VapeSmoke.vue'
-
-const route = useRoute()
-
-const isAdminRoute = computed(() => {
-  return route.path.startsWith('/admin')
-})
-
-const isProductRoute = computed(() => {
-  return route.name === 'product'
-})
 
 onMounted(() => {
   if (typeof window !== 'undefined' && window.Telegram?.WebApp) {
@@ -25,14 +13,13 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="min-h-screen">
+  <div class="min-h-screen" style="background: #ffffff;">
     <RouterView v-slot="{ Component }">
       <Transition name="page" mode="out-in">
         <component :is="Component" />
       </Transition>
     </RouterView>
-    
-    <ScrollToTopButton v-if="!isAdminRoute && !isProductRoute" />
+
     <VapeSmoke />
   </div>
 </template>

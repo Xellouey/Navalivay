@@ -1,5 +1,5 @@
 <template>
-  <div class="min-h-screen bg-white paper-texture-navalivay">
+  <div class="min-h-screen" style="background: #ffffff;">
     <SmokeParticles :count="4" area="full" />
 
     <div class="mb-0 relative banner-wrapper">
@@ -18,7 +18,7 @@
     </div>
 
     <div class="max-w-screen-xl mx-auto px-4 relative z-10 pb-16">
-      <h1 class="navalivay-title text-center mb-12 main-title-adaptive" style="margin-top: 2rem; color: var(--navalivay-black); font-weight: bold;">
+      <h1 class="navalivay-title text-center mb-6 main-title-adaptive" style="margin-top: 2rem; color: var(--navalivay-black); font-weight: bold;">
         ЧТО ХОТИТЕ КУПИТЬ<span class="question-mark">?</span>
       </h1>
 
@@ -58,31 +58,97 @@
           <div
             v-else
             key="category-focus"
-            class="category-focus-panel"
+            class="liquid-category-header"
           >
-            <div class="category-focus-media" :style="categoryFocusStyle"></div>
-            <div class="category-focus-overlay"></div>
-            <div class="category-focus-content">
-              <div class="category-focus-top">
-                <button class="back-chip" @click="backToCategories">
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M15 18l-6-6 6-6" />
-                  </svg>
-                  Все категории
-                </button>
-                <span class="category-focus-label">{{ displayModeLabels[resolvedDisplayMode] }}</span>
-              </div>
-              <h2 class="category-focus-title">{{ selectedCategory?.name }}</h2>
-              <p class="category-focus-meta">
-                {{ selectedCategory?.productCount }} товаров
-                <template v-if="selectedCategory?.groups.length"> · {{ selectedCategory?.groups.length }} {{ selectedCategory?.groups.length === 1 ? 'подгруппа' : selectedCategory?.groups.length < 5 ? 'подгруппы' : 'подгрупп' }}</template>
-              </p>
+            <div class="liquid-category-header-content">
+              <button
+                class="liquid-back-button"
+                @click="backToCategories"
+              >
+                <svg class="liquid-back-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M15 18l-6-6 6-6" />
+                </svg>
+                <span class="liquid-back-text">На главную страницу</span>
+              </button>
+              <h1 class="liquid-category-title">
+                {{ selectedCategory?.name || 'ЖИДКОСТИ' }}
+              </h1>
             </div>
           </div>
         </Transition>
       </section>
 
-      <section v-if="selectedCategory" class="mt-12 space-y-8">
+      <section v-if="selectedCategory">
+        <!-- Cross-sell товары (без заголовка, первыми) -->
+        <div v-if="crossSellItems.length" class="px-4" ref="crossSellContainer">
+          <div
+            v-for="(item, index) in crossSellItems"
+            :key="item.id"
+            class="liquid-line-card-single"
+            :ref="el => setCrossSellRef(el, index)"
+          >
+            <div class="liquid-line-single-header">
+              <div class="liquid-line-single-main">
+                <div v-if="getProductImage(item)" class="liquid-line-image">
+                  <img :src="getProductImage(item)!" :alt="item.title" />
+                </div>
+                <div class="liquid-line-info" :data-cross-sell-index="index">
+                  <span
+                    v-for="(badge, badgeIndex) in getProductBadges(item)"
+                    v-if="getProductBadges(item).length"
+                    :key="`${badge.type || 'badge'}-${badgeIndex}`"
+                    class="liquid-line-badge"
+                    :style="getBadgeStyle(badge)"
+                  >
+                    {{ getBadgeLabel(badge) }}
+                  </span>
+                  <h3 class="liquid-line-title" :data-title-index="index">{{ item.title || 'Без названия' }}</h3>
+                  <p v-if="item.description" class="liquid-line-description" :data-desc-index="index">{{ item.description }}</p>
+                </div>
+              </div>
+              <div class="liquid-line-single-side">
+                <span v-if="getCrossSellStockMessage(item)" class="liquid-flavor-stock-note">
+                  {{ getCrossSellStockMessage(item) }}
+                </span>
+                <div
+                  v-if="getCrossSellQuantity(item.id) > 0"
+                  class="liquid-flavor-quantity"
+                  :class="{ 'is-limit': isCrossSellAtStockLimit(item) }"
+                >
+                  <button
+                    type="button"
+                    class="flavor-qty-btn flavor-qty-btn-minus"
+                    @click.stop="decrementCrossSellQuantity(item)"
+                    aria-label="Убавить количество"
+                  >
+                    <MinusIcon class="flavor-qty-icon" />
+                  </button>
+                  <span class="flavor-qty-value">{{ getCrossSellQuantity(item.id) }}</span>
+                  <button
+                    type="button"
+                    class="flavor-qty-btn flavor-qty-btn-plus"
+                    :disabled="isCrossSellAtStockLimit(item)"
+                    @click.stop="incrementCrossSellQuantity(item)"
+                    aria-label="Добавить еще"
+                  >
+                    <PlusIcon class="flavor-qty-icon" />
+                  </button>
+                </div>
+                <button
+                  v-else
+                  type="button"
+                  class="liquid-flavor-add"
+                  :disabled="!canAddCrossSell(item)"
+                  @click.stop="addCrossSellToCart(item)"
+                  aria-label="Добавить в корзину"
+                >
+                  <PlusIcon class="flavor-add-icon" />
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <Transition name="fade" mode="out-in">
           <div
             v-if="groupCards.length && !showLiquidShowcase && activeGroupCard"
@@ -131,7 +197,31 @@
           Для категории пока не добавлены подгруппы — товары будут показаны в общем списке ниже.
         </p>
 
-        <section v-if="showLiquidShowcase" class="space-y-4">
+        <section v-if="showLiquidShowcase" class="px-4 space-y-4">
+          <!-- NiCa Booster - always first -->
+          <div v-if="nicaBoosterProduct" class="rounded-2xl border-2 border-gray-200 bg-white p-5 shadow-sm">
+            <div class="flex items-center justify-between gap-4">
+              <div v-if="nicaBoosterProduct.images?.length" class="h-16 w-16 flex-shrink-0 overflow-hidden rounded-xl border-2 border-gray-200">
+                <img :src="nicaBoosterProduct.images[0]" :alt="nicaBoosterProduct.title" class="h-full w-full object-cover" />
+              </div>
+              <div class="flex-1 min-w-0">
+                <h3 class="text-xl font-bold text-gray-900">{{ nicaBoosterProduct.title }}</h3>
+                <p v-if="nicaBoosterProduct.description" class="text-sm text-gray-500 mt-1">{{ nicaBoosterProduct.description }}</p>
+              </div>
+              <div class="flex items-center gap-3 flex-shrink-0">
+                <span class="text-base font-bold text-red-600 whitespace-nowrap">{{ formatPrice(nicaBoosterProduct.priceRub) }} ₽</span>
+                <button
+                  class="flex items-center justify-center w-10 h-10 rounded-xl bg-blue-500 border-2 border-blue-600 text-white hover:bg-blue-600 transition"
+                  @click="openProduct(nicaBoosterProduct)"
+                >
+                  <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path>
+                  </svg>
+                </button>
+              </div>
+            </div>
+          </div>
+          
           <LiquidLineCard
             v-for="group in liquidGroups"
             :key="group.id"
@@ -139,61 +229,35 @@
             :title="group.name"
             :products="group.products"
             :cover-image="group.coverImage"
-            :fallback-image="liquidFallbackImage"
+            :badge="group.badge ?? undefined"
+            :badge-color="group.badgeColor ?? undefined"
+            :subgroups="[]"
             :expanded="isGroupExpanded(group.id)"
             @toggle="toggleGroupExpansion"
-            @select="openProduct"
           />
 
-          <div v-if="liquidUngrouped.length" class="liquid-ungrouped">
-            <h3 class="liquid-ungrouped-title">Без линейки</h3>
-            <div class="liquid-product-header">
-              <span class="liquid-header-cell liquid-header-title">Вкус</span>
-              <span class="liquid-header-cell liquid-header-strength">Крепость</span>
-              <span class="liquid-header-cell liquid-header-price">Цена</span>
-              <span class="liquid-header-cell liquid-header-stock">Наличие</span>
-            </div>
-            <ul class="liquid-product-list">
-              <LiquidFlavorRow
+          <div v-if="liquidUngrouped.length" class="rounded-2xl border-2 border-dashed border-gray-300 bg-gray-50 px-5 py-5">
+            <h3 class="text-sm font-bold uppercase tracking-wide text-gray-600 mb-3">Дополнительные вкусы</h3>
+            <div class="space-y-2">
+              <div
                 v-for="product in liquidUngrouped"
                 :key="product.id"
-                :product="product"
-                @select="openProduct"
-              />
-            </ul>
+                class="flex items-center justify-between gap-3 rounded-xl bg-white border border-gray-200 px-4 py-3 hover:border-gray-300 transition cursor-pointer"
+                @click="openProduct(product)"
+              >
+                <div class="flex-1 min-w-0">
+                  <span class="text-base font-semibold text-gray-900">{{ product.title }}</span>
+                  <p v-if="product.description" class="text-xs text-gray-500 mt-0.5 line-clamp-1">
+                    {{ product.description }}
+                  </p>
+                </div>
+                <span class="text-base font-bold text-red-600 whitespace-nowrap">{{ formatPrice(product.priceRub) }} ₽</span>
+              </div>
+            </div>
           </div>
         </section>
       </section>
 
-      <section v-if="crossSellItems.length" class="mt-12 space-y-4">
-        <div class="section-header-navalivay grunge-texture">
-          <h2 class="navalivay-title text-white text-xl tracking-widest">А вдруг пригодится?</h2>
-        </div>
-        <div class="grid gap-4 sm:gap-6 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-          <div
-            v-for="item in crossSellItems"
-            :key="item.id"
-            class="cross-sell-card"
-            @click="openProduct(item)"
-          >
-            <div class="cross-sell-media">
-              <img
-                v-if="getProductImage(item)"
-                :src="getProductImage(item)!"
-                :alt="item.title"
-                loading="lazy"
-              />
-              <div v-else class="media-placeholder">
-                <PhotoIcon class="w-10 h-10 text-gray-300" />
-              </div>
-            </div>
-            <div class="cross-sell-body">
-              <p class="cross-sell-title">{{ item.title }}</p>
-              <p class="cross-sell-price">{{ formatPrice(item.priceRub) }}<span class="text-base ml-1">₽</span></p>
-            </div>
-          </div>
-        </div>
-      </section>
 
       <section v-if="showProducts" class="mt-12">
         <div class="flex items-center justify-between mb-6">
@@ -265,33 +329,31 @@
       </section>
     </div>
 
-    <DeliveryInfo />
-
-    <div
-      v-if="totalCartItems > 0"
-      @click="goToCheckout"
-      class="fixed bottom-6 left-1/2 transform -translate-x-1/2 z-50 clickable"
-      style="max-width: 90%; width: 600px;"
-    >
-      <button class="cart-button w-full bg-[#e60000] text-white rounded-full py-4 px-8 flex items-center justify-center gap-3 font-bold text-lg shadow-2xl">
-        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <path d="M7 18c-1.1 0-1.99.9-1.99 2S5.9 22 7 22s2-.9 2-2-.9-2-2-2zM1 2v2h2l3.6 7.59-1.35 2.45c-.16.28-.25.61-.25.96 0 1.1.9 2 2 2h12v-2H7.42c-.14 0-.25-.11-.25-.25l.03-.12.9-1.63h7.45c.75 0 1.41-.41 1.75-1.03l3.58-6.49c.08-.14.12-.31.12-.48 0-.55-.45-1-1-1H5.21l-.94-2H1zm16 16c-1.1 0-1.99.9-1.99 2s.89 2 1.99 2 2-.9 2-2-.9-2-2-2z" fill="currentColor" />
-        </svg>
-        <span>ЗАКАЗ НА {{ totalCartAmount }} BYN</span>
-      </button>
-    </div>
+    <!-- Cart Button -->
+    <Transition name="cart-slide">
+      <div
+        v-if="totalCartItems > 0"
+        class="cart-wrapper"
+      >
+        <button class="cart-button" @click="goToCheckout">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" class="cart-icon">
+            <path d="M7 18c-1.1 0-1.99.9-1.99 2S5.9 22 7 22s2-.9 2-2-.9-2-2-2zM1 2v2h2l3.6 7.59-1.35 2.45c-.16.28-.25.61-.25.96 0 1.1.9 2 2 2h12v-2H7.42c-.14 0-.25-.11-.25-.25l.03-.12.9-1.63h7.45c.75 0 1.41-.41 1.75-1.03l3.58-6.49c.08-.14.12-.31.12-.48 0-.55-.45-1-1-1H5.21l-.94-2H1zm16 16c-1.1 0-1.99.9-1.99 2s.89 2 1.99 2 2-.9 2-2-.9-2-2-2z" fill="currentColor" />
+          </svg>
+          <span class="cart-text">ЗАКАЗ НА {{ totalCartAmount }} BYN</span>
+        </button>
+      </div>
+    </Transition>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, watch, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
-import { ExclamationTriangleIcon, PhotoIcon } from '@heroicons/vue/24/outline'
+import { ExclamationTriangleIcon, PhotoIcon, PlusIcon, MinusIcon } from '@heroicons/vue/24/outline'
 
 import { useCatalogStore, type Product, type Category, type CategoryGroup, type ProductBadge } from '@/stores/catalog'
 import { useCartStore } from '@/stores/cart'
 import SmokeParticles from '@/components/SmokeParticles.vue'
-import DeliveryInfo from '@/components/DeliveryInfo.vue'
 import BannerCarousel from '@/components/BannerCarousel.vue'
 import LiquidLineCard from '@/components/product/liquid/LiquidLineCard.vue'
 import LiquidFlavorRow from '@/components/product/liquid/LiquidFlavorRow.vue'
@@ -299,6 +361,16 @@ import LiquidFlavorRow from '@/components/product/liquid/LiquidFlavorRow.vue'
 const catalogStore = useCatalogStore()
 const cartStore = useCartStore()
 const router = useRouter()
+
+// Cross-sell refs
+const crossSellContainer = ref<HTMLElement | null>(null)
+const crossSellRefs = ref<(HTMLElement | null)[]>([])
+
+function setCrossSellRef(el: any, index: number) {
+  if (el) {
+    crossSellRefs.value[index] = el
+  }
+}
 
 
 
@@ -387,6 +459,8 @@ type LiquidGroup = {
   order: number
   coverImage: string | null
   products: Product[]
+  badge?: string | null
+  badgeColor?: string | null
 }
 
 const groupCards = computed<GroupCard[]>(() => {
@@ -452,20 +526,39 @@ const liquidStructure = computed(() => {
       name: group.name,
       order: group.order ?? 0,
       coverImage: group.coverImage || fallbackCover,
-      products: []
+      products: [],
+      badge: group.badge ?? null,
+      badgeColor: group.badgeColor ?? null
     })
   })
 
   const ungrouped: Product[] = []
   const categoryProducts = catalogStore.products.filter(product => product.categoryId === category.id)
+  
+  // Find NiCa Booster
+  let nicaBooster: Product | null = null
 
   categoryProducts.forEach(product => {
+    const isNicaBooster = product.title.toLowerCase().includes('никобустер') ||
+                          product.title.toLowerCase().includes('nikobuster') ||
+                          product.title.toLowerCase().includes('nica booster')
+    
+    if (isNicaBooster) {
+      nicaBooster = product
+      return
+    }
+    
     if (product.groupSlug && groupMap.has(product.groupSlug)) {
       groupMap.get(product.groupSlug)!.products.push(product)
     } else {
       ungrouped.push(product)
     }
   })
+  
+  // Add NiCa Booster to ungrouped at the beginning if found
+  if (nicaBooster) {
+    ungrouped.unshift(nicaBooster)
+  }
 
   const groups = Array.from(groupMap.values())
     .filter(group => group.products.length > 0)
@@ -475,7 +568,22 @@ const liquidStructure = computed(() => {
 })
 
 const liquidGroups = computed(() => liquidStructure.value.groups)
-const liquidUngrouped = computed(() => liquidStructure.value.ungrouped)
+const liquidUngrouped = computed(() => {
+  // Filter out NiCa Booster from ungrouped display
+  return liquidStructure.value.ungrouped.filter(product => {
+    const title = product.title.toLowerCase()
+    return !(title.includes('никобустер') || title.includes('nikobuster') || title.includes('nica booster'))
+  })
+})
+const nicaBoosterProduct = computed(() => {
+  if (!selectedCategory.value) return null
+  const categoryProducts = catalogStore.products.filter(product => product.categoryId === selectedCategory.value!.id)
+  return categoryProducts.find(p => 
+    p.title.toLowerCase().includes('никобустер') ||
+    p.title.toLowerCase().includes('nikobuster') ||
+    p.title.toLowerCase().includes('nica booster')
+  ) || null
+})
 const liquidFallbackImage = computed(() => selectedCategory.value?.coverImage || PLACEHOLDER_IMAGE)
 
 const liquidExpansionState = ref<Record<string, boolean>>({})
@@ -628,6 +736,136 @@ function isGroupExpanded(groupId: string) {
   return liquidExpansionState.value[groupId] ?? false
 }
 
+// Cross-sell cart functions
+function getCrossSellQuantity(productId: string): number {
+  const item = cartStore.items.find(item => item.productId === productId)
+  return item ? item.quantity : 0
+}
+
+function canAddCrossSell(product: Product) {
+  if (product.isAvailable === false) {
+    return false
+  }
+  if (typeof product.stock === 'number') {
+    const stock = Math.max(product.stock, 0)
+    if (stock === 0) {
+      return false
+    }
+    return getCrossSellQuantity(product.id) < stock
+  }
+  return true
+}
+
+function isCrossSellAtStockLimit(product: Product) {
+  if (product.isAvailable === false) {
+    return true
+  }
+  if (typeof product.stock === 'number') {
+    const stock = Math.max(product.stock, 0)
+    if (stock === 0) {
+      return true
+    }
+    return getCrossSellQuantity(product.id) >= stock
+  }
+  return false
+}
+
+function getCrossSellStockMessage(product: Product) {
+  if (product.isAvailable === false) {
+    return 'нет в наличии'
+  }
+  if (typeof product.stock === 'number') {
+    const stock = Math.max(product.stock, 0)
+    if (stock === 0) {
+      return 'нет в наличии'
+    }
+    if (getCrossSellQuantity(product.id) >= stock) {
+      return 'в наличии больше нет'
+    }
+  }
+  return null
+}
+
+function addCrossSellToCart(product: Product) {
+  if (!canAddCrossSell(product)) {
+    return
+  }
+  cartStore.addItem(product, 1)
+}
+
+function incrementCrossSellQuantity(product: Product) {
+  if (!canAddCrossSell(product)) {
+    return
+  }
+  const currentQty = getCrossSellQuantity(product.id)
+  if (currentQty > 0) {
+    cartStore.updateQuantity(product.id, currentQty + 1)
+  } else {
+    cartStore.addItem(product, 1)
+  }
+}
+
+function decrementCrossSellQuantity(product: Product) {
+  const currentQty = getCrossSellQuantity(product.id)
+  if (currentQty > 1) {
+    cartStore.updateQuantity(product.id, currentQty - 1)
+  } else if (currentQty === 1) {
+    cartStore.removeItem(product.id)
+  }
+}
+
+// Функция для динамической подстройки размера шрифта
+async function adjustCrossSellFontSize() {
+  await nextTick()
+  
+  if (!crossSellContainer.value) return
+  
+  const cards = crossSellContainer.value.querySelectorAll('.liquid-line-card-single')
+  
+  cards.forEach((card: Element) => {
+    const cardEl = card as HTMLElement
+    const infoBlock = cardEl.querySelector('.liquid-line-info') as HTMLElement
+    if (!infoBlock) return
+    
+    const title = infoBlock.querySelector('.liquid-line-title') as HTMLElement
+    const description = infoBlock.querySelector('.liquid-line-description') as HTMLElement
+    
+    if (!title) return
+    
+    // Базовые размеры шрифта (как у линеек)
+    const rootFontSize = parseFloat(getComputedStyle(document.documentElement).fontSize)
+    const baseTitleSize = rootFontSize * 1.35
+    const baseDescSize = rootFontSize * 0.75
+    
+    // Сбрасываем стили
+    title.style.fontSize = ''
+    if (description) description.style.fontSize = ''
+    
+    // Измеряем высоту info блока
+    const initialHeight = infoBlock.offsetHeight
+    const maxAllowedHeight = 100 // Максимальная высота в пикселях
+    
+    // Если блок слишком высокий, уменьшаем шрифт
+    if (initialHeight > maxAllowedHeight) {
+      let titleSize = baseTitleSize
+      let descSize = description ? baseDescSize : 0
+      let iterations = 0
+      
+      while (infoBlock.offsetHeight > maxAllowedHeight && iterations < 20) {
+        titleSize = Math.max(titleSize - 1, baseTitleSize * 0.5)
+        title.style.fontSize = `${titleSize}px`
+        
+        if (description && descSize > baseDescSize * 0.5) {
+          descSize = Math.max(descSize - 0.5, baseDescSize * 0.5)
+          description.style.fontSize = `${descSize}px`
+        }
+        
+        iterations++
+      }
+    }
+  })
+}
+
 watch(
   () => catalogStore.activeCategory,
   (slug) => {
@@ -637,6 +875,15 @@ watch(
   }
 )
 
+// При изменении cross-sell товаров или корзины
+watch(
+  () => [crossSellItems.value.length, cartStore.items.length],
+  () => {
+    adjustCrossSellFontSize()
+  },
+  { flush: 'post' }
+)
+
 onMounted(async () => {
   await catalogStore.initialize()
 
@@ -644,6 +891,11 @@ onMounted(async () => {
     window.Telegram.WebApp.ready()
     window.Telegram.WebApp.expand()
   }
+  
+  // Подстраиваем шрифт после монтирования
+  setTimeout(() => {
+    adjustCrossSellFontSize()
+  }, 300)
 })
 
 
@@ -714,13 +966,20 @@ onMounted(async () => {
 .category-grid {
   display: grid;
   gap: clamp(0.75rem, 3vw, 1rem);
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+}
+
+@media (max-width: 768px) {
+  .category-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: clamp(0.65rem, 2.5vw, 0.85rem);
+  }
 }
 
 @media (max-width: 360px) {
   .category-grid {
-    grid-template-columns: repeat(1, minmax(0, 1fr));
-    gap: 0.85rem;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 0.6rem;
   }
 }
 
@@ -1024,6 +1283,7 @@ onMounted(async () => {
   font-weight: 600;
   color: var(--navalivay-gray);
   letter-spacing: 0.05em;
+  white-space: nowrap;
 }
 
 .category-card-badge {
@@ -1035,6 +1295,7 @@ onMounted(async () => {
   border-radius: 8px;
   text-transform: uppercase;
   letter-spacing: 0.08em;
+  white-space: nowrap;
 }
 
 @media (max-width: 768px) {
@@ -1046,6 +1307,15 @@ onMounted(async () => {
   .category-card-body {
     padding: clamp(0.7rem, 3vw, 0.85rem);
     gap: 0.2rem;
+  }
+  
+  .category-card-meta {
+    font-size: clamp(0.62rem, 2.2vw, 0.72rem);
+  }
+  
+  .category-card-badge {
+    font-size: clamp(0.56rem, 2vw, 0.66rem);
+    padding: 0.22rem 0.45rem;
   }
 }
 
@@ -1061,6 +1331,22 @@ onMounted(async () => {
 
   .category-card-body {
     padding: clamp(0.6rem, 4vw, 0.75rem);
+    gap: 0.18rem;
+  }
+  
+  .category-card-title {
+    font-size: clamp(0.85rem, 3.5vw, 0.95rem);
+    line-height: 1.2;
+  }
+  
+  .category-card-meta {
+    font-size: clamp(0.58rem, 2.5vw, 0.68rem);
+  }
+  
+  .category-card-badge {
+    font-size: clamp(0.54rem, 2.2vw, 0.64rem);
+    padding: 0.2rem 0.4rem;
+    border-radius: 6px;
   }
 }
 
@@ -1262,19 +1548,130 @@ onMounted(async () => {
   background: rgba(211, 47, 47, 0.08);
 }
 
+/* ===== Cart Button Styles (Brutal Card Style) ===== */
+.cart-wrapper {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 50;
+  padding: 1rem;
+  pointer-events: none;
+}
+
 .cart-button {
-  transition: all 0.3s ease;
-  letter-spacing: 0.05em;
+  width: 100%;
+  max-width: 600px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  padding: 1.25rem 2rem;
+  
+  /* Brutal card style */
+  background: var(--navalivay-white);
+  border: 4px solid var(--navalivay-black);
+  border-radius: 20px;
+  box-shadow: 4px 4px 0 rgba(26, 26, 26, 0.3);
+  
+  cursor: pointer;
+  pointer-events: auto;
+  transition: transform 0.25s ease, box-shadow 0.25s ease, border-color 0.25s ease;
 }
 
 .cart-button:hover {
-  background: #cc0000;
-  transform: translateY(-2px);
-  box-shadow: 0 20px 40px rgba(230, 0, 0, 0.4);
+  transform: translate(-2px, -2px);
+  box-shadow: 6px 6px 0 rgba(211, 47, 47, 0.4);
+  border-color: var(--navalivay-red);
 }
 
 .cart-button:active {
-  transform: translateY(0);
+  transform: translate(-1px, -1px);
+  box-shadow: 3px 3px 0 rgba(211, 47, 47, 0.3);
+}
+
+.cart-icon {
+  flex-shrink: 0;
+  color: var(--navalivay-red);
+  transition: transform 0.25s ease;
+}
+
+.cart-button:hover .cart-icon {
+  transform: scale(1.1);
+}
+
+.cart-text {
+  font-family: var(--font-display);
+  font-size: 1.1rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--navalivay-black);
+}
+
+/* Slide up animation with bounce */
+.cart-slide-enter-active {
+  transition: all 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.cart-slide-leave-active {
+  transition: all 0.3s ease-out;
+}
+
+.cart-slide-enter-from {
+  transform: translateY(150%);
+  opacity: 0;
+}
+
+.cart-slide-leave-to {
+  transform: translateY(150%);
+  opacity: 0;
+}
+
+/* Mobile adjustments */
+@media (max-width: 768px) {
+  .cart-wrapper {
+    padding: 0.75rem;
+  }
+  
+  .cart-button {
+    padding: 1rem 1.5rem;
+    border-width: 3px;
+    border-radius: 18px;
+  }
+  
+  .cart-text {
+    font-size: 0.95rem;
+    letter-spacing: 0.06em;
+  }
+  
+  .cart-icon {
+    width: 20px;
+    height: 20px;
+  }
+}
+
+@media (max-width: 480px) {
+  .cart-wrapper {
+    padding: 0.5rem;
+  }
+  
+  .cart-button {
+    padding: 0.85rem 1.25rem;
+    border-width: 2px;
+    border-radius: 16px;
+    gap: 0.5rem;
+  }
+  
+  .cart-text {
+    font-size: 0.85rem;
+  }
+  
+  .cart-icon {
+    width: 18px;
+    height: 18px;
+  }
 }
 
 .scrollbar-hide {
@@ -1352,5 +1749,657 @@ onMounted(async () => {
 :deep(.liquid-collapse-leave-from) {
   max-height: 800px;
   opacity: 1;
+}
+
+/* Liquid Category Header Styles */
+.liquid-category-header {
+  background: white;
+  padding: 1rem 1rem 0 1rem;
+  border-bottom: 1px solid #e5e5e5;
+  margin-bottom: 0;
+}
+
+.liquid-category-header-content {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  max-width: 100%;
+}
+
+.liquid-back-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.6rem 1rem;
+  border-radius: 10px;
+  background: #f5f5f5;
+  border: 1px solid #e0e0e0;
+  color: #666666;
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  transition: all 0.2s ease;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.liquid-back-button:hover {
+  background: #ebebeb;
+  border-color: #d0d0d0;
+  transform: translateX(-2px);
+}
+
+.liquid-back-icon {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+}
+
+.liquid-back-text {
+  white-space: nowrap;
+}
+
+.liquid-category-title {
+  font-family: 'Bebas Neue Local', 'Bebas Neue', 'Impact', 'Arial Black', sans-serif;
+  font-size: 1.20rem;
+  font-weight: 400;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #000000;
+  line-height: 1.1;
+  text-align: right;
+  flex: 1;
+  min-width: 0;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+}
+
+@media (max-width: 768px) {
+  .liquid-category-header {
+    padding: 0.85rem;
+    margin-bottom: 0.85rem;
+  }
+
+  .liquid-category-header-content {
+    gap: 0.85rem;
+  }
+
+  .liquid-back-button {
+    font-size: 0.75rem;
+    padding: 0.55rem 0.85rem;
+    gap: 0.35rem;
+  }
+
+  .liquid-back-icon {
+    width: 15px;
+    height: 15px;
+  }
+
+  .liquid-category-title {
+    font-size: 1.35rem;
+  }
+}
+
+@media (max-width: 640px) {
+  .liquid-category-header {
+    padding: 0.75rem;
+    margin-bottom: 0.75rem;
+  }
+
+  .liquid-category-header-content {
+    gap: 0.75rem;
+  }
+
+  .liquid-back-button {
+    font-size: 0.7rem;
+    padding: 0.5rem 0.75rem;
+    gap: 0.3rem;
+  }
+
+  .liquid-back-icon {
+    width: 14px;
+    height: 14px;
+  }
+
+  .liquid-category-title {
+    font-size: 1.25rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .liquid-category-header {
+    padding: 0.7rem 0.65rem;
+    margin-bottom: 0.7rem;
+  }
+
+  .liquid-category-header-content {
+    gap: 0.65rem;
+  }
+
+  .liquid-back-button {
+    font-size: 0.68rem;
+    padding: 0.45rem 0.7rem;
+    gap: 0.28rem;
+    border-radius: 8px;
+  }
+
+  .liquid-back-icon {
+    width: 13px;
+    height: 13px;
+  }
+
+  .liquid-category-title {
+    font-size: 1.15rem;
+    letter-spacing: 0;
+  }
+}
+
+@media (max-width: 360px) {
+  .liquid-category-header {
+    padding: 0.65rem 0.6rem;
+    margin-bottom: 0.65rem;
+  }
+
+  .liquid-category-header-content {
+    gap: 0.6rem;
+  }
+
+  .liquid-back-button {
+    font-size: 0.65rem;
+    padding: 0.4rem 0.65rem;
+    gap: 0.25rem;
+  }
+
+  .liquid-back-icon {
+    width: 12px;
+    height: 12px;
+  }
+
+  .liquid-category-title {
+    font-size: 1.05rem;
+  }
+}
+
+/* Cross-sell товары в стиле LiquidLineCard */
+.liquid-line-card-single {
+  padding: 1.25rem 0;
+  border-bottom: 1px solid #e5e5e5;
+  background: white;
+}
+
+.liquid-line-card-single:first-of-type {
+  padding-top: 0;
+}
+
+.liquid-line-single-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.liquid-line-single-main {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex: 1;
+  min-width: 0;
+}
+
+.liquid-line-image {
+  width: 110px;
+  height: 165px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.liquid-line-image img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.liquid-line-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  min-width: 0;
+  flex: 1;
+}
+
+.liquid-line-badge {
+  align-self: flex-start;
+  padding: 0.35rem 0.75rem;
+  border-radius: 5px;
+  background: #ed1d24;
+  color: #ffffff;
+  font-size: 0.65rem;
+  font-weight: 900;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  line-height: 1;
+}
+
+.liquid-line-title {
+  margin: 0;
+  font-size: 1.35rem;
+  font-weight: 900;
+  letter-spacing: -0.01em;
+  text-transform: uppercase;
+  color: #000000;
+  line-height: 1.15;
+}
+
+.liquid-line-description {
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  text-transform: uppercase;
+  color: #a5a5a5;
+  line-height: 1.25;
+  margin: 0;
+}
+
+.liquid-line-single-side {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 1rem;
+  flex-shrink: 0;
+}
+
+.liquid-line-price {
+  display: flex;
+  align-items: baseline;
+  gap: 0.25rem;
+  font-weight: 900;
+  color: #ed1d24;
+  line-height: 1;
+  order: 1;
+}
+
+.liquid-flavor-stock-note {
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  text-transform: lowercase;
+  color: #ed1d24;
+  text-align: right;
+  order: -1;
+}
+
+.liquid-flavor-add {
+  width: 48px;
+  height: 48px;
+  border: none;
+  border-radius: 16px;
+  background: linear-gradient(180deg, #ff6666 0%, #e60000 100%);
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+  order: 2;
+}
+
+.liquid-flavor-add:hover:not(:disabled) {
+  opacity: 0.9;
+}
+
+.liquid-flavor-add:disabled {
+  background: #d9d9d9;
+  color: #9b9b9b;
+  cursor: not-allowed;
+}
+
+.flavor-add-icon {
+  width: 24px;
+  height: 24px;
+  stroke-width: 3;
+}
+
+.liquid-flavor-quantity {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-shrink: 0;
+  order: 2;
+}
+
+.flavor-qty-btn {
+  width: 48px;
+  height: 48px;
+  border-radius: 16px;
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  background: linear-gradient(180deg, #ff6666 0%, #e60000 100%);
+  color: #ffffff;
+  flex-shrink: 0;
+}
+
+.flavor-qty-btn:hover:not(:disabled) {
+  opacity: 0.9;
+}
+
+.flavor-qty-btn:disabled {
+  background: #d9d9d9;
+  color: #9b9b9b;
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.flavor-qty-btn-minus {
+  background: linear-gradient(180deg, #d0d0d0 0%, #b0b0b0 100%);
+  color: #666666;
+}
+
+.flavor-qty-icon {
+  width: 20px;
+  height: 20px;
+  stroke-width: 3;
+}
+
+.flavor-qty-value {
+  font-size: 1.1rem;
+  font-weight: 800;
+  color: #000000;
+  min-width: 2rem;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.price-value {
+  font-size: 1.5rem;
+  letter-spacing: -0.02em;
+}
+
+.price-currency {
+  font-size: 1rem;
+}
+
+@media (max-width: 1024px) {
+  .liquid-line-image {
+    width: 100px;
+    height: 150px;
+  }
+
+  .liquid-line-title {
+    font-size: 1.25rem;
+  }
+
+  .liquid-line-description {
+    font-size: 0.7rem;
+  }
+
+  .price-value {
+    font-size: 1.4rem;
+  }
+
+  .price-currency {
+    font-size: 0.95rem;
+  }
+}
+
+@media (max-width: 768px) {
+  .liquid-line-card-single {
+    padding: 1rem 0;
+  }
+
+  .liquid-line-single-header {
+    gap: 0.85rem;
+  }
+
+  .liquid-line-single-main {
+    gap: 0.85rem;
+  }
+
+  .liquid-line-image {
+    width: 100px;
+    height: 150px;
+  }
+
+  .liquid-line-info {
+    gap: 0.28rem;
+  }
+
+  .liquid-line-badge {
+    font-size: 0.56rem;
+    padding: 0.26rem 0.58rem;
+  }
+
+  .liquid-line-title {
+    font-size: 1rem;
+  }
+
+  .liquid-line-description {
+    font-size: 0.62rem;
+  }
+
+  .liquid-line-single-side {
+    gap: 0.75rem;
+  }
+
+  .price-value {
+    font-size: 1.25rem;
+  }
+
+  .price-currency {
+    font-size: 0.85rem;
+  }
+
+  .liquid-flavor-add,
+  .flavor-qty-btn {
+    width: 46px;
+    height: 46px;
+  }
+
+  .flavor-add-icon,
+  .flavor-qty-icon {
+    width: 19px;
+    height: 19px;
+  }
+}
+
+@media (max-width: 640px) {
+  .liquid-line-card-single {
+    padding: 0.9rem 0;
+  }
+
+  .liquid-line-single-header {
+    gap: 0.8rem;
+  }
+
+  .liquid-line-single-main {
+    gap: 0.8rem;
+  }
+
+  .liquid-line-image {
+    width: 95px;
+    height: 143px;
+  }
+
+  .liquid-line-info {
+    gap: 0.26rem;
+  }
+
+  .liquid-line-badge {
+    font-size: 0.54rem;
+    padding: 0.24rem 0.56rem;
+  }
+
+  .liquid-line-title {
+    font-size: 0.95rem;
+  }
+
+  .liquid-line-description {
+    font-size: 0.6rem;
+  }
+
+  .liquid-line-single-side {
+    gap: 0.7rem;
+  }
+
+  .price-value {
+    font-size: 1.2rem;
+  }
+
+  .price-currency {
+    font-size: 0.82rem;
+  }
+
+  .liquid-flavor-add,
+  .flavor-qty-btn {
+    width: 42px;
+    height: 42px;
+  }
+
+  .flavor-add-icon,
+  .flavor-qty-icon {
+    width: 18px;
+    height: 18px;
+  }
+}
+
+@media (max-width: 480px) {
+  .liquid-line-card-single {
+    padding: 0.85rem 0;
+  }
+
+  .liquid-line-single-header {
+    gap: 0.75rem;
+  }
+
+  .liquid-line-single-main {
+    gap: 0.75rem;
+  }
+
+  .liquid-line-image {
+    width: 90px;
+    height: 135px;
+  }
+
+  .liquid-line-info {
+    gap: 0.24rem;
+  }
+
+  .liquid-line-badge {
+    font-size: 0.52rem;
+    padding: 0.22rem 0.5rem;
+  }
+
+  .liquid-line-title {
+    font-size: 0.9rem;
+    letter-spacing: -0.02em;
+  }
+
+  .liquid-line-description {
+    font-size: 0.58rem;
+  }
+
+  .liquid-line-single-side {
+    gap: 0.65rem;
+  }
+
+  .price-value {
+    font-size: 1.15rem;
+  }
+
+  .price-currency {
+    font-size: 0.8rem;
+  }
+
+  .liquid-flavor-add,
+  .flavor-qty-btn {
+    width: 40px;
+    height: 40px;
+    border-radius: 11px;
+  }
+
+  .flavor-add-icon,
+  .flavor-qty-icon {
+    width: 16px;
+    height: 16px;
+  }
+
+  .flavor-qty-value {
+    font-size: 0.88rem;
+    min-width: 1.35rem;
+  }
+}
+
+@media (max-width: 360px) {
+  .liquid-line-card-single {
+    padding: 0.8rem 0;
+  }
+
+  .liquid-line-single-header {
+    gap: 0.65rem;
+  }
+
+  .liquid-line-single-main {
+    gap: 0.65rem;
+  }
+
+  .liquid-line-image {
+    width: 80px;
+    height: 120px;
+  }
+
+  .liquid-line-info {
+    gap: 0.22rem;
+  }
+
+  .liquid-line-badge {
+    font-size: 0.48rem;
+    padding: 0.2rem 0.46rem;
+  }
+
+  .liquid-line-title {
+    font-size: 0.85rem;
+  }
+
+  .liquid-line-description {
+    font-size: 0.54rem;
+  }
+
+  .liquid-line-single-side {
+    gap: 0.58rem;
+  }
+
+  .price-value {
+    font-size: 1.05rem;
+  }
+
+  .price-currency {
+    font-size: 0.75rem;
+  }
+
+  .liquid-flavor-add,
+  .flavor-qty-btn {
+    width: 38px;
+    height: 38px;
+    border-radius: 10px;
+  }
+
+  .flavor-add-icon,
+  .flavor-qty-icon {
+    width: 15px;
+    height: 15px;
+  }
+
+  .flavor-qty-value {
+    font-size: 0.85rem;
+    min-width: 1.25rem;
+  }
 }
 </style>

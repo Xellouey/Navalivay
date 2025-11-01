@@ -220,9 +220,9 @@
                 </div>
 
                 <div class="mt-3 flex items-center gap-3 text-xs font-semibold uppercase tracking-[0.25em] text-white/80">
-                  <button @click="prevOverviewRange" class="rounded-md border border-white/20 px-2 py-1 hover:bg-white/10"><</button>
+                  <button @click="prevOverviewRange" class="rounded-md border border-white/20 px-2 py-1 hover:bg-white/10">&lt;</button>
                   <span>{{ overviewRangeLabel }}</span>
-                  <button @click="nextOverviewRange" :disabled="isAtCurrentOverview" class="rounded-md border border-white/20 px-2 py-1 hover:bg-white/10 disabled:opacity-40">></button>
+                  <button @click="nextOverviewRange" :disabled="isAtCurrentOverview" class="rounded-md border border-white/20 px-2 py-1 hover:bg-white/10 disabled:opacity-40">&gt;</button>
                 </div>
                 </div>
               </Transition>

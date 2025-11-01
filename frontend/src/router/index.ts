@@ -26,12 +26,6 @@ const router = createRouter({
       props: true
     },
     {
-      path: '/category/:slug',
-      name: 'category',
-      component: () => import('../views/CategoryView.vue'),
-      props: true
-    },
-    {
       path: '/checkout',
       name: 'checkout',
       component: () => import('../views/CheckoutView.vue')
