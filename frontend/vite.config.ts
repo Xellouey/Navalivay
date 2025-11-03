@@ -27,8 +27,14 @@ export default defineConfig(({ mode }) => {
       },
     },
     build: {
+      // Отключить кэширование
+      manifest: false,
       rollupOptions: {
         output: {
+          // Добавляем timestamp к именам файлов для предотвращения кэширования
+          entryFileNames: `assets/[name]-[hash]-${Date.now()}.js`,
+          chunkFileNames: `assets/[name]-[hash]-${Date.now()}.js`,
+          assetFileNames: `assets/[name]-[hash]-${Date.now()}.[ext]`,
           manualChunks: {
             vendor: ['vue', 'pinia'],
             ui: ['@headlessui/vue', '@vueuse/core']

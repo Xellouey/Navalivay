@@ -32,9 +32,18 @@ app.use(cookieParser());
 app.use(cors({ origin: true, credentials: true }));
 app.use(helmet({ contentSecurityPolicy: false }));
 
-// Static
+// Static (БЕЗ КЭША)
 const uploadsDir = path.resolve(__dirname, '../uploads');
-app.use('/uploads', express.static(uploadsDir, { maxAge: '7d' }));
+app.use('/uploads', express.static(uploadsDir, { 
+  maxAge: 0,
+  etag: false,
+  lastModified: false,
+  setHeaders: (res) => {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+  }
+}));
 
 // Health
 app.get('/api/health', (req, res) => {
