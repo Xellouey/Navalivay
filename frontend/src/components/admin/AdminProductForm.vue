@@ -88,8 +88,27 @@
       />
     </div>
 
-    <!-- Price - МОБИЛЬНО АДАПТИВНОЕ -->
+    <!-- Has Variants Checkbox -->
     <div class="w-full">
+      <label class="flex items-start gap-3 cursor-pointer group">
+        <input
+          type="checkbox"
+          v-model="form.hasVariants"
+          class="mt-1 w-4 h-4 text-brand-dark border-gray-300 rounded focus:ring-2 focus:ring-brand-dark cursor-pointer"
+        />
+        <div class="flex-1">
+          <span class="text-sm font-medium text-gray-700 group-hover:text-gray-900">
+            Товар с вариантами (функционал для POD устройств)
+          </span>
+          <p class="text-xs text-gray-500 mt-1">
+            Включите для устройств с несколькими цветовыми вариантами. Каждый вариант будет иметь свои изображения и цену.
+          </p>
+        </div>
+      </label>
+    </div>
+
+    <!-- Price - МОБИЛЬНО АДАПТИВНОЕ -->
+    <div class="w-full" v-if="!form.hasVariants">
       <label class="block text-sm font-medium text-gray-700 mb-2">Цена, ₽ (целое число)</label>
       <input
         v-model.number="form.priceRub"
@@ -112,7 +131,7 @@
 
     <!-- Inventory fields -->
     <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-5">
-      <div>
+      <div v-if="!form.hasVariants">
         <label class="block text-sm font-medium text-gray-700 mb-2">Крепость</label>
         <input
           v-model.trim="form.strength"
@@ -132,7 +151,7 @@
           placeholder="0"
         />
       </div>
-      <div>
+      <div v-if="!form.hasVariants">
         <label class="block text-sm font-medium text-gray-700 mb-2">Остаток на складе, шт</label>
         <input
           v-model.number="form.stock"
@@ -153,7 +172,10 @@
           class="w-full px-3 sm:px-4 py-2 sm:py-3 text-sm sm:text-base border border-gray-300 rounded-xl focus:ring-2 focus:ring-brand-dark focus:border-transparent"
           placeholder="0"
         />
-        <p class="mt-1 text-xs text-gray-500">Используется для подсветки товаров с низким остатком.</p>
+        <p class="mt-1 text-xs text-gray-500">
+          <span v-if="form.hasVariants">Порог для любого варианта этого товара. Если хотя бы один вариант ниже - товар попадёт в закупки.</span>
+          <span v-else>Используется для подсветки товаров с низким остатком и автоматических закупок.</span>
+        </p>
       </div>
     </div>
 
@@ -176,7 +198,7 @@
     </div>
 
     <!-- Links -->
-    <div class="space-y-3 w-full" v-if="!form.useCategoryImage">
+    <div class="space-y-3 w-full" v-if="!form.useCategoryImage && !form.hasVariants">
       <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
         <label class="block text-sm font-medium text-gray-700">Ссылки на товар</label>
         <button
@@ -235,7 +257,14 @@
         </div>
         <button
           type="button"
-          class="admin-link-button admin-link-button--danger w-full shrink-0 sm:w-auto lg:w-auto"
+          class="
+            px-3 py-2 rounded-lg text-sm font-medium
+            bg-red-50 text-red-600 border border-red-200
+            hover:bg-red-100 hover:border-red-300 hover:text-red-700
+            focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-1
+            transition-all duration-200
+            w-full shrink-0 sm:w-auto lg:w-auto
+          "
           @click="removeLink(index)"
         >
           Удалить
@@ -245,8 +274,123 @@
       <p class="text-xs text-gray-500">URL должны начинаться с https://. Название помогает отличать ссылки в интерфейсе.</p>
     </div>
 
-    <!-- Use Category Image Checkbox -->
-    <div class="w-full">
+    <!-- Variants Section -->
+    <div class="space-y-4" v-if="form.hasVariants">
+      <div class="flex items-center justify-between">
+        <label class="text-sm font-medium text-gray-700">Варианты товара</label>
+        <button
+          type="button"
+          class="px-3 py-2 bg-brand-dark text-white rounded-lg text-xs sm:text-sm font-medium hover:bg-brand-dark/90"
+          @click="addVariant"
+        >
+          + Добавить вариант
+        </button>
+      </div>
+
+      <div v-for="(variant, index) in form.variants" :key="`variant-${index}`" class="p-4 border border-gray-200 rounded-xl space-y-3">
+        <div class="flex items-center justify-between">
+          <h4 class="text-sm font-medium text-gray-700">Вариант {{ index + 1 }}</h4>
+          <button
+            v-if="form.variants.length > 1"
+            type="button"
+            class="
+              px-3 py-1.5 rounded-lg text-sm font-medium
+              bg-red-50 text-red-600 border border-red-200
+              hover:bg-red-100 hover:border-red-300 hover:text-red-700
+              focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-1
+              transition-all duration-200
+            "
+            @click="removeVariant(index)"
+          >
+            Удалить
+          </button>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Название (цвет)</label>
+            <input
+              v-model="variant.name"
+              type="text"
+              required
+              class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-dark"
+              placeholder="Например, Черный"
+            />
+          </div>
+
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Код цвета (опционально)</label>
+            <div class="flex gap-2">
+              <input
+                v-model="variant.colorCode"
+                type="text"
+                class="flex-1 px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-dark"
+                placeholder="#000000"
+              />
+              <input
+                :value="variant.colorCode || '#000000'"
+                @input="variant.colorCode = ($event.target as HTMLInputElement).value"
+                type="color"
+                class="w-12 h-10 border border-gray-300 rounded-lg cursor-pointer"
+              />
+            </div>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Цена (опционально)</label>
+            <input
+              v-model.number="variant.priceRub"
+              type="number"
+              class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-dark"
+              placeholder="Если отличается от основной"
+            />
+          </div>
+
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Остаток, шт</label>
+            <input
+              v-model.number="variant.stock"
+              type="number"
+              min="0"
+              class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-dark"
+              placeholder="0"
+            />
+          </div>
+        </div>
+
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-2">Изображения варианта</label>
+          <input 
+            :ref="el => variantFileInputs[index] = el as HTMLInputElement" 
+            type="file" 
+            accept="image/*" 
+            multiple 
+            class="hidden" 
+            @change="(e) => onVariantFilesSelected(e, index)" 
+          />
+          <button
+            type="button"
+            class="mb-2 px-3 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm hover:bg-gray-200"
+            @click="triggerVariantFile(index)"
+          >
+            Добавить фото
+          </button>
+          <AdminProductImagesSorter 
+            v-model="variant.images" 
+            @remove="(url) => onRemoveVariantImage(index, url)" 
+          />
+        </div>
+      </div>
+
+      <p v-if="!form.variants || form.variants.length === 0" class="text-sm text-red-600">
+        Добавьте хотя бы один вариант товара
+      </p>
+    </div>
+
+    <!-- Use Category Image Checkbox (only for non-variant products) -->
+    <div class="w-full" v-if="!form.hasVariants">
       <label class="flex items-start gap-3 cursor-pointer group">
         <input
           type="checkbox"
@@ -265,7 +409,7 @@
     </div>
 
     <!-- Images - МОБИЛЬНО АДАПТИВНОЕ -->
-    <div class="space-y-3 w-full" v-if="!form.useCategoryImage">
+    <div class="space-y-3 w-full" v-if="!form.useCategoryImage && !form.hasVariants">
       <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <label class="text-sm font-medium break-words" :class="!hasMedia ? 'text-red-600' : 'text-gray-700'">
           Медиа (фото или ссылки)
@@ -454,6 +598,14 @@ import { useAdminStore, type CategoryGroup as AdminCategoryGroup } from '@/store
 
 interface Category { id: string; name: string }
 interface ProductLink { label?: string; url: string }
+interface ProductVariant {
+  id?: string
+  name: string
+  colorCode?: string | null
+  priceRub?: number | null
+  stock?: number
+  images: string[]
+}
 interface Product {
   id: string
   categoryId: string
@@ -464,6 +616,8 @@ interface Product {
   priceRub: number
   description?: string
   useCategoryImage?: boolean
+  hasVariants?: boolean
+  variants?: ProductVariant[]
   images: string[]
   links?: ProductLink[]
   createdAt?: string
@@ -495,6 +649,8 @@ const form = reactive<Omit<Product, 'id'>>({
   stock: props.product?.stock ?? 0,
   minStock: props.product?.minStock ?? 0,
   useCategoryImage: props.product?.useCategoryImage ?? true,
+  hasVariants: props.product?.hasVariants ?? false,
+  variants: props.product?.variants ? props.product.variants.map(v => ({ ...v, images: [...v.images] })) : [],
   images: [...(props.product?.images || [])],
   links: [...(props.product?.links || [])]
 })
@@ -579,6 +735,10 @@ const validLinks = computed(() => (form.links || [])
   .filter(url => url.length > 0))
 
 const hasMedia = computed(() => {
+  // Для товаров с вариантами медиа считается корректным если есть варианты с изображениями
+  if (form.hasVariants) {
+    return form.variants && form.variants.length > 0 && form.variants.every(v => v.images && v.images.length > 0)
+  }
   // Если включен чекбокс "использовать изображение категории", медиа не требуется
   if (form.useCategoryImage) return true
   // Иначе проверяем наличие своих изображений или ссылок
@@ -856,7 +1016,6 @@ function onRemoveImage(index: number) {
   console.log(`Удаляем изображение по индексу: ${index}`)
   if (index >= 0 && index < form.images.length) {
     const removedImage = form.images[index]
-    // Создаем новый массив без удаленного элемента
     form.images = form.images.filter((_, i) => i !== index)
     console.log(`Изображение ${removedImage} удалено. Осталось: ${form.images.length}`)
   } else {
@@ -864,10 +1023,64 @@ function onRemoveImage(index: number) {
   }
 }
 
+// Variant-related functions
+const variantFileInputs = ref<Record<number, HTMLInputElement>>({})
+
+function addVariant() {
+  if (!form.variants) form.variants = []
+  form.variants.push({
+    name: '',
+    colorCode: null,
+    priceRub: null,
+    stock: 0,
+    images: []
+  })
+}
+
+function removeVariant(index: number) {
+  if (form.variants && index >= 0 && index < form.variants.length) {
+    form.variants.splice(index, 1)
+  }
+}
+
+function triggerVariantFile(index: number) {
+  const input = variantFileInputs.value[index]
+  if (input) input.click()
+}
+
+async function onVariantFilesSelected(e: Event, variantIndex: number) {
+  const input = e.target as HTMLInputElement
+  const files = input.files
+  
+  if (!files || files.length === 0 || !form.variants) return
+  
+  try {
+    isUploading.value = true
+    const uploadPath = 'temp'
+    const uploaded = await admin.uploadFiles(files, uploadPath)
+    
+    if (uploaded && Array.isArray(uploaded) && uploaded.length > 0) {
+      form.variants[variantIndex].images = [...form.variants[variantIndex].images, ...uploaded]
+    }
+  } catch (error) {
+    console.error('Ошибка загрузки файлов варианта:', error)
+    alert(`Ошибка загрузки: ${error}`)
+  } finally {
+    isUploading.value = false
+    if (input) input.value = ''
+  }
+}
+
+function onRemoveVariantImage(variantIndex: number, url: string) {
+  if (form.variants && form.variants[variantIndex]) {
+    form.variants[variantIndex].images = form.variants[variantIndex].images.filter(img => img !== url)
+  }
+}
+
 async function onSubmit() {
   isSubmitting.value = true
   try {
-    // Валидация: товар должен иметь хотя бы одно изображение
+    // Валидация ссылок
     const linksArray = form.links || []
     const hasEmptyLink = linksArray.some(link => !link.url || link.url.trim().length === 0)
     if (hasEmptyLink) {
@@ -882,24 +1095,60 @@ async function onSubmit() {
       }))
       .filter(link => link.url.length > 0)
 
-    if (!hasMedia.value) {
-      alert('Добавьте хотя бы одно фото через загрузку или ссылку')
-      return
+    // Валидация вариантов
+    if (form.hasVariants) {
+      if (!form.variants || form.variants.length === 0) {
+        alert('Добавьте хотя бы один вариант')
+        return
+      }
+      for (const variant of form.variants) {
+        if (!variant.name || variant.name.trim().length === 0) {
+          alert('Заполните название для всех вариантов')
+          return
+        }
+        if (!variant.images || variant.images.length === 0) {
+          alert(`Добавьте изображение для варианта "${variant.name}"`)
+          return
+        }
+      }
+    } else {
+      // Для обычных товаров проверяем media
+      if (!hasMedia.value) {
+        alert('Добавьте хотя бы одно фото через загрузку или ссылку')
+        return
+      }
     }
 
-    const payload = {
+    const payload: any = {
       categoryId: form.categoryId,
       groupId: form.groupId || null,
       title: form.title,
-      priceRub: form.priceRub,
+      priceRub: form.hasVariants ? 0 : form.priceRub,
       description: form.description,
-      strength: form.strength?.trim() || null,
       costPrice: Number(form.costPrice ?? 0),
-      stock: Number(form.stock ?? 0),
       minStock: Number(form.minStock ?? 0),
-      useCategoryImage: form.useCategoryImage,
-      images: [...form.images],
       links: normalizedLinks.length ? normalizedLinks : []
+    }
+    
+    // Крепость и остаток только для товаров без вариантов
+    if (!form.hasVariants) {
+      payload.strength = form.strength?.trim() || null
+      payload.stock = Number(form.stock ?? 0)
+    }
+
+    if (form.hasVariants) {
+      payload.hasVariants = true
+      payload.variants = form.variants?.map(v => ({
+        name: v.name.trim(),
+        colorCode: v.colorCode?.trim() || null,
+        priceRub: v.priceRub !== null && v.priceRub !== undefined ? Number(v.priceRub) : null,
+        stock: v.stock !== undefined ? Number(v.stock) : 0,
+        images: [...v.images]
+      }))
+    } else {
+      payload.hasVariants = false
+      payload.useCategoryImage = form.useCategoryImage
+      payload.images = [...form.images]
     }
 
     emit('submit', payload)

@@ -230,6 +230,43 @@
             ></textarea>
           </div>
 
+          <!-- Товары в зоне риска -->
+          <div class="rounded-xl border border-red-100 bg-red-50 p-4">
+            <div class="mb-3 flex items-center justify-between">
+              <h4 class="text-sm font-semibold text-red-900">Товары в зоне риска</h4>
+              <button
+                v-if="!lowStockLoading"
+                class="rounded-full border border-red-200 px-2.5 py-0.5 text-xs font-semibold text-red-600 transition hover:bg-red-100"
+                type="button"
+                @click="refreshLowStock"
+              >
+                Обновить
+              </button>
+            </div>
+            <div v-if="lowStockLoading" class="py-3 text-center text-xs text-red-600">Загрузка…</div>
+            <ul v-else-if="lowStockSuggestions.length" class="space-y-2 text-sm">
+              <li
+                v-for="product in lowStockSuggestions"
+                :key="`low-${product.id}`"
+                class="flex items-center justify-between gap-2 rounded-lg border border-red-200 bg-white p-2.5"
+              >
+                <div class="min-w-0 flex-1">
+                  <div class="truncate font-medium text-gray-900 text-xs">{{ product.title }}</div>
+                  <div class="text-xs text-red-600">На складе {{ product.stock }} из {{ product.minStock }} шт</div>
+                </div>
+                <button
+                  class="shrink-0 rounded-full border border-blue-200 px-2.5 py-1 text-xs font-semibold text-blue-600 transition hover:bg-blue-50"
+                  @click="addProduct(product)"
+                  type="button"
+                >
+                  Добавить
+                </button>
+              </li>
+            </ul>
+            <div v-else class="py-3 text-center text-xs text-red-600">Дефицитных товаров нет</div>
+          </div>
+
+          <!-- Поиск товаров -->
           <div class="rounded-xl border border-gray-200 p-5">
             <div class="flex flex-wrap items-center justify-between gap-3">
               <div>
@@ -370,39 +407,6 @@
                 <span>{{ formatCurrency(draftTotalAmount) }}</span>
               </div>
             </div>
-          </div>
-
-          <div class="rounded-xl border border-gray-200 p-5">
-            <div class="mb-3 flex items-center justify-between">
-              <h4 class="text-sm font-semibold text-gray-900">Товары в зоне риска</h4>
-              <button
-                v-if="!lowStockLoading"
-                class="rounded-full border border-blue-200 px-3 py-1 text-xs font-semibold text-blue-600 transition hover:bg-blue-50"
-                type="button"
-                @click="refreshLowStock"
-              >
-                Обновить
-              </button>
-            </div>
-            <div v-if="lowStockLoading" class="py-4 text-center text-sm text-gray-500">Загрузка…</div>
-            <ul v-else-if="lowStockSuggestions.length" class="space-y-3 text-sm">
-              <li
-                v-for="product in lowStockSuggestions"
-                :key="`low-${product.id}`"
-                class="rounded-lg border border-gray-200 p-3"
-              >
-                <div class="font-medium text-gray-900">{{ product.title }}</div>
-                <div class="mt-1 text-xs text-gray-500">На складе {{ product.stock }} из {{ product.minStock }} шт</div>
-                <button
-                  class="mt-3 inline-flex items-center rounded-full border border-blue-200 px-3 py-1 text-xs font-semibold text-blue-600 transition hover:bg-blue-50"
-                  @click="addProduct(product)"
-                  type="button"
-                >
-                  Добавить в закупку
-                </button>
-              </li>
-            </ul>
-            <div v-else class="py-4 text-center text-sm text-gray-500">Дефицитных товаров нет — всё под контролем.</div>
           </div>
 
           <button
@@ -912,6 +916,14 @@ watch(profitUnlocked, async (unlocked) => {
   }
 })
 
+// Автообновление списка товаров с низким остатком при открытии модального окна
+watch(showCreateModal, async (isOpen) => {
+  if (isOpen && profitUnlocked.value) {
+    // Обновляем список каждый раз при открытии
+    await refreshLowStock()
+  }
+})
+
 watch(productSearch, (query) => {
   if (!showCreateModal.value) return
   if (searchDebounce) clearTimeout(searchDebounce)
@@ -951,6 +963,7 @@ watch(
 function normalizeProduct(row: any): CrmProductSummary {
   return {
     id: String(row.id),
+    productId: row.product_id ? String(row.product_id) : String(row.id), // Для вариантов - ID базового товара
     title: row.title ?? row.product_title ?? 'Без названия',
     priceRub: Number(row.priceRub ?? row.price_rub ?? 0),
     costPrice: Number(row.costPrice ?? row.cost_price ?? 0),
@@ -959,7 +972,9 @@ function normalizeProduct(row: any): CrmProductSummary {
     categoryId: String(row.categoryId ?? row.category_id ?? ''),
     categoryName: row.categoryName ?? row.category_name ?? null,
     groupId: row.groupId ? String(row.groupId) : row.group_id ? String(row.group_id) : null,
-    groupName: row.groupName ?? row.group_name ?? null
+    groupName: row.groupName ?? row.group_name ?? null,
+    isVariant: row.is_variant === true,
+    variantName: row.variant_name ?? null
   }
 }
 
@@ -1036,9 +1051,7 @@ async function openCreateModal() {
   showCreateModal.value = true
   quickProductError.value = ''
   await loadProducts()
-  if (!lowStockProducts.value.length) {
-    await refreshLowStock()
-  }
+  // Обновление произойдет автоматически через watch(showCreateModal)
 }
 
 function closeCreateModal() {
@@ -1331,6 +1344,8 @@ async function submitQuickProduct() {
     const summary = convertAdminProductToCrmSummary(created)
     addProduct(summary)
     productResults.value = [summary, ...productResults.value]
+    // Обновляем список товаров с низким остатком (вдруг новый товар уже в зоне риска)
+    await refreshLowStock()
   } catch (error: any) {
     console.error('[CRM] quick product create error', error)
     quickProductError.value = error?.message || 'Не удалось создать товар'
@@ -1378,7 +1393,7 @@ async function submitProcurement() {
       supplier_name: supplierName.value.trim() || undefined,
       notes: draftNotes.value.trim() || undefined,
       items: draftItems.value.map((item) => ({
-        product_id: item.product.id,
+        product_id: (item.product as any).productId || item.product.id, // Используем productId для вариантов
         quantity: item.quantity,
         cost_per_unit: item.costPerUnit
       }))
@@ -1472,6 +1487,8 @@ async function completeFromDetails() {
     await crmStore.completeProcurement(activeProcurement.value.id)
     await crmStore.fetchProcurements()
     activeProcurement.value = await crmStore.fetchProcurement(activeProcurement.value.id)
+    // Обновляем список товаров с низким остатком после завершения закупки
+    await refreshLowStock()
   } catch (error) {
     console.error('[CRM] complete procurement error', error)
     alert('Не удалось завершить закупку')
@@ -1485,6 +1502,8 @@ async function finishProcurement(id: string) {
   try {
     await crmStore.completeProcurement(id)
     await crmStore.fetchProcurements()
+    // Обновляем список товаров с низким остатком
+    await refreshLowStock()
   } catch (error) {
     console.error('[CRM] complete procurement error', error)
     alert('Не удалось завершить закупку')

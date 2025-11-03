@@ -141,6 +141,10 @@
                 >
                   <PlusIcon class="flavor-add-icon" />
                 </button>
+                <div class="liquid-line-price">
+                  <span class="price-value">{{ formatPrice(item.priceRub) }}</span>
+                  <span class="price-currency">₽</span>
+                </div>
               </div>
             </div>
           </div>
@@ -246,6 +250,10 @@
                 >
                   <PlusIcon class="flavor-add-icon" />
                 </button>
+                <div class="liquid-line-price">
+                  <span class="price-value">{{ formatPrice(nicaBoosterProduct.priceRub) }}</span>
+                  <span class="price-currency">₽</span>
+                </div>
               </div>
             </div>
           </div>
@@ -319,6 +327,10 @@
                   >
                     <PlusIcon class="flavor-add-icon" />
                   </button>
+                  <div class="liquid-line-price">
+                    <span class="price-value">{{ formatPrice(product.priceRub) }}</span>
+                    <span class="price-currency">₽</span>
+                  </div>
                 </div>
               </div>
             </div>
@@ -483,6 +495,12 @@ function resolveCategoryDisplayMode(category: Category | null): 'default' | 'liq
   }
 
   const slug = (category.slug || '').toLowerCase()
+  
+  // Исключения: категории устройств всегда используют стандартный режим
+  if (slug.includes('pod') || slug.includes('disposable') || slug === 'ustrojstva') {
+    return 'default'
+  }
+  
   if (LIQUID_SLUG_KEYWORDS.some(keyword => slug.includes(keyword))) {
     return 'liquid'
   }
@@ -805,6 +823,11 @@ function formatPrice(price: number): string {
 }
 
 function getProductImage(product: Product): string | null {
+  // Для товаров с вариантами берём изображение первого варианта
+  if (product.hasVariants && product.variants?.length && product.variants[0].images?.length) {
+    return product.variants[0].images[0]
+  }
+  
   // Сначала проверяем загруженные изображения
   if (product.images?.[0]) {
     return product.images[0]
@@ -1046,7 +1069,7 @@ async function adjustCrossSellFontSize() {
     
     if (!title) return
     
-    // Базовые размеры шрифта (как у линеек)
+    // Базовые размеры шрифта
     const rootFontSize = parseFloat(getComputedStyle(document.documentElement).fontSize)
     const baseTitleSize = rootFontSize * 1.35
     const baseDescSize = rootFontSize * 0.75
@@ -1162,58 +1185,45 @@ onMounted(async () => {
 .category-card-new {
   display: flex;
   flex-direction: column;
-  border-radius: 20px;
+  border-radius: 24px;
   overflow: hidden;
-  border: 4px solid var(--navalivay-black);
-  background: var(--navalivay-white);
-  box-shadow: var(--navalivay-shadow);
-  transition: transform 0.25s ease, box-shadow 0.25s ease;
-  text-align: left;
+  border: none;
+  background: transparent;
+  box-shadow: none;
+  transition: transform 0.25s ease;
+  text-align: center;
+  cursor: pointer;
 }
 
 .category-card-new:hover,
 .category-card-new.active {
-  transform: translate(-4px, -4px);
-  box-shadow: var(--navalivay-shadow-hover);
+  transform: translateY(-4px);
 }
 
 .category-grid {
   display: grid;
-  gap: clamp(0.75rem, 3vw, 1rem);
-  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  gap: clamp(0.75rem, 3vw, 1.5rem);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 @media (max-width: 768px) {
   .category-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
-    gap: clamp(0.65rem, 2.5vw, 0.85rem);
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: clamp(0.65rem, 2.5vw, 1rem);
+  }
+}
+
+@media (max-width: 480px) {
+  .category-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: clamp(0.5rem, 2vw, 0.75rem);
   }
 }
 
 @media (max-width: 360px) {
   .category-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
-    gap: 0.6rem;
-  }
-}
-
-@media (min-width: 640px) {
-  .category-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 1.2rem;
-  }
-}
-
-@media (min-width: 1024px) {
-  .category-grid {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 1.5rem;
-  }
-}
-
-@media (min-width: 1280px) {
-  .category-grid {
-    gap: 1.75rem;
+    gap: 0.5rem;
   }
 }
 
@@ -1458,109 +1468,73 @@ onMounted(async () => {
 .category-card-media {
   position: relative;
   width: 100%;
-  padding-bottom: 100%;
-  background-size: cover;
+  padding-bottom: 133.33%;
+  background-size: contain;
   background-position: center;
   background-repeat: no-repeat;
+  background-color: transparent;
 }
 
 .category-card-body {
-  padding: clamp(0.75rem, 2.8vw, 1rem);
+  padding: 0.75rem 0.5rem 1.25rem;
   display: flex;
   flex-direction: column;
-  gap: 0.25rem;
+  gap: 0;
+  align-items: center;
 }
 
 .category-card-mode {
-  align-self: flex-start;
-  font-size: clamp(0.55rem, 2vw, 0.65rem);
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  padding: 0.25rem 0.55rem;
-  border-radius: 9999px;
-  background: rgba(0, 0, 0, 0.08);
-  color: var(--navalivay-black);
+  display: none;
 }
 
 .category-card-title {
-  font-family: var(--font-display);
-  font-size: clamp(0.95rem, 3.2vw, 1.05rem);
+  font-family: 'Bebas Neue Local', 'Bebas Neue', 'Impact', 'Arial Black', sans-serif;
+  font-size: clamp(1.1rem, 3.8vw, 1.35rem);
   text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--navalivay-black);
-  line-height: 1.25;
+  letter-spacing: 0.02em;
+  color: #000000;
+  line-height: 1.1;
+  font-weight: 400;
 }
 
 .category-card-meta {
-  font-size: clamp(0.66rem, 2.4vw, 0.78rem);
-  font-weight: 600;
-  color: var(--navalivay-gray);
-  letter-spacing: 0.05em;
-  white-space: nowrap;
+  display: none;
 }
 
 .category-card-badge {
-  font-size: clamp(0.58rem, 2.2vw, 0.7rem);
-  font-weight: 700;
-  color: var(--navalivay-white);
-  background: var(--navalivay-red);
-  padding: 0.25rem 0.5rem;
-  border-radius: 8px;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  white-space: nowrap;
+  display: none;
 }
 
 @media (max-width: 768px) {
   .category-card-new {
-    border-width: 3px;
-    border-radius: 18px;
+    border-radius: 20px;
   }
 
   .category-card-body {
-    padding: clamp(0.7rem, 3vw, 0.85rem);
-    gap: 0.2rem;
+    padding: 0.65rem 0.45rem 1.1rem;
   }
   
-  .category-card-meta {
-    font-size: clamp(0.62rem, 2.2vw, 0.72rem);
-  }
-  
-  .category-card-badge {
-    font-size: clamp(0.56rem, 2vw, 0.66rem);
-    padding: 0.22rem 0.45rem;
+  .category-card-title {
+    font-size: clamp(1rem, 3.6vw, 1.2rem);
   }
 }
 
 @media (max-width: 480px) {
   .category-card-new {
-    border-width: 2px;
-    border-radius: 16px;
+    border-radius: 18px;
   }
 
   .category-card-media {
-    border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+    padding-bottom: 133.33%;
   }
 
   .category-card-body {
-    padding: clamp(0.6rem, 4vw, 0.75rem);
-    gap: 0.18rem;
+    padding: 0.55rem 0.4rem 0.95rem;
   }
   
   .category-card-title {
-    font-size: clamp(0.85rem, 3.5vw, 0.95rem);
-    line-height: 1.2;
-  }
-  
-  .category-card-meta {
-    font-size: clamp(0.58rem, 2.5vw, 0.68rem);
-  }
-  
-  .category-card-badge {
-    font-size: clamp(0.54rem, 2.2vw, 0.64rem);
-    padding: 0.2rem 0.4rem;
-    border-radius: 6px;
+    font-size: clamp(0.95rem, 3.8vw, 1.1rem);
+    line-height: 1.15;
   }
 }
 
@@ -1782,37 +1756,67 @@ onMounted(async () => {
   justify-content: center;
   gap: 0.75rem;
   padding: 1.25rem 2rem;
+  position: relative;
   
-  /* Brutal card style */
-  background: var(--navalivay-white);
-  border: 4px solid var(--navalivay-black);
+  /* Черный дизайн с контрастом */
+  background: linear-gradient(135deg, #1a1a1a 0%, #2a2a2a 100%);
+  border: none;
   border-radius: 20px;
-  box-shadow: 4px 4px 0 rgba(26, 26, 26, 0.3);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5), 0 0 40px rgba(211, 47, 47, 0.3);
   
   cursor: pointer;
   pointer-events: auto;
-  transition: transform 0.25s ease, box-shadow 0.25s ease, border-color 0.25s ease;
+  transition: transform 0.25s ease, box-shadow 0.25s ease;
+}
+
+/* Пульсирующий индикатор */
+.cart-button::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 1.5rem;
+  width: 10px;
+  height: 10px;
+  background: var(--navalivay-red);
+  border-radius: 50%;
+  transform: translateY(-50%);
+  box-shadow: 0 0 10px rgba(211, 47, 47, 0.8);
+  animation: cart-pulse 2s ease-in-out infinite;
+}
+
+@keyframes cart-pulse {
+  0%, 100% { 
+    opacity: 1; 
+    transform: translateY(-50%) scale(1);
+    box-shadow: 0 0 10px rgba(211, 47, 47, 0.8);
+  }
+  50% { 
+    opacity: 0.6; 
+    transform: translateY(-50%) scale(1.4);
+    box-shadow: 0 0 20px rgba(211, 47, 47, 1);
+  }
 }
 
 .cart-button:hover {
-  transform: translate(-2px, -2px);
-  box-shadow: 6px 6px 0 rgba(211, 47, 47, 0.4);
-  border-color: var(--navalivay-red);
+  transform: translateY(-2px);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.6), 0 0 50px rgba(211, 47, 47, 0.5);
 }
 
 .cart-button:active {
-  transform: translate(-1px, -1px);
-  box-shadow: 3px 3px 0 rgba(211, 47, 47, 0.3);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5), 0 0 35px rgba(211, 47, 47, 0.4);
 }
 
 .cart-icon {
   flex-shrink: 0;
-  color: var(--navalivay-red);
+  color: var(--navalivay-white);
   transition: transform 0.25s ease;
+  filter: drop-shadow(0 0 8px rgba(211, 47, 47, 0.5));
 }
 
 .cart-button:hover .cart-icon {
   transform: scale(1.1);
+  filter: drop-shadow(0 0 12px rgba(211, 47, 47, 0.8));
 }
 
 .cart-text {
@@ -1821,7 +1825,8 @@ onMounted(async () => {
   font-weight: 900;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--navalivay-black);
+  color: var(--navalivay-white);
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
 }
 
 /* Slide up animation with bounce */
@@ -1851,8 +1856,13 @@ onMounted(async () => {
   
   .cart-button {
     padding: 1rem 1.5rem;
-    border-width: 3px;
     border-radius: 18px;
+  }
+  
+  .cart-button::before {
+    left: 1.2rem;
+    width: 8px;
+    height: 8px;
   }
   
   .cart-text {
@@ -1873,9 +1883,14 @@ onMounted(async () => {
   
   .cart-button {
     padding: 0.85rem 1.25rem;
-    border-width: 2px;
     border-radius: 16px;
     gap: 0.5rem;
+  }
+  
+  .cart-button::before {
+    left: 1rem;
+    width: 7px;
+    height: 7px;
   }
   
   .cart-text {
@@ -2163,7 +2178,7 @@ onMounted(async () => {
 
 .liquid-line-image {
   width: 110px;
-  height: 165px;
+  height: 147px;
   flex-shrink: 0;
   display: flex;
   align-items: center;
@@ -2234,7 +2249,6 @@ onMounted(async () => {
   font-weight: 900;
   color: #ed1d24;
   line-height: 1;
-  order: 1;
 }
 
 
@@ -2251,7 +2265,6 @@ onMounted(async () => {
   cursor: pointer;
   transition: all 0.2s ease;
   flex-shrink: 0;
-  order: 2;
 }
 
 .liquid-flavor-add:hover:not(:disabled) {
@@ -2277,7 +2290,6 @@ onMounted(async () => {
   align-items: center;
   gap: 0.5rem;
   flex-shrink: 0;
-  order: 2;
 }
 
 .flavor-qty-btn {
@@ -2340,7 +2352,7 @@ onMounted(async () => {
 @media (max-width: 1024px) {
   .liquid-line-image {
     width: 100px;
-    height: 150px;
+    height: 133px;
   }
 
   .liquid-line-title {
@@ -2375,7 +2387,7 @@ onMounted(async () => {
 
   .liquid-line-image {
     width: 100px;
-    height: 150px;
+    height: 133px;
   }
 
   .liquid-line-info {
@@ -2435,7 +2447,7 @@ onMounted(async () => {
 
   .liquid-line-image {
     width: 95px;
-    height: 143px;
+    height: 127px;
   }
 
   .liquid-line-info {
@@ -2495,7 +2507,7 @@ onMounted(async () => {
 
   .liquid-line-image {
     width: 90px;
-    height: 135px;
+    height: 120px;
   }
 
   .liquid-line-info {
@@ -2562,7 +2574,7 @@ onMounted(async () => {
 
   .liquid-line-image {
     width: 80px;
-    height: 120px;
+    height: 107px;
   }
 
   .liquid-line-info {

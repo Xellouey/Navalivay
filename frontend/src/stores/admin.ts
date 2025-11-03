@@ -37,6 +37,17 @@ export interface ProductLink {
   url: string
 }
 
+export interface ProductVariant {
+  id?: string
+  product_id?: string
+  name: string
+  colorCode?: string | null
+  priceRub?: number | null
+  stock?: number
+  position?: number
+  images: string[]
+}
+
 export interface Product {
   id: string
   categoryId: string
@@ -54,6 +65,9 @@ export interface Product {
   costPrice?: number
   stock?: number
   minStock?: number
+  hasVariants?: boolean | number
+  variants?: ProductVariant[]
+  useCategoryImage?: boolean | number
 }
 
 export interface CategoryGroup {
@@ -146,13 +160,35 @@ export const useAdminStore = defineStore('admin', () => {
   }
 
   function normalizeProductData(product: any): Product {
-    return {
+    const hasVariants = Boolean(product?.hasVariants ?? 0)
+    const result: Product = {
       ...product,
       strength: product?.strength ?? null,
       costPrice: Number(product?.costPrice ?? 0),
       stock: Number(product?.stock ?? 0),
-      minStock: Number(product?.minStock ?? 0)
+      minStock: Number(product?.minStock ?? 0),
+      hasVariants,
+      useCategoryImage: Boolean(product?.useCategoryImage ?? 1)
     }
+    
+    if (hasVariants && Array.isArray(product?.variants)) {
+      result.variants = product.variants.map((v: any) => ({
+        id: v.id,
+        product_id: v.product_id,
+        name: v.name || '',
+        colorCode: v.colorCode || v.color_code || null,
+        priceRub: v.priceRub !== undefined ? Number(v.priceRub) : null,
+        stock: v.stock !== undefined ? Number(v.stock) : 0,
+        position: v.position ?? 0,
+        images: Array.isArray(v.images) ? v.images : []
+      }))
+      // Для товаров с вариантами images может быть пустым
+      result.images = result.images || []
+    } else {
+      result.images = Array.isArray(product?.images) ? product.images : []
+    }
+    
+    return result
   }
 
   // Authentication methods (реальные запросы)
@@ -402,7 +438,7 @@ export const useAdminStore = defineStore('admin', () => {
     }
   }
 
-async function createCategory(category: { name: string; hideEmpty?: boolean; coverImage?: string | null; displayMode?: 'default' | 'liquid' | 'visual' }) {
+async function createCategory(category: { name: string; hideEmpty?: boolean; coverImage?: string | null }) {
     try {
       isLoading.value = true
       error.value = null
@@ -413,8 +449,7 @@ async function createCategory(category: { name: string; hideEmpty?: boolean; cov
         body: {
           name: category.name,
           hide_empty: category.hideEmpty || false,
-          cover_image: category.coverImage ?? null,
-          display_mode: category.displayMode ?? 'default'
+          cover_image: category.coverImage ?? null
         }
       })
 
@@ -463,12 +498,6 @@ async function createCategory(category: { name: string; hideEmpty?: boolean; cov
       }
       if (updates.cover_image !== undefined) {
         payload.cover_image = updates.cover_image
-      }
-      if (updates.displayMode !== undefined) {
-        payload.display_mode = updates.displayMode
-      }
-      if (updates.display_mode !== undefined) {
-        payload.display_mode = updates.display_mode
       }
 
       const response = await $fetch<Record<string, any>>(`/api/admin/categories/${id}`, {
@@ -852,7 +881,14 @@ async function createCategory(category: { name: string; hideEmpty?: boolean; cov
         strength: product.strength ?? null,
         cost_price: product.costPrice ?? 0,
         stock: product.stock ?? 0,
-        min_stock: product.minStock ?? 0
+        min_stock: product.minStock ?? 0,
+        useCategoryImage: product.useCategoryImage ?? false,
+        hasVariants: product.hasVariants ?? false
+      }
+      
+      // Добавляем варианты если есть
+      if (product.hasVariants && product.variants) {
+        payload.variants = product.variants
       }
 
       const response = await $fetch<{ ok: boolean; id: string; product: Product }>('/api/admin/products', {
@@ -896,6 +932,19 @@ async function createCategory(category: { name: string; hideEmpty?: boolean; cov
       if (updates.minStock !== undefined) {
         payload.min_stock = updates.minStock
         delete payload.minStock
+      }
+      
+      // Поддержка вариантов
+      if (updates.hasVariants !== undefined) {
+        payload.hasVariants = updates.hasVariants
+      }
+      
+      if (updates.variants !== undefined) {
+        payload.variants = updates.variants
+      }
+      
+      if (updates.useCategoryImage !== undefined) {
+        payload.useCategoryImage = updates.useCategoryImage
       }
 
       await $fetch(`/api/admin/products/${id}`, {

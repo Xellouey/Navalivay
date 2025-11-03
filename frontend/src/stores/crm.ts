@@ -137,6 +137,7 @@ export interface WriteOffItem {
 
 export interface CrmProductSummary {
   id: string
+  productId?: string // Для вариантов - ID базового товара
   title: string
   priceRub: number
   costPrice: number
@@ -146,6 +147,8 @@ export interface CrmProductSummary {
   categoryName?: string | null
   groupId?: string | null
   groupName?: string | null
+  isVariant?: boolean // Это вариант товара
+  variantName?: string | null // Название варианта (цвет)
 }
 
 export interface CashAccount {
@@ -779,12 +782,11 @@ export const useCrmStore = defineStore('crm', () => {
   async function searchCrmProducts(params: { search?: string; page?: number; limit?: number } = {}) {
     const query = new URLSearchParams()
     query.set('limit', String(params.limit ?? 25))
-    query.set('page', String(params.page ?? 1))
     if (params.search) {
       query.set('search', params.search)
     }
 
-    const response = await fetch(`/api/admin/products?${query.toString()}`, {
+    const response = await fetch(`/api/admin/crm/products/search?${query.toString()}`, {
       credentials: 'include'
     })
 
@@ -792,20 +794,23 @@ export const useCrmStore = defineStore('crm', () => {
       throw new Error('Не удалось загрузить товары')
     }
 
-    const data = await response.json()
-    const rawProducts = Array.isArray(data.products) ? data.products : []
+    const rawProducts = await response.json()
+    const productsArray = Array.isArray(rawProducts) ? rawProducts : []
 
-    return rawProducts.map((product: any) => ({
+    return productsArray.map((product: any) => ({
       id: String(product.id),
+      productId: product.product_id ? String(product.product_id) : String(product.id),
       title: product.title ?? 'Без названия',
-      priceRub: Number(product.priceRub ?? 0),
+      priceRub: Number(product.priceRub ?? product.price_rub ?? 0),
       costPrice: Number(product.costPrice ?? product.cost_price ?? 0),
       stock: Number(product.stock ?? 0),
       minStock: Number(product.minStock ?? product.min_stock ?? 0),
-      categoryId: String(product.categoryId),
-      categoryName: product.categoryName ?? null,
-      groupId: product.groupId ? String(product.groupId) : null,
-      groupName: product.groupName ?? null
+      categoryId: String(product.categoryId ?? product.category_id),
+      categoryName: product.categoryName ?? product.category_name ?? null,
+      groupId: product.groupId ? String(product.groupId) : product.group_id ? String(product.group_id) : null,
+      groupName: product.groupName ?? product.group_name ?? null,
+      isVariant: product.is_variant === true,
+      variantName: product.variant_name ?? null
     })) as CrmProductSummary[]
   }
 

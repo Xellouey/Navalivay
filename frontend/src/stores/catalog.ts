@@ -36,6 +36,17 @@ export interface ProductBadge {
   color: string | null
 }
 
+export interface ProductVariant {
+  id?: string
+  product_id?: string
+  name: string
+  colorCode?: string | null
+  priceRub?: number | null
+  stock?: number
+  position?: number
+  images: string[]
+}
+
 export interface Product {
   id: string
   categoryId: string
@@ -56,6 +67,8 @@ export interface Product {
   minStock?: number | null
   isAvailable?: boolean
   badges?: ProductBadge[]
+  hasVariants?: boolean
+  variants?: ProductVariant[]
 }
 
 export interface Banner {

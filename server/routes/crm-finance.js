@@ -700,11 +700,25 @@ crmFinanceRouter.get('/api/admin/crm/visit-logs', authMiddleware, (req, res) => 
 });
 
 // =========================
-// PRODUCTS LOW STOCK (Товары с минимальным остатком)
+// PRODUCTS SEARCH FOR CRM (Поиск товаров для CRM)
 // =========================
-crmFinanceRouter.get('/api/admin/crm/products/low-stock', authMiddleware, (req, res) => {
+crmFinanceRouter.get('/api/admin/crm/products/search', authMiddleware, (req, res) => {
   try {
-    const products = db.prepare(`
+    const { search, limit = 25 } = req.query;
+    
+    let whereClauses = [];
+    let params = [];
+    
+    if (search && typeof search === 'string' && search.trim()) {
+      whereClauses.push('(p.title LIKE ? OR p.description LIKE ?)');
+      const pattern = `%${search.trim()}%`;
+      params.push(pattern, pattern);
+    }
+    
+    const whereClause = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
+    
+    // Получаем обычные товары
+    const regularQuery = `
       SELECT 
         p.*,
         c.name as category_name,
@@ -712,11 +726,176 @@ crmFinanceRouter.get('/api/admin/crm/products/low-stock', authMiddleware, (req, 
       FROM products p
       LEFT JOIN categories c ON c.id = p.categoryId
       LEFT JOIN category_groups g ON g.id = p.groupId
-      WHERE p.min_stock > 0 AND p.stock <= p.min_stock
+      ${whereClause} AND p.has_variants = 0
+      LIMIT ?
+    `;
+    
+    const regularProducts = params.length > 0 
+      ? db.prepare(regularQuery).all(...params, Number(limit))
+      : db.prepare(`
+          SELECT 
+            p.*,
+            c.name as category_name,
+            g.name as group_name
+          FROM products p
+          LEFT JOIN categories c ON c.id = p.categoryId
+          LEFT JOIN category_groups g ON g.id = p.groupId
+          WHERE p.has_variants = 0
+          LIMIT ?
+        `).all(Number(limit));
+    
+    // Получаем варианты как отдельные товары
+    const variantsQuery = `
+      SELECT 
+        v.id,
+        v.product_id,
+        v.name as variant_name,
+        v.color_code,
+        v.price_rub,
+        v.stock,
+        p.id as base_product_id,
+        p.title as base_product_title,
+        p.cost_price,
+        p.min_stock,
+        p.categoryId,
+        c.name as category_name,
+        p.groupId,
+        g.name as group_name
+      FROM product_variants v
+      INNER JOIN products p ON p.id = v.product_id
+      LEFT JOIN categories c ON c.id = p.categoryId
+      LEFT JOIN category_groups g ON g.id = p.groupId
+      ${whereClause} AND p.has_variants = 1
+      LIMIT ?
+    `;
+    
+    const variants = params.length > 0
+      ? db.prepare(variantsQuery).all(...params, Number(limit))
+      : db.prepare(`
+          SELECT 
+            v.id,
+            v.product_id,
+            v.name as variant_name,
+            v.color_code,
+            v.price_rub,
+            v.stock,
+            p.id as base_product_id,
+            p.title as base_product_title,
+            p.cost_price,
+            p.min_stock,
+            p.categoryId,
+            c.name as category_name,
+            p.groupId,
+            g.name as group_name
+          FROM product_variants v
+          INNER JOIN products p ON p.id = v.product_id
+          LEFT JOIN categories c ON c.id = p.categoryId
+          LEFT JOIN category_groups g ON g.id = p.groupId
+          WHERE p.has_variants = 1
+          LIMIT ?
+        `).all(Number(limit));
+    
+    // Преобразуем варианты в формат товаров
+    const variantsAsProducts = variants.map(v => ({
+      id: v.id,
+      product_id: v.product_id,
+      title: `${v.base_product_title} (${v.variant_name})`,
+      variant_name: v.variant_name,
+      color_code: v.color_code,
+      priceRub: v.price_rub,
+      cost_price: v.cost_price,
+      stock: v.stock,
+      min_stock: v.min_stock,
+      categoryId: v.categoryId,
+      category_name: v.category_name,
+      groupId: v.groupId,
+      group_name: v.group_name,
+      has_variants: 0,
+      is_variant: true
+    }));
+    
+    // Объединяем
+    const allProducts = [...regularProducts, ...variantsAsProducts].slice(0, Number(limit));
+    
+    res.json(allProducts);
+  } catch (error) {
+    console.error('[crm] Search products error:', error);
+    res.status(500).json({ error: 'failed', message: error.message });
+  }
+});
+
+// =========================
+// PRODUCTS LOW STOCK (Товары с минимальным остатком)
+// =========================
+crmFinanceRouter.get('/api/admin/crm/products/low-stock', authMiddleware, (req, res) => {
+  try {
+    // Получаем обычные товары с низким остатком
+    const regularProducts = db.prepare(`
+      SELECT 
+        p.*,
+        c.name as category_name,
+        g.name as group_name
+      FROM products p
+      LEFT JOIN categories c ON c.id = p.categoryId
+      LEFT JOIN category_groups g ON g.id = p.groupId
+      WHERE p.has_variants = 0 AND p.min_stock > 0 AND p.stock <= p.min_stock
       ORDER BY (p.stock - p.min_stock) ASC
     `).all();
+    
+    // Получаем ВАРИАНТЫ (не товары!) с низким остатком
+    const lowStockVariants = db.prepare(`
+      SELECT 
+        v.id,
+        v.product_id,
+        v.name as variant_name,
+        v.color_code,
+        v.price_rub,
+        v.stock,
+        p.id as base_product_id,
+        p.title as base_product_title,
+        p.cost_price,
+        p.min_stock,
+        p.categoryId,
+        c.name as category_name,
+        p.groupId,
+        g.name as group_name
+      FROM product_variants v
+      INNER JOIN products p ON p.id = v.product_id
+      LEFT JOIN categories c ON c.id = p.categoryId
+      LEFT JOIN category_groups g ON g.id = p.groupId
+      WHERE p.has_variants = 1 AND p.min_stock > 0 AND v.stock <= p.min_stock
+      ORDER BY (v.stock - p.min_stock) ASC
+    `).all();
+    
+    // Преобразуем варианты в формат, похожий на обычные товары
+    const variantsAsProducts = lowStockVariants.map(v => ({
+      id: v.id, // ID варианта
+      product_id: v.product_id, // ID базового товара
+      title: `${v.base_product_title} (${v.variant_name})`, // Название с цветом
+      variant_name: v.variant_name,
+      color_code: v.color_code,
+      priceRub: v.price_rub,
+      cost_price: v.cost_price,
+      stock: v.stock, // Остаток конкретного варианта
+      min_stock: v.min_stock,
+      categoryId: v.categoryId,
+      category_name: v.category_name,
+      groupId: v.groupId,
+      group_name: v.group_name,
+      has_variants: 0, // Помечаем как обычный товар для фронтенда
+      is_variant: true // Флаг для отличия
+    }));
+    
+    // Объединяем и сортируем
+    const allProducts = [...regularProducts, ...variantsAsProducts].sort((a, b) => {
+      const stockA = Number(a.stock || 0);
+      const stockB = Number(b.stock || 0);
+      const minA = Number(a.min_stock || 0);
+      const minB = Number(b.min_stock || 0);
+      return (stockA - minA) - (stockB - minB);
+    });
 
-    res.json(products);
+    res.json(allProducts);
   } catch (error) {
     console.error('[crm] Get low stock products error:', error);
     res.status(500).json({ error: 'failed', message: error.message });

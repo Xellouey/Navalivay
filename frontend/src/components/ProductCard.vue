@@ -133,6 +133,11 @@ const touchEndX = ref(0)
 const isDragging = ref(false)
 
 const productImages = computed(() => {
+  // Для товаров с вариантами используем изображения первого варианта
+  if (props.product.hasVariants && props.product.variants?.length && props.product.variants[0].images?.length) {
+    return props.product.variants[0].images.filter(img => typeof img === 'string' && img.trim().length > 0)
+  }
+  
   const images = props.product.images?.filter(img => typeof img === 'string' && img.trim().length > 0) || []
   const linkImages = props.product.links?.map(link => link?.url?.trim() || '')
     .filter(url => url.length > 0) || []

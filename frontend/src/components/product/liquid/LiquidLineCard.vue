@@ -38,7 +38,7 @@
           @click.stop="toggle"
           aria-label="Переключить линейку"
         >
-          <component :is="expanded ? ChevronDownIcon : ChevronRightIcon" class="liquid-line-toggle-icon" />
+          <ChevronRightIcon class="liquid-line-toggle-icon" />
         </button>
         <div v-if="minPriceLabel" class="liquid-line-price">
           <span class="price-value">{{ minPriceLabel }}</span>
@@ -49,9 +49,35 @@
 
     <div ref="bodyWrapper" class="liquid-line-body-wrapper" :style="wrapperStyle">
       <div class="liquid-line-body">
-        <ul class="liquid-flavor-list">
+        <!-- Товары с вариантами -->
+        <div v-if="productsWithVariants.length" class="space-y-3 mb-3">
+          <div v-for="product in productsWithVariants" :key="product.id" class="product-card-transition-wrapper">
+            <Transition name="product-card-fade" mode="out-in">
+              <!-- Компактная карточка -->
+              <ProductCompactCard
+                v-if="!isVariantProductExpanded(product.id)"
+                :key="`compact-${product.id}`"
+                :product="product"
+                @click="toggleVariantProductExpansion(product.id)"
+              />
+              
+              <!-- Полная карточка с вариантами -->
+              <ProductVariantCard
+                v-else
+                :key="`expanded-${product.id}`"
+                :product="product"
+                @productClick="() => {}"
+                @showToast="(payload) => emit('showToast', payload.message, payload.type)"
+                @collapse="toggleVariantProductExpansion(product.id)"
+              />
+            </Transition>
+          </div>
+        </div>
+        
+        <!-- Обычные товары без вариантов -->
+        <ul v-if="productsWithoutVariants.length" class="liquid-flavor-list">
           <li
-            v-for="product in products"
+            v-for="product in productsWithoutVariants"
             :key="product.id"
             class="liquid-flavor-row"
           >
@@ -106,6 +132,8 @@ import { computed, ref, watch, nextTick } from 'vue'
 import { ChevronRightIcon, ChevronDownIcon, PlusIcon, MinusIcon } from '@heroicons/vue/24/outline'
 import { useCartStore } from '@/stores/cart'
 import type { Product, CategoryGroup } from '@/stores/catalog'
+import ProductVariantCard from '@/components/product/ProductVariantCard.vue'
+import ProductCompactCard from '@/components/product/ProductCompactCard.vue'
 
 const props = defineProps<{
   groupId: string
@@ -127,6 +155,16 @@ const emit = defineEmits<{
 const cartStore = useCartStore()
 const bodyWrapper = ref<HTMLElement | null>(null)
 const contentHeight = ref(0)
+const expandedVariantProducts = ref<Record<string, boolean>>({})
+
+// Разделение товаров на те, у которых есть варианты, и без них
+const productsWithVariants = computed(() => 
+  props.products.filter(p => p.hasVariants && p.variants && p.variants.length > 0)
+)
+
+const productsWithoutVariants = computed(() => 
+  props.products.filter(p => !p.hasVariants)
+)
 
 const productNames = computed(() => props.products.map(p => p.title.toUpperCase()))
 const badgeLabel = computed(() => (props.badge || '').trim() || null)
@@ -156,19 +194,40 @@ const summaryPreview = computed(() => {
 })
 
 const minPriceLabel = computed(() => {
-  const prices = props.products
-    .map(product => product.priceRub)
-    .filter((price): price is number => typeof price === 'number' && !Number.isNaN(price))
+  const prices: number[] = []
+  
+  props.products.forEach(product => {
+    // Для товаров с вариантами берем цены из вариантов
+    if (product.hasVariants && product.variants && product.variants.length > 0) {
+      product.variants.forEach(variant => {
+        if (variant.priceRub && typeof variant.priceRub === 'number' && !Number.isNaN(variant.priceRub)) {
+          prices.push(variant.priceRub)
+        }
+      })
+    } else {
+      // Для обычных товаров берем основную цену
+      if (typeof product.priceRub === 'number' && !Number.isNaN(product.priceRub)) {
+        prices.push(product.priceRub)
+      }
+    }
+  })
+  
   if (!prices.length) return null
   const minPrice = Math.min(...prices)
-  return formatPrice(minPrice)
+  
+  // Проверяем, есть ли товары с вариантами
+  const hasVariants = props.products.some(p => p.hasVariants && p.variants && p.variants.length > 0)
+  
+  return hasVariants ? `от ${formatPrice(minPrice)}` : formatPrice(minPrice)
 })
 
 const wrapperStyle = computed(() => {
-  if (props.expanded && contentHeight.value > 0) {
-    return { maxHeight: `${contentHeight.value}px` }
+  if (!props.expanded) {
+    return { maxHeight: '0px' }
   }
-  return {}
+  // Всегда используем конкретное значение высоты для плавной анимации
+  const height = contentHeight.value > 0 ? contentHeight.value : 5000
+  return { maxHeight: `${height}px` }
 })
 
 // Функция для расчета высоты
@@ -183,7 +242,16 @@ const calculateHeight = async () => {
 // Пересчитываем высоту при раскрытии
 watch(() => props.expanded, async (newVal) => {
   if (newVal) {
+    // Сначала рассчитываем высоту для плавной анимации
+    await nextTick()
     await calculateHeight()
+    // Дополнительные пересчёты для плавности
+    setTimeout(() => calculateHeight(), 50)
+    setTimeout(() => calculateHeight(), 150)
+    setTimeout(() => calculateHeight(), 350)
+  } else {
+    // При сворачивании сбрасываем высоту
+    contentHeight.value = 0
   }
 })
 
@@ -193,6 +261,16 @@ watch(() => cartStore.items.length, async () => {
     await calculateHeight()
   }
 })
+
+// Пересчитываем высоту при изменении состояния развёрнутости товаров
+watch(expandedVariantProducts, async () => {
+  if (props.expanded) {
+    await calculateHeight()
+    setTimeout(() => calculateHeight(), 50)
+    setTimeout(() => calculateHeight(), 150)
+    setTimeout(() => calculateHeight(), 350)
+  }
+}, { deep: true })
 
 function toggle() {
   emit('toggle', props.groupId)
@@ -282,6 +360,18 @@ function decrementQuantity(product: Product) {
     cartStore.removeItem(product.id)
   }
 }
+
+// Функции для работы с товарами с вариантами
+function isVariantProductExpanded(productId: string): boolean {
+  return expandedVariantProducts.value[productId] ?? false
+}
+
+function toggleVariantProductExpansion(productId: string) {
+  expandedVariantProducts.value = {
+    ...expandedVariantProducts.value,
+    [productId]: !isVariantProductExpanded(productId)
+  }
+}
 </script>
 
 <style scoped>
@@ -318,7 +408,7 @@ function decrementQuantity(product: Product) {
 
 .liquid-line-image {
   width: 110px;
-  height: 165px;
+  height: 147px;
   flex-shrink: 0;
   display: flex;
   align-items: center;
@@ -407,12 +497,11 @@ function decrementQuantity(product: Product) {
 }
 
 .liquid-line-toggle {
-  width: 52px;
-  height: 52px;
-  border-radius: 14px;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 9999px;
   border: none;
-  background: #e0e0e0;
-  color: #808080;
+  background: #f5f5f5;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -423,18 +512,22 @@ function decrementQuantity(product: Product) {
 }
 
 .liquid-line-toggle:hover {
-  background: #d0d0d0;
+  background: #fef2f2;
 }
 
 .liquid-line-toggle.expanded {
-  background: #d0d0d0;
-  color: #808080;
+  transform: rotate(90deg);
 }
 
 .liquid-line-toggle-icon {
-  width: 22px;
-  height: 22px;
-  stroke-width: 2.5;
+  width: 1.25rem;
+  height: 1.25rem;
+  color: #4b5563;
+  transition: color 0.2s ease;
+}
+
+.liquid-line-toggle:hover .liquid-line-toggle-icon {
+  color: #4b5563;
 }
 
 .liquid-flavor-list {
@@ -579,14 +672,9 @@ function decrementQuantity(product: Product) {
 }
 
 .liquid-line-body-wrapper {
-  max-height: 0;
   overflow: hidden;
-  transition: max-height 0.2s ease-out;
-}
-
-.liquid-line-card.expanded .liquid-line-body-wrapper {
-  max-height: 800px;
-  transition: max-height 0.2s ease-in;
+  transition: max-height 500ms cubic-bezier(0.4, 0, 0.2, 1);
+  max-height: 0;
 }
 
 .liquid-line-body {
@@ -603,10 +691,43 @@ function decrementQuantity(product: Product) {
   gap: 0;
 }
 
+/* Обертка для анимации переключения */
+.product-card-transition-wrapper {
+  position: relative;
+}
+
+/* Анимация переключения между карточками */
+.product-card-fade-leave-active {
+  transition: max-height 0.3s ease, opacity 0.2s ease;
+  overflow: hidden;
+}
+
+.product-card-fade-enter-active {
+  transition: none;
+}
+
+.product-card-fade-enter-from {
+  opacity: 1;
+}
+
+.product-card-fade-leave-to {
+  max-height: 0 !important;
+  opacity: 0;
+  margin-bottom: 0 !important;
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
+}
+
+.product-card-fade-enter-to,
+.product-card-fade-leave-from {
+  opacity: 1;
+  max-height: 1000px;
+}
+
 @media (max-width: 1024px) {
   .liquid-line-image {
     width: 100px;
-    height: 150px;
+    height: 133px;
   }
 
   .liquid-line-body {
@@ -630,13 +751,13 @@ function decrementQuantity(product: Product) {
   }
 
   .liquid-line-toggle {
-    width: 50px;
-    height: 50px;
+    width: 1.875rem;
+    height: 1.875rem;
   }
 
   .liquid-line-toggle-icon {
-    width: 20px;
-    height: 20px;
+    width: 1.125rem;
+    height: 1.125rem;
   }
 }
 
@@ -655,7 +776,7 @@ function decrementQuantity(product: Product) {
 
   .liquid-line-image {
     width: 100px;
-    height: 150px;
+    height: 133px;
   }
 
   .liquid-line-info {
@@ -688,13 +809,13 @@ function decrementQuantity(product: Product) {
   }
 
   .liquid-line-toggle {
-    width: 46px;
-    height: 46px;
+    width: 1.75rem;
+    height: 1.75rem;
   }
 
   .liquid-line-toggle-icon {
-    width: 19px;
-    height: 19px;
+    width: 1.0625rem;
+    height: 1.0625rem;
   }
 
   .liquid-line-body {
@@ -745,7 +866,7 @@ function decrementQuantity(product: Product) {
 
   .liquid-line-image {
     width: 95px;
-    height: 143px;
+    height: 127px;
   }
 
   .liquid-line-info {
@@ -771,13 +892,13 @@ function decrementQuantity(product: Product) {
   }
 
   .liquid-line-toggle {
-    width: 44px;
-    height: 44px;
+    width: 1.625rem;
+    height: 1.625rem;
   }
 
   .liquid-line-toggle-icon {
-    width: 18px;
-    height: 18px;
+    width: 1rem;
+    height: 1rem;
   }
 
   .price-value {
@@ -842,7 +963,7 @@ function decrementQuantity(product: Product) {
 
   .liquid-line-image {
     width: 90px;
-    height: 135px;
+    height: 120px;
   }
 
   .liquid-line-info {
@@ -869,14 +990,13 @@ function decrementQuantity(product: Product) {
   }
 
   .liquid-line-toggle {
-    width: 43px;
-    height: 43px;
-    border-radius: 12px;
+    width: 1.5rem;
+    height: 1.5rem;
   }
 
   .liquid-line-toggle-icon {
-    width: 17px;
-    height: 17px;
+    width: 0.9375rem;
+    height: 0.9375rem;
   }
 
   .price-value {
@@ -946,7 +1066,7 @@ function decrementQuantity(product: Product) {
 
   .liquid-line-image {
     width: 80px;
-    height: 120px;
+    height: 107px;
   }
 
   .liquid-line-info {
@@ -971,14 +1091,13 @@ function decrementQuantity(product: Product) {
   }
 
   .liquid-line-toggle {
-    width: 40px;
-    height: 40px;
-    border-radius: 10px;
+    width: 1.375rem;
+    height: 1.375rem;
   }
 
   .liquid-line-toggle-icon {
-    width: 16px;
-    height: 16px;
+    width: 0.875rem;
+    height: 0.875rem;
   }
 
   .price-value {

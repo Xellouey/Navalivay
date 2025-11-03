@@ -2,6 +2,7 @@
 import { RouterView } from 'vue-router'
 import { onMounted } from 'vue'
 import VapeSmoke from '@/components/VapeSmoke.vue'
+import TelegramDebugPanel from '@/components/TelegramDebugPanel.vue'
 
 onMounted(() => {
   if (typeof window !== 'undefined' && window.Telegram?.WebApp) {
@@ -21,6 +22,7 @@ onMounted(() => {
     </RouterView>
 
     <VapeSmoke />
+    <TelegramDebugPanel />
   </div>
 </template>
 

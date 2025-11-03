@@ -393,7 +393,15 @@
             </td>
             <td class="px-4 py-4 text-right" :style="columnStyle(6)">
               <div class="flex items-center justify-end gap-2 whitespace-nowrap">
-                <span :class="isBelowMin(p) ? 'text-red-600 font-semibold' : 'text-gray-900 font-medium'">
+                <span v-if="p.hasVariants" :class="isBelowMin(p) ? 'text-red-600 font-semibold' : 'text-gray-900 font-medium'">
+                  <template v-if="p.minVariantStock === p.maxVariantStock">
+                    {{ Number(p.minVariantStock ?? 0) }}
+                  </template>
+                  <template v-else>
+                    {{ Number(p.minVariantStock ?? 0) }}–{{ Number(p.maxVariantStock ?? 0) }}
+                  </template>
+                </span>
+                <span v-else :class="isBelowMin(p) ? 'text-red-600 font-semibold' : 'text-gray-900 font-medium'">
                   {{ Number(p.stock ?? 0) }}
                 </span>
                 <span v-if="Number(p.minStock ?? 0) > 0" class="text-xs text-gray-500 whitespace-nowrap">
@@ -401,7 +409,10 @@
                 </span>
               </div>
             </td>
-            <td class="px-4 py-4 text-right text-gray-700" :style="columnStyle(7)">{{ formatRub(p.priceRub) }}</td>
+            <td class="px-4 py-4 text-right text-gray-700" :style="columnStyle(7)">
+              <span v-if="!p.hasVariants">{{ formatRub(p.priceRub) }}</span>
+              <span v-else class="text-[0.8em]">Вар-ты</span>
+            </td>
             <td class="px-4 py-4 text-right" :style="columnStyle(8)">
               <div class="flex items-center justify-end gap-2">
                 <button 
@@ -499,11 +510,14 @@
                     <p v-if="p.groupName" class="text-xs text-purple-600 leading-snug">
                       Линейка: <span class="font-semibold">{{ p.groupName }}</span>
                     </p>
-                    <p v-if="p.strength" class="text-xs text-gray-600 leading-snug">
+                    <p v-if="p.strength && p.strength.trim() && p.strength !== '0'" class="text-xs text-gray-600 leading-snug">
                       Креп: <span class="font-semibold text-gray-900">{{ p.strength }}</span>
                     </p>
-                    <p class="text-base text-gray-900 mt-0.5">
-                      {{ formatRub(p.priceRub) }}
+                    <p class="text-base text-gray-900 mt-0.5 flex items-center gap-1.5">
+                      <span v-if="!p.hasVariants">{{ formatRub(p.priceRub) }}</span>
+                      <span v-else class="inline-flex items-center rounded-full bg-purple-100 px-1.5 py-0.5 text-[0.6rem] font-semibold text-purple-700">
+                        индивид
+                      </span>
                     </p>
                     <p class="text-xs text-gray-600 leading-snug">
                       Себес:
@@ -582,7 +596,7 @@
                     <p v-if="p.groupName" class="text-sm text-purple-600">
                       Линейка: <span class="font-medium">{{ p.groupName }}</span>
                     </p>
-                    <p v-if="p.strength" class="text-sm text-gray-600">
+                    <p v-if="p.strength && p.strength.trim() && p.strength !== '0'" class="text-sm text-gray-600">
                       Креп: <span class="font-medium text-gray-900">{{ p.strength }}</span>
                     </p>
                     <div class="flex flex-wrap gap-4 text-sm">
@@ -606,8 +620,11 @@
                 </div>
                 <div class="flex items-center gap-4">
                   <div class="text-right">
-                    <div class="text-xl text-gray-900">
-                      {{ formatRub(p.priceRub) }}
+                    <div class="text-xl text-gray-900 flex items-center gap-2">
+                      <span v-if="!p.hasVariants">{{ formatRub(p.priceRub) }}</span>
+                      <span v-else class="inline-flex items-center rounded-full bg-purple-100 px-2 py-1 text-[0.7rem] font-semibold text-purple-700">
+                        индивид
+                      </span>
                     </div>
                   </div>
                 <div class="flex items-center gap-2">
@@ -1284,9 +1301,17 @@ function getProductCover(product: Product) {
 }
 
 function isBelowMin(product: Product) {
-  const stock = Number(product.stock ?? 0)
   const min = Number(product.minStock ?? 0)
-  return min > 0 && stock <= min
+  if (min <= 0) return false
+  
+  if (product.hasVariants) {
+    // Для товаров с вариантами проверяем минимальный остаток
+    const minStock = Number((product as any).minVariantStock ?? 0)
+    return minStock <= min
+  } else {
+    const stock = Number(product.stock ?? 0)
+    return stock <= min
+  }
 }
 
 // Computed для фильтрации (нужен для вычисления selectedIds)
@@ -1331,8 +1356,12 @@ const sortedProducts = computed(() => {
         return normalizeString(a.strength).localeCompare(normalizeString(b.strength), 'ru', { sensitivity: 'base' }) * direction
       case 'costPrice':
         return (numericValue(a.costPrice) - numericValue(b.costPrice)) * direction
-      case 'stock':
-        return (numericValue(a.stock) - numericValue(b.stock)) * direction
+      case 'stock': {
+        // Для товаров с вариантами сортируем по минимальному остатку
+        const stockA = a.hasVariants ? numericValue((a as any).minVariantStock) : numericValue(a.stock)
+        const stockB = b.hasVariants ? numericValue((b as any).minVariantStock) : numericValue(b.stock)
+        return (stockA - stockB) * direction
+      }
       case 'priceRub':
         return (numericValue(a.priceRub) - numericValue(b.priceRub)) * direction
       default:

@@ -161,6 +161,15 @@ import { ChevronLeftIcon, ChevronRightIcon } from '@heroicons/vue/24/outline'
 
 interface ProductLink { label?: string; url: string }
 
+interface ProductVariant {
+  id?: string
+  name: string
+  colorCode?: string | null
+  priceRub?: number | null
+  stock?: number
+  images: string[]
+}
+
 interface Product {
   id: string
   title: string
@@ -173,6 +182,8 @@ interface Product {
   isSale?: boolean
   discount?: number
   imageLoaded?: boolean
+  hasVariants?: boolean
+  variants?: ProductVariant[]
 }
 
 interface Props {
@@ -188,6 +199,11 @@ const emit = defineEmits<{
 }>()
 
 function getProductCover(product: Product) {
+  // Для товаров с вариантами берём изображение первого варианта
+  if (product.hasVariants && product.variants?.length && product.variants[0].images?.length) {
+    return product.variants[0].images[0]
+  }
+  
   const fromImages = product.images?.find(src => typeof src === 'string' && src.trim().length > 0)
   if (fromImages) {
     return fromImages

@@ -66,10 +66,9 @@ const wrapperStyle = computed(() => {
   if (!isExpanded.value) {
     return { maxHeight: '0px' }
   }
-  if (childrenHeight.value > 0) {
-    return { maxHeight: `${childrenHeight.value}px` }
-  }
-  return { maxHeight: 'none' }
+  // Всегда используем конкретное значение высоты для плавной анимации
+  const height = childrenHeight.value > 0 ? childrenHeight.value : 5000
+  return { maxHeight: `${height}px` }
 })
 
 // Функция для расчёта высоты дочерних элементов
@@ -85,15 +84,16 @@ const calculateHeight = async () => {
 // Пересчитываем высоту при раскрытии
 watch(() => isExpanded.value, async (newVal) => {
   if (newVal && props.group.children.length > 0) {
+    // Сначала рассчитываем высоту для плавной анимации
+    await nextTick()
     await calculateHeight()
-    // Множественные пересчёты для сглаживания
+    // Дополнительные пересчёты для плавности
     setTimeout(() => calculateHeight(), 50)
-    setTimeout(() => calculateHeight(), 100)
     setTimeout(() => calculateHeight(), 150)
-    setTimeout(() => calculateHeight(), 200)
-    setTimeout(() => calculateHeight(), 300)
-    setTimeout(() => calculateHeight(), 400)
-    setTimeout(() => calculateHeight(), 500)
+    setTimeout(() => calculateHeight(), 350)
+  } else {
+    // При сворачивании сбрасываем высоту
+    childrenHeight.value = 0
   }
 })
 

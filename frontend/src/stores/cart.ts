@@ -8,6 +8,8 @@ export interface CartItem {
   priceRub: number
   quantity: number
   image?: string | null
+  variantId?: string | null
+  variantName?: string | null
 }
 
 export const useCartStore = defineStore('cart', () => {
@@ -40,34 +42,65 @@ export const useCartStore = defineStore('cart', () => {
     }
   }
 
-  function addItem(product: Product, quantity = 1) {
-    const existing = items.value.find(item => item.productId === product.id)
+  function addItem(product: Product, quantity = 1, variantId?: string | null) {
+    // Для товаров с вариантами учитываем variantId при поиске
+    const existing = items.value.find(item => 
+      item.productId === product.id && 
+      (!variantId || item.variantId === variantId)
+    )
     
     if (existing) {
       existing.quantity += quantity
     } else {
+      let title = product.title
+      let priceRub = product.priceRub
+      let image = product.images?.[0] || null
+      let variantName: string | null = null
+      
+      // Если указан variantId, найдем его данные
+      if (variantId && product.variants) {
+        const variant = product.variants.find(v => v.id === variantId)
+        if (variant) {
+          variantName = variant.name
+          title = `${product.title} - ${variant.name}`
+          if (variant.priceRub) {
+            priceRub = variant.priceRub
+          }
+          if (variant.images && variant.images.length > 0) {
+            image = variant.images[0]
+          }
+        }
+      }
+      
       items.value.push({
         productId: product.id,
-        title: product.title,
-        priceRub: product.priceRub,
+        title,
+        priceRub,
         quantity,
-        image: product.images?.[0] || null
+        image,
+        variantId: variantId || null,
+        variantName
       })
     }
     
     saveToStorage()
   }
 
-  function updateQuantity(productId: string, quantity: number) {
-    const item = items.value.find(item => item.productId === productId)
+  function updateQuantity(productId: string, quantity: number, variantId?: string | null) {
+    const item = items.value.find(item => 
+      item.productId === productId && 
+      (!variantId || item.variantId === variantId)
+    )
     if (item) {
       item.quantity = Math.max(1, quantity)
       saveToStorage()
     }
   }
 
-  function removeItem(productId: string) {
-    items.value = items.value.filter(item => item.productId !== productId)
+  function removeItem(productId: string, variantId?: string | null) {
+    items.value = items.value.filter(item => 
+      !(item.productId === productId && (!variantId || item.variantId === variantId))
+    )
     saveToStorage()
   }
 

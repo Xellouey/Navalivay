@@ -19,7 +19,7 @@
       </div>
     </div>
     <div class="liquid-product-col liquid-product-strength-col">
-      <span v-if="product.strength" class="liquid-product-strength">
+      <span v-if="product.strength && product.strength.trim() && product.strength !== '0'" class="liquid-product-strength">
         {{ product.strength }}
       </span>
       <span v-else class="liquid-product-strength placeholder">—</span>

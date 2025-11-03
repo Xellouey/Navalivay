@@ -73,6 +73,35 @@
             @slide-change="currentSlide = $event"
           />
 
+          <!-- Variants Selector Mobile -->
+          <div v-if="hasVariants && product.variants" class="px-4 py-4 bg-white border-b border-gray-100">
+            <h3 class="text-sm font-medium text-gray-700 mb-3">Выберите цвет: {{ selectedVariant?.name }}</h3>
+            <div class="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
+              <button
+                v-for="variant in product.variants"
+                :key="variant.id"
+                @click="selectVariant(variant.id!)"
+                class="relative flex-shrink-0 flex flex-col items-center gap-2 p-3 rounded-xl border-2 transition-all"
+                :class="[
+                  selectedVariant?.id === variant.id
+                    ? 'border-brand-primary bg-brand-primary/5'
+                    : 'border-gray-200 active:border-gray-300'
+                ]"
+              >
+                <div
+                  class="w-12 h-12 rounded-full border-2 border-white shadow-md"
+                  :style="{ backgroundColor: variant.colorCode || '#9ca3af' }"
+                ></div>
+                <span class="text-xs font-medium text-gray-700 whitespace-nowrap">{{ variant.name }}</span>
+                <div v-if="selectedVariant?.id === variant.id" class="absolute -top-1 -right-1 w-5 h-5 bg-brand-primary rounded-full flex items-center justify-center">
+                  <svg class="w-3 h-3 text-white" fill="currentColor" viewBox="0 0 20 20">
+                    <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
+                  </svg>
+                </div>
+              </button>
+            </div>
+          </div>
+
           <!-- Product Information Tabs -->
           <ProductInfo
             :product="product"
@@ -219,18 +248,47 @@
                     </router-link>
                   </div>
 
+                  <!-- Variants Selector -->
+                  <div v-if="hasVariants && product.variants" class="mb-6">
+                    <h3 class="text-sm font-medium text-gray-700 mb-3">Выберите цвет: {{ selectedVariant?.name }}</h3>
+                    <div class="flex flex-wrap gap-3">
+                      <button
+                        v-for="variant in product.variants"
+                        :key="variant.id"
+                        @click="selectVariant(variant.id!)"
+                        class="group relative flex flex-col items-center gap-2 p-3 rounded-xl border-2 transition-all"
+                        :class="[
+                          selectedVariant?.id === variant.id
+                            ? 'border-brand-primary bg-brand-primary/5'
+                            : 'border-gray-200 hover:border-gray-300'
+                        ]"
+                      >
+                        <div
+                          class="w-12 h-12 rounded-full border-2 border-white shadow-md"
+                          :style="{ backgroundColor: variant.colorCode || '#gray' }"
+                        ></div>
+                        <span class="text-xs font-medium text-gray-700">{{ variant.name }}</span>
+                        <div v-if="selectedVariant?.id === variant.id" class="absolute -top-1 -right-1 w-5 h-5 bg-brand-primary rounded-full flex items-center justify-center">
+                          <svg class="w-3 h-3 text-white" fill="currentColor" viewBox="0 0 20 20">
+                            <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
+                          </svg>
+                        </div>
+                      </button>
+                    </div>
+                  </div>
+
                   <!-- Price -->
                   <div class="mb-8 p-6 bg-gray-50 rounded-2xl">
                     <div class="flex items-center justify-between mb-4">
                       <div>
                         <span class="text-4xl font-bold text-brand-dark tabular-nums">
-                          {{ formatPrice(product.priceRub) }}
+                          {{ formatPrice(currentPrice) }}
                         </span>
                       </div>
                       <!-- Stock Status -->
-                      <div class="flex items-center gap-2 px-4 py-2 rounded-full bg-green-100 text-green-700">
-                        <CheckCircleIcon class="w-5 h-5" />
-                        <span class="font-medium">В наличии</span>
+                      <div class="flex items-center gap-2 px-4 py-2 rounded-full" :class="isAvailable ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'">
+                        <CheckCircleIcon v-if="isAvailable" class="w-5 h-5" />
+                        <span class="font-medium">{{ isAvailable ? 'В наличии' : 'Нет в наличии' }}</span>
                       </div>
                     </div>
                   </div>
@@ -295,16 +353,18 @@
             <div>
               <div class="flex items-baseline gap-2">
                 <span class="text-2xl font-bold text-brand-dark tabular-nums">
-                  {{ formatPrice(product.priceRub) }}
+                  {{ formatPrice(currentPrice) }}
                 </span>
-                <!-- Old price removed as not in Product interface -->
+              </div>
+              <div v-if="hasVariants && selectedVariant" class="text-xs text-gray-600 mt-1">
+                {{ selectedVariant.name }}
               </div>
             </div>
 
             <!-- Stock Status -->
-            <div class="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-green-50 text-green-700">
-              <CheckCircleIcon class="w-4 h-4" />
-              <span class="text-sm font-medium">В наличии</span>
+            <div class="flex items-center gap-1.5 px-3 py-1.5 rounded-full" :class="isAvailable ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'">
+              <CheckCircleIcon v-if="isAvailable" class="w-4 h-4" />
+              <span class="text-sm font-medium">{{ isAvailable ? 'В наличии' : 'Нет' }}</span>
             </div>
           </div>
 
@@ -387,6 +447,7 @@ const showPurchaseModalState = ref(false)
 const purchaseProduct = ref<any>(null)
 const bottomBarRef = ref<HTMLElement | null>(null)
 const bottomBarHeight = ref(112) // Дефолтное значение h-28
+const selectedVariantId = ref<string | null>(null)
 
 // Computed properties
 const product = computed(() => {
@@ -409,16 +470,51 @@ const productGroupRoute = computed(() => {
   }
 })
 
+// Проверяем, есть ли у товара варианты
+const hasVariants = computed(() => {
+  return Boolean(product.value?.hasVariants && product.value?.variants && product.value.variants.length > 0)
+})
+
+// Текущий выбранный вариант
+const selectedVariant = computed(() => {
+  if (!hasVariants.value || !product.value?.variants) return null
+  return product.value.variants.find(v => v.id === selectedVariantId.value) || product.value.variants[0]
+})
+
+// Цена с учетом варианта
+const currentPrice = computed(() => {
+  if (hasVariants.value && selectedVariant.value?.priceRub) {
+    return selectedVariant.value.priceRub
+  }
+  return product.value?.priceRub || 0
+})
+
+// Доступность с учетом варианта
+const isAvailable = computed(() => {
+  if (hasVariants.value && selectedVariant.value) {
+    return (selectedVariant.value.stock ?? 0) > 0
+  }
+  return product.value?.isAvailable ?? true
+})
+
 const images = computed(() => {
   if (!product.value) return [] as string[]
 
   const media: string[] = []
-  const fromImages = product.value.images?.filter(src => typeof src === 'string' && src.trim().length > 0) ?? []
-  media.push(...fromImages)
+  
+  // Если товар с вариантами, используем изображения выбранного варианта
+  if (hasVariants.value && selectedVariant.value) {
+    const variantImages = selectedVariant.value.images?.filter(src => typeof src === 'string' && src.trim().length > 0) ?? []
+    media.push(...variantImages)
+  } else {
+    // Обычный товар - используем его изображения
+    const fromImages = product.value.images?.filter(src => typeof src === 'string' && src.trim().length > 0) ?? []
+    media.push(...fromImages)
 
-  const fromLinks = product.value.links?.map(link => link?.url?.trim() || '')
-    .filter(url => url.length > 0) ?? []
-  media.push(...fromLinks)
+    const fromLinks = product.value.links?.map(link => link?.url?.trim() || '')
+      .filter(url => url.length > 0) ?? []
+    media.push(...fromLinks)
+  }
 
   return media
 })
@@ -431,11 +527,24 @@ const productBadges = computed(() => {
 })
 
 
+// Variant selection
+function selectVariant(variantId: string) {
+  selectedVariantId.value = variantId
+  currentSlide.value = 0
+  hapticFeedback('light')
+}
+
 // Actions
 function addToCart() {
   if (!product.value) return
   
-  cartStore.addItem(product.value, 1)
+  // Для товаров с вариантами передаем выбранный вариант
+  if (hasVariants.value && selectedVariant.value) {
+    cartStore.addItem(product.value, 1, selectedVariant.value.id)
+  } else {
+    cartStore.addItem(product.value, 1)
+  }
+  
   hapticFeedback('success')
   
   // Show notification
@@ -528,6 +637,13 @@ const loadProduct = async (id: string) => {
     
     if (!catalogStore.currentProduct || catalogStore.currentProduct.id !== id) {
       error.value = 'Товар не найден'
+    } else {
+      // Инициализируем первый вариант, если есть варианты
+      if (catalogStore.currentProduct.hasVariants && catalogStore.currentProduct.variants && catalogStore.currentProduct.variants.length > 0) {
+        selectedVariantId.value = catalogStore.currentProduct.variants[0].id || null
+      } else {
+        selectedVariantId.value = null
+      }
     }
     
     // Scroll to top smoothly
@@ -589,6 +705,16 @@ onBeforeRouteUpdate(async (to) => {
 
 .product-page.mounted {
   animation: pageEnter 0.5s ease-out;
+}
+
+/* Hide scrollbar for variant selector */
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
 }
 
 @keyframes pageEnter {

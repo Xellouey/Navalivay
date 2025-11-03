@@ -134,7 +134,7 @@
       </section>
 
       <!-- Submit -->
-      <section v-if="cartStore.items.length" class="checkout-card">
+      <section v-if="cartStore.items.length" class="checkout-card submit-section">
         <div v-if="submitError" class="submit-error">
           {{ submitError }}
         </div>
@@ -329,6 +329,13 @@ async function submitOrder() {
   border: 1px solid rgba(26, 26, 26, 0.1);
   border-radius: 16px;
   padding: 1.5rem;
+}
+
+/* Submit section - no border, minimal margin */
+.checkout-card.submit-section {
+  border: none;
+  padding: 0;
+  margin-top: 0.5rem;
 }
 
 .checkout-card-title {
@@ -567,32 +574,33 @@ async function submitOrder() {
   color: var(--navalivay-red);
 }
 
-/* Submit button - clean accent */
+/* Submit button - черный дизайн с контрастом */
 .submit-button {
   width: 100%;
   padding: 1.25rem 2rem;
-  background: var(--navalivay-red);
+  background: linear-gradient(135deg, #1a1a1a 0%, #2a2a2a 100%);
   border: none;
-  border-radius: 12px;
+  border-radius: 20px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5), 0 0 40px rgba(211, 47, 47, 0.3);
   font-family: var(--font-display);
   font-size: 1.125rem;
-  font-weight: 800;
+  font-weight: 900;
   text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: white;
+  letter-spacing: 0.08em;
+  color: var(--navalivay-white);
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: transform 0.25s ease, box-shadow 0.25s ease;
 }
 
 .submit-button:hover:not(:disabled) {
-  background: #b71c1c;
   transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(211, 47, 47, 0.3);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.6), 0 0 50px rgba(211, 47, 47, 0.5);
 }
 
 .submit-button:active:not(:disabled) {
-  transform: translateY(0);
-  box-shadow: 0 2px 6px rgba(211, 47, 47, 0.3);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5), 0 0 35px rgba(211, 47, 47, 0.4);
 }
 
 .submit-button:disabled {
@@ -636,8 +644,10 @@ async function submitOrder() {
   }
   
   .submit-button {
-    font-size: 1rem;
+    font-size: 0.9rem;
     padding: 1rem 1.5rem;
+    border-radius: 18px;
+    letter-spacing: 0.06em;
   }
 }
 

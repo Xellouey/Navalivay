@@ -122,23 +122,6 @@
       </div>
     </div>
 
-    <!-- Режим отображения -->
-    <div class="space-y-2">
-      <label class="block text-sm font-medium text-gray-700">Отображение на витрине</label>
-      <select
-        v-model="displayMode"
-        v-bind="displayModeAttrs"
-        class="w-full rounded-lg border border-gray-200 px-3 py-2 focus:border-brand-dark/40 focus:ring-1 focus:ring-brand-dark/40 text-sm"
-      >
-        <option value="default">Стандартный режим (плитка/список товаров)</option>
-        <option value="liquid">Жидкости — единая обложка с раскрываемыми вкусами</option>
-        <option value="visual">Устройства и расходники — крупные плитки с фотографиями</option>
-      </select>
-      <p class="text-xs text-gray-500">
-        Выберите подходящий сценарий показа товаров для категории. Настройка влияет на витрину и карточки каталога.
-      </p>
-    </div>
-
     <!-- Скрывать пустую -->
     <div class="flex items-center justify-between gap-3">
       <div>
@@ -186,7 +169,6 @@ interface Category {
   order?: number
   hide_empty?: number | boolean
   cover_image?: string | null
-  display_mode?: 'default' | 'liquid' | 'visual'
 }
 
 interface Props {
@@ -204,7 +186,7 @@ const props = withDefaults(defineProps<Props>(), {
 const currentCategory = computed(() => props.editingCategory ?? props.category ?? null)
 
 const emit = defineEmits<{
-  submit: [category: Pick<Category, 'name'> & { hideEmpty?: boolean; coverImage?: string | null; displayMode?: 'default' | 'liquid' | 'visual' }]
+  submit: [category: Pick<Category, 'name'> & { hideEmpty?: boolean; coverImage?: string | null }]
   cancel: []
 }>()
 
@@ -223,15 +205,13 @@ const { defineField, handleSubmit, errors, setValues, resetForm, setFieldValue }
   initialValues: {
     name: currentCategory.value?.name || '',
     hideEmpty: currentCategory.value?.hide_empty === 1 || false,
-    coverImage: currentCategory.value?.cover_image || '',
-    displayMode: (currentCategory.value?.display_mode ?? 'default') as 'default' | 'liquid' | 'visual'
+    coverImage: currentCategory.value?.cover_image || ''
   }
 })
 
 const [name, nameAttrs] = defineField('name')
 const [hideEmpty, hideEmptyAttrs] = defineField('hideEmpty')
 const [coverImage, coverImageAttrs] = defineField('coverImage')
-const [displayMode, displayModeAttrs] = defineField('displayMode')
 
 const coverMode = ref<'url' | 'file'>('url')
 const uploadPreview = ref<string>('')
@@ -254,8 +234,7 @@ watch(currentCategory, (newCategory: Category | null) => {
     setValues({
       name: newCategory.name,
       hideEmpty: newCategory.hide_empty === 1,
-      coverImage: newCategory.cover_image || '',
-      displayMode: (newCategory.display_mode ?? 'default') as 'default' | 'liquid' | 'visual'
+      coverImage: newCategory.cover_image || ''
     })
     if ((newCategory.cover_image || '').startsWith('data:')) {
       coverMode.value = 'file'
@@ -266,7 +245,7 @@ watch(currentCategory, (newCategory: Category | null) => {
     }
     uploadedFileName.value = ''
   } else {
-    resetForm({ values: { name: '', hideEmpty: false, coverImage: '', displayMode: 'default' } })
+    resetForm({ values: { name: '', hideEmpty: false, coverImage: '' } })
     coverMode.value = 'url'
     uploadPreview.value = ''
     uploadedFileName.value = ''
@@ -278,8 +257,7 @@ const onSubmit = handleSubmit((values) => {
   emit('submit', {
     name: values.name,
     hideEmpty: values.hideEmpty,
-    coverImage: values.coverImage?.trim() ? values.coverImage.trim() : null,
-    displayMode: (values.displayMode ?? 'default') as 'default' | 'liquid' | 'visual'
+    coverImage: values.coverImage?.trim() ? values.coverImage.trim() : null
   })
 })
 

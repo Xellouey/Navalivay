@@ -17,16 +17,37 @@ publicRouter.get('/api/categories', (req, res) => {
   `).all();
 
   const categoryCountRows = db.prepare(`
-    SELECT categoryId, COUNT(*) as total
-    FROM products
-    WHERE stock IS NULL OR stock > 0
+    SELECT categoryId, COUNT(DISTINCT p.id) as total
+    FROM products p
+    WHERE (
+      -- Для товаров без вариантов проверяем stock товара
+      (p.has_variants = 0 AND (p.stock IS NULL OR p.stock > 0))
+      OR
+      -- Для товаров с вариантами проверяем, есть ли варианты в наличии
+      (p.has_variants = 1 AND EXISTS (
+        SELECT 1 FROM product_variants pv 
+        WHERE pv.product_id = p.id 
+        AND (pv.stock IS NULL OR pv.stock > 0)
+      ))
+    )
     GROUP BY categoryId
   `).all();
 
   const groupCountRows = db.prepare(`
-    SELECT groupId, COUNT(*) as total
-    FROM products
-    WHERE groupId IS NOT NULL AND (stock IS NULL OR stock > 0)
+    SELECT groupId, COUNT(DISTINCT p.id) as total
+    FROM products p
+    WHERE groupId IS NOT NULL 
+      AND (
+        -- Для товаров без вариантов проверяем stock товара
+        (p.has_variants = 0 AND (p.stock IS NULL OR p.stock > 0))
+        OR
+        -- Для товаров с вариантами проверяем, есть ли варианты в наличии
+        (p.has_variants = 1 AND EXISTS (
+          SELECT 1 FROM product_variants pv 
+          WHERE pv.product_id = p.id 
+          AND (pv.stock IS NULL OR pv.stock > 0)
+        ))
+      )
     GROUP BY groupId
   `).all();
 
@@ -180,7 +201,16 @@ publicRouter.get('/api/products', (req, res) => {
   }
 
   // Hide products with zero stock for public storefront
-  whereClauses.unshift('(p.stock IS NULL OR p.stock > 0)');
+  // Для товаров без вариантов проверяем stock товара, для товаров с вариантами - stock вариантов
+  whereClauses.unshift(`(
+    (p.has_variants = 0 AND (p.stock IS NULL OR p.stock > 0))
+    OR
+    (p.has_variants = 1 AND EXISTS (
+      SELECT 1 FROM product_variants pv 
+      WHERE pv.product_id = p.id 
+      AND (pv.stock IS NULL OR pv.stock > 0)
+    ))
+  )`);
 
   const where = `WHERE ${whereClauses.join(' AND ')}`;
 
@@ -214,6 +244,7 @@ publicRouter.get('/api/products', (req, res) => {
       p.stock AS stock,
       p.min_stock AS minStock,
       p.use_category_image AS useCategoryImage,
+      p.has_variants AS hasVariants,
       p.createdAt,
       g.slug as groupSlug,
       g.name as groupName,
@@ -229,7 +260,7 @@ publicRouter.get('/api/products', (req, res) => {
     ? db.prepare(sql).all(...whereParams, limit, offset)
     : db.prepare(sql).all(limit, offset);
 
-  const stmtImgs = db.prepare('SELECT url FROM product_images WHERE productId = ? ORDER BY position ASC');
+  const stmtImgs = db.prepare('SELECT url FROM product_images WHERE productId = ? AND variant_id IS NULL ORDER BY position ASC');
   const stmtLinks = db.prepare('SELECT label, url FROM product_links WHERE productId = ? ORDER BY position ASC');
   const stmtBadges = db.prepare(`
     SELECT type, label, color
@@ -237,20 +268,19 @@ publicRouter.get('/api/products', (req, res) => {
     WHERE product_id = ?
     ORDER BY rowid ASC
   `);
+  const stmtVariants = db.prepare(`
+    SELECT id, product_id, name, color_code AS colorCode, price_rub AS priceRub, stock, position
+    FROM product_variants
+    WHERE product_id = ?
+    ORDER BY position ASC
+  `);
+  const stmtVariantImgs = db.prepare('SELECT url FROM product_images WHERE productId = ? AND variant_id = ? ORDER BY position ASC');
+  
   const enriched = products.map((p) => {
     const stockValue = typeof p.stock === 'number' ? p.stock : null;
-    const productImages = stmtImgs.all(p.id).map(r => r.url);
-    
-    // Если у товара включена опция "использовать изображение категории" и у него нет своих изображений,
-    // используем обложку категории
-    const images = (p.useCategoryImage && productImages.length === 0 && p.categoryCoverImage) 
-      ? [p.categoryCoverImage] 
-      : productImages;
-    
-    // Удаляем categoryCoverImage из ответа
     const { categoryCoverImage, ...productData } = p;
     
-    return {
+    const result = {
       ...productData,
       stock: stockValue,
       costPrice: typeof p.costPrice === 'number' ? p.costPrice : null,
@@ -261,9 +291,31 @@ publicRouter.get('/api/products', (req, res) => {
         color: badge.color || null
       })),
       isAvailable: stockValue === null ? true : stockValue > 0,
-      images,
       links: stmtLinks.all(p.id).map(link => ({ label: link.label ?? '', url: link.url }))
     };
+    
+    if (p.hasVariants) {
+      // Для товаров с вариантами получаем варианты и их изображения
+      const variants = stmtVariants.all(p.id);
+      result.variants = variants.map(v => ({
+        ...v,
+        images: stmtVariantImgs.all(p.id, v.id).map(r => r.url)
+      }));
+      // Для обратной совместимости, показываем изображения первого варианта как изображения товара
+      result.images = result.variants.length > 0 && result.variants[0].images && result.variants[0].images.length > 0 ? result.variants[0].images : [];
+      // Обновляем доступность на основе вариантов
+      result.isAvailable = result.variants.some(v => (v.stock === null || v.stock > 0));
+    } else {
+      // Обычный товар без вариантов
+      const productImages = stmtImgs.all(p.id).map(r => r.url);
+      // Если у товара включена опция "использовать изображение категории" и у него нет своих изображений,
+      // используем обложку категории
+      result.images = (p.useCategoryImage && productImages.length === 0 && categoryCoverImage) 
+        ? [categoryCoverImage] 
+        : productImages;
+    }
+    
+    return result;
   });
 
   res.json({ products: enriched, total, hasMore: offset + limit < total });
@@ -285,6 +337,7 @@ publicRouter.get('/api/product/:id', (req, res) => {
       p.stock AS stock,
       p.min_stock AS minStock,
       p.use_category_image AS useCategoryImage,
+      p.has_variants AS hasVariants,
       p.createdAt,
       g.slug AS groupSlug,
       g.name AS groupName,
@@ -295,13 +348,7 @@ publicRouter.get('/api/product/:id', (req, res) => {
     WHERE p.id = ?
   `).get(id);
   if (!p) return res.status(404).json({ error: 'Not found' });
-  const productImages = db.prepare('SELECT url FROM product_images WHERE productId = ? ORDER BY position ASC').all(id).map(r => r.url);
   
-  // Если у товара включена опция "использовать изображение категории" и у него нет своих изображений,
-  // используем обложку категории
-  const images = (p.useCategoryImage && productImages.length === 0 && p.categoryCoverImage) 
-    ? [p.categoryCoverImage] 
-    : productImages;
   const links = db.prepare('SELECT label, url FROM product_links WHERE productId = ? ORDER BY position ASC').all(id).map(link => ({
     label: link.label ?? '',
     url: link.url
@@ -313,11 +360,9 @@ publicRouter.get('/api/product/:id', (req, res) => {
     ORDER BY rowid ASC
   `).all(id);
   const stockValue = typeof p.stock === 'number' ? p.stock : null;
-  
-  // Удаляем categoryCoverImage из ответа, так как оно уже включено в images
   const { categoryCoverImage, ...productData } = p;
   
-  res.json({
+  const result = {
     ...productData,
     stock: stockValue,
     costPrice: typeof p.costPrice === 'number' ? p.costPrice : null,
@@ -328,9 +373,39 @@ publicRouter.get('/api/product/:id', (req, res) => {
       color: badge.color || null
     })),
     isAvailable: stockValue === null ? true : stockValue > 0,
-    images,
     links
-  });
+  };
+  
+  if (p.hasVariants) {
+    // Для товаров с вариантами получаем варианты и их изображения
+    const variants = db.prepare(`
+      SELECT id, product_id, name, color_code AS colorCode, price_rub AS priceRub, stock, position
+      FROM product_variants
+      WHERE product_id = ?
+      ORDER BY position ASC
+    `).all(id);
+    
+    result.variants = variants.map(v => ({
+      ...v,
+      images: db.prepare('SELECT url FROM product_images WHERE productId = ? AND variant_id = ? ORDER BY position ASC')
+        .all(id, v.id).map(r => r.url)
+    }));
+    // Для обратной совместимости, показываем изображения первого варианта как изображения товара
+    result.images = result.variants.length > 0 && result.variants[0].images && result.variants[0].images.length > 0 ? result.variants[0].images : [];
+    // Обновляем доступность на основе вариантов
+    result.isAvailable = result.variants.some(v => (v.stock === null || v.stock > 0));
+  } else {
+    // Обычный товар без вариантов
+    const productImages = db.prepare('SELECT url FROM product_images WHERE productId = ? AND variant_id IS NULL ORDER BY position ASC')
+      .all(id).map(r => r.url);
+    // Если у товара включена опция "использовать изображение категории" и у него нет своих изображений,
+    // используем обложку категории
+    result.images = (p.useCategoryImage && productImages.length === 0 && categoryCoverImage) 
+      ? [categoryCoverImage] 
+      : productImages;
+  }
+  
+  res.json(result);
 });
 
 publicRouter.get('/api/cross-sells', (req, res) => {
@@ -360,6 +435,7 @@ publicRouter.get('/api/cross-sells', (req, res) => {
       p.stock AS stock,
       p.min_stock AS minStock,
       p.use_category_image AS useCategoryImage,
+      p.has_variants AS hasVariants,
       p.createdAt,
       p.categoryId,
       p.groupId,
@@ -371,12 +447,20 @@ publicRouter.get('/api/cross-sells', (req, res) => {
     LEFT JOIN category_groups g ON p.groupId = g.id
     LEFT JOIN categories c ON p.categoryId = c.id
     WHERE cs.categoryId = ?
-      AND (p.stock IS NULL OR p.stock > 0)
+      AND (
+        (p.has_variants = 0 AND (p.stock IS NULL OR p.stock > 0))
+        OR
+        (p.has_variants = 1 AND EXISTS (
+          SELECT 1 FROM product_variants pv 
+          WHERE pv.product_id = p.id 
+          AND (pv.stock IS NULL OR pv.stock > 0)
+        ))
+      )
     ORDER BY cs.[order] ASC
     LIMIT ?
   `).all(categoryRow.id, maxItems);
 
-  const imageStmt = db.prepare('SELECT url FROM product_images WHERE productId = ? ORDER BY position ASC');
+  const imageStmt = db.prepare('SELECT url FROM product_images WHERE productId = ? AND variant_id IS NULL ORDER BY position ASC');
   const linkStmt = db.prepare('SELECT label, url FROM product_links WHERE productId = ? ORDER BY position ASC');
   const badgeStmt = db.prepare(`
     SELECT type, label, color
@@ -384,17 +468,18 @@ publicRouter.get('/api/cross-sells', (req, res) => {
     WHERE product_id = ?
     ORDER BY rowid ASC
   `);
+  const variantStmt = db.prepare(`
+    SELECT id, product_id, name, color_code AS colorCode, price_rub AS priceRub, stock, position
+    FROM product_variants
+    WHERE product_id = ?
+    ORDER BY position ASC
+  `);
+  const variantImgStmt = db.prepare('SELECT url FROM product_images WHERE productId = ? AND variant_id = ? ORDER BY position ASC');
+  
   const payload = rows.map(row => {
-    const productImages = imageStmt.all(row.productId).map(r => r.url);
+    const stockValue = typeof row.stock === 'number' ? row.stock : null;
     
-    // Если у товара включена опция "использовать изображение категории" и у него нет своих изображений,
-    // используем обложку категории
-    const images = (row.useCategoryImage && productImages.length === 0 && row.categoryCoverImage) 
-      ? [row.categoryCoverImage] 
-      : productImages;
-    
-    // Не включаем categoryCoverImage и useCategoryImage в ответ
-    return {
+    const result = {
       id: row.productId,
       title: row.title,
       priceRub: row.priceRub,
@@ -402,15 +487,14 @@ publicRouter.get('/api/cross-sells', (req, res) => {
       variant: row.variant,
       strength: row.strength,
       costPrice: typeof row.costPrice === 'number' ? row.costPrice : null,
-      stock: typeof row.stock === 'number' ? row.stock : null,
+      stock: stockValue,
       minStock: typeof row.minStock === 'number' ? row.minStock : null,
-      isAvailable: row.stock === null ? true : row.stock > 0,
+      isAvailable: stockValue === null ? true : stockValue > 0,
       createdAt: row.createdAt,
       categoryId: row.categoryId,
       groupId: row.groupId,
       groupSlug: row.groupSlug,
       groupName: row.groupName,
-      images,
       links: linkStmt.all(row.productId).map(link => ({ label: link.label ?? '', url: link.url })),
       badges: badgeStmt.all(row.productId).map((badge) => ({
         type: badge.type || null,
@@ -418,6 +502,29 @@ publicRouter.get('/api/cross-sells', (req, res) => {
         color: badge.color || null
       }))
     };
+    
+    if (row.hasVariants) {
+      // Для товаров с вариантами получаем варианты и их изображения
+      const variants = variantStmt.all(row.productId);
+      result.variants = variants.map(v => ({
+        ...v,
+        images: variantImgStmt.all(row.productId, v.id).map(r => r.url)
+      }));
+      // Для обратной совместимости, показываем изображения первого варианта как изображения товара
+      result.images = result.variants.length > 0 && result.variants[0].images && result.variants[0].images.length > 0 ? result.variants[0].images : [];
+      // Обновляем доступность на основе вариантов
+      result.isAvailable = result.variants.some(v => (v.stock === null || v.stock > 0));
+    } else {
+      // Обычный товар без вариантов
+      const productImages = imageStmt.all(row.productId).map(r => r.url);
+      // Если у товара включена опция "использовать изображение категории" и у него нет своих изображений,
+      // используем обложку категории
+      result.images = (row.useCategoryImage && productImages.length === 0 && row.categoryCoverImage) 
+        ? [row.categoryCoverImage] 
+        : productImages;
+    }
+    
+    return result;
   });
 
   res.json(payload);
