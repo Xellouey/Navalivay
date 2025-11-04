@@ -566,8 +566,8 @@ crmRouter.post('/api/admin/crm/orders/:orderId/generate-message', authMiddleware
     const order = db.prepare(`
       SELECT 
         o.*,
-        c.telegram_username,
-        c.phone,
+        COALESCE(o.telegram_username, c.telegram_username) as telegram_username,
+        COALESCE(o.phone, c.phone) as phone,
         c.first_name,
         c.last_name
       FROM orders o

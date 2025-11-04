@@ -82,9 +82,9 @@ crmOperationsRouter.get('/api/admin/crm/orders', authMiddleware, (req, res) => {
       const searchTerm = String(search).trim();
       if (searchTerm) {
         // Поиск по номеру заказа, имени клиента или username
-        whereClauses.push('(o.order_number LIKE ? OR c.first_name LIKE ? OR c.last_name LIKE ? OR c.telegram_username LIKE ?)');
+        whereClauses.push('(o.order_number LIKE ? OR c.first_name LIKE ? OR c.last_name LIKE ? OR c.telegram_username LIKE ? OR o.telegram_username LIKE ?)');
         const likePattern = `%${searchTerm}%`;
-        params.push(likePattern, likePattern, likePattern, likePattern);
+        params.push(likePattern, likePattern, likePattern, likePattern, likePattern);
       }
     }
     
@@ -100,7 +100,7 @@ crmOperationsRouter.get('/api/admin/crm/orders', authMiddleware, (req, res) => {
     const ordersSql = `
       SELECT 
         o.*,
-        c.telegram_username,
+        COALESCE(o.telegram_username, c.telegram_username) as telegram_username,
         c.first_name || ' ' || COALESCE(c.last_name, '') as customer_name
       FROM orders o
       LEFT JOIN customers c ON c.id = o.customer_id
@@ -114,7 +114,7 @@ crmOperationsRouter.get('/api/admin/crm/orders', authMiddleware, (req, res) => {
       : db.prepare(`
           SELECT 
             o.*,
-            c.telegram_username,
+            COALESCE(o.telegram_username, c.telegram_username) as telegram_username,
             c.first_name || ' ' || COALESCE(c.last_name, '') as customer_name
           FROM orders o
           LEFT JOIN customers c ON c.id = o.customer_id
@@ -165,7 +165,7 @@ crmOperationsRouter.get('/api/admin/crm/orders/:id', authMiddleware, (req, res) 
     const order = db.prepare(`
       SELECT 
         o.*,
-        c.telegram_username,
+        COALESCE(o.telegram_username, c.telegram_username) as telegram_username,
         c.first_name,
         c.last_name,
         c.phone

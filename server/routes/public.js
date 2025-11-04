@@ -576,6 +576,11 @@ publicRouter.post('/api/orders', (req, res) => {
       return res.status(400).json({ error: 'items_required', message: 'Товары обязательны' });
     }
 
+    // Validate telegram_username (required)
+    if (!telegram_username || !telegram_username.trim()) {
+      return res.status(400).json({ error: 'telegram_username_required', message: 'Укажите Telegram username' });
+    }
+
     // Validate delivery requirements
     if (delivery_type === 'delivery') {
       if (!phone || !phone.trim()) {
@@ -677,8 +682,8 @@ publicRouter.post('/api/orders', (req, res) => {
       db.prepare(`
         INSERT INTO orders (
           id, order_number, customer_id, status, delivery_type, delivery_address,
-          total_amount, discount_amount, discount_percent, final_amount, profit, notes, phone
-        ) VALUES (?, ?, ?, 'new', ?, ?, ?, 0, 0, ?, ?, ?, ?)
+          total_amount, discount_amount, discount_percent, final_amount, profit, notes, phone, telegram_username
+        ) VALUES (?, ?, ?, 'new', ?, ?, ?, 0, 0, ?, ?, ?, ?, ?)
       `).run(
         orderId,
         orderNumber,
@@ -689,7 +694,8 @@ publicRouter.post('/api/orders', (req, res) => {
         finalAmount,
         profit,
         notes || null,
-        phone || null
+        phone || null,
+        telegram_username || null
       );
 
       // Insert order items

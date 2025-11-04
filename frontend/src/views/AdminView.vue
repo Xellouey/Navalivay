@@ -996,11 +996,11 @@ async function ensureTabData(tab: AdminTabId) {
   }
 
   if (tab === 'products') {
-    if (!dataLoaded.products) {
-      const page = adminStore.productsPagination?.page ?? 1
-      const limit = adminStore.productsPagination?.limit ?? 10
-      loaders.push({ key: 'products', loader: () => adminStore.fetchProducts({ page, limit }) })
-    }
+    // Всегда обновляем данные товаров при входе в раздел, чтобы остатки были актуальными
+    const page = adminStore.productsPagination?.page ?? 1
+    const limit = adminStore.productsPagination?.limit ?? 10
+    loaders.push({ key: 'products', loader: () => adminStore.fetchProducts({ page, limit }) })
+    
     if (!dataLoaded.categories) {
       loaders.push({ key: 'categories', loader: () => adminStore.fetchCategories() })
     }

@@ -205,9 +205,22 @@
                 </div>
 
                 <div class="mt-2 space-y-1 text-sm text-gray-700">
-                  <div class="font-medium">{{ order.customer_name || 'Без имени' }}</div>
-                  <div v-if="order.telegram_username" class="text-xs text-blue-600">
-                    <a :href="`https://t.me/${order.telegram_username}`" target="_blank">@{{ order.telegram_username }}</a>
+                  <div class="flex items-center justify-between">
+                    <div class="font-medium">{{ order.customer_name || 'Без имени' }}</div>
+                    <button
+                      v-if="order.telegram_username"
+                      @click.stop="contactClient(order.id)"
+                      :disabled="generatingMessageForOrder === order.id"
+                      class="inline-flex items-center gap-1 rounded-md border border-blue-200 bg-blue-50 px-2 py-1 text-[11px] font-semibold text-blue-700 transition hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      <svg v-if="generatingMessageForOrder === order.id" class="h-3 w-3 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                      </svg>
+                      <svg v-else class="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                      </svg>
+                      <span>{{ generatingMessageForOrder === order.id ? 'Генерируем…' : 'Написать' }}</span>
+                    </button>
                   </div>
                   <div
                     v-if="order.delivery_type === 'delivery' && order.delivery_address"
@@ -570,6 +583,7 @@ const showPasswordModal = ref(false)
 const passwordInput = ref('')
 const passwordError = ref('')
 const verifyingPassword = computed(() => verifyingProfitAccess.value)
+const generatingMessageForOrder = ref<string | null>(null)
 
 type KanbanColumnConfig = {
   key: 'new' | 'in_progress' | 'delivered'
@@ -933,6 +947,29 @@ function handleOrderCreated(order: Order) {
   showCreateModal.value = false
   handleNewOrders([order])
   void refreshOrders({ skipNotify: true })
+}
+
+async function contactClient(orderId: string) {
+  if (generatingMessageForOrder.value) return
+  
+  generatingMessageForOrder.value = orderId
+  
+  try {
+    const data = await crmStore.generateOrderMessage(orderId)
+    const { message, telegramUsername } = data
+    
+    if (telegramUsername) {
+      const encodedMessage = encodeURIComponent(message)
+      const telegramUrl = `https://t.me/${telegramUsername}?text=${encodedMessage}`
+      window.open(telegramUrl, '_blank')
+    } else {
+      console.warn('[CRM] No telegram username for order:', orderId)
+    }
+  } catch (error: any) {
+    console.error('[CRM] Generate message error:', error)
+  } finally {
+    generatingMessageForOrder.value = null
+  }
 }
 
 onMounted(async () => {

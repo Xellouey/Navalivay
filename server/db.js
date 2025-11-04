@@ -23,6 +23,7 @@ import { migrateMessageTemplates } from './migrations/add_message_templates.js';
 import { addPhoneToOrders } from './migrations/add_phone_to_orders.js';
 import { migrateUseCategoryImage } from './migrations/add_use_category_image_to_products.js';
 import { migrateProductVariants } from './migrations/add_product_variants.js';
+import { addTelegramUsernameToOrders } from './migrations/add_telegram_username_to_orders.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -132,6 +133,7 @@ export function initDb() {
   addPhoneToOrders();
   migrateUseCategoryImage();
   migrateProductVariants();
+  addTelegramUsernameToOrders();
 
   seedIfEmpty();
 }

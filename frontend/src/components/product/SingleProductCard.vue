@@ -154,6 +154,18 @@ function getBadgeStyle(badge: ProductBadge) {
   padding: 1rem 0 !important;
   border-bottom: 1px solid #e5e5e5 !important;
   background: white !important;
+  animation: fadeInItem 0.5s ease-out 0.3s both;
+}
+
+@keyframes fadeInItem {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .liquid-line-card-single:first-of-type {

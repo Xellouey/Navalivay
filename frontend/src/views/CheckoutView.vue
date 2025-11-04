@@ -65,6 +65,23 @@
         <h2 class="checkout-card-title">Способ получения</h2>
         
         <div class="space-y-4">
+          <!-- Обязательное поле Telegram Username -->
+          <div>
+            <label class="form-label">
+              Telegram Username <span style="color: var(--navalivay-red);">*</span>
+            </label>
+            <input
+              v-model="form.telegramUsername"
+              type="text"
+              required
+              class="form-input"
+              :class="{ 'error': errors.telegramUsername }"
+              placeholder="@username или username"
+            />
+            <p v-if="errors.telegramUsername" class="form-error">{{ errors.telegramUsername }}</p>
+            <p class="mt-1 text-xs text-gray-500">Укажите ваш username в Telegram для связи</p>
+          </div>
+          
           <div class="grid grid-cols-2 gap-4">
             <label class="delivery-option" :class="{ 'active': form.deliveryType === 'pickup' }">
               <input type="radio" v-model="form.deliveryType" value="pickup" class="sr-only" />
@@ -161,12 +178,14 @@ const cartStore = useCartStore()
 
 const form = reactive({
   deliveryType: 'pickup' as 'pickup' | 'delivery',
+  telegramUsername: '',
   phone: '',
   address: '',
   notes: ''
 })
 
 const errors = reactive({
+  telegramUsername: '',
   phone: '',
   address: ''
 })
@@ -182,9 +201,12 @@ const telegramUser = computed(() => {
 })
 
 onMounted(() => {
-  // Auto-fill phone if available from Telegram
+  // Auto-fill telegram username and phone if available from Telegram
   const user = telegramUser.value
   if (user) {
+    if (user.username) {
+      form.telegramUsername = user.username
+    }
     // Note: Telegram WebApp doesn't expose phone number by default
     // This would need to be requested via bot
   }
@@ -209,8 +231,22 @@ function decrementQuantity(productId: string) {
 }
 
 function validateForm(): boolean {
+  errors.telegramUsername = ''
   errors.phone = ''
   errors.address = ''
+  
+  // Telegram username обязателен всегда
+  if (!form.telegramUsername.trim()) {
+    errors.telegramUsername = 'Укажите ваш Telegram username'
+    return false
+  }
+  
+  // Валидация формата username (опционально может начинаться с @)
+  const username = form.telegramUsername.trim().replace(/^@/, '')
+  if (!/^[a-zA-Z0-9_]{5,32}$/.test(username)) {
+    errors.telegramUsername = 'Username должен содержать от 5 до 32 символов (буквы, цифры, подчеркивание)'
+    return false
+  }
   
   if (form.deliveryType === 'delivery') {
     if (!form.phone.trim()) {
@@ -238,9 +274,12 @@ async function submitOrder() {
   try {
     const user = telegramUser.value
     
+    // Очищаем username от @ если есть
+    const cleanUsername = form.telegramUsername.trim().replace(/^@/, '')
+    
     const orderData = {
       telegram_id: user?.id ? String(user.id) : undefined,
-      telegram_username: user?.username || undefined,
+      telegram_username: cleanUsername,
       first_name: user?.first_name || undefined,
       last_name: user?.last_name || undefined,
       delivery_type: form.deliveryType,

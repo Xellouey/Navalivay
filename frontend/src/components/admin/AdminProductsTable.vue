@@ -378,16 +378,15 @@
               <span v-if="p.strength && p.strength.trim().length" class="font-medium text-gray-900">{{ p.strength }}</span>
               <span v-else class="text-gray-400">—</span>
             </td>
-            <td class="px-4 py-4 text-right text-gray-700" :style="columnStyle(5)">
-              <div class="flex items-center justify-end">
+            <td class="px-4 py-4 text-right text-gray-700 min-w-[100px]" :style="columnStyle(5)">
+              <div class="flex items-center justify-center">
                 <span v-if="profitUnlocked" class="font-medium text-gray-900">{{ formatRub(p.costPrice) }}</span>
                 <span
                   v-else
-                  class="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2 py-1 text-[0.65rem] font-semibold uppercase tracking-[0.12em] text-gray-500"
+                  class="inline-flex items-center rounded-full bg-gray-100 p-1"
                   :aria-label="`Себестоимость скрыта`"
                 >
                   <LockClosedIcon class="h-4 w-4 text-gray-400" />
-                  Скрыто
                 </span>
               </div>
             </td>
@@ -522,9 +521,8 @@
                     <p class="text-xs text-gray-600 leading-snug">
                       Себес:
                       <span v-if="profitUnlocked" class="font-semibold">{{ formatRub(p.costPrice) }}</span>
-                      <span v-else class="inline-flex items-center gap-1 text-gray-400 font-semibold uppercase tracking-[0.12em]">
-                        <LockClosedIcon class="h-3.5 w-3.5" />
-                        Скрыто
+                      <span v-else class="inline-flex items-center rounded-full bg-gray-100 p-0.5">
+                        <LockClosedIcon class="h-3.5 w-3.5 text-gray-400" />
                       </span>
                     </p>
                     <p class="text-xs leading-snug" :class="isBelowMin(p) ? 'text-red-600 font-semibold' : 'text-gray-600'">
@@ -605,11 +603,10 @@
                         <span v-if="profitUnlocked" class="font-medium">{{ formatRub(p.costPrice) }}</span>
                         <span
                           v-else
-                          class="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2 py-1 text-[0.65rem] font-semibold uppercase tracking-[0.12em] text-gray-500"
+                          class="inline-flex items-center rounded-full bg-gray-100 p-1"
                           :aria-label="`Себестоимость скрыта`"
                         >
                           <LockClosedIcon class="h-4 w-4 text-gray-400" />
-                          Скрыто
                         </span>
                       </span>
                       <span :class="isBelowMin(p) ? 'text-red-600 font-semibold' : 'text-gray-600'">
@@ -1164,10 +1161,12 @@ function queueColumnMeasurement() {
 function columnStyle(index: number) {
   const width = displayedColumnWidths.value[index]
   if (!width) return undefined
+  // Для колонки "Себес" (index 5) устанавливаем минимальную ширину 100px
+  const minWidth = index === 5 ? Math.max(width, 100) : width
   return {
     width: `${width}px`,
     maxWidth: `${width}px`,
-    minWidth: `${width}px`
+    minWidth: `${minWidth}px`
   }
 }
 
