@@ -1,4 +1,41 @@
 import 'virtual:uno.css'
+
+// КРИТИЧНО: Проверка версии и принудительная перезагрузка
+const CURRENT_VERSION = '1762248011'; // Версия сборки
+const storedVersion = localStorage.getItem('app_version');
+
+if (storedVersion && storedVersion !== CURRENT_VERSION) {
+  console.log('[Version Check] Old version detected, forcing reload...');
+  localStorage.setItem('app_version', CURRENT_VERSION);
+  // Очистка всех кэшей
+  if ('caches' in window) {
+    caches.keys().then(names => names.forEach(name => caches.delete(name)));
+  }
+  // Перезагрузка с очисткой кэша
+  window.location.reload();
+} else if (!storedVersion) {
+  localStorage.setItem('app_version', CURRENT_VERSION);
+}
+
+// ВАЖНО: Удаляем все service workers если они были зарегистрированы
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.getRegistrations().then(registrations => {
+    registrations.forEach(registration => {
+      registration.unregister()
+      console.log('[SW] Service worker unregistered:', registration.scope)
+    })
+  })
+  // Очищаем все кэши
+  if ('caches' in window) {
+    caches.keys().then(names => {
+      names.forEach(name => {
+        caches.delete(name)
+        console.log('[Cache] Deleted cache:', name)
+      })
+    })
+  }
+}
+
 import '@/styles/navalivay-theme.css'
 
 import { createApp } from 'vue'
@@ -30,6 +67,26 @@ if (window.Telegram?.WebApp) {
   console.log('[TG WebApp] Has exitFullscreen:', !!tg.exitFullscreen)
   console.log('[TG WebApp] Initial isFullscreen:', tg.isFullscreen)
   
+  
+  // ВАЖНО: Очистка кэша Telegram Mini App
+  console.log('[TG WebApp] Clearing Telegram cache...')
+  
+  // Метод 1: Перезагрузка без кэша
+  if (typeof tg.reload === 'function') {
+    console.log('[TG WebApp] Reloading without cache (method 1)')
+    // Устанавливаем флаг что уже делали reload, чтобы избежать бесконечного цикла
+    const hasReloaded = sessionStorage.getItem('tg_cache_cleared')
+    if (!hasReloaded) {
+      sessionStorage.setItem('tg_cache_cleared', 'true')
+      tg.reload()
+    }
+  }
+  
+  // Метод 2: Очистка через специальный метод (если доступен)
+  if (typeof tg.clearCache === 'function') {
+    console.log('[TG WebApp] Clearing cache (method 2)')
+    tg.clearCache()
+  }
   // Инициализация Telegram WebApp сразу
   tg.ready()
   

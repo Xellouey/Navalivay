@@ -156,15 +156,15 @@ if (!BOT_TOKEN) {
 
   bot.start(async (ctx) => {
     try {
+      const webAppUrl = process.env.BASE_URL || 'https://navalivay.store';
       const kb = Markup.inlineKeyboard([
+        [Markup.button.webApp('🛍 Открыть каталог', webAppUrl)],
         [Markup.button.callback('О нас', 'about')],
         [Markup.button.callback('Все о доставке', 'delivery')],
         [Markup.button.callback('Обратная связь', 'contact')],
       ]);
 
-      await ctx.reply('Добро пожаловать в НАВАЛИВАЙ! Выберите раздел или сразу перейдите в Каталог по желтой кнопочке ниже 😊!');
-
-      await ctx.reply('Навигация:', kb);
+      await ctx.reply('Добро пожаловать в НАВАЛИВАЙ! Нажмите кнопку ниже, чтобы открыть каталог 😊', kb);
     } catch (e) {
       console.error(e);
     }
@@ -196,7 +196,9 @@ if (!BOT_TOKEN) {
 
   bot.action('back', async (ctx) => {
     await ctx.answerCbQuery();
+    const webAppUrl = process.env.BASE_URL || 'https://navalivay.store';
     const kb = Markup.inlineKeyboard([
+      [Markup.button.webApp('🛍 Открыть каталог', webAppUrl)],
       [Markup.button.callback('О нас', 'about')],
       [Markup.button.callback('Все о доставке', 'delivery')],
       [Markup.button.callback('Обратная связь', 'contact')],
@@ -249,10 +251,11 @@ if (!BOT_TOKEN) {
 
       const finalPrice = Number(result.finalAmount) || 0;
       const formattedPrice = new Intl.NumberFormat('ru-RU').format(finalPrice);
+      const webAppUrl = process.env.BASE_URL || 'https://navalivay.store';
       await ctx.reply(
         `Заказ принят!\nТовар: ${title.trim()}\nСтоимость: ${formattedPrice} ₽\nМенеджер свяжется с вами для подтверждения.`,
         Markup.inlineKeyboard([
-          [Markup.button.url('Открыть каталог', process.env.BASE_URL || 'https://t.me/navalivay_app')] 
+          [Markup.button.webApp('🛍 Открыть каталог', webAppUrl)] 
         ])
       );
     } catch (error) {

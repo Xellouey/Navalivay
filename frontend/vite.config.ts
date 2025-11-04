@@ -19,7 +19,8 @@ export default defineConfig(({ mode }) => {
       // Решение: Отключить vueDevTools() или обновить до совместимой версии.
       // Дата отключения: 2025-09-30
       // vueDevTools(),
-      UnoCSS()
+      UnoCSS(),
+      injectVersionPlugin()
     ],
     resolve: {
       alias: {
@@ -27,6 +28,8 @@ export default defineConfig(({ mode }) => {
       },
     },
     build: {
+      // Добавляем случайный параметр для предотвращения кеширования
+      cssCodeSplit: true,
       // Отключить кэширование
       manifest: false,
       rollupOptions: {
@@ -60,3 +63,20 @@ export default defineConfig(({ mode }) => {
     }
   }
 })
+
+// Плагин для добавления случайного параметра к скриптам
+function injectVersionPlugin() {
+  return {
+    name: 'inject-version',
+    transformIndexHtml(html: string) {
+      const version = Date.now()
+      return html.replace(
+        /<script type="module" crossorigin src="(\/assets\/[^"]+)"><\/script>/g,
+        `<script type="module" crossorigin src="$1?v=${version}"></script>`
+      ).replace(
+        /<link rel="stylesheet" crossorigin href="(\/assets\/[^"]+)">/g,
+        `<link rel="stylesheet" crossorigin href="$1?v=${version}">`
+      )
+    }
+  }
+}
