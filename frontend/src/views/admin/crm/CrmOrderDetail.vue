@@ -409,7 +409,50 @@ const itemsCost = computed(() => {
 const finalAmount = computed(() => applyDiscounts(itemsSubtotal.value, form.discountAmount, form.discountPercent))
 const expectedProfit = computed(() => Math.max(finalAmount.value - itemsCost.value, 0))
 
-const canSave = computed(() => form.items.length > 0 && !isSaving.value && form.items.every(isItemValid))
+const hasChanges = computed(() => {
+  if (!currentOrder.value) return false
+  
+  // Проверяем изменение статуса
+  if (editableStatus.value !== currentOrder.value.status) return true
+  
+  // Проверяем изменение адреса доставки
+  if (form.deliveryAddress !== (currentOrder.value.delivery_address || '')) return true
+  
+  // Проверяем изменение комментария
+  if (form.notes !== (currentOrder.value.notes || '')) return true
+  
+  // Проверяем изменение скидок
+  if (form.discountAmount !== Number(currentOrder.value.discount_amount || 0)) return true
+  if (form.discountPercent !== Number(currentOrder.value.discount_percent || 0)) return true
+  
+  // Проверяем изменения в позициях
+  const originalItems = currentOrder.value.items || []
+  if (form.items.length !== originalItems.length) return true
+  
+  // Проверяем каждую позицию
+  for (let i = 0; i < form.items.length; i++) {
+    const formItem = form.items[i]
+    const originalItem = originalItems.find(item => item.product_id === formItem.productId)
+    if (!originalItem) return true
+    
+    if (formItem.quantity !== Number(originalItem.quantity || 0)) return true
+    if (formItem.price !== Number(originalItem.price_per_unit || 0)) return true
+    if (formItem.discount !== Number(originalItem.discount_amount || 0)) return true
+  }
+  
+  return false
+})
+
+const canSave = computed(() => {
+  if (isSaving.value) return false
+  if (!hasChanges.value) return false
+  
+  // Если есть товары, проверяем их валидность
+  if (form.items.length > 0 && !form.items.every(isItemValid)) return false
+  
+  return true
+})
+
 const canReactivate = computed(() => currentOrder.value?.status === 'cancelled')
 const canRemovePayment = computed(() => hasPayment.value && !isSaving.value)
 
@@ -419,15 +462,21 @@ let successTimer: ReturnType<typeof setTimeout> | null = null
 watch(productSearch, (value) => {
   const query = value.trim()
   if (searchTimer) clearTimeout(searchTimer)
+  
   if (!query) {
     productResults.value = []
     searchError.value = ''
+    isSearchingProducts.value = false
     return
   }
+  
   if (query.length < 2) {
     productResults.value = []
+    searchError.value = ''
+    isSearchingProducts.value = false
     return
   }
+  
   searchTimer = setTimeout(() => loadProducts(query), 250)
 })
 

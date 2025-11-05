@@ -710,12 +710,17 @@ crmFinanceRouter.get('/api/admin/crm/products/search', authMiddleware, (req, res
     let params = [];
     
     if (search && typeof search === 'string' && search.trim()) {
-      whereClauses.push('(p.title LIKE ? OR p.description LIKE ?)');
-      const pattern = `%${search.trim()}%`;
-      params.push(pattern, pattern);
+      // SQLite's LOWER() не работает с кириллицей, поэтому ищем по обоим вариантам
+      const trimmed = search.trim();
+      const lowerPattern = `%${trimmed.toLowerCase()}%`;
+      const upperPattern = `%${trimmed.toUpperCase()}%`;
+      const titlePattern = `%${trimmed.charAt(0).toUpperCase() + trimmed.slice(1).toLowerCase()}%`;
+      
+      whereClauses.push('(p.title LIKE ? OR p.title LIKE ? OR p.title LIKE ? OR p.description LIKE ? OR p.description LIKE ? OR p.description LIKE ? OR g.name LIKE ? OR g.name LIKE ? OR g.name LIKE ?)');
+      params.push(lowerPattern, upperPattern, titlePattern, lowerPattern, upperPattern, titlePattern, lowerPattern, upperPattern, titlePattern);
     }
     
-    const whereClause = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
+    const searchCondition = whereClauses.length > 0 ? whereClauses.join(' AND ') : '';
     
     // Получаем обычные товары
     const regularQuery = `
@@ -726,7 +731,7 @@ crmFinanceRouter.get('/api/admin/crm/products/search', authMiddleware, (req, res
       FROM products p
       LEFT JOIN categories c ON c.id = p.categoryId
       LEFT JOIN category_groups g ON g.id = p.groupId
-      ${whereClause} AND p.has_variants = 0
+      WHERE p.has_variants = 0${searchCondition ? ` AND ${searchCondition}` : ''}
       LIMIT ?
     `;
     
@@ -765,7 +770,7 @@ crmFinanceRouter.get('/api/admin/crm/products/search', authMiddleware, (req, res
       INNER JOIN products p ON p.id = v.product_id
       LEFT JOIN categories c ON c.id = p.categoryId
       LEFT JOIN category_groups g ON g.id = p.groupId
-      ${whereClause} AND p.has_variants = 1
+      WHERE p.has_variants = 1${searchCondition ? ` AND ${searchCondition}` : ''}
       LIMIT ?
     `;
     

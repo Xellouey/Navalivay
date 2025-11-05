@@ -712,8 +712,13 @@ adminRouter.get('/api/admin/products', authMiddleware, (req, res) => {
   const params = []
   if (category) { where += (where ? ' AND ' : 'WHERE ') + 'p.categoryId = ?'; params.push(String(category)) }
   if (search) {
-    where += (where ? ' AND ' : 'WHERE ') + '(p.title LIKE ? OR p.description LIKE ?)'
-    const pat = `%${search}%`; params.push(pat, pat)
+    // SQLite's LOWER() не работает с кириллицей, поэтому ищем по всем вариантам регистра
+    const trimmed = search.trim();
+    const lowerPat = `%${trimmed.toLowerCase()}%`;
+    const upperPat = `%${trimmed.toUpperCase()}%`;
+    const titlePat = `%${trimmed.charAt(0).toUpperCase() + trimmed.slice(1).toLowerCase()}%`;
+    where += (where ? ' AND ' : 'WHERE ') + '(p.title LIKE ? OR p.title LIKE ? OR p.title LIKE ? OR p.description LIKE ? OR p.description LIKE ? OR p.description LIKE ?)'
+    params.push(lowerPat, upperPat, titlePat, lowerPat, upperPat, titlePat)
   }
 
   const total = (params.length

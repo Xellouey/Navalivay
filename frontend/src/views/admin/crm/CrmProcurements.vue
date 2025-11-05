@@ -308,6 +308,8 @@
                   <div>
                     <div class="font-medium text-gray-900">{{ product.title }}</div>
                     <div class="text-xs text-gray-500">
+                      <span v-if="product.groupName" class="font-medium">{{ product.groupName }}</span>
+                      <span v-if="product.groupName"> • </span>
                       Остаток: {{ product.stock }} • Себестоимость: {{ formatCurrency(product.costPrice) }}
                     </div>
                   </div>
