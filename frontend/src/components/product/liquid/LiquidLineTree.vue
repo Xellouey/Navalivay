@@ -8,7 +8,7 @@
       :cover-image="group.coverImage"
       :badge="group.badge ?? undefined"
       :badge-color="group.badgeColor ?? undefined"
-      :subgroups="[]"
+      :subgroups="group.children"
       :expanded="isExpanded"
       @toggle="toggleExpand"
       @show-toast="$emit('showToast', $event)"

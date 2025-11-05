@@ -171,26 +171,28 @@ const badgeLabel = computed(() => (props.badge || '').trim() || null)
 const badgeStyle = computed(() => (props.badgeColor ? { backgroundColor: props.badgeColor } : undefined))
 
 const countLabel = computed(() => {
-  const count = props.products.length
-  if (count === 0) return 'нет вкусов'
-  if (count % 10 === 1 && count % 100 !== 11) return `${count} вкус`
-  if ([2, 3, 4].includes(count % 10) && ![12, 13, 14].includes(count % 100)) {
-    return `${count} вкуса`
+  // Если есть подгруппы, показываем их названия
+  if (props.subgroups && props.subgroups.length > 0) {
+    const maxVisible = 3
+    const subgroupNames = props.subgroups.map(sg => sg.name.toUpperCase())
+    
+    if (subgroupNames.length <= maxVisible) {
+      return subgroupNames.join("\n")
+    } else {
+      const visible = subgroupNames.slice(0, maxVisible)
+      const remaining = subgroupNames.length - maxVisible
+      return visible.join("\n") + `\nи еще ${remaining} других...`
+    }
   }
-  return `${count} вкусов`
+  
+  // Иначе ничего не показываем
+  return ""
 })
 
 const coverUrl = computed(() => props.coverImage || props.fallbackImage)
 const summaryPreview = computed(() => {
-  if (!productNames.value.length) {
-    return []
-  }
-  const lines = productNames.value.slice(0, 3)
-  const remaining = productNames.value.length - lines.length
-  if (remaining > 0) {
-    lines.push(`и еще ${remaining} других...`)
-  }
-  return lines
+  // summaryPreview больше не используется, всегда показываем countLabel
+  return []
 })
 
 const minPriceLabel = computed(() => {
