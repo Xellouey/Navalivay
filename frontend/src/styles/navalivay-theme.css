@@ -545,3 +545,8 @@ body {
 .debug-panel {
   display: none !important;
 }
+
+/* Disable double-tap zoom on iOS */
+* {
+  touch-action: manipulation;
+}
