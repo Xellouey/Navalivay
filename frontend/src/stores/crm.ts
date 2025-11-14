@@ -193,6 +193,16 @@ export interface MessageTemplate {
   updated_at: string | null
 }
 
+export interface CustomerFeedback {
+  id: string
+  customer_id: string
+  telegram_username: string | null
+  customer_name: string | null
+  reason: string
+  processed_at: string
+  created_at: string
+}
+
 export interface DashboardStats {
   period: string
   stats: {
@@ -207,6 +217,7 @@ export interface DashboardStats {
     group_name: string
     total_quantity: number
     total_revenue: number
+    total_profit: number
   }>
   ordersByStatus: Array<{
     status: string
@@ -248,13 +259,17 @@ async function fetchAPI<T>(endpoint: string, options?: RequestInit): Promise<T> 
 }
 
 export const useCrmStore = defineStore('crm', () => {
-  // Profit access
-  const profitUnlocked = ref(false)
+  // Profit access - restore localStorage handling
+  const savedProfitState = typeof localStorage !== 'undefined' ? localStorage.getItem('crm_profit_unlocked') : null
+  const profitUnlocked = ref(savedProfitState === 'true')
   const verifyingProfitAccess = ref(false)
   const isProfitUnlocked = computed(() => profitUnlocked.value)
 
   function lockProfitAccess() {
     profitUnlocked.value = false
+    if (typeof localStorage !== 'undefined') {
+      localStorage.removeItem('crm_profit_unlocked')
+    }
   }
 
   // Dashboard
@@ -269,6 +284,27 @@ export const useCrmStore = defineStore('crm', () => {
       )
     } finally {
       loadingDashboard.value = false
+    }
+  }
+
+  // Dashboard Timeseries - детализированные данные для графиков
+  const dashboardTimeseries = ref<Array<{ label: string; orders: number; revenue: number; profit: number }>>([])
+  const loadingTimeseries = ref(false)
+
+  async function fetchDashboardTimeseries(period: 'today' | 'month' | 'year' = 'month', offset: number = 0, year?: number) {
+    loadingTimeseries.value = true
+    try {
+      const params = new URLSearchParams({ period, offset: offset.toString() })
+      if (year) params.append('year', year.toString())
+      const data = await fetchAPI<Array<{ label: string; orders: number; revenue: number; profit: number }>>(
+        `${API_BASE}/dashboard-timeseries?${params.toString()}`
+      )
+      dashboardTimeseries.value = data
+    } catch (error) {
+      console.error('[CRM] Failed to fetch timeseries:', error)
+      dashboardTimeseries.value = []
+    } finally {
+      loadingTimeseries.value = false
     }
   }
 
@@ -324,6 +360,10 @@ export const useCrmStore = defineStore('crm', () => {
   const customers = ref<Customer[]>([])
   const currentCustomer = ref<Customer | null>(null)
   const loadingCustomers = ref(false)
+  
+  // Customer Feedbacks
+  const customerFeedbacks = ref<CustomerFeedback[]>([])
+  const loadingCustomerFeedbacks = ref(false)
 
   async function fetchCustomers(filter?: 'inactive' | 'cold') {
     loadingCustomers.value = true
@@ -365,6 +405,39 @@ export const useCrmStore = defineStore('crm', () => {
       method: 'POST'
     })
     await fetchCustomer(id)
+  }
+
+  async function deleteCustomer(id: string) {
+    await fetchAPI(`${API_BASE}/customers/${id}`, {
+      method: 'DELETE'
+    })
+    customers.value = customers.value.filter((c) => c.id !== id)
+  }
+
+  // Customer Feedbacks
+  async function fetchCustomerFeedbacks() {
+    loadingCustomerFeedbacks.value = true
+    try {
+      customerFeedbacks.value = await fetchAPI<CustomerFeedback[]>(`${API_BASE}/customer-feedbacks`)
+    } finally {
+      loadingCustomerFeedbacks.value = false
+    }
+  }
+
+  async function createCustomerFeedback(data: { customer_id: string; reason: string }) {
+    const feedback = await fetchAPI<CustomerFeedback>(`${API_BASE}/customer-feedbacks`, {
+      method: 'POST',
+      body: JSON.stringify(data)
+    })
+    customerFeedbacks.value.unshift(feedback)
+    return feedback
+  }
+
+  async function deleteCustomerFeedback(id: string) {
+    await fetchAPI(`${API_BASE}/customer-feedbacks/${id}`, {
+      method: 'DELETE'
+    })
+    customerFeedbacks.value = customerFeedbacks.value.filter((f) => f.id !== id)
   }
 
   // Orders
@@ -871,6 +944,31 @@ export const useCrmStore = defineStore('crm', () => {
     messageTemplates.value = messageTemplates.value.filter((t) => t.id !== id)
   }
 
+  async function verifyProfitPassword(password: string) {
+    verifyingProfitAccess.value = true
+    try {
+      const result = await fetchAPI<{ ok: boolean }>(`/api/admin/settings/profit-password/verify`, {
+        method: 'POST',
+        body: JSON.stringify({ password })
+      })
+      if (result.ok) {
+        profitUnlocked.value = true
+        if (typeof localStorage !== 'undefined') {
+          localStorage.setItem('crm_profit_unlocked', 'true')
+        }
+      }
+      return result
+    } catch (error) {
+      profitUnlocked.value = false
+      if (typeof localStorage !== 'undefined') {
+        localStorage.removeItem('crm_profit_unlocked')
+      }
+      throw error
+    } finally {
+      verifyingProfitAccess.value = false
+    }
+  }
+
   return {
     // Profit access
     profitUnlocked,
@@ -882,6 +980,9 @@ export const useCrmStore = defineStore('crm', () => {
     dashboardStats,
     loadingDashboard,
     fetchDashboard,
+    dashboardTimeseries,
+    loadingTimeseries,
+    fetchDashboardTimeseries,
 
     // Employees
     employees,
@@ -900,6 +1001,14 @@ export const useCrmStore = defineStore('crm', () => {
     updateCustomer,
     blockCustomer,
     unblockCustomer,
+    deleteCustomer,
+
+    // Customer Feedbacks
+    customerFeedbacks,
+    loadingCustomerFeedbacks,
+    fetchCustomerFeedbacks,
+    createCustomerFeedback,
+    deleteCustomerFeedback,
 
     // Orders
     orders,

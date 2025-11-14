@@ -1,47 +1,24 @@
 <template>
   <div class="min-h-screen bg-gray-50 md:h-screen md:overflow-hidden">
     
-    <!-- Login -->
-    <div v-if="!adminStore.isAuthenticated" class="login-container">
-      <div class="login-form-wrapper">
-        <div class="card-base p-6 sm:p-8">
-          <div class="text-center mb-6">
-            <div class="inline-flex items-center justify-center w-12 h-12 rounded-xl bg-brand-primary/30 text-brand-dark mb-3">
-              <svg class="w-7 h-7" viewBox="0 0 24 24" fill="currentColor"><path d="M12 4l2 4 4 .6-3 3 .7 4.4L12 14l-3.7 2.9.7-4.4-3-3L10 8l2-4z"/></svg>
-            </div>
-            <h1 class="font-accent text-2xl font-bold text-brand-dark uppercase tracking-wider">НАВАЛИВАЙ Admin</h1>
-            <p class="body-mobile text-gray-600 mt-1">Войдите чтобы управлять контентом</p>
-          </div>
-
-          <form @submit.prevent="handleLogin" class="login-form space-y-4">
-            <div>
-              <label class="block text-sm font-medium text-gray-700 mb-2">Логин</label>
-              <input v-model="loginForm.username" type="text" required class="login-input px-3 py-3 sm:px-4 border border-gray-300 rounded-xl focus:ring-2 focus:ring-brand-dark focus:border-transparent text-base" placeholder="admin" />
-            </div>
-            <div>
-              <label class="block text-sm font-medium text-gray-700 mb-2">Пароль</label>
-              <input v-model="loginForm.password" type="password" required class="login-input px-3 py-3 sm:px-4 border border-gray-300 rounded-xl focus:ring-2 focus:ring-brand-dark focus:border-transparent text-base" placeholder="••••••••" />
-            </div>
-            <button type="submit" :disabled="adminStore.isLoading" class="login-button py-3 px-4 bg-brand-primary text-brand-dark font-semibold rounded-xl hover:bg-brand-primary/90 focus:ring-2 focus:ring-brand-dark focus:ring-offset-2 disabled:opacity-50 transition-all duration-200 text-base">
-              {{ adminStore.isLoading ? 'Вход...' : 'Войти' }}
-            </button>
-            <div v-if="adminStore.error" class="p-3 bg-red-100 border border-red-300 rounded-xl text-red-700 text-sm">{{ adminStore.error }}</div>
-          </form>
-        </div>
-      </div>
-    </div>
+    <!-- Login screen -->
+    <AdminLoginScreen v-if="!adminStore.isAuthenticated" @success="handleLoginSuccess" />
+    
+    <!-- Lock screen -->
+    <AdminLockScreen v-else-if="adminStore.isAuthenticated && isLocked" @unlocked="handleUnlock" />
 
     <!-- Authenticated layout -->
-<AdminLayout v-else v-model="layoutTab" :tabs="adminTabs" :main-active="!isCrmRoute" :crm-links="crmLinks" @logout="handleLogout">
+<AdminLayout v-else-if="adminStore.isAuthenticated" v-model="layoutTab" :tabs="adminTabs" :main-active="!isCrmRoute" :crm-links="crmLinks" @lock="handleLock">
         <template #default>
           <RouterView v-if="isCrmRoute" />
           <template v-else>
             <!-- Overview -->
             <template v-if="activeTab === 'dashboard'">
+              <!-- Profit access form for dashboard -->
               <div v-if="!profitUnlocked" class="flex justify-center py-12">
                 <div class="w-full max-w-sm rounded-2xl bg-white p-6 shadow">
                   <h3 class="text-lg font-semibold text-gray-900 text-center mb-3">Введите код доступа</h3>
-                  <form class="space-y-4" @submit.prevent="submitOverviewAccess">
+                  <form class="space-y-4" @submit.prevent="handleProfitUnlocked">
                     <input
                       v-model="profitPassword"
                       type="password"
@@ -59,171 +36,233 @@
                   </form>
                 </div>
               </div>
-              <div v-else class="space-y-8">
-            <section class="relative overflow-hidden rounded-3xl bg-gradient-to-br from-brand-dark via-red-600 to-brand-primary text-white shadow-xl">
-              <div class="absolute inset-0">
-                <div class="absolute -top-16 -left-24 h-64 w-64 rounded-full bg-white/15 blur-3xl"></div>
-                <div class="absolute -bottom-20 right-0 h-72 w-72 rounded-full bg-white/10 blur-2xl"></div>
-              </div>
+              
+              <div v-else class="space-y-6">
+            <!-- Main Dashboard Card -->
+            <section class="relative overflow-hidden rounded-3xl bg-gradient-to-r from-gray-900 via-red-700 to-red-500 text-white shadow-2xl">
               <Transition name="dash-fade" mode="out-in">
-                <div :key="`${overviewPeriod}-${overviewOffset}-hero`" class="relative z-10 space-y-8 p-6 sm:p-8 lg:p-10">
-                  <div class="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
-                  <div class="flex-1 min-w-0 space-y-6">
-                    <div class="flex flex-wrap items-center gap-3">
-                      <span class="relative inline-flex items-center gap-3 rounded-full border border-white/25 bg-white/10 px-5 py-2 text-[0.65rem] font-semibold uppercase tracking-[0.35em] text-white/80 shadow-[0_10px_30px_rgba(0,0,0,0.18)] backdrop-blur-sm">
-                        <span class="flex h-7 w-7 items-center justify-center rounded-full bg-white/15 text-white">
-                          <SparklesIcon class="h-4 w-4" />
-                        </span>
-                        <span class="tracking-[0.4em]">
-                          Обзор · {{ activeOverviewLabel }}
-                        </span>
-                      </span>
-                    </div>
+                <div :key="`${overviewPeriod}-${selectedMetric}`" class="relative z-10 p-6 sm:p-8">
+                  <div class="flex flex-col lg:flex-row gap-6 lg:gap-8">
+                    <!-- Left: Metrics Cards -->
+                    <div class="flex-shrink-0 space-y-4" style="width: 100%; max-width: 280px;">
+                      <!-- Header -->
+                      <div class="mb-2">
+                        <h2 class="text-2xl sm:text-3xl font-extrabold text-white leading-tight capitalize">{{ currentMonthName }}</h2>
+                        <p class="text-[10px] sm:text-[11px] uppercase tracking-wider text-white/60 mt-1">{{ dashboardHeader }}</p>
+                      </div>
 
-                    <div v-if="overviewStats" class="grid w-full min-w-0 gap-3 sm:grid-cols-2 md:grid-cols-3">
-                      <div class="rounded-2xl border border-white/20 bg-white/10 px-4 py-3 backdrop-blur">
-                        <p class="text-[0.65rem] font-semibold uppercase tracking-[0.25em] text-white/70">Сделок</p>
-                        <p class="mt-1 text-xl font-semibold">
-                          <CountUp :value="overviewStats?.totalSales ?? 0" :key="`${overviewPeriod}-${overviewOffset}-sales`" />
+                      <!-- Interactive Metric Cards -->
+                      <button
+                        @click="selectedMetric = 'revenue'"
+                        class="metric-card w-full rounded-2xl px-5 py-4 text-left cursor-pointer relative"
+                        :class="{
+                          'metric-card--active': selectedMetric === 'revenue',
+                          'metric-card--inactive': selectedMetric !== 'revenue',
+                          'metric-card--pulse': selectedMetric === 'revenue' && chartTransitioning
+                        }"
+                        :title="dashboardTimeseries && dashboardTimeseries.length > 0 ? `Сумма из ${dashboardTimeseries.length} точек графика` : ''"
+                      >
+                        <p class="relative z-10 text-[0.65rem] font-bold uppercase tracking-[0.3em] text-white/80">Выручка</p>
+                        <p class="relative z-10 mt-2 text-3xl sm:text-4xl font-bold text-white">
+                          <CountUpCurrency v-if="overviewStats" :value="overviewStats.revenue ?? 0" :key="`${overviewPeriod}-${overviewOffset}-revenue`" />
+                          <span v-else>—</span>
                         </p>
-                      </div>
-                      <div class="rounded-2xl border border-white/20 bg-white/10 px-4 py-3 backdrop-blur">
-                        <p class="text-[0.65rem] font-semibold uppercase tracking-[0.25em] text-white/70">Выручка</p>
-                        <p class="mt-1 text-xl font-semibold">
-                          <CountUpCurrency :value="overviewStats?.revenue ?? 0" :key="`${overviewPeriod}-${overviewOffset}-rev`" />
+                      </button>
+
+                      <button
+                        @click="selectedMetric = 'profit'"
+                        class="metric-card w-full rounded-2xl px-5 py-4 text-left cursor-pointer relative"
+                        :class="{
+                          'metric-card--active': selectedMetric === 'profit',
+                          'metric-card--inactive': selectedMetric !== 'profit',
+                          'metric-card--pulse': selectedMetric === 'profit' && chartTransitioning
+                        }"
+                        :title="dashboardTimeseries && dashboardTimeseries.length > 0 ? `Сумма из ${dashboardTimeseries.length} точек графика` : ''"
+                      >
+                        <p class="relative z-10 text-[0.65rem] font-bold uppercase tracking-[0.3em] text-white/80">Прибыль</p>
+                        <p class="relative z-10 mt-2 text-3xl sm:text-4xl font-bold text-white">
+                          <CountUpCurrency v-if="overviewStats" :value="overviewStats.profit ?? 0" :key="`${overviewPeriod}-${overviewOffset}-profit`" />
+                          <span v-else>—</span>
                         </p>
-                      </div>
-                      <div class="rounded-2xl border border-white/20 bg-white/10 px-4 py-3 backdrop-blur">
-                        <p class="text-[0.65rem] font-semibold uppercase tracking-[0.25em] text-white/70">Средний чек</p>
-                        <p class="mt-1 text-xl font-semibold">
-                          <CountUpCurrency :value="overviewStats?.averageCheck ?? 0" :key="`${overviewPeriod}-${overviewOffset}-avg`" />
+                      </button>
+
+                      <button
+                        @click="selectedMetric = 'orders'"
+                        class="metric-card w-full rounded-2xl px-5 py-4 text-left cursor-pointer relative"
+                        :class="{
+                          'metric-card--active': selectedMetric === 'orders',
+                          'metric-card--inactive': selectedMetric !== 'orders',
+                          'metric-card--pulse': selectedMetric === 'orders' && chartTransitioning
+                        }"
+                        :title="dashboardTimeseries && dashboardTimeseries.length > 0 ? `Сумма из ${dashboardTimeseries.length} точек графика` : ''"
+                      >
+                        <p class="relative z-10 text-[0.65rem] font-bold uppercase tracking-[0.3em] text-white/80">Заказов</p>
+                        <p class="relative z-10 mt-2 text-3xl sm:text-4xl font-bold text-white">
+                          <CountUp v-if="overviewStats" :value="overviewStats.totalSales ?? 0" :key="`${overviewPeriod}-${overviewOffset}-orders`" />
+                          <span v-else>—</span>
                         </p>
-                      </div>
+                      </button>
                     </div>
 
-                    <div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-2">
-                      <div class="group relative overflow-hidden rounded-2xl bg-white/10 p-5 shadow-lg backdrop-blur-sm ring-1 ring-inset ring-white/15 transition hover:bg-white/15">
-                        <div class="flex flex-col items-start gap-4 sm:flex-row sm:items-start sm:justify-between">
-                          <div class="space-y-2">
-                            <p class="text-xs font-semibold uppercase tracking-[0.25em] text-white/60">Продажи</p>
-                            <p class="text-3xl font-semibold">
-                              <CountUp :value="overviewStats?.totalSales ?? 0" :key="`${overviewPeriod}-${overviewOffset}-bigsales`" />
-                            </p>
-                          </div>
-                          <span class="rounded-xl bg-white/20 p-2 text-white">
-                            <ArrowTrendingUpIcon class="h-6 w-6" />
-                          </span>
-                        </div>
-                        <p class="mt-3 text-xs text-white/70">Количество завершённых сделок за период</p>
+                    <!-- Right: Chart -->
+                    <div class="flex-1 flex flex-col gap-4 min-w-0">
+                      <!-- Period Selector -->
+                      <div class="flex flex-wrap items-center gap-2">
+                        <button
+                          v-for="option in overviewPeriods"
+                          :key="option.value"
+                          type="button"
+                          class="rounded-xl px-4 py-2 text-xs font-bold uppercase tracking-wider transition-all duration-200"
+                          :class="overviewPeriod === option.value ? 'bg-white text-red-600 shadow-lg scale-105' : 'bg-white/15 text-white/90 hover:bg-white/25'"
+                          @click="overviewPeriod = option.value; overviewOffset = 0"
+                        >
+                          {{ option.label }}
+                        </button>
                       </div>
 
-                      <div class="group relative overflow-hidden rounded-2xl bg-white/10 p-5 shadow-lg backdrop-blur-sm ring-1 ring-inset ring-white/15 transition hover:bg-white/15">
-                        <div class="flex flex-col items-start gap-4 sm:flex-row sm:items-start sm:justify-between">
-                          <div class="space-y-2">
-                            <p class="text-xs font-semibold uppercase tracking-[0.25em] text-white/60">Выручка</p>
-                            <p class="text-3xl font-semibold">
-                              <CountUpCurrency :value="overviewStats?.revenue ?? 0" :key="`${overviewPeriod}-${overviewOffset}-bigrev`" />
-                            </p>
-                          </div>
-                          <span class="rounded-xl bg-white/20 p-2 text-white">
-                            <CurrencyDollarIcon class="h-6 w-6" />
-                          </span>
+                      <!-- Chart Area -->
+                      <div class="flex-1 rounded-2xl bg-white/5 backdrop-blur-sm p-4 sm:p-5 border border-white/10">
+                        <div v-if="loadingTimeseries" class="flex flex-col items-center justify-center h-64 gap-4">
+                          <div class="h-10 w-10 animate-spin rounded-full border-3 border-white/30 border-t-white"></div>
+                          <p class="text-xs text-white/60 font-medium animate-pulse">Загрузка графика...</p>
                         </div>
-                        <p class="mt-3 text-xs text-white/70">Совокупный доход без учёта расходов</p>
-                      </div>
-
-                      <div class="group relative overflow-hidden rounded-2xl bg-white/10 p-5 shadow-lg backdrop-blur-sm ring-1 ring-inset ring-white/15 transition hover:bg-white/15 xl:col-span-2">
-                        <div class="flex flex-col items-start gap-4 sm:flex-row sm:items-start sm:justify-between">
-                          <div class="space-y-2">
-                            <p class="text-xs font-semibold uppercase tracking-[0.25em] text-white/60">Средний чек</p>
-                            <p class="text-3xl font-semibold">
-                              <CountUpCurrency :value="overviewStats?.averageCheck ?? 0" :key="`${overviewPeriod}-${overviewOffset}-bigavg`" />
-                            </p>
-                          </div>
-                          <span class="rounded-xl bg-white/20 p-2 text-white">
-                            <ChartBarIcon class="h-6 w-6" />
-                          </span>
-                        </div>
-                        <p class="mt-3 text-xs text-white/70">Средняя сумма заказа в выбранный период</p>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div class="flex w-full flex-col gap-4 sm:max-w-md lg:max-w-sm lg:self-center lg:my-auto">
-                    <div class="rounded-2xl border border-white/20 bg-white/10 p-5 shadow-lg backdrop-blur">
-                      <p class="text-xs font-semibold uppercase tracking-[0.3em] text-white/70">Витрина</p>
-                      <div class="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-3">
-                        <div class="space-y-1">
-                          <p class="text-[0.6rem] font-semibold uppercase tracking-[0.3em] text-white/50">Товары</p>
-                          <p class="text-xl font-semibold text-white">{{ stats.products }}</p>
-                        </div>
-                        <div class="space-y-1">
-                          <p class="text-[0.6rem] font-semibold uppercase tracking-[0.3em] text-white/50">Категории</p>
-                          <p class="text-xl font-semibold text-white">{{ stats.categories }}</p>
-                        </div>
-                        <div class="space-y-1">
-                          <p class="text-[0.6rem] font-semibold uppercase tracking-[0.3em] text-white/50">Баннеры</p>
-                          <p class="text-xl font-semibold text-white">{{ stats.banners }}</p>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div class="rounded-2xl border border-white/15 bg-white/10 p-5 shadow-lg backdrop-blur-sm">
-                      <div class="flex items-start justify-between gap-4">
-                        <div class="space-y-3">
-                          <p class="text-xs font-semibold uppercase tracking-[0.25em] text-white/60">Прибыль</p>
-                          <div v-if="profitUnlocked" class="space-y-2">
-                            <p class="text-2xl font-semibold text-white">
-                              <CountUpCurrency :value="overviewStats?.profit ?? 0" :key="`${overviewPeriod}-${overviewOffset}-profit`" />
-                            </p>
-                            <p v-if="profitMargin !== null" class="text-xs text-white/70">Маржинальность {{ profitMargin }}%</p>
-                          </div>
-                          <div v-else class="space-y-4">
-                            <div class="flex items-center gap-3 select-none">
+                        <div v-else-if="chartData.length > 0" class="space-y-4">
+                          <div class="relative h-64 sm:h-72">
+                            <!-- Chart bars -->
+                            <div :key="chartAnimationKey" class="absolute inset-0 flex items-end justify-between gap-1 px-2">
                               <div
-                                class="profit-mask-bar"
-                                :aria-label="formatCurrency(overviewStats?.profit)"
-                                role="img"
-                              ></div>
+                                v-for="(point, index) in chartData"
+                                :key="`${point.label}-${index}`"
+                                class="flex-1 relative flex flex-col items-center justify-end group"
+                              >
+                                <!-- Value label above bar -->
+                                <div
+                                  v-if="point.value > 0"
+                                  :key="`value-${chartAnimationKey}-${index}`"
+                                  class="chart-value-label absolute text-[9px] sm:text-[10px] font-semibold text-white/60 group-hover:text-white/90 whitespace-nowrap pointer-events-none"
+                                  :style="{
+                                    '--value-delay': (index * 20 + 150) + 'ms',
+                                    bottom: (getBarHeightPx(point.value) + 4) + 'px'
+                                  }"
+                                >
+                                  {{ formatChartValueCompact(point.value) }}
+                                </div>
+                                
+                                <!-- Tooltip -->
+                                <Transition
+                                  enter-active-class="transition-all duration-150 ease-out"
+                                  enter-from-class="opacity-0 scale-90"
+                                  enter-to-class="opacity-100 scale-100"
+                                  leave-active-class="transition-all duration-100 ease-in"
+                                  leave-from-class="opacity-100 scale-100"
+                                  leave-to-class="opacity-0 scale-90"
+                                >
+                                  <div
+                                    v-if="hoveredBarIndex === index"
+                                    class="absolute left-1/2 -translate-x-1/2 rounded-lg bg-gradient-to-br from-gray-900 to-gray-800 px-2.5 py-1.5 text-sm text-white shadow-2xl whitespace-nowrap z-20 border border-white/10"
+                                    :style="{ bottom: (getBarHeightPx(point.value) + 20) + 'px' }"
+                                  >
+                                    <!-- Метрика с иконкой -->
+                                    <div class="flex items-center gap-1.5 mb-1 pb-1 border-b border-white/10">
+                                      <div class="w-4 h-4 rounded flex items-center justify-center" :class="{
+                                        'bg-green-500/20': selectedMetric === 'revenue',
+                                        'bg-blue-500/20': selectedMetric === 'profit',
+                                        'bg-purple-500/20': selectedMetric === 'orders'
+                                      }">
+                                        <svg v-if="selectedMetric === 'revenue'" class="w-2.5 h-2.5 text-green-400" fill="currentColor" viewBox="0 0 20 20">
+                                          <path d="M8.433 7.418c.155-.103.346-.196.567-.267v1.698a2.305 2.305 0 01-.567-.267C8.07 8.34 8 8.114 8 8c0-.114.07-.34.433-.582zM11 12.849v-1.698c.22.071.412.164.567.267.364.243.433.468.433.582 0 .114-.07.34-.433.582a2.305 2.305 0 01-.567.267z"/>
+                                          <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-13a1 1 0 10-2 0v.092a4.535 4.535 0 00-1.676.662C6.602 6.234 6 7.009 6 8c0 .99.602 1.765 1.324 2.246.48.32 1.054.545 1.676.662v1.941c-.391-.127-.68-.317-.843-.504a1 1 0 10-1.51 1.31c.562.649 1.413 1.076 2.353 1.253V15a1 1 0 102 0v-.092a4.535 4.535 0 001.676-.662C13.398 13.766 14 12.991 14 12c0-.99-.602-1.765-1.324-2.246A4.535 4.535 0 0011 9.092V7.151c.391.127.68.317.843.504a1 1 0 101.511-1.31c-.563-.649-1.413-1.076-2.354-1.253V5z" clip-rule="evenodd"/>
+                                        </svg>
+                                        <svg v-else-if="selectedMetric === 'profit'" class="w-2.5 h-2.5 text-blue-400" fill="currentColor" viewBox="0 0 20 20">
+                                          <path fill-rule="evenodd" d="M12 7a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0V8.414l-4.293 4.293a1 1 0 01-1.414 0L8 10.414l-4.293 4.293a1 1 0 01-1.414-1.414l5-5a1 1 0 011.414 0L11 10.586 14.586 7H12z" clip-rule="evenodd"/>
+                                        </svg>
+                                        <svg v-else class="w-2.5 h-2.5 text-purple-400" fill="currentColor" viewBox="0 0 20 20">
+                                          <path d="M9 2a1 1 0 000 2h2a1 1 0 100-2H9z"/>
+                                          <path fill-rule="evenodd" d="M4 5a2 2 0 012-2 3 3 0 003 3h2a3 3 0 003-3 2 2 0 012 2v11a2 2 0 01-2 2H6a2 2 0 01-2-2V5zm3 4a1 1 0 000 2h.01a1 1 0 100-2H7zm3 0a1 1 0 000 2h3a1 1 0 100-2h-3zm-3 4a1 1 0 100 2h.01a1 1 0 100-2H7zm3 0a1 1 0 100 2h3a1 1 0 100-2h-3z" clip-rule="evenodd"/>
+                                        </svg>
+                                      </div>
+                                      <span class="text-[10px] font-semibold uppercase tracking-wide text-white/60">
+                                        {{ selectedMetric === 'revenue' ? 'Выручка' : selectedMetric === 'profit' ? 'Прибыль' : 'Заказов' }}
+                                      </span>
+                                    </div>
+                                    
+                                    <!-- Значение и дата в одной строке -->
+                                    <div class="flex items-baseline justify-between gap-3">
+                                      <div class="font-bold text-base" :class="{
+                                        'text-green-400': selectedMetric === 'revenue',
+                                        'text-blue-400': selectedMetric === 'profit',
+                                        'text-purple-400': selectedMetric === 'orders'
+                                      }">
+                                        {{ formatChartValue(point.value) }}
+                                      </div>
+                                      <div class="flex items-center gap-1 text-[10px] text-white/40">
+                                        <svg class="w-2.5 h-2.5" fill="currentColor" viewBox="0 0 20 20">
+                                          <path fill-rule="evenodd" d="M6 2a1 1 0 00-1 1v1H4a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V6a2 2 0 00-2-2h-1V3a1 1 0 10-2 0v1H7V3a1 1 0 00-1-1zm0 5a1 1 0 000 2h8a1 1 0 100-2H6z" clip-rule="evenodd"/>
+                                        </svg>
+                                        <span>{{ point.label }}</span>
+                                      </div>
+                                    </div>
+                                  </div>
+                                </Transition>
+                                <!-- Bar with dual animation modes -->
+                                <div
+                                  class="chart-bar w-full rounded-t-sm cursor-pointer"
+                                  :class="{
+                                    'chart-bar--hovered': hoveredBarIndex === index,
+                                    'chart-bar--morphing': chartTransitioning
+                                  }"
+                                  :style="{
+                                    '--bar-height': getBarHeightPx(point.value) + 'px',
+                                    '--bar-delay': (index * 20) + 'ms',
+                                    backgroundColor: hoveredBarIndex === index ? '#ffffff' : 'rgba(255, 255, 255, 0.85)'
+                                  }"
+                                  @mouseenter="hoveredBarIndex = index"
+                                  @mouseleave="hoveredBarIndex = null"
+                                ></div>
+                              </div>
                             </div>
-                            <button
-                              type="button"
-                              class="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/15 px-6 py-2 text-[0.65rem] font-semibold uppercase tracking-[0.35em] text-white transition hover:border-white/35 hover:bg-white/25"
-                              aria-label="Разблокировать"
-                              @click="openProfitModal"
+                          </div>
+                          <!-- Labels -->
+                          <div class="flex items-center justify-between gap-1 px-2">
+                            <div
+                              v-for="(point, index) in chartData"
+                              :key="`label-${point.label}-${index}`"
+                              class="flex-1 text-center text-[9px] sm:text-[10px] text-white/70 font-medium truncate"
+                              :class="{ 'chart-label': isInitialChartLoad }"
+                              :style="{ '--label-delay': (index * 20 + 100) + 'ms' }"
                             >
-                              <LockOpenIcon class="h-4 w-4" />
-                              <span>Открыть</span>
-                            </button>
+                              {{ point.label }}
+                            </div>
                           </div>
                         </div>
-                        <span class="flex h-12 w-12 items-center justify-center rounded-xl bg-white/15 text-white">
-                          <BoltIcon class="h-6 w-6" />
-                        </span>
+                        <div v-else class="h-64 flex flex-col items-center justify-center text-white/60 text-sm gap-2">
+                          <svg class="w-12 h-12 text-white/30" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                          </svg>
+                          <p class="font-medium">Нет данных за выбранный период</p>
+                          <p class="text-xs text-white/40">Выберите другой период или добавьте заказы через CRM</p>
+                        </div>
                       </div>
-                      <p v-if="!profitUnlocked" class="mt-4 text-xs text-white/70">Доступно после подтверждения паролем</p>
+
+                      <!-- Navigation -->
+                      <div class="flex items-center justify-center gap-3 text-xs font-semibold uppercase tracking-wider text-white/90">
+                        <button
+                          @click="prevOverviewRange"
+                          class="rounded-lg bg-white/15 border border-white/20 px-3 py-1.5 hover:bg-white/25 transition"
+                        >
+                          ←
+                        </button>
+                        <span class="px-2">{{ overviewRangeLabel }}</span>
+                        <button
+                          @click="nextOverviewRange"
+                          :disabled="isAtCurrentOverview"
+                          class="rounded-lg bg-white/15 border border-white/20 px-3 py-1.5 hover:bg-white/25 transition disabled:opacity-40 disabled:cursor-not-allowed"
+                        >
+                          →
+                        </button>
+                      </div>
                     </div>
                   </div>
-                </div>
-
-                <div class="flex flex-wrap items-center gap-2">
-                  <button
-                    v-for="option in overviewPeriods"
-                    :key="option.value"
-                    type="button"
-                    class="w-full rounded-full px-4 py-2 text-center text-xs font-semibold uppercase tracking-[0.2em] transition sm:w-auto sm:tracking-[0.3em]"
-                    :class="overviewPeriod === option.value ? 'bg-white text-brand-dark shadow-lg' : 'bg-white/15 text-white/80 hover:bg-white/25'"
-                    @click="overviewPeriod = option.value; overviewOffset = 0"
-                  >
-                    {{ option.label }}
-                  </button>
-                </div>
-
-                <div class="mt-3 flex items-center gap-3 text-xs font-semibold uppercase tracking-[0.25em] text-white/80">
-                  <button @click="prevOverviewRange" class="rounded-md border border-white/20 px-2 py-1 hover:bg-white/10">&lt;</button>
-                  <span>{{ overviewRangeLabel }}</span>
-                  <button @click="nextOverviewRange" :disabled="isAtCurrentOverview" class="rounded-md border border-white/20 px-2 py-1 hover:bg-white/10 disabled:opacity-40">&gt;</button>
-                </div>
                 </div>
               </Transition>
             </section>
@@ -237,8 +276,8 @@
                   <div class="card-base relative overflow-hidden rounded-3xl border border-red-100/60 bg-white p-6 shadow-lg">
                     <div class="flex flex-col items-start gap-4 sm:flex-row sm:items-start sm:justify-between">
                       <div>
-                        <h3 class="text-lg font-semibold text-gray-900">Лучшие линейки</h3>
-                        <p class="text-sm text-gray-500">Топ-{{ topGroups.length }} направлений по выручке</p>
+                        <h3 class="text-lg font-semibold text-gray-900">Топ линеек по прибыли</h3>
+                        <p class="mt-1 text-xs text-gray-400">Если линеек меньше пяти, отображаются только доступные</p>
                       </div>
                       <span v-if="topGroups.length" class="rounded-full bg-brand-primary/20 px-3 py-1 text-xs font-semibold text-brand-dark">
                         {{ topGroups.length }}
@@ -258,12 +297,16 @@
                             </p>
                             <p class="text-xs text-gray-500">Продано: {{ group.total_quantity }} шт</p>
                           </div>
-                          <p class="text-lg font-semibold text-brand-dark">{{ formatCurrency(group.total_revenue) }}</p>
+<div class="flex items-center gap-2">
+  <p class="text-lg font-semibold text-brand-dark" title="Прибыль">
+    {{ formatCurrency(group.total_profit ?? 0) }}
+  </p>
+</div>
                         </div>
                         <div class="mt-4 h-2 w-full rounded-full bg-gray-100">
                           <div
                             class="h-full rounded-full bg-gradient-to-r from-brand-dark via-red-500 to-brand-primary"
-                          :style="{ width: `${Math.min(100, Math.max(0, topGroupsMaxRevenue ? ((group.total_revenue ?? 0) / topGroupsMaxRevenue) * 100 : 0))}%` }"
+:style="{ width: `${Math.min(100, Math.max(0, topGroupsMaxProfit ? (((group.total_profit ?? 0) / topGroupsMaxProfit) * 100) : 0))}%` }"
                           ></div>
                         </div>
                       </div>
@@ -325,6 +368,7 @@
                     </div>
                   </div>
                 </section>
+
               </div>
               <div v-else key="empty" class="rounded-3xl border border-dashed border-gray-200 bg-white p-10 text-center text-gray-500 shadow-sm">
                 Нет данных для выбранного периода.
@@ -447,8 +491,7 @@
 
                 <section class="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
                   <div class="space-y-1">
-                    <h3 class="text-lg font-semibold text-gray-900">Лицензионный ключ для просмотра прибыли</h3>
-                    <p class="text-sm text-gray-600">Настройте допуск к финансовым показателям.</p>
+                    <h3 class="text-lg font-semibold text-gray-900">Лицензионный ключ</h3>
                   </div>
 
                   <form @submit.prevent="handleProfitPasswordUpdate" class="mt-6 space-y-4">
@@ -745,45 +788,6 @@
       </div>
     </AdminModal>
 
-    <AdminModal
-      :isOpen="showProfitModal"
-      title="Подтверждение доступа"
-      description="Введите лицензионный ключ"
-      size="sm"
-      :showActions="false"
-      @close="closeProfitModal"
-      @cancel="closeProfitModal"
-    >
-      <form class="space-y-4" @submit.prevent="submitProfitPassword">
-        <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">Ключ</label>
-          <input
-            v-model="profitPassword"
-            type="password"
-            class="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-brand-dark focus:outline-none focus:ring-2 focus:ring-brand-dark/20"
-            placeholder="XXX-XXX-XXX"
-          />
-          <p v-if="profitError" class="mt-2 text-sm text-red-600">{{ profitError }}</p>
-        </div>
-        <div class="flex gap-3 pt-2">
-          <button
-            type="submit"
-            class="flex-1 rounded-md bg-brand-dark px-4 py-2 text-sm font-semibold text-white transition hover:bg-brand-dark/90 disabled:cursor-not-allowed disabled:bg-brand-dark/60"
-            :disabled="verifyingProfit"
-          >
-            {{ verifyingProfit ? 'Проверяем…' : 'Показать' }}
-          </button>
-          <button
-            type="button"
-            class="flex-1 rounded-md bg-gray-200 px-4 py-2 text-sm font-medium text-gray-700 transition hover:bg-gray-300"
-            @click="closeProfitModal"
-          >
-            Отмена
-          </button>
-        </div>
-      </form>
-    </AdminModal>
-
     <!-- Global Toast for Admin actions -->
     <Transition
       enter-active-class="transition-all duration-300 ease-out"
@@ -823,6 +827,8 @@ import AdminLayout from '@/components/admin/layout/AdminLayout.vue'
 import AdminSectionHero from '@/components/admin/layout/AdminSectionHero.vue'
 import AdminProductsTable from '@/components/admin/AdminProductsTable.vue'
 import AdminCategoryGroupForm from '@/components/admin/AdminCategoryGroupForm.vue'
+import AdminLoginScreen from '@/components/admin/AdminLoginScreen.vue'
+import AdminLockScreen from '@/components/admin/AdminLockScreen.vue'
 import CountUp from '@/components/CountUp.vue'
 import CountUpCurrency from '@/components/CountUpCurrency.vue'
 import { adminTabs, crmLinks, adminTabOptions, type AdminTabId } from '@/constants/adminNavigation'
@@ -831,19 +837,31 @@ const router = useRouter()
 const route = useRoute()
 const adminStore = useAdminStore()
 const crmStore = useCrmStore()
-const { dashboardStats, loadingDashboard, profitUnlocked, verifyingProfitAccess } = storeToRefs(crmStore)
+const { dashboardStats, loadingDashboard, profitUnlocked, verifyingProfitAccess, dashboardTimeseries, loadingTimeseries } = storeToRefs(crmStore)
 const isCrmRoute = computed(() => route.path.startsWith('/admin/crm'))
 
+// Lock screen state
+const LOCK_STATE_KEY = 'admin_panel_locked'
+const isLocked = ref(false)
+
 const overviewPeriods = [
-  { value: 'today', label: 'Сегодня' },
-  { value: 'week', label: 'Неделя' },
-  { value: 'month', label: 'Месяц' },
-  { value: 'year', label: 'Год' }
+  { value: 'today', label: 'за день' },
+  { value: 'month', label: 'за месяц' },
+  { value: 'year', label: 'за год' }
 ] as const
 type OverviewPeriod = typeof overviewPeriods[number]['value']
-const overviewPeriod = ref<OverviewPeriod>('today')
+const overviewPeriod = ref<OverviewPeriod>('year')
+const selectedMetric = ref<'revenue' | 'profit' | 'orders'>('profit')
 const overviewOffset = ref(0)
 const activeOverviewLabel = computed(() => overviewPeriods.find(option => option.value === overviewPeriod.value)?.label || '')
+
+// Вычисляемый год на основе offset (для периода 'year')
+const currentYearForView = computed(() => {
+  if (overviewPeriod.value === 'year') {
+    return new Date().getFullYear() + overviewOffset.value
+  }
+  return new Date().getFullYear()
+})
 
 const isAtCurrentOverview = computed(() => overviewOffset.value >= 0)
 const overviewRangeLabel = computed(() => {
@@ -1114,7 +1132,6 @@ watch(activeTab, (tab) => {
   void ensureTabData(tab)
 })
 
-const loginForm = ref({ username: '', password: '' })
 const passwordForm = ref({ currentPassword: '', newPassword: '', confirmPassword: '' })
 const managerForm = ref({ telegram: '' })
 const profitPasswordForm = ref<{ current: string; next: string; confirm: string }>({
@@ -1133,7 +1150,41 @@ const stats = computed(() => ({
   banners: adminStore.banners?.length || 0
 }))
 
-const overviewStats = computed(() => dashboardStats.value?.stats ?? null)
+// Метрики вычисляются из детализированных данных графика
+// Это гарантирует 100% синхронизацию между карточками и графиком
+const overviewStats = computed(() => {
+  // Приоритет: детализированные данные (timeseries)
+  if (dashboardTimeseries.value && dashboardTimeseries.value.length > 0) {
+    // Суммируем данные из точек графика
+    const revenue = dashboardTimeseries.value.reduce((sum, point) => sum + (point.revenue ?? 0), 0)
+    const profit = dashboardTimeseries.value.reduce((sum, point) => sum + (point.profit ?? 0), 0)
+    const totalSales = dashboardTimeseries.value.reduce((sum, point) => sum + (point.orders ?? 0), 0)
+    
+    const stats = {
+      revenue,
+      profit,
+      totalSales,
+      averageCheck: totalSales > 0 ? revenue / totalSales : 0,
+      uniqueCustomers: 0
+    }
+    
+    console.log(`[Dashboard] ✅ Метрики синхронизированы с графиком:`, {
+      'Точек данных': dashboardTimeseries.value.length,
+      'Выручка': revenue,
+      'Прибыль': profit,
+      'Заказов': totalSales,
+      'Пример точки': dashboardTimeseries.value[0],
+      'Источник': 'Прямой расчет из timeseries API'
+    })
+    
+    return stats
+  }
+  
+  // Fallback: если timeseries нет, используем агрегированные данные
+  console.log('[Dashboard] Fallback на dashboardStats')
+  return dashboardStats.value?.stats ?? null
+})
+
 const profitMargin = computed(() => {
   const revenue = overviewStats.value?.revenue ?? 0
   const profit = overviewStats.value?.profit ?? 0
@@ -1172,11 +1223,23 @@ const overviewStatuses = computed(() => {
     label: mapping[status] ?? status
   }))
 })
-const topGroups = computed(() => (dashboardStats.value?.topProducts ?? []).slice(0, 6))
+const topGroups = computed(() => {
+  const groups = (dashboardStats.value?.topProducts ?? []).slice(0, 5)
+  if (groups.length > 0) {
+    console.log('[Dashboard] 🏆 Лучшие линейки:', {
+      'Количество': groups.length,
+      'Пример': groups[0],
+      'Есть total_profit': groups[0]?.total_profit !== undefined
+    })
+  }
+  return groups
+})
 const overviewStatusTotal = computed(() => overviewStatuses.value.reduce((sum, status) => sum + (status.count ?? 0), 0))
-const topGroupsMaxRevenue = computed(() => {
-  const revenues = topGroups.value.map(group => group.total_revenue ?? 0)
-  return revenues.length ? Math.max(...revenues) : 0
+
+// Максимальная прибыль среди топ-линеек
+const topGroupsMaxProfit = computed(() => {
+  const profits = topGroups.value.map((g: any) => Number(g?.total_profit ?? 0))
+  return profits.length ? Math.max(...profits) : 0
 })
 
 const groupCounts = computed<Record<string, number>>(() => {
@@ -1245,23 +1308,45 @@ const groupFormOptions = computed(() => {
 })
 
 const currentTabName = computed(() => adminTabs.find(t => t.id === activeTab.value)?.name || 'Админ-панель')
-const currentTabDescription = computed(() => adminTabs.find(t => t.id === activeTab.value)?.description || '')
+const currentMonthName = computed(() => {
+  if (overviewPeriod.value === 'month') {
+    const now = new Date()
+    const y = now.getUTCFullYear()
+    const m = now.getUTCMonth() + overviewOffset.value
+    const d = new Date(Date.UTC(y, m, 1))
+    return d.toLocaleDateString('ru-RU', { month: 'long' })
+  }
+  if (overviewPeriod.value === 'year') {
+    return `${currentYearForView.value} год`
+  }
+  if (overviewPeriod.value === 'today') {
+    const d = new Date()
+    d.setUTCDate(d.getUTCDate() + overviewOffset.value)
+    return d.toLocaleDateString('ru-RU', { day: '2-digit', month: 'long' })
+  }
+  return ''
+})
+
+const dashboardHeader = computed(() => {
+  const periodMap: Record<string, string> = {
+    today: 'Показатели за день',
+    month: 'Показатели за текущий месяц',
+    year: 'Показатели за год'
+  }
+  return periodMap[overviewPeriod.value] || 'Показатели'
+})
 
 // Products table state for client-side filters (mock store)
 const productsFilters = ref({ search: '', category: '', group: '' })
 
 // Auth
-async function handleLogin() {
-  try {
-    await adminStore.login(loginForm.value)
-    // Load data after successful login
-    if (adminStore.isAuthenticated) {
-      resetLoadedState()
-      await loadInitialAdminData()
-      updateManagerForm()
-    }
-  } catch (error) {
-    console.error('Login failed:', error)
+async function handleLoginSuccess() {
+  // AdminLockScreen handles login internally
+  // Just load initial data after successful authentication
+  if (adminStore.isAuthenticated) {
+    resetLoadedState()
+    await loadInitialAdminData()
+    updateManagerForm()
   }
 }
 
@@ -1270,6 +1355,18 @@ function handleLogout() {
   resetLoadedState()
   crmStore.lockProfitAccess()
   router.push('/')
+}
+
+function handleLock() {
+  isLocked.value = true
+  localStorage.setItem(LOCK_STATE_KEY, 'true')
+  // Также сбрасываем доступ к финансовым данным при блокировке
+  crmStore.lockProfitAccess()
+}
+
+function handleUnlock() {
+  isLocked.value = false
+  localStorage.removeItem(LOCK_STATE_KEY)
 }
 
 // Overview navigation
@@ -1285,27 +1382,29 @@ watch([overviewPeriod, overviewOffset, profitUnlocked], async ([p, off, unlocked
     dataLoaded.dashboard = false
     return
   }
+  
+  console.log(`[Dashboard] 🔄 Загрузка данных: period=${p}, offset=${off}`)
+  
   try {
+    // Загружаем сводные показатели
     await crmStore.fetchDashboard(p as any, off as number)
+    // Всегда загружаем детализированные данные для графика
+    try {
+      const yearForApi = p === 'year' ? currentYearForView.value : undefined
+      await crmStore.fetchDashboardTimeseries(p as any, off as number, yearForApi)
+      console.log(`[Dashboard] ✅ Данные успешно загружены из API`)
+    } catch (timeseriesError) {
+      console.error('❌ Failed to load timeseries:', timeseriesError)
+      // Не показываем ошибку пользователю, просто оставляем пустой график
+    }
     dataLoaded.dashboard = true
   } catch (error) {
-    console.error('Failed to update dashboard stats:', error)
+    console.error('❌ Failed to update dashboard stats:', error)
     showToast('Не удалось обновить показатели дашборда', 'error', 4000)
   }
 })
 
-onMounted(() => {
-  if (profitUnlocked.value && adminStore.isAuthenticated) {
-    void (async () => {
-      try {
-        await crmStore.fetchDashboard(overviewPeriod.value, overviewOffset.value)
-        dataLoaded.dashboard = true
-      } catch (error) {
-        console.error('Failed to fetch dashboard stats on init:', error)
-      }
-    })()
-  }
-})
+// Dashboard initialization moved to handleLogin and watch
 
 function openProfitModal() {
   profitPassword.value = ''
@@ -1329,25 +1428,57 @@ async function submitProfitPassword() {
     await crmStore.verifyProfitPassword(profitPassword.value.trim())
     closeProfitModal()
     await crmStore.fetchDashboard(overviewPeriod.value, overviewOffset.value)
+    try {
+      await crmStore.fetchDashboardTimeseries(
+        overviewPeriod.value,
+        overviewOffset.value,
+        overviewPeriod.value === 'year' ? currentYearForView.value : undefined
+      )
+    } catch (e) {
+      console.error('Timeseries load failed:', e)
+    }
     dataLoaded.dashboard = true
   } catch (error) {
     profitError.value = 'Неверный ключ'
   }
 }
 
-async function submitOverviewAccess() {
+async function handleProfitUnlocked() {
+  // Verify profit password and load dashboard data
   if (!profitPassword.value.trim()) {
     profitError.value = 'Введите ключ'
     return
   }
+  
   profitError.value = ''
+  
   try {
+    // First verify the password
     await crmStore.verifyProfitPassword(profitPassword.value.trim())
+    
+    // If successful, load dashboard data
     await crmStore.fetchDashboard(overviewPeriod.value, overviewOffset.value)
+    try {
+      await crmStore.fetchDashboardTimeseries(
+        overviewPeriod.value,
+        overviewOffset.value,
+        overviewPeriod.value === 'year' ? currentYearForView.value : undefined
+      )
+    } catch (e) {
+      console.error('Timeseries load failed:', e)
+    }
     dataLoaded.dashboard = true
+    profitPassword.value = ''
   } catch (error) {
+    console.error('Failed to unlock profit access:', error)
     profitError.value = 'Неверный ключ'
   }
+}
+
+async function handleProfitModalUnlocked() {
+  // Called when profit modal is unlocked (for backward compatibility)
+  showProfitModal.value = false
+  await handleProfitUnlocked()
 }
 
 async function handleProfitPasswordUpdate() {
@@ -1396,6 +1527,87 @@ async function handleProfitPasswordUpdate() {
   } finally {
     profitPasswordSaving.value = false
   }
+}
+
+const hoveredBarIndex = ref<number | null>(null)
+const chartAnimationKey = ref(0)
+const isInitialChartLoad = ref(true)
+const chartTransitioning = ref(false)
+
+const chartData = computed(() => {
+  const metric = selectedMetric.value
+  if (!dashboardTimeseries.value || dashboardTimeseries.value.length === 0) {
+    console.log('[Chart] No timeseries data available')
+    return []
+  }
+  
+  // Маппим данные из API напрямую без изменений
+  const data = dashboardTimeseries.value.map(point => ({
+    label: point.label,
+    value: metric === 'revenue' ? point.revenue : metric === 'profit' ? point.profit : point.orders
+  }))
+  
+  // Проверка точности: сумма всех точек должна совпадать с карточкой
+  const sum = data.reduce((acc, point) => acc + point.value, 0)
+  console.log(`[Chart] ✅ Точность данных (${metric}):`, {
+    'Точек графика': data.length,
+    'Сумма всех точек': sum,
+    'Пример точки': data[0],
+    'Мин/Макс': `${Math.min(...data.map(d => d.value))} / ${Math.max(...data.map(d => d.value))}`
+  })
+  
+  return data
+})
+
+// Trigger chart re-animation on data change
+watch([overviewPeriod, selectedMetric], () => {
+  // Trigger morph animation for data changes (not on first load)
+  if (!isInitialChartLoad.value) {
+    chartTransitioning.value = true
+    setTimeout(() => {
+      chartTransitioning.value = false
+    }, 50) // Just trigger the animation
+  }
+  chartAnimationKey.value++
+  
+  // Логирование смены метрики для прозрачности
+  console.log(`[Chart] 🔄 Смена метрики на: ${selectedMetric.value}`)
+})
+
+// Mark as loaded after first chart data appears
+watch(chartData, (newData) => {
+  if (newData.length > 0 && isInitialChartLoad.value) {
+    setTimeout(() => {
+      isInitialChartLoad.value = false
+    }, 600) // After initial animation completes
+  }
+})
+
+function formatChartValue(value: number): string {
+  if (selectedMetric.value === 'orders') return value.toString()
+  return formatCurrency(value)
+}
+
+// Компактное форматирование для меток над столбиками
+function formatChartValueCompact(value: number): string {
+  if (selectedMetric.value === 'orders') {
+    return value.toString()
+  }
+  
+  // Для денег - точное значение без округления
+  return value.toString()
+}
+
+function getBarHeightPx(value: number): number {
+  const CHART_HEIGHT_SM = 256 // h-64 = 16rem = 256px
+  const CHART_HEIGHT_LG = 288 // h-72 = 18rem = 288px
+  const CHART_HEIGHT = CHART_HEIGHT_LG
+  const MIN_HEIGHT = 8
+  if (chartData.value.length === 0 || value === 0) return MIN_HEIGHT
+  const maxValue = Math.max(...chartData.value.map(d => d.value), 1)
+  const ratio = value / maxValue
+  const height = ratio * CHART_HEIGHT
+  return Math.max(MIN_HEIGHT, Math.min(CHART_HEIGHT, Math.round(height)))
 }
 
 function formatCurrency(value?: number | null) {
@@ -1914,6 +2126,12 @@ async function handlePasswordChange() {
 
 // Init
 onMounted(async () => {
+  // Check lock state
+  const savedLockState = localStorage.getItem(LOCK_STATE_KEY)
+  if (savedLockState === 'true') {
+    isLocked.value = true
+  }
+
   resetLoadedState()
   // @ts-ignore - checkAuth method exists in adminStore
   await adminStore.checkAuth()
@@ -2014,6 +2232,7 @@ function formatPrice(value: number) {
 </script>
 
 <style scoped>
+/* Dashboard fade transition */
 .dash-fade-enter-active, .dash-fade-leave-active {
   transition: opacity 320ms ease, transform 320ms cubic-bezier(0.22, 1, 0.36, 1);
 }
@@ -2024,6 +2243,225 @@ function formatPrice(value: number) {
 .dash-fade-leave-to {
   opacity: 0;
   transform: translateY(-8px) scale(0.995);
+}
+
+/* Chart bar animations - dual mode */
+.chart-bar {
+  height: var(--bar-height, 8px);
+  transform-origin: bottom center;
+  /* Smooth height transition for data changes */
+  transition: height 0.6s cubic-bezier(0.34, 1.56, 0.64, 1),
+              background-color 0.25s ease,
+              transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1),
+              filter 0.25s ease;
+  /* Initial load animation */
+  animation: barGrow 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+  animation-delay: var(--bar-delay, 0ms);
+  opacity: 0;
+  transform: scaleY(0);
+}
+
+/* Morphing animation for data changes */
+.chart-bar--morphing {
+  animation: barMorph 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) forwards !important;
+  animation-delay: calc(var(--bar-delay, 0ms) / 2) !important;
+}
+
+.chart-bar--hovered {
+  transform: scaleY(1.05) scaleX(1.02);
+  filter: brightness(1.15) drop-shadow(0 4px 12px rgba(255, 255, 255, 0.4));
+}
+
+/* Initial load: grow from bottom */
+@keyframes barGrow {
+  0% {
+    opacity: 0;
+    transform: scaleY(0) translateY(4px);
+  }
+  50% {
+    opacity: 0.6;
+  }
+  100% {
+    opacity: 1;
+    transform: scaleY(1) translateY(0);
+  }
+}
+
+/* Data change: bounce/pulse effect */
+@keyframes barMorph {
+  0% {
+    transform: scaleX(1) scaleY(1);
+    filter: brightness(1);
+  }
+  25% {
+    transform: scaleX(1.08) scaleY(0.95);
+    filter: brightness(1.3);
+  }
+  50% {
+    transform: scaleX(0.95) scaleY(1.1);
+    filter: brightness(1.15);
+  }
+  75% {
+    transform: scaleX(1.03) scaleY(0.98);
+    filter: brightness(1.1);
+  }
+  100% {
+    transform: scaleX(1) scaleY(1);
+    filter: brightness(1);
+  }
+}
+
+/* Pulse animation for empty bars */
+@keyframes barPulse {
+  0%, 100% {
+    opacity: 0.4;
+  }
+  50% {
+    opacity: 0.8;
+  }
+}
+
+/* Chart label animations - only on initial load */
+.chart-label {
+  animation: labelFadeIn 0.3s ease-out forwards;
+  animation-delay: var(--label-delay, 0ms);
+  opacity: 0;
+  transform: translateY(8px);
+}
+
+/* Labels without animation class are already visible */
+div:not(.chart-label).text-white\/70 {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+@keyframes labelFadeIn {
+  0% {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Value labels above bars - synchronized with bar animation */
+.chart-value-label {
+  /* Анимация всегда активна */
+  animation: valueLabelFadeIn 0.4s ease-out forwards;
+  animation-delay: var(--value-delay, 0ms);
+  opacity: 0;
+  transform: translateY(-4px) scale(0.9);
+  
+  /* Плавный переход позиции при смене данных */
+  transition: bottom 0.6s cubic-bezier(0.34, 1.56, 0.64, 1), color 0.2s ease;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.3), 0 0 8px rgba(0, 0, 0, 0.2);
+}
+
+@keyframes valueLabelFadeIn {
+  0% {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.9);
+  }
+  60% {
+    opacity: 0.8;
+    transform: translateY(1px) scale(1.05);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* Smooth height transitions */
+.chart-bar:not(.chart-bar--hovered) {
+  will-change: height, transform;
+}
+
+/* Performance optimizations */
+.chart-bar {
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  perspective: 1000px;
+  -webkit-perspective: 1000px;
+}
+
+/* Loading state shimmer effect */
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+/* Metric card animations */
+.metric-card {
+  position: relative;
+  overflow: hidden;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  border: 2px solid transparent;
+}
+
+.metric-card--active {
+  background: rgba(255, 255, 255, 0.2);
+  border-color: white;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15), 0 0 0 1px rgba(255, 255, 255, 0.1);
+  transform: translateY(-2px) scale(1.02);
+}
+
+.metric-card--inactive {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: transparent;
+}
+
+.metric-card--inactive:hover {
+  background: rgba(255, 255, 255, 0.15);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.metric-card--inactive:active {
+  transform: translateY(0) scale(0.98);
+}
+
+/* Ripple effect on card click */
+.metric-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: radial-gradient(circle at center, rgba(255, 255, 255, 0.3) 0%, transparent 70%);
+  opacity: 0;
+  transform: scale(0);
+  transition: opacity 0.6s, transform 0.6s;
+}
+
+.metric-card:active::before {
+  opacity: 1;
+  transform: scale(1);
+  transition: opacity 0s, transform 0.3s;
+}
+
+/* Pulse animation for active card during data change */
+.metric-card--pulse {
+  animation: cardPulse 0.5s ease-in-out;
+}
+
+@keyframes cardPulse {
+  0% {
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15), 0 0 0 1px rgba(255, 255, 255, 0.1);
+  }
+  50% {
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.2), 0 0 0 3px rgba(255, 255, 255, 0.3),
+                0 0 20px rgba(255, 255, 255, 0.2);
+    transform: translateY(-3px) scale(1.03);
+  }
+  100% {
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15), 0 0 0 1px rgba(255, 255, 255, 0.1);
+  }
 }
 </style>
 
@@ -2057,97 +2495,4 @@ function formatPrice(value: number) {
   opacity: 0.4;
 }
 
-.login-container {
-  position: fixed !important;
-  top: 0 !important;
-  left: 0 !important;
-  right: 0 !important;
-  bottom: 0 !important;
-  display: flex !important;
-  align-items: center !important;
-  justify-content: center !important;
-  padding: 20px !important;
-  background: #f9fafb !important;
-}
-
-.login-form-wrapper {
-  width: 100% !important;
-  max-width: 400px !important;
-  margin: 0 !important;
-  padding: 0 !important;
-}
-
-.login-form-wrapper .card-base {
-  width: 100% !important;
-  margin: 0 !important;
-  padding: 32px !important;
-}
-
-.login-form {
-  width: 100% !important;
-  margin: 0 !important;
-  padding: 0 !important;
-}
-
-.login-form > div {
-  width: 100% !important;
-  margin: 0 0 16px 0 !important;
-  padding: 0 !important;
-}
-
-.login-form label {
-  display: block !important;
-  width: 100% !important;
-  margin: 0 0 8px 0 !important;
-  text-align: left !important;
-}
-
-.login-input {
-  width: 100% !important;
-  display: block !important;
-  margin: 0 !important;
-  padding: 12px 16px !important;
-  border: 1px solid #d1d5db !important;
-  border-radius: 12px !important;
-  background: white !important;
-  font-size: 16px !important;
-  line-height: 1.5 !important;
-  outline: none !important;
-}
-
-.login-input:focus {
-  border-color: var(--navalivay-red) !important;
-  box-shadow: 0 0 0 3px rgba(211, 47, 47, 0.3), 0 0 20px rgba(211, 47, 47, 0.5) !important;
-}
-
-.login-button {
-  width: 100% !important;
-  display: block !important;
-  margin: 20px 0 0 0 !important;
-  padding: 16px 24px !important;
-  background: var(--navalivay-black) !important;
-  color: var(--navalivay-white) !important;
-  border: none !important;
-  border-radius: 0 !important;
-  font-size: 16px !important;
-  font-weight: 900 !important;
-  text-align: center !important;
-  cursor: pointer !important;
-  transition: all 0.3s !important;
-  text-transform: uppercase !important;
-  letter-spacing: 0.15em !important;
-  box-shadow: 8px 8px 0 rgba(26, 26, 26, 0.3) !important;
-  font-family: 'Bebas Neue', 'Impact', sans-serif !important;
-}
-
-.login-button:hover {
-  background: var(--navalivay-red) !important;
-  box-shadow: 12px 12px 0 rgba(211, 47, 47, 0.4) !important;
-  transform: translate(-2px, -2px) !important;
-}
-
-.login-button:disabled {
-  opacity: 0.5 !important;
-  cursor: not-allowed !important;
-}
 </style>

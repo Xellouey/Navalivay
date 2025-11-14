@@ -56,14 +56,15 @@
             </div>
           </div>
           <div class="mt-auto pt-2">
-            <button 
-              @click="$emit('logout')" 
+            <button
+              @click="$emit('lock')"
               class="sidebar-button sidebar-button--default sidebar-button--compact w-full flex items-center text-left text-sm font-semibold transition-all duration-200"
+              title="Заблокировать панель"
             >
               <span class="sidebar-button__icon">
-                <ArrowRightOnRectangleIcon class="w-5 h-5" />
+                <LockClosedIcon class="w-5 h-5" />
               </span>
-              <span class="leading-none text-slate-900">Выйти</span>
+              <span class="leading-none text-slate-900">Блокировка</span>
             </button>
           </div>
         </div>
@@ -75,7 +76,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
-import { ArrowRightOnRectangleIcon } from '@heroicons/vue/24/outline'
+import { LockClosedIcon } from '@heroicons/vue/24/outline'
 
 interface Tab { id: string; name: string; icon: any; description?: string }
 interface SidebarLink { id: string; name: string; description: string; icon: any; to: string }
@@ -87,7 +88,7 @@ const props = defineProps<{
   crmLinks?: SidebarLink[]
 }>()
 
-defineEmits<{ (e: 'update:modelValue', v: string): void; (e: 'logout'): void }>()
+defineEmits<{ (e: 'update:modelValue', v: string): void; (e: 'lock'): void }>()
 
 const crmLinks = computed(() => props.crmLinks ?? [])
 const route = useRoute()

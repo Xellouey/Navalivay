@@ -65,31 +65,33 @@ crmRouter.get('/api/admin/crm/dashboard', authMiddleware, (req, res) => {
     const { start, end } = getPeriodRange(period, offset);
     const dateFilter = `created_at >= '${start.toISOString()}' AND created_at < '${end.toISOString()}'`;
 
-    // Выручка, прибыль, количество продаж
+    // Выручка, прибыль, количество продаж (на основе позиций заказов для согласованности)
     const stats = db.prepare(`
       SELECT 
-        COUNT(*) as total_sales,
-        COALESCE(SUM(final_amount), 0) as revenue,
-        COALESCE(SUM(profit), 0) as profit,
-        COALESCE(COUNT(DISTINCT customer_id), 0) as unique_customers
-      FROM orders
-      WHERE status IN ('completed', 'delivered') AND ${dateFilter}
+        COALESCE(COUNT(DISTINCT o.id), 0)                   AS total_sales,
+        COALESCE(SUM(oi.total_price), 0)                    AS revenue,
+        COALESCE(SUM(oi.total_price - oi.total_cost), 0)    AS profit,
+        COALESCE(COUNT(DISTINCT o.customer_id), 0)          AS unique_customers
+      FROM orders o
+      LEFT JOIN order_items oi ON oi.order_id = o.id
+      WHERE o.status IN ('completed', 'delivered') AND ${dateFilter}
     `).get();
 
-    // Топ линейки (category groups)
+    // Топ линейки (category groups) — по прибыли и выручке
     const topProducts = db.prepare(`
       SELECT 
         COALESCE(g.id, 'no_group') as group_id,
         COALESCE(g.name, 'Без линейки') as group_name,
         SUM(oi.quantity) as total_quantity,
-        SUM(oi.total_price) as total_revenue
+        SUM(oi.total_price) as total_revenue,
+        SUM(oi.total_price - oi.total_cost) as total_profit
       FROM order_items oi
       JOIN orders o ON o.id = oi.order_id
       LEFT JOIN products p ON p.id = oi.product_id
       LEFT JOIN category_groups g ON g.id = p.groupId
       WHERE o.status IN ('completed', 'delivered') AND ${dateFilter}
       GROUP BY group_id, group_name
-      ORDER BY total_revenue DESC
+      ORDER BY total_profit DESC
       LIMIT 5
     `).all();
 
@@ -145,6 +147,111 @@ crmRouter.get('/api/admin/crm/dashboard', authMiddleware, (req, res) => {
     });
   } catch (error) {
     console.error('[crm] Dashboard error:', error);
+    res.status(500).json({ error: 'failed', message: error.message });
+  }
+});
+
+// Dashboard Timeseries - детализированные данные для графиков
+crmRouter.get('/api/admin/crm/dashboard-timeseries', authMiddleware, (req, res) => {
+  try {
+    const { period = 'month', year } = req.query;
+    const offset = Number(req.query.offset || 0) || 0;
+
+    function getPeriodRange(p, off, yr) {
+      const now = new Date();
+      function startOfUTCDay(d) {
+        return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+      }
+      
+      if (p === 'today') {
+        // Для дня - возвращаем данные по часам (упрощенно - один столбик)
+        const base = startOfUTCDay(now);
+        const start = new Date(base.getTime() + off * 24 * 60 * 60 * 1000);
+        const end = new Date(start.getTime() + 24 * 60 * 60 * 1000);
+        return { start, end, granularity: 'day' };
+      }
+      
+      if (p === 'month') {
+        const y = now.getUTCFullYear();
+        const m = now.getUTCMonth();
+        const start = new Date(Date.UTC(y, m + off, 1));
+        const end = new Date(Date.UTC(y, m + off + 1, 1));
+        return { start, end, granularity: 'day' };
+      }
+      
+      if (p === 'year') {
+        const targetYear = yr ? Number(yr) : now.getUTCFullYear() + off;
+        const start = new Date(Date.UTC(targetYear, 0, 1));
+        const end = new Date(Date.UTC(targetYear + 1, 0, 1));
+        return { start, end, granularity: 'month' };
+      }
+      
+      const base = startOfUTCDay(now);
+      return { start: base, end: new Date(base.getTime() + 24 * 60 * 60 * 1000), granularity: 'day' };
+    }
+
+    const { start, end, granularity } = getPeriodRange(period, offset, year);
+    const data = [];
+
+    if (granularity === 'month') {
+      // По месяцам для года
+      const monthNames = ['Янв', 'Фев', 'Мар', 'Апр', 'Май', 'Июн', 'Июл', 'Авг', 'Сен', 'Окт', 'Ноя', 'Дек'];
+      
+      for (let i = 0; i < 12; i++) {
+        const monthStart = new Date(Date.UTC(start.getUTCFullYear(), i, 1));
+        const monthEnd = new Date(Date.UTC(start.getUTCFullYear(), i + 1, 1));
+        
+        const stats = db.prepare(`
+          SELECT 
+            COALESCE(COUNT(DISTINCT o.id), 0)                 AS orders,
+            COALESCE(SUM(oi.total_price), 0)                  AS revenue,
+            COALESCE(SUM(oi.total_price - oi.total_cost), 0)  AS profit
+          FROM orders o
+          LEFT JOIN order_items oi ON oi.order_id = o.id
+          WHERE o.status IN ('completed', 'delivered')
+            AND o.created_at >= ?
+            AND o.created_at < ?
+        `).get(monthStart.toISOString(), monthEnd.toISOString());
+        
+        data.push({
+          label: monthNames[i],
+          orders: stats?.orders || 0,
+          revenue: stats?.revenue || 0,
+          profit: stats?.profit || 0
+        });
+      }
+    } else if (granularity === 'day') {
+      // По дням для месяца
+      const daysInPeriod = Math.ceil((end - start) / (24 * 60 * 60 * 1000));
+      
+      for (let i = 0; i < daysInPeriod; i++) {
+        const dayStart = new Date(start.getTime() + i * 24 * 60 * 60 * 1000);
+        const dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
+        
+        const stats = db.prepare(`
+          SELECT 
+            COALESCE(COUNT(DISTINCT o.id), 0)                 AS orders,
+            COALESCE(SUM(oi.total_price), 0)                  AS revenue,
+            COALESCE(SUM(oi.total_price - oi.total_cost), 0)  AS profit
+          FROM orders o
+          LEFT JOIN order_items oi ON oi.order_id = o.id
+          WHERE o.status IN ('completed', 'delivered')
+            AND o.created_at >= ?
+            AND o.created_at < ?
+        `).get(dayStart.toISOString(), dayEnd.toISOString());
+        
+        data.push({
+          label: String(dayStart.getUTCDate()),
+          orders: stats?.orders || 0,
+          revenue: stats?.revenue || 0,
+          profit: stats?.profit || 0
+        });
+      }
+    }
+
+    res.json(data);
+  } catch (error) {
+    console.error('[crm] Dashboard timeseries error:', error);
     res.status(500).json({ error: 'failed', message: error.message });
   }
 });
@@ -553,6 +660,90 @@ crmRouter.delete('/api/admin/crm/message-templates/:id', authMiddleware, (req, r
     res.json({ ok: true });
   } catch (error) {
     console.error('[crm] Delete message template error:', error);
+    res.status(500).json({ error: 'failed', message: error.message });
+  }
+});
+
+// =========================
+// CUSTOMER FEEDBACKS (Обратная связь по клиентам)
+// =========================
+
+// Получить все feedbacks
+crmRouter.get('/api/admin/crm/customer-feedbacks', authMiddleware, (req, res) => {
+  try {
+    const feedbacks = db.prepare(`
+      SELECT * FROM customer_feedbacks
+      ORDER BY processed_at DESC
+    `).all();
+    res.json(feedbacks);
+  } catch (error) {
+    console.error('[crm] Get customer feedbacks error:', error);
+    res.status(500).json({ error: 'failed', message: error.message });
+  }
+});
+
+// Создать feedback
+crmRouter.post('/api/admin/crm/customer-feedbacks', authMiddleware, (req, res) => {
+  try {
+    const { customer_id, reason } = req.body;
+    
+    if (!customer_id || !reason) {
+      return res.status(400).json({ error: 'missing_fields' });
+    }
+    
+    // Получаем информацию о клиенте
+    const customer = db.prepare('SELECT * FROM customers WHERE id = ?').get(customer_id);
+    if (!customer) {
+      return res.status(404).json({ error: 'customer_not_found' });
+    }
+    
+    const id = generateId('feedback');
+    const customerName = [customer.first_name, customer.last_name].filter(Boolean).join(' ') || null;
+    
+    db.prepare(`
+      INSERT INTO customer_feedbacks (id, customer_id, telegram_username, customer_name, reason)
+      VALUES (?, ?, ?, ?, ?)
+    `).run(id, customer_id, customer.telegram_username, customerName, reason);
+    
+    const feedback = db.prepare('SELECT * FROM customer_feedbacks WHERE id = ?').get(id);
+    res.json(feedback);
+  } catch (error) {
+    console.error('[crm] Create customer feedback error:', error);
+    res.status(500).json({ error: 'failed', message: error.message });
+  }
+});
+
+// Удалить feedback
+crmRouter.delete('/api/admin/crm/customer-feedbacks/:id', authMiddleware, (req, res) => {
+  try {
+    const { id } = req.params;
+    db.prepare('DELETE FROM customer_feedbacks WHERE id = ?').run(id);
+    res.json({ ok: true });
+  } catch (error) {
+    console.error('[crm] Delete customer feedback error:', error);
+    res.status(500).json({ error: 'failed', message: error.message });
+  }
+});
+
+// Удалить клиента
+crmRouter.delete('/api/admin/crm/customers/:id', authMiddleware, (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    // Проверяем, есть ли у клиента заказы
+    const orders = db.prepare('SELECT COUNT(*) as count FROM orders WHERE customer_id = ?').get(id);
+    if (orders && orders.count > 0) {
+      return res.status(400).json({ 
+        error: 'has_orders', 
+        message: 'Нельзя удалить клиента с заказами' 
+      });
+    }
+    
+    // Удаляем клиента (feedbacks и visit_logs удалятся автоматически через CASCADE)
+    db.prepare('DELETE FROM customers WHERE id = ?').run(id);
+    res.json({ ok: true });
+  } catch (error) {
+    console.error('[crm] Delete customer error:', error);
     res.status(500).json({ error: 'failed', message: error.message });
   }
 });

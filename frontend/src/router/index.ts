@@ -46,6 +46,12 @@ const router = createRouter({
           beforeEnter: requireAdminAuth
         },
         {
+          path: 'crm/orders/archive',
+          name: 'CrmOrdersArchive',
+          component: () => import('@/views/admin/crm/CrmOrdersArchive.vue'),
+          beforeEnter: requireAdminAuth
+        },
+        {
           path: 'crm/orders/:id',
           name: 'CrmOrderDetail',
           component: () => import('@/views/admin/crm/CrmOrderDetail.vue'),

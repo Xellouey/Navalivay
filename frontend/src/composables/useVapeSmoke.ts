@@ -163,6 +163,12 @@ function handleClick(event: MouseEvent) {
     return
   }
   
+  // Проверяем, находится ли клик внутри элемента с data-no-smoke
+  const target = event.target as HTMLElement
+  if (target && target.closest('[data-no-smoke]')) {
+    return
+  }
+  
   lastClickTime = now
   createPuff(event.clientX, event.clientY)
 }

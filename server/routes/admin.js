@@ -146,8 +146,9 @@ adminRouter.post('/api/admin/settings/profit-password/verify', authMiddleware, a
       return res.status(400).json({ error: 'missing_password' });
     }
 
-    const storedHash = getProfitPasswordHash();
-    const ok = await bcrypt.compare(password, storedHash);
+    // Используем ОТДЕЛЬНЫЙ пароль для финансовых данных
+    const profitPasswordHash = getProfitPasswordHash();
+    const ok = await bcrypt.compare(password, profitPasswordHash);
     if (!ok) {
       return res.status(401).json({ error: 'invalid_password' });
     }

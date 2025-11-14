@@ -8,7 +8,8 @@ import {
   UserGroupIcon,
   ArrowDownTrayIcon,
   BanknotesIcon,
-  ArchiveBoxXMarkIcon
+  ArchiveBoxXMarkIcon,
+  ArchiveBoxIcon
 } from '@heroicons/vue/24/outline'
 
 export const adminTabOptions = ['dashboard', 'products', 'categories', 'banners', 'settings'] as const

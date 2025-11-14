@@ -139,7 +139,6 @@
             <LockClosedIcon class="h-8 w-8" />
           </span>
           <div class="space-y-2">
-            <h2 class="text-2xl font-semibold text-gray-900">Закупки скрыты</h2>
             <p class="text-sm text-gray-600">
               Оплатите подписку на сервис
             </p>
@@ -151,7 +150,7 @@
             :disabled="verifyingPassword"
           >
             <LockClosedIcon class="h-5 w-5" />
-            <span>{{ verifyingPassword ? 'Проверяем…' : 'Открыть доступ' }}</span>
+            <span>{{ verifyingPassword ? 'Проверяем…' : 'Ввести лицензионный ключ' }}</span>
           </button>
         </div>
       </div>

@@ -1,7 +1,7 @@
 import express from 'express';
 import { db } from '../db.js';
 import { authMiddleware } from '../auth.js';
-import { cleanupOldDeliveredOrders } from '../cleanup-delivered-orders.js';
+import { archiveOldDeliveredOrders } from '../cleanup-delivered-orders.js';
 
 export const crmOperationsRouter = express.Router();
 
@@ -79,14 +79,8 @@ crmOperationsRouter.get('/api/admin/crm/orders', authMiddleware, (req, res) => {
       params.push(status);
     }
 
-    // Фильтрация выданных заказов: показываем только заказы текущего дня
-    // Выданные заказы (delivered) должны быть созданы или выданы сегодня
-    const now = new Date();
-    const startOfToday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
-    const endOfToday = new Date(startOfToday.getTime() + 24 * 60 * 60 * 1000);
-
-    whereClauses.push(`(o.status != 'delivered' OR (o.status = 'delivered' AND o.completed_at >= ? AND o.completed_at < ?))`);
-    params.push(startOfToday.toISOString(), endOfToday.toISOString());
+    // Показываем только неархивные заказы
+    whereClauses.push('o.archived = 0');
 
     if (search) {
       const searchTerm = String(search).trim();
@@ -164,6 +158,98 @@ crmOperationsRouter.get('/api/admin/crm/orders', authMiddleware, (req, res) => {
     });
   } catch (error) {
     console.error('[crm] Get orders error:', error);
+    res.status(500).json({ error: 'failed', message: error.message });
+  }
+});
+
+// Архивные заказы
+crmOperationsRouter.get('/api/admin/crm/orders/archived', authMiddleware, (req, res) => {
+  try {
+    const { status, page = 1, limit = 20, search } = req.query;
+
+    const whereClauses = ['o.archived = 1'];
+    const params = [];
+
+    if (status) {
+      whereClauses.push('o.status = ?');
+      params.push(status);
+    }
+
+    if (search) {
+      const searchTerm = String(search).trim();
+      if (searchTerm) {
+        whereClauses.push('(o.order_number LIKE ? OR c.first_name LIKE ? OR c.last_name LIKE ? OR c.telegram_username LIKE ? OR o.telegram_username LIKE ?)');
+        const likePattern = `%${searchTerm}%`;
+        params.push(likePattern, likePattern, likePattern, likePattern, likePattern);
+      }
+    }
+
+    const whereClause = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
+    const offset = (parseInt(page) - 1) * parseInt(limit);
+    
+    const countSql = `SELECT COUNT(*) as count FROM orders o LEFT JOIN customers c ON c.id = o.customer_id ${whereClause}`;
+    const total = params.length > 0
+      ? db.prepare(countSql).get(...params).count
+      : db.prepare(`SELECT COUNT(*) as count FROM orders o WHERE o.archived = 1`).get().count;
+
+    const ordersSql = `
+      SELECT 
+        o.*,
+        COALESCE(o.telegram_username, c.telegram_username) as telegram_username,
+        c.first_name || ' ' || COALESCE(c.last_name, '') as customer_name
+      FROM orders o
+      LEFT JOIN customers c ON c.id = o.customer_id
+      ${whereClause}
+      ORDER BY o.completed_at DESC, o.created_at DESC
+      LIMIT ? OFFSET ?
+    `;
+    
+    const orders = params.length > 0
+      ? db.prepare(ordersSql).all(...params, parseInt(limit), offset)
+      : db.prepare(`
+          SELECT 
+            o.*,
+            COALESCE(o.telegram_username, c.telegram_username) as telegram_username,
+            c.first_name || ' ' || COALESCE(c.last_name, '') as customer_name
+          FROM orders o
+          LEFT JOIN customers c ON c.id = o.customer_id
+          WHERE o.archived = 1
+          ORDER BY o.completed_at DESC, o.created_at DESC
+          LIMIT ? OFFSET ?
+        `).all(parseInt(limit), offset);
+
+    let ordersWithItems = orders;
+    if (orders.length > 0) {
+      const orderIds = orders.map((order) => order.id);
+      const placeholders = orderIds.map(() => '?').join(',');
+      const itemsRows = db.prepare(`
+        SELECT * FROM order_items WHERE order_id IN (${placeholders})
+      `).all(...orderIds);
+
+      const itemsByOrder = itemsRows.reduce((acc, item) => {
+        const list = acc.get(item.order_id) || [];
+        list.push(item);
+        acc.set(item.order_id, list);
+        return acc;
+      }, new Map());
+
+      ordersWithItems = orders.map((order) => ({
+        ...order,
+        items: itemsByOrder.get(order.id) || []
+      }));
+    }
+
+    res.json({ 
+      orders: ordersWithItems, 
+      pagination: { 
+        page: parseInt(page), 
+        limit: parseInt(limit), 
+        total,
+        totalPages: Math.ceil(total / parseInt(limit))
+      } 
+    });
+  } catch (error) {
+    console.error('[crm] Get archived orders error:', error);
     res.status(500).json({ error: 'failed', message: error.message });
   }
 });
@@ -603,6 +689,7 @@ crmOperationsRouter.post('/api/admin/crm/orders/:id/issue', authMiddleware, (req
     const previousStatus = order.status;
 
     const tx = db.transaction(() => {
+      const completedAt = new Date().toISOString();
       db.prepare(`
         UPDATE orders
         SET status = 'delivered',
@@ -612,10 +699,10 @@ crmOperationsRouter.post('/api/admin/crm/orders/:id/issue', authMiddleware, (req
             paid_amount = ?,
             paid_at = DATETIME('now'),
             payment_notes = ?,
-            completed_at = DATETIME('now'),
+            completed_at = ?,
             updated_at = DATETIME('now')
         WHERE id = ?
-      `).run(previousStatus, payment_type, payment_account_id, parsedAmount, payment_notes || null, id);
+      `).run(previousStatus, payment_type, payment_account_id, parsedAmount, payment_notes || null, completedAt, id);
 
       db.prepare(`
         INSERT INTO cash_transactions (id, account_id, type, amount, description, order_id)
@@ -1109,18 +1196,18 @@ crmOperationsRouter.post('/api/admin/crm/procurements/:id/complete', authMiddlew
 });
 
 // =========================
-// CLEANUP (Очистка старых заказов)
+// ARCHIVING (Архивация старых заказов)
 // =========================
-crmOperationsRouter.post('/api/admin/crm/cleanup-delivered-orders', authMiddleware, (req, res) => {
+crmOperationsRouter.post('/api/admin/crm/archive-delivered-orders', authMiddleware, (req, res) => {
   try {
-    console.log('[crm] Manual cleanup triggered');
-    const result = cleanupOldDeliveredOrders();
+    console.log('[crm] Manual archiving triggered');
+    const result = archiveOldDeliveredOrders();
     res.json({
       ok: true,
       ...result
     });
   } catch (error) {
-    console.error('[crm] Manual cleanup error:', error);
+    console.error('[crm] Manual archiving error:', error);
     res.status(500).json({ error: 'failed', message: error.message });
   }
 });
@@ -1156,6 +1243,48 @@ crmOperationsRouter.get('/api/admin/crm/debug-delivered-orders', authMiddleware,
     });
   } catch (error) {
     console.error('[crm] Debug endpoint error:', error);
+    res.status(500).json({ error: 'failed', message: error.message });
+  }
+});
+
+// Исправление completed_at для delivered заказов где он NULL
+crmOperationsRouter.post('/api/admin/crm/fix-delivered-completed-at', authMiddleware, (req, res) => {
+  try {
+    console.log('[crm] Fixing delivered orders without completed_at');
+    
+    const ordersToFix = db.prepare(`
+      SELECT id, order_number, created_at, completed_at, paid_at
+      FROM orders 
+      WHERE status = 'delivered' AND completed_at IS NULL
+    `).all();
+    
+    if (ordersToFix.length === 0) {
+      return res.json({ ok: true, fixed: 0, message: 'No orders to fix' });
+    }
+    
+    const tx = db.transaction(() => {
+      for (const order of ordersToFix) {
+        const completedDate = order.paid_at || order.created_at;
+        let isoDate;
+        
+        if (completedDate && completedDate.includes('T')) {
+          isoDate = completedDate;
+        } else if (completedDate) {
+          isoDate = new Date(completedDate + ' UTC').toISOString();
+        } else {
+          isoDate = new Date().toISOString();
+        }
+        
+        db.prepare('UPDATE orders SET completed_at = ? WHERE id = ?')
+          .run(isoDate, order.id);
+      }
+    });
+    
+    tx();
+    
+    res.json({ ok: true, fixed: ordersToFix.length });
+  } catch (error) {
+    console.error('[crm] Fix completed_at error:', error);
     res.status(500).json({ error: 'failed', message: error.message });
   }
 });

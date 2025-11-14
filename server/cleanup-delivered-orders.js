@@ -1,65 +1,55 @@
 import { db } from './db.js';
 
 /**
- * Удаляет выданные заказы (статус 'delivered'), которые были выданы раньше сегодняшнего дня.
+ * Архивирует выданные заказы (статус 'delivered'), которые были выданы раньше сегодняшнего дня.
  * Запускается при старте сервера и каждый день в полночь.
+ * Заказы не удаляются, а помечаются как archived=1 для сохранения исторических данных.
  */
-export function cleanupOldDeliveredOrders() {
+export function archiveOldDeliveredOrders() {
   try {
     const now = new Date();
     const startOfToday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
 
-    console.log(`[cleanup] Cleaning up delivered orders older than ${startOfToday.toISOString()}`);
+    console.log(`[archive] Archiving delivered orders older than ${startOfToday.toISOString()}`);
 
-    // Получаем заказы для удаления (для логирования)
-    const ordersToDelete = db.prepare(`
-      SELECT id, order_number, completed_at
+    // Получаем заказы для архивации (статусы 'delivered' и 'completed')
+    const ordersToArchive = db.prepare(`
+      SELECT id, order_number, status, completed_at
       FROM orders
-      WHERE status = 'delivered' AND (completed_at IS NULL OR completed_at < ?)
+      WHERE (status = 'delivered' OR status = 'completed')
+        AND archived = 0
+        AND (completed_at IS NULL OR completed_at < ?)
     `).all(startOfToday.toISOString());
 
-    if (ordersToDelete.length === 0) {
-      console.log('[cleanup] No old delivered orders to delete');
-      return { deleted: 0 };
+    if (ordersToArchive.length === 0) {
+      console.log('[archive] No old delivered orders to archive');
+      return { archived: 0 };
     }
 
-    console.log(`[cleanup] Found ${ordersToDelete.length} old delivered orders to delete`);
+    console.log(`[archive] Found ${ordersToArchive.length} old delivered orders to archive`);
 
-    // Удаляем в транзакции
+    // Архивируем в транзакции
     const tx = db.transaction(() => {
-      for (const order of ordersToDelete) {
-        console.log(`[cleanup] Deleting order #${order.order_number} (completed at: ${order.completed_at})`);
-
-        // Удаляем позиции заказа
-        db.prepare('DELETE FROM order_items WHERE order_id = ?').run(order.id);
-
-        // Удаляем историю статусов заказа (если есть)
-        try {
-          db.prepare('DELETE FROM order_status_history WHERE order_id = ?').run(order.id);
-        } catch (err) {
-          // Таблица может не существовать в старых версиях
-          console.warn(`[cleanup] Could not delete status history for order ${order.id}:`, err.message);
-        }
-
-        // Удаляем сам заказ
-        db.prepare('DELETE FROM orders WHERE id = ?').run(order.id);
+      for (const order of ordersToArchive) {
+        console.log(`[archive] Archiving order #${order.order_number} (completed at: ${order.completed_at})`);
+        db.prepare('UPDATE orders SET archived = 1 WHERE id = ?').run(order.id);
       }
     });
 
     tx();
 
-    console.log(`[cleanup] Successfully deleted ${ordersToDelete.length} old delivered orders`);
-    return { deleted: ordersToDelete.length };
+    console.log(`[archive] Successfully archived ${ordersToArchive.length} old delivered orders`);
+    return { archived: ordersToArchive.length };
   } catch (error) {
-    console.error('[cleanup] Error cleaning up old delivered orders:', error);
-    return { deleted: 0, error: error.message };
+    console.error('[archive] Error archiving old delivered orders:', error);
+    return { archived: 0, error: error.message };
   }
 }
 
 /**
- * Планирует выполнение очистки каждый день в полночь (00:00 UTC)
+ * Планирует выполнение архивации каждый день в полночь (00:00 UTC)
  */
-export function scheduleCleanup() {
+export function scheduleArchiving() {
   // Вычисляем время до следующей полуночи UTC
   function getMillisecondsUntilMidnight() {
     const now = new Date();
@@ -67,16 +57,16 @@ export function scheduleCleanup() {
     return midnight.getTime() - now.getTime();
   }
 
-  // Запускаем первую очистку через время до полуночи
+  // Запускаем первую архивацию через время до полуночи
   const msUntilMidnight = getMillisecondsUntilMidnight();
-  console.log(`[cleanup] Scheduled next cleanup in ${Math.round(msUntilMidnight / 1000 / 60)} minutes (at midnight UTC)`);
+  console.log(`[archive] Scheduled next archiving in ${Math.round(msUntilMidnight / 1000 / 60)} minutes (at midnight UTC)`);
 
   setTimeout(() => {
-    cleanupOldDeliveredOrders();
+    archiveOldDeliveredOrders();
 
     // После первого запуска в полночь запускаем каждые 24 часа
     setInterval(() => {
-      cleanupOldDeliveredOrders();
+      archiveOldDeliveredOrders();
     }, 24 * 60 * 60 * 1000); // 24 часа
   }, msUntilMidnight);
 }

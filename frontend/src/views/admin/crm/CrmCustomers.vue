@@ -1,508 +1,515 @@
 <template>
   <div class="min-h-screen bg-gray-50 px-4 py-6 sm:px-6 lg:px-8">
     <div class="mx-auto w-full max-w-7xl space-y-8">
-      <!-- Back Button -->
       <div>
         <h1 class="text-2xl font-bold text-gray-900 sm:text-3xl">Клиенты</h1>
-        <p class="mt-2 text-sm text-gray-600 sm:text-base">Управление клиентами и их заказами</p>
+        <p class="mt-2 text-sm text-gray-600 sm:text-base">Работа с пропавшими клиентами</p>
       </div>
 
-      <!-- Filters -->
+      <!-- Tabs -->
       <div class="flex flex-wrap gap-2">
-        <button @click="selectedFilter = null" :class="filterButtonClass(null)">Все</button>
-        <button @click="selectedFilter = 'inactive'" :class="filterButtonClass('inactive')">Пропавшие (>30 дней)</button>
-        <button @click="selectedFilter = 'cold'" :class="filterButtonClass('cold')">Холодные (без заказов)</button>
+        <button @click="activeTab = 'inactive'" :class="tabButtonClass('inactive')">
+          Не заказывали более 45 дней
+        </button>
+        <button @click="activeTab = 'processed'" :class="tabButtonClass('processed')">
+          Обработанные
+        </button>
+        <button @click="activeTab = 'all'" :class="tabButtonClass('all')">
+          Все клиенты
+        </button>
       </div>
 
-      <div
-        v-if="!loadingCustomers"
-        class="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm"
-      >
-        <table class="w-full text-sm">
-          <thead class="bg-gray-50 text-xs font-semibold uppercase tracking-wide text-gray-500">
-            <tr>
-              <th class="px-6 py-3 text-left">Сегмент</th>
-              <th class="px-6 py-3 text-right">Клиентов</th>
-              <th class="px-6 py-3 text-right">Заказов</th>
-              <th class="px-6 py-3 text-right">Оборот</th>
-            </tr>
-          </thead>
-          <tbody class="divide-y divide-gray-100">
-            <tr
-              v-for="row in statusSummaryRows"
-              :key="row.key"
-              class="hover:bg-gray-50"
-            >
-              <td class="px-6 py-4 font-medium text-gray-900">{{ row.label }}</td>
-              <td class="px-6 py-4 text-right text-gray-700">{{ row.count }}</td>
-              <td class="px-6 py-4 text-right text-gray-700">{{ row.orders }}</td>
-              <td class="px-6 py-4 text-right text-gray-900">{{ formatCurrency(row.spent) }}</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
 
-      <div v-if="loadingCustomers" class="text-center py-12">
+      <div v-if="loading" class="text-center py-12">
         <div class="inline-block h-12 w-12 animate-spin rounded-full border-4 border-solid border-blue-600 border-r-transparent"></div>
-        <p class="mt-4 text-gray-600">Загрузка клиентов...</p>
+        <p class="mt-4 text-gray-600">Загрузка...</p>
       </div>
 
       <template v-else>
-        <div v-if="customers.length > 0" class="rounded-lg bg-white shadow-sm">
-          <div class="flex items-center gap-2 border-b border-gray-100 px-6 py-4">
-            <label class="inline-flex items-center gap-2 text-sm text-gray-700">
-              <input
-                v-model="showActiveCustomers"
-                type="checkbox"
-                class="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-              />
-              <span>Показывать активных клиентов?</span>
-            </label>
+        <!-- Inactive Customers (>45 days) -->
+        <div v-if="activeTab === 'inactive'" class="space-y-4">
+          <div v-if="inactiveCustomers.length > 0" class="rounded-lg bg-white shadow-sm">
+            <div class="overflow-x-auto">
+              <table class="w-full min-w-[600px]">
+                <thead class="bg-gray-50 border-b">
+                  <tr>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Username</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Имя</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Дней назад</th>
+                    <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Действия</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-200">
+                  <tr v-for="customer in inactiveCustomers" :key="customer.id" class="hover:bg-gray-50">
+                    <td class="px-6 py-4">
+                      <a
+                        v-if="customer.telegram_username"
+                        :href="`https://t.me/${customer.telegram_username}`"
+                        target="_blank"
+                        class="text-blue-600 hover:text-blue-900 text-sm font-medium"
+                      >
+                        @{{ customer.telegram_username }}
+                      </a>
+                      <span v-else class="text-sm text-gray-400">Нет username</span>
+                    </td>
+                    <td class="px-6 py-4 text-sm text-gray-900">
+                      {{ customer.first_name || 'Без имени' }} {{ customer.last_name || '' }}
+                    </td>
+                    <td class="px-6 py-4 text-sm text-gray-500">
+                      {{ getDaysSinceLastOrder(customer) }} дн.
+                    </td>
+                    <td class="px-6 py-4 text-right">
+                      <button
+                        @click="openFeedbackModal(customer)"
+                        class="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700"
+                      >
+                        Обработан
+                      </button>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
           </div>
-          <div class="overflow-x-auto">
-            <table class="w-full min-w-[720px]">
-          <thead class="bg-gray-50 border-b">
-            <tr>
-              <th
-                class="px-6 py-3 text-left text-xs font-medium uppercase"
-                :class="sortHeaderClass('name')"
-                @click="toggleSort('name')"
-              >
-                <span class="flex items-center gap-1">
-                  Клиент
-                  <span class="text-[10px]" :class="sortIndicatorClass('name')">{{ sortIndicator('name') }}</span>
-                </span>
-              </th>
-              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Telegram</th>
-              <th
-                class="px-6 py-3 text-left text-xs font-medium uppercase"
-                :class="sortHeaderClass('total_orders')"
-                @click="toggleSort('total_orders')"
-              >
-                <span class="flex items-center gap-1">
-                  Заказы
-                  <span class="text-[10px]" :class="sortIndicatorClass('total_orders')">{{ sortIndicator('total_orders') }}</span>
-                </span>
-              </th>
-              <th
-                class="px-6 py-3 text-left text-xs font-medium uppercase"
-                :class="sortHeaderClass('last_order_at')"
-                @click="toggleSort('last_order_at')"
-              >
-                <span class="flex items-center gap-1">
-                  Посл. заказ
-                  <span class="text-[10px]" :class="sortIndicatorClass('last_order_at')">{{ sortIndicator('last_order_at') }}</span>
-                </span>
-              </th>
-              <th
-                class="px-6 py-3 text-left text-xs font-medium uppercase"
-                :class="sortHeaderClass('last_visit_at')"
-                @click="toggleSort('last_visit_at')"
-              >
-                <span class="flex items-center gap-1">
-                  Посл. визит
-                  <span class="text-[10px]" :class="sortIndicatorClass('last_visit_at')">{{ sortIndicator('last_visit_at') }}</span>
-                </span>
-              </th>
-              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Статусы</th>
-              <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Действия</th>
-            </tr>
-          </thead>
-          <tbody class="divide-y divide-gray-200">
-            <tr
-              v-for="customer in displayedCustomers"
-              :key="customer.id"
-              :class="customerRowClass(customer)"
-            >
-              <td class="px-6 py-4">
-                <div class="text-sm font-medium text-gray-900">
-                  {{ customer.first_name || 'Без имени' }} {{ customer.last_name || '' }}
-                </div>
-                <div v-if="customer.notes" class="text-xs text-gray-500 mt-1">
-                  {{ customer.notes }}
-                </div>
-                <div
-                  v-if="customer.recent_visits && customer.recent_visits.length"
-                  class="mt-2 flex flex-wrap gap-1 text-[11px] text-gray-500"
-                >
-                  <span
-                    v-for="visit in customer.recent_visits"
-                    :key="visit.id"
-                    class="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2 py-0.5"
-                  >
-                    <span class="font-medium text-gray-600">{{ visitLabel(visit) }}</span>
-                    <span class="text-[10px] text-gray-400">· {{ formatRelative(visit.visited_at) }}</span>
-                  </span>
-                </div>
-              </td>
-              <td class="px-6 py-4">
-                <a v-if="customer.telegram_username" :href="`https://t.me/${customer.telegram_username}`" target="_blank" class="text-blue-600 hover:text-blue-900 text-sm">
-                  @{{ customer.telegram_username }}
-                </a>
-                <span v-else class="text-sm text-gray-400">Нет username</span>
-              </td>
-              <td class="px-6 py-4 text-sm text-gray-900">{{ customer.total_orders }}</td>
-              <td class="px-6 py-4 text-sm text-gray-500">
-                {{ customer.last_order_at ? formatDate(customer.last_order_at) : 'Никогда' }}
-              </td>
-              <td class="px-6 py-4 text-sm text-gray-500">
-                {{ customer.last_visit_at ? formatRelative(customer.last_visit_at) : 'Никогда' }}
-              </td>
-              <td class="px-6 py-4 text-sm text-center">
-                <div class="flex flex-col items-center gap-2">
-                  <span
-                    v-if="customer.blocked_count && customer.blocked_count > 0"
-                    class="px-2 py-1 text-xs font-medium rounded-full bg-red-100 text-red-800"
-                  >
-                    Заблокирован
-                  </span>
-                  <span
-                    class="px-2 py-1 text-xs font-medium rounded-full"
-                    :class="temperatureBadge(customer).badgeClass"
-                  >
-                    {{ temperatureBadge(customer).label }}
-                  </span>
-                </div>
-              </td>
-              <td class="px-6 py-4 text-sm">
-                <div class="flex flex-col items-end gap-2">
-                  <button
-                    @click="viewCustomer(customer.id)"
-                    class="admin-link-button admin-link-button--compact admin-link-button--primary min-w-[132px]"
-                  >
-                    Подробнее
-                  </button>
-                  <button
-                    v-if="!customer.blocked_count"
-                    @click="blockCustomer(customer)"
-                    class="admin-link-button admin-link-button--compact admin-link-button--muted min-w-[132px]"
-                  >
-                    Блокировать
-                  </button>
-                  <button
-                    v-else
-                    @click="unblockCustomer(customer)"
-                    class="admin-link-button admin-link-button--compact admin-link-button--unblock min-w-[132px]"
-                  >
-                    Разблокировать
-                  </button>
-                </div>
-              </td>
-            </tr>
-          </tbody>
-            </table>
+          <div v-else class="text-center py-12 bg-white rounded-lg shadow-sm">
+            <p class="text-gray-600">Нет клиентов, не заказывавших более 45 дней</p>
           </div>
         </div>
 
-        <div v-else class="text-center py-12 bg-white rounded-lg shadow-sm">
-          <p class="text-gray-600">Клиентов не найдено</p>
+        <!-- Processed Customers -->
+        <div v-if="activeTab === 'processed'" class="space-y-6">
+          <div v-if="groupedFeedbacks.length > 0">
+            <div v-for="group in groupedFeedbacks" :key="group.date" class="mb-6">
+              <h3 class="text-lg font-semibold text-gray-900 mb-3">{{ group.date }}</h3>
+              <div class="bg-white rounded-lg shadow-sm divide-y divide-gray-200">
+                <div v-for="feedback in group.items" :key="feedback.id" class="p-6">
+                  <div class="flex items-start justify-between">
+                    <div class="flex-1">
+                      <div class="flex items-center gap-3 mb-2">
+                        <span class="text-sm font-medium text-gray-900">username клиента</span>
+                        <a
+                          v-if="feedback.telegram_username"
+                          :href="`https://t.me/${feedback.telegram_username}`"
+                          target="_blank"
+                          class="text-blue-600 hover:text-blue-900 text-sm"
+                        >
+                          @{{ feedback.telegram_username }}
+                        </a>
+                      </div>
+                      <div class="text-sm text-gray-500 mb-3">
+                        {{ feedback.customer_name || 'Без имени' }}
+                      </div>
+                      <div class="text-sm text-gray-700 bg-gray-50 rounded p-3">
+                        <span class="font-medium">итог:</span> {{ feedback.reason }}
+                      </div>
+                    </div>
+                    <button
+                      @click="openDeleteFeedbackModal(feedback)"
+                      class="ml-4 p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
+                      title="Удалить запись"
+                    >
+                      <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div v-else class="text-center py-12 bg-white rounded-lg shadow-sm">
+            <p class="text-gray-600">Нет обработанных клиентов</p>
+          </div>
+        </div>
+
+        <!-- All Customers with Search -->
+        <div v-if="activeTab === 'all'" class="space-y-4">
+          <div class="bg-white rounded-lg shadow-sm p-4">
+            <input
+              v-model="searchQuery"
+              type="text"
+              placeholder="Поиск по username..."
+              class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+          <div v-if="filteredAllCustomers.length > 0" class="rounded-lg bg-white shadow-sm">
+            <div class="overflow-x-auto">
+              <table class="w-full min-w-[720px]">
+                <thead class="bg-gray-50 border-b">
+                  <tr>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Username</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Имя</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Заказов</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Последний заказ</th>
+                    <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Действия</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-200">
+                  <tr v-for="customer in filteredAllCustomers" :key="customer.id" class="hover:bg-gray-50">
+                    <td class="px-6 py-4">
+                      <a
+                        v-if="customer.telegram_username"
+                        :href="`https://t.me/${customer.telegram_username}`"
+                        target="_blank"
+                        class="text-blue-600 hover:text-blue-900 text-sm"
+                      >
+                        @{{ customer.telegram_username }}
+                      </a>
+                      <span v-else class="text-sm text-gray-400">Нет username</span>
+                    </td>
+                    <td class="px-6 py-4 text-sm text-gray-900">
+                      {{ customer.first_name || 'Без имени' }} {{ customer.last_name || '' }}
+                    </td>
+                    <td class="px-6 py-4 text-sm text-gray-900">{{ customer.total_orders }}</td>
+                    <td class="px-6 py-4 text-sm text-gray-500">
+                      {{ customer.last_order_at ? formatDate(customer.last_order_at) : 'Никогда' }}
+                    </td>
+                    <td class="px-6 py-4 text-right">
+                      <div class="flex items-center justify-end gap-2">
+                        <button
+                          v-if="!customer.blocked_count"
+                          @click="openBlockModal(customer)"
+                          class="px-3 py-1 bg-red-50 text-red-600 text-sm font-medium rounded hover:bg-red-100"
+                        >
+                          Блокировать
+                        </button>
+                        <button
+                          v-else
+                          @click="unblockCustomer(customer)"
+                          class="px-3 py-1 bg-green-50 text-green-600 text-sm font-medium rounded hover:bg-green-100"
+                        >
+                          Разблокировать
+                        </button>
+                        <button
+                          @click="openDeleteCustomerModal(customer)"
+                          class="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
+                          title="Удалить клиента"
+                        >
+                          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                          </svg>
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+          <div v-else class="text-center py-12 bg-white rounded-lg shadow-sm">
+            <p class="text-gray-600">Клиентов не найдено</p>
+          </div>
         </div>
       </template>
     </div>
 
-    <!-- Block Modal -->
-    <AdminModal
-      :isOpen="showBlockModal"
-      title="Блокировка доставки"
-      description="Укажите причину блокировки для клиента."
-      size="sm"
-      :showActions="false"
-      @close="showBlockModal = false"
-      @cancel="showBlockModal = false"
+    <!-- Feedback Modal -->
+    <div
+      v-if="showFeedbackModal"
+      class="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 px-4"
+      @click.self="closeFeedbackModal"
     >
-      <div class="space-y-4">
-        <div>
-          <label class="block text-sm font-medium text-gray-700 mb-2">Причина блокировки</label>
-          <textarea v-model="blockReason" rows="3" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="Укажите причину..."></textarea>
-        </div>
-        <div class="flex gap-3">
-          <button @click="confirmBlock" class="flex-1 px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700">Заблокировать</button>
-          <button @click="showBlockModal = false" class="flex-1 px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300">Отмена</button>
+      <div class="w-full max-w-2xl rounded-xl bg-white p-6 shadow-xl">
+        <h3 class="text-xl font-bold text-gray-900 mb-2">Какой итог?</h3>
+        <p class="text-sm text-gray-600 mb-4">
+          Оставьте обратную связь по поводу пропавшего клиента. Какова причина?
+          Какая была обратная связь? И что было предложено чтобы он вернулся?
+        </p>
+        <textarea
+          v-model="feedbackReason"
+          rows="6"
+          class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+          placeholder="напишите отчёт по клиенту..."
+        ></textarea>
+        <div class="mt-6 flex gap-3">
+          <button
+            @click="submitFeedback"
+            :disabled="!feedbackReason.trim() || submittingFeedback"
+            class="flex-1 rounded-lg bg-green-600 px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {{ submittingFeedback ? 'Сохранение...' : 'подтвердить и закрыть' }}
+          </button>
+          <button
+            @click="closeFeedbackModal"
+            class="flex-1 rounded-lg border border-gray-300 bg-white px-4 py-3 text-sm font-medium text-gray-700 hover:bg-gray-50"
+          >
+            Отмена
+          </button>
         </div>
       </div>
-    </AdminModal>
+    </div>
+
+    <!-- Delete Feedback Modal -->
+    <div
+      v-if="showDeleteFeedbackModal"
+      class="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 px-4"
+      @click.self="showDeleteFeedbackModal = false"
+    >
+      <div class="w-full max-w-md rounded-xl bg-white p-6 shadow-xl">
+        <h3 class="text-xl font-semibold text-gray-900 mb-2">Удалить запись?</h3>
+        <p class="text-sm text-gray-600 mb-4">
+          Эта запись обратной связи будет удалена, и клиент снова появится 
+          в списке "Не заказывали более 45 дней".
+        </p>
+        <div class="mt-6 flex gap-3">
+          <button
+            @click="confirmDeleteFeedback"
+            :disabled="deletingFeedback"
+            class="flex-1 rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {{ deletingFeedback ? 'Удаление...' : 'Удалить' }}
+          </button>
+          <button
+            @click="showDeleteFeedbackModal = false"
+            class="flex-1 rounded-lg border border-gray-200 bg-gray-100 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-200"
+          >
+            Отмена
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Delete Customer Modal -->
+    <div
+      v-if="showDeleteCustomerModal"
+      class="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 px-4"
+      @click.self="showDeleteCustomerModal = false"
+    >
+      <div class="w-full max-w-md rounded-xl bg-white p-6 shadow-xl">
+        <h3 class="text-xl font-semibold text-gray-900 mb-2">Удалить клиента?</h3>
+        <p class="text-sm text-gray-600 mb-2">
+          Вы уверены, что хотите удалить клиента?
+        </p>
+        <div v-if="customerToDelete" class="bg-gray-50 rounded p-3 mb-4 text-sm">
+          <p class="font-medium text-gray-900">{{ customerToDelete.first_name || 'Без имени' }} {{ customerToDelete.last_name || '' }}</p>
+          <p class="text-gray-600">@{{ customerToDelete.telegram_username || 'без username' }}</p>
+        </div>
+        <p class="text-sm text-red-600 mb-4">
+          Это действие необратимо!
+        </p>
+        <div class="flex gap-3">
+          <button
+            @click="confirmDeleteCustomer"
+            :disabled="deletingCustomer"
+            class="flex-1 rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {{ deletingCustomer ? 'Удаление...' : 'Удалить' }}
+          </button>
+          <button
+            @click="showDeleteCustomerModal = false"
+            class="flex-1 rounded-lg border border-gray-200 bg-gray-100 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-200"
+          >
+            Отмена
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Block Modal -->
+    <div
+      v-if="showBlockModal"
+      class="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 px-4"
+      @click.self="showBlockModal = false"
+    >
+      <div class="w-full max-w-md rounded-xl bg-white p-6 shadow-xl">
+        <h3 class="text-xl font-semibold text-gray-900 mb-2">Блокировка доставки</h3>
+        <p class="text-sm text-gray-500 mb-4">Укажите причину блокировки для клиента.</p>
+        <textarea
+          v-model="blockReason"
+          rows="3"
+          class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
+          placeholder="Причина блокировки..."
+        ></textarea>
+        <div class="mt-4 flex gap-3">
+          <button
+            @click="confirmBlock"
+            :disabled="blockingInProgress"
+            class="flex-1 rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {{ blockingInProgress ? 'Блокируем...' : 'Заблокировать' }}
+          </button>
+          <button
+            @click="showBlockModal = false"
+            class="flex-1 rounded-lg border border-gray-200 bg-gray-100 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-200"
+          >
+            Отмена
+          </button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, watch, onMounted, computed } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import { useCrmStore } from '@/stores/crm'
 import { storeToRefs } from 'pinia'
-import { useRouter } from 'vue-router'
-import type { Customer, VisitLog } from '@/stores/crm'
-import AdminModal from '@/components/AdminModal.vue'
+import type { Customer, CustomerFeedback } from '@/stores/crm'
 
 const crmStore = useCrmStore()
-const { customers, loadingCustomers } = storeToRefs(crmStore)
-const router = useRouter()
+const { customers, loadingCustomers, customerFeedbacks, loadingCustomerFeedbacks } = storeToRefs(crmStore)
 
-const selectedFilter = ref<'inactive' | 'cold' | null>(null)
-type SortKey = 'name' | 'total_orders' | 'total_spent' | 'last_order_at' | 'last_visit_at'
-const sortKey = ref<SortKey>('last_visit_at')
-const sortDirection = ref<'asc' | 'desc'>('desc')
+const activeTab = ref<'inactive' | 'processed' | 'all'>('inactive')
 const showBlockModal = ref(false)
+const showFeedbackModal = ref(false)
+const showDeleteFeedbackModal = ref(false)
+const showDeleteCustomerModal = ref(false)
 const blockReason = ref('')
+const feedbackReason = ref('')
 const customerToBlock = ref<Customer | null>(null)
-const showActiveCustomers = ref(true)
+const customerToProcess = ref<Customer | null>(null)
+const customerToDelete = ref<Customer | null>(null)
+const feedbackToDelete = ref<CustomerFeedback | null>(null)
+const blockingInProgress = ref(false)
+const submittingFeedback = ref(false)
+const deletingFeedback = ref(false)
+const deletingCustomer = ref(false)
+const searchQuery = ref('')
+const loading = computed(() => loadingCustomers.value || loadingCustomerFeedbacks.value)
 
-type CustomerTemperature = 'cold' | 'inactive' | 'active'
+type InactiveCustomer = Customer
 
-const temperatureMeta: Record<CustomerTemperature, { label: string; badgeClass: string; rowClass: string }> = {
-  cold: {
-    label: 'Холодный',
-    badgeClass: 'bg-blue-100 text-blue-700',
-    rowClass: 'bg-blue-50/60'
-  },
-  inactive: {
-    label: 'Пропал',
-    badgeClass: 'bg-amber-100 text-amber-700',
-    rowClass: 'bg-amber-50/60'
-  },
-  active: {
-    label: 'Активен',
-    badgeClass: 'bg-emerald-100 text-emerald-700',
-    rowClass: ''
-  }
+function getDaysSinceLastOrder(c: Customer) {
+  if (!c.last_order_at) return 9999
+  const lastOrder = new Date(c.last_order_at).getTime()
+  return Math.floor((Date.now() - lastOrder) / (1000 * 60 * 60 * 24))
 }
 
-type CustomerStatsKey = 'cold' | 'inactive' | 'active' | 'all'
-type CustomerStat = { count: number; orders: number; spent: number }
-
-const customerStats = computed<Record<CustomerStatsKey, CustomerStat>>(() => {
-  const initial: Record<CustomerStatsKey, CustomerStat> = {
-    cold: { count: 0, orders: 0, spent: 0 },
-    inactive: { count: 0, orders: 0, spent: 0 },
-    active: { count: 0, orders: 0, spent: 0 },
-    all: { count: 0, orders: 0, spent: 0 }
-  }
-
-  customers.value.forEach((customer) => {
-    const temp = getCustomerTemperature(customer)
-    const orders = Number(customer.total_orders) || 0
-    const spent = Number(customer.total_spent) || 0
-
-    initial[temp].count += 1
-    initial[temp].orders += orders
-    initial[temp].spent += spent
-
-    initial.all.count += 1
-    initial.all.orders += orders
-    initial.all.spent += spent
-  })
-
-  return initial
+const inactiveCustomers = computed<InactiveCustomer[]>(() => {
+  const processedCustomerIds = new Set(
+    customerFeedbacks.value.map((f) => f.customer_id)
+  )
+  return customers.value
+    .filter((c) => Boolean(c.last_order_at))
+    .filter((c) => getDaysSinceLastOrder(c) >= 45)
+    .filter((c) => !processedCustomerIds.has(c.id))
+    .sort((a, b) => getDaysSinceLastOrder(b) - getDaysSinceLastOrder(a))
 })
 
-const statusSummaryRows = computed(() => {
-  const headings: Array<{ key: Exclude<CustomerStatsKey, 'active'>; label: string }> = [
-    { key: 'all', label: 'Все клиенты' },
-    { key: 'inactive', label: 'Пропавшие (>30 дней)' },
-    { key: 'cold', label: 'Холодные (без заказов)' }
-  ]
-
-  return headings.map(({ key, label }) => {
-    const stats = customerStats.value[key]
-    return {
-      key,
-      label,
-      count: stats?.count ?? 0,
-      orders: stats?.orders ?? 0,
-      spent: stats?.spent ?? 0
-    }
-  })
+const filteredAllCustomers = computed(() => {
+  const q = searchQuery.value.trim().toLowerCase()
+  const list = customers.value
+  if (!q) return list
+  return list.filter((c) => (c.telegram_username || '').toLowerCase().includes(q))
 })
 
-function resolveTimestamp(value?: string | null) {
-  if (!value) return 0
-  const ts = new Date(value).getTime()
-  return Number.isNaN(ts) ? 0 : ts
-}
-
-const displayedCustomers = computed(() => {
-  const items = customers.value.filter((customer) => showActiveCustomers.value || getCustomerTemperature(customer) !== 'active')
-
-  return items.sort((a, b) => {
-    const aValue = getSortValue(a, sortKey.value)
-    const bValue = getSortValue(b, sortKey.value)
-
-    let result: number
-
-    if (typeof aValue === 'string' || typeof bValue === 'string') {
-      result = String(aValue).localeCompare(String(bValue), 'ru', { sensitivity: 'base' })
-    } else {
-      result = Number(aValue) - Number(bValue)
-    }
-
-    if (result === 0 && sortKey.value !== 'last_visit_at') {
-      const fallback = resolveTimestamp(a.last_visit_at) - resolveTimestamp(b.last_visit_at)
-      result = fallback
-    }
-
-    return sortDirection.value === 'asc' ? result : -result
-  })
-})
-
-function getSortValue(customer: Customer, key: SortKey): string | number {
-  switch (key) {
-    case 'name':
-      return `${customer.first_name ?? ''} ${customer.last_name ?? ''}`.trim().toLocaleLowerCase('ru')
-    case 'total_orders':
-      return Number(customer.total_orders) || 0
-    case 'total_spent':
-      return Number(customer.total_spent) || 0
-    case 'last_order_at':
-      return resolveTimestamp(customer.last_order_at)
-    case 'last_visit_at':
-      return resolveTimestamp(customer.last_visit_at)
-    default:
-      return 0
+const groupedFeedbacks = computed(() => {
+  const groups: Record<string, CustomerFeedback[]> = {}
+  for (const item of customerFeedbacks.value) {
+    const d = new Date(item.processed_at || item.created_at)
+    const label = d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' })
+    if (!groups[label]) groups[label] = []
+    groups[label].push(item)
   }
-}
-
-function sortHeaderClass(key: SortKey) {
-  return [
-    sortKey.value === key ? 'text-blue-600' : 'text-gray-500 hover:text-gray-700',
-    'cursor-pointer select-none'
-  ]
-}
-
-function sortIndicator(key: SortKey) {
-  if (sortKey.value === key) {
-    return sortDirection.value === 'asc' ? '▲' : '▼'
-  }
-  return '⇅'
-}
-
-function sortIndicatorClass(key: SortKey) {
-  return sortKey.value === key ? 'text-blue-600' : 'text-gray-400'
-}
-
-function toggleSort(key: SortKey) {
-  if (sortKey.value === key) {
-    sortDirection.value = sortDirection.value === 'asc' ? 'desc' : 'asc'
-  } else {
-    sortKey.value = key
-    sortDirection.value = key === 'name' ? 'asc' : 'desc'
-  }
-}
-
-watch(selectedFilter, () => {
-  crmStore.fetchCustomers(selectedFilter.value || undefined)
+  return Object.entries(groups).map(([date, items]) => ({ date, items }))
 })
 
-onMounted(() => {
-  crmStore.fetchCustomers()
-})
-
-function filterButtonClass(filter: 'inactive' | 'cold' | null) {
+function tabButtonClass(tab: 'inactive' | 'processed' | 'all') {
   return [
     'w-full rounded-lg px-4 py-2 text-sm font-medium transition-colors sm:w-auto',
-    selectedFilter.value === filter ? 'bg-blue-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-100'
+    activeTab.value === tab ? 'bg-blue-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-100'
   ]
 }
 
-function getCustomerTemperature(customer: Customer): CustomerTemperature {
-  if (!customer.total_orders || customer.total_orders === 0) {
-    return 'cold'
-  }
-
-  if (!customer.last_order_at) {
-    return 'cold'
-  }
-
-  const lastOrder = new Date(customer.last_order_at).getTime()
-  const now = Date.now()
-  const diffDays = Math.floor((now - lastOrder) / (1000 * 60 * 60 * 24))
-
-  if (diffDays >= 30) return 'inactive'
-  return 'active'
-}
-
-function temperatureBadge(customer: Customer) {
-  const temperature = getCustomerTemperature(customer)
-  return temperatureMeta[temperature]
-}
-
-function customerRowClass(customer: Customer) {
-  const temperature = getCustomerTemperature(customer)
-  return [
-    'hover:bg-gray-50 transition-colors',
-    temperatureMeta[temperature].rowClass,
-    customer.blocked_count && customer.blocked_count > 0 ? 'opacity-80' : ''
-  ]
-}
-
-function formatRelative(dateString: string | null) {
-  if (!dateString) return 'Никогда'
-  const target = new Date(dateString).getTime()
-  if (Number.isNaN(target)) return '—'
-  const diffMs = Date.now() - target
-  const minute = 60 * 1000
-  const hour = 60 * minute
-  const day = 24 * hour
-  const month = 30 * day
-  const year = 365 * day
-
-  if (diffMs < minute) return 'Только что'
-  if (diffMs < hour) return `${Math.round(diffMs / minute)} мин назад`
-  if (diffMs < day) return `${Math.round(diffMs / hour)} ч назад`
-  if (diffMs < month) return `${Math.round(diffMs / day)} дн назад`
-  if (diffMs < year) return `${Math.round(diffMs / month)} мес назад`
-  return `${Math.round(diffMs / year)} г назад`
-}
-
-function visitLabel(visit: VisitLog) {
-  if (visit.action) return visit.action
-  if (visit.page_path) {
-    if (visit.page_path === '/') return 'Главная'
-    if (visit.page_path.startsWith('/category/')) {
-      const slug = visit.page_path.split('/').pop()
-      return `Категория • ${slug}`
-    }
-    if (visit.page_path.startsWith('/p/')) {
-      return 'Карточка товара'
-    }
-    return visit.page_path
-  }
-  return 'Визит'
-}
-
-function viewCustomer(id: string) {
-  router.push({ name: 'CrmCustomerDetail', params: { id } })
-}
-
-function blockCustomer(customer: Customer) {
+function openBlockModal(customer: Customer) {
   customerToBlock.value = customer
   blockReason.value = ''
   showBlockModal.value = true
 }
 
 async function confirmBlock() {
-  if (!customerToBlock.value) return
+  if (!customerToBlock.value || blockingInProgress.value) return
   try {
+    blockingInProgress.value = true
     await crmStore.blockCustomer(customerToBlock.value.id, blockReason.value)
     showBlockModal.value = false
-    await crmStore.fetchCustomers(selectedFilter.value || undefined)
-  } catch (error) {
+    await crmStore.fetchCustomers()
+  } catch (e) {
     alert('Ошибка блокировки')
+  } finally {
+    blockingInProgress.value = false
   }
 }
 
 async function unblockCustomer(customer: Customer) {
   if (!confirm('Разблокировать доставку для этого клиента?')) return
+  await crmStore.unblockCustomer(customer.id)
+  await crmStore.fetchCustomers()
+}
+
+function openFeedbackModal(customer: Customer) {
+  customerToProcess.value = customer
+  feedbackReason.value = ''
+  showFeedbackModal.value = true
+}
+
+function closeFeedbackModal() {
+  showFeedbackModal.value = false
+  customerToProcess.value = null
+}
+
+async function submitFeedback() {
+  if (!customerToProcess.value || !feedbackReason.value.trim()) return
+  submittingFeedback.value = true
   try {
-    await crmStore.unblockCustomer(customer.id)
-    await crmStore.fetchCustomers(selectedFilter.value || undefined)
-  } catch (error) {
-    alert('Ошибка разблокировки')
+    await crmStore.createCustomerFeedback({
+      customer_id: customerToProcess.value.id,
+      reason: feedbackReason.value.trim()
+    })
+    showFeedbackModal.value = false
+    await Promise.all([crmStore.fetchCustomerFeedbacks(), crmStore.fetchCustomers()])
+  } catch (e) {
+    alert('Не удалось сохранить итог')
+  } finally {
+    submittingFeedback.value = false
   }
 }
 
-function formatCurrency(value: number): string {
-  return new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB', minimumFractionDigits: 0 }).format(value)
+function openDeleteFeedbackModal(feedback: CustomerFeedback) {
+  feedbackToDelete.value = feedback
+  showDeleteFeedbackModal.value = true
+}
+
+async function confirmDeleteFeedback() {
+  if (!feedbackToDelete.value || deletingFeedback.value) return
+  deletingFeedback.value = true
+  try {
+    await crmStore.deleteCustomerFeedback(feedbackToDelete.value.id)
+    await crmStore.fetchCustomerFeedbacks()
+    showDeleteFeedbackModal.value = false
+    feedbackToDelete.value = null
+  } catch (e) {
+    alert('Не удалось удалить запись')
+  } finally {
+    deletingFeedback.value = false
+  }
+}
+
+function openDeleteCustomerModal(customer: Customer) {
+  customerToDelete.value = customer
+  showDeleteCustomerModal.value = true
+}
+
+async function confirmDeleteCustomer() {
+  if (!customerToDelete.value || deletingCustomer.value) return
+  deletingCustomer.value = true
+  try {
+    await crmStore.deleteCustomer(customerToDelete.value.id)
+    await crmStore.fetchCustomers()
+    showDeleteCustomerModal.value = false
+    customerToDelete.value = null
+  } catch (e) {
+    alert('Не удалось удалить клиента')
+  } finally {
+    deletingCustomer.value = false
+  }
 }
 
 function formatDate(dateString: string): string {
   return new Date(dateString).toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' })
 }
+
+onMounted(() => {
+  void Promise.all([crmStore.fetchCustomers(), crmStore.fetchCustomerFeedbacks()])
+})
 </script>
