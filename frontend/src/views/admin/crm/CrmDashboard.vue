@@ -3,15 +3,15 @@
     <!-- Locked view: show only access form -->
     <div v-if="!profitUnlocked" class="mx-auto w-full max-w-md">
       <div class="rounded-lg bg-white p-6 shadow-sm">
-        <h1 class="text-xl font-semibold text-gray-900 mb-2 text-center">Введите код доступа</h1>
-        <p class="text-sm text-gray-600 mb-4 text-center">Оплатите подписку на сервис</p>
+        <h1 class="text-xl font-semibold text-gray-900 mb-2 text-center">Доступ заблокирован</h1>
+        <p class="text-sm text-gray-600 mb-4 text-center">Введите лицензионный ключ</p>
         <form class="space-y-4" @submit.prevent="submitPassword">
           <div>
             <input
               v-model="passwordInput"
               type="password"
               class="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
-              placeholder="Пароль"
+              placeholder="XXX-XXX-XXX"
               autocomplete="current-password"
             />
             <p v-if="passwordError" class="mt-2 text-sm text-red-600">{{ passwordError }}</p>
@@ -280,7 +280,7 @@ function getStatusLabel(status: string): string {
 
 async function submitPassword() {
   if (!passwordInput.value) {
-    passwordError.value = 'Введите пароль'
+    passwordError.value = 'Введите ключ'
     return
   }
 
@@ -290,7 +290,7 @@ async function submitPassword() {
     // После успешной проверки сразу грузим данные
     await crmStore.fetchDashboard(selectedPeriod.value, offset.value)
   } catch (error) {
-    passwordError.value = 'Неверный пароль'
+    passwordError.value = 'Неверный ключ'
   }
 }
 </script>

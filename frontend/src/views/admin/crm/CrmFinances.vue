@@ -118,7 +118,7 @@
     <AdminModal
       :isOpen="showPasswordModal"
       title="Подтверждение доступа"
-      description="Введите пароль, чтобы открыть финансовую информацию."
+      description="Введите лицензионный ключ"
       size="sm"
       :showActions="false"
       @close="closePasswordModal"
@@ -126,12 +126,12 @@
     >
       <form class="space-y-4" @submit.prevent="submitPassword">
         <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">Пароль</label>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Ключ</label>
           <input
             v-model="passwordInput"
             type="password"
             class="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
-            placeholder="Введите пароль"
+            placeholder="XXX-XXX-XXX"
             :disabled="verifyingPassword"
           />
           <p v-if="passwordError" class="mt-2 text-sm text-red-600">{{ passwordError }}</p>
@@ -413,7 +413,7 @@ function closePasswordModal() {
 
 async function submitPassword() {
   if (!passwordInput.value.trim()) {
-    passwordError.value = 'Введите пароль'
+    passwordError.value = 'Введите ключ'
     return
   }
 
@@ -422,7 +422,7 @@ async function submitPassword() {
     await crmStore.verifyProfitPassword(passwordInput.value.trim())
     closePasswordModal()
   } catch (error) {
-    passwordError.value = 'Неверный пароль'
+    passwordError.value = 'Неверный ключ'
   }
 }
 

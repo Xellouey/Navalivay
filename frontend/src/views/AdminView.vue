@@ -447,13 +447,13 @@
 
                 <section class="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
                   <div class="space-y-1">
-                    <h3 class="text-lg font-semibold text-gray-900">Пароль для просмотра прибыли</h3>
+                    <h3 class="text-lg font-semibold text-gray-900">Лицензионный ключ для просмотра прибыли</h3>
                     <p class="text-sm text-gray-600">Настройте допуск к финансовым показателям.</p>
                   </div>
 
                   <form @submit.prevent="handleProfitPasswordUpdate" class="mt-6 space-y-4">
                     <div class="space-y-2">
-                      <label class="text-sm font-medium text-gray-700">Текущий пароль</label>
+                      <label class="text-sm font-medium text-gray-700">Текущий ключ</label>
                       <input
                         v-model="profitPasswordForm.current"
                         type="password"
@@ -462,7 +462,7 @@
                       />
                     </div>
                     <div class="space-y-2">
-                      <label class="text-sm font-medium text-gray-700">Новый пароль</label>
+                      <label class="text-sm font-medium text-gray-700">Новый ключ</label>
                       <input
                         v-model="profitPasswordForm.next"
                         type="password"
@@ -496,7 +496,7 @@
                       class="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-slate-900 via-slate-800 to-slate-700 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:from-slate-800 hover:via-slate-700 hover:to-slate-600 focus:outline-none focus:ring-2 focus:ring-slate-400 focus:ring-offset-2 focus:ring-offset-white disabled:cursor-not-allowed disabled:opacity-60"
                       :disabled="profitPasswordSaving"
                     >
-                      {{ profitPasswordSaving ? 'Сохраняем...' : 'Обновить пароль' }}
+                      {{ profitPasswordSaving ? 'Сохраняем...' : 'Обновить ключ' }}
                     </button>
                   </form>
                 </section>
@@ -748,7 +748,7 @@
     <AdminModal
       :isOpen="showProfitModal"
       title="Подтверждение доступа"
-      description="Введите пароль администратора, чтобы увидеть показатели прибыли."
+      description="Введите лицензионный ключ"
       size="sm"
       :showActions="false"
       @close="closeProfitModal"
@@ -756,12 +756,12 @@
     >
       <form class="space-y-4" @submit.prevent="submitProfitPassword">
         <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">Пароль</label>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Ключ</label>
           <input
             v-model="profitPassword"
             type="password"
             class="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-brand-dark focus:outline-none focus:ring-2 focus:ring-brand-dark/20"
-            placeholder="Введите пароль"
+            placeholder="XXX-XXX-XXX"
           />
           <p v-if="profitError" class="mt-2 text-sm text-red-600">{{ profitError }}</p>
         </div>
@@ -1321,7 +1321,7 @@ function closeProfitModal() {
 
 async function submitProfitPassword() {
   if (!profitPassword.value.trim()) {
-    profitError.value = 'Введите пароль'
+    profitError.value = 'Введите ключ'
     return
   }
   profitError.value = ''
@@ -1331,13 +1331,13 @@ async function submitProfitPassword() {
     await crmStore.fetchDashboard(overviewPeriod.value, overviewOffset.value)
     dataLoaded.dashboard = true
   } catch (error) {
-    profitError.value = 'Неверный пароль'
+    profitError.value = 'Неверный ключ'
   }
 }
 
 async function submitOverviewAccess() {
   if (!profitPassword.value.trim()) {
-    profitError.value = 'Введите пароль'
+    profitError.value = 'Введите ключ'
     return
   }
   profitError.value = ''
@@ -1346,7 +1346,7 @@ async function submitOverviewAccess() {
     await crmStore.fetchDashboard(overviewPeriod.value, overviewOffset.value)
     dataLoaded.dashboard = true
   } catch (error) {
-    profitError.value = 'Неверный пароль'
+    profitError.value = 'Неверный ключ'
   }
 }
 
@@ -1360,22 +1360,22 @@ async function handleProfitPasswordUpdate() {
   const confirm = profitPasswordForm.value.confirm.trim()
 
   if (!current) {
-    profitPasswordErrorMessage.value = 'Введите текущий пароль'
+    profitPasswordErrorMessage.value = 'Введите текущий ключ'
     return
   }
 
   if (!next) {
-    profitPasswordErrorMessage.value = 'Введите новый пароль'
+    profitPasswordErrorMessage.value = 'Введите новый ключ'
     return
   }
 
   if (next.length < 4) {
-    profitPasswordErrorMessage.value = 'Пароль должен содержать не менее 4 символов'
+    profitPasswordErrorMessage.value = 'Ключ должен содержать не менее 4 символов'
     return
   }
 
   if (next !== confirm) {
-    profitPasswordErrorMessage.value = 'Пароли не совпадают'
+    profitPasswordErrorMessage.value = 'Ключи не совпадают'
     return
   }
 
@@ -1389,10 +1389,10 @@ async function handleProfitPasswordUpdate() {
     profitPasswordForm.value.current = ''
     profitPasswordForm.value.next = ''
     profitPasswordForm.value.confirm = ''
-    profitPasswordSuccessMessage.value = 'Пароль успешно обновлён'
-    showToast('Пароль для просмотра прибыли обновлён', 'success')
+    profitPasswordSuccessMessage.value = 'Ключ успешно обновлён'
+    showToast('Лицензионный ключ обновлён', 'success')
   } catch (error: any) {
-    profitPasswordErrorMessage.value = adminStore.error || error?.data?.message || 'Не удалось обновить пароль'
+    profitPasswordErrorMessage.value = adminStore.error || error?.data?.message || 'Не удалось обновить ключ'
   } finally {
     profitPasswordSaving.value = false
   }
