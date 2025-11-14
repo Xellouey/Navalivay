@@ -13,6 +13,7 @@ import { uploadRouter } from './upload.js';
 import { crmRouter } from './routes/crm.js';
 import { crmOperationsRouter } from './routes/crm-operations.js';
 import { crmFinanceRouter } from './routes/crm-finance.js';
+import { cleanupOldDeliveredOrders, scheduleCleanup } from './cleanup-delivered-orders.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -23,6 +24,12 @@ app.set('trust proxy', 1);
 
 // Init DB (tables + seed)
 initDb();
+
+// Очистка старых выданных заказов при старте
+cleanupOldDeliveredOrders();
+
+// Планируем ежедневную очистку в полночь
+scheduleCleanup();
 
 // Middlewares
 app.use(morgan('dev'));

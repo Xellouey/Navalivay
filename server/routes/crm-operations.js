@@ -1,6 +1,7 @@
 import express from 'express';
 import { db } from '../db.js';
 import { authMiddleware } from '../auth.js';
+import { cleanupOldDeliveredOrders } from '../cleanup-delivered-orders.js';
 
 export const crmOperationsRouter = express.Router();
 
@@ -69,15 +70,24 @@ function applyDiscounts(totalAmount, discountAmount, discountPercent) {
 crmOperationsRouter.get('/api/admin/crm/orders', authMiddleware, (req, res) => {
   try {
     const { status, page = 1, limit = 20, search } = req.query;
-    
+
     const whereClauses = [];
     const params = [];
-    
+
     if (status) {
       whereClauses.push('o.status = ?');
       params.push(status);
     }
-    
+
+    // Фильтрация выданных заказов: показываем только заказы текущего дня
+    // Выданные заказы (delivered) должны быть созданы или выданы сегодня
+    const now = new Date();
+    const startOfToday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+    const endOfToday = new Date(startOfToday.getTime() + 24 * 60 * 60 * 1000);
+
+    whereClauses.push(`(o.status != 'delivered' OR (o.status = 'delivered' AND o.completed_at >= ? AND o.completed_at < ?))`);
+    params.push(startOfToday.toISOString(), endOfToday.toISOString());
+
     if (search) {
       const searchTerm = String(search).trim();
       if (searchTerm) {
@@ -87,7 +97,7 @@ crmOperationsRouter.get('/api/admin/crm/orders', authMiddleware, (req, res) => {
         params.push(likePattern, likePattern, likePattern, likePattern, likePattern);
       }
     }
-    
+
     const whereClause = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
 
     const offset = (parseInt(page) - 1) * parseInt(limit);
@@ -1094,6 +1104,58 @@ crmOperationsRouter.post('/api/admin/crm/procurements/:id/complete', authMiddlew
     res.json(updated);
   } catch (error) {
     console.error('[crm] Complete procurement error:', error);
+    res.status(500).json({ error: 'failed', message: error.message });
+  }
+});
+
+// =========================
+// CLEANUP (Очистка старых заказов)
+// =========================
+crmOperationsRouter.post('/api/admin/crm/cleanup-delivered-orders', authMiddleware, (req, res) => {
+  try {
+    console.log('[crm] Manual cleanup triggered');
+    const result = cleanupOldDeliveredOrders();
+    res.json({
+      ok: true,
+      ...result
+    });
+  } catch (error) {
+    console.error('[crm] Manual cleanup error:', error);
+    res.status(500).json({ error: 'failed', message: error.message });
+  }
+});
+
+// Debug endpoint для проверки delivered заказов
+crmOperationsRouter.get('/api/admin/crm/debug-delivered-orders', authMiddleware, (req, res) => {
+  try {
+    const now = new Date();
+    const startOfToday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+
+    const orders = db.prepare(`
+      SELECT
+        id,
+        order_number,
+        status,
+        completed_at,
+        created_at,
+        CASE
+          WHEN completed_at IS NULL THEN 'NULL'
+          WHEN completed_at < ? THEN 'OLD (should be deleted)'
+          ELSE 'TODAY (should be visible)'
+        END as classification
+      FROM orders
+      WHERE status = 'delivered'
+      ORDER BY completed_at DESC
+      LIMIT 20
+    `).all(startOfToday.toISOString());
+
+    res.json({
+      currentTime: now.toISOString(),
+      startOfToday: startOfToday.toISOString(),
+      orders
+    });
+  } catch (error) {
+    console.error('[crm] Debug endpoint error:', error);
     res.status(500).json({ error: 'failed', message: error.message });
   }
 });
