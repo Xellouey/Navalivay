@@ -343,9 +343,8 @@
             <tr v-if="isLoading">
               <td colspan="9" class="py-8 text-center text-gray-600">Загрузка...</td>
             </tr>
-            <tr 
-              v-for="p in paged" 
-              :key="p.id" 
+            <template v-for="p in paged" :key="p.id">
+            <tr
               class="transition-colors hover:bg-rose-50/50"
               :class="[
                 selectedIds.includes(p.id) ? 'bg-rose-50/70' : '',
@@ -353,12 +352,29 @@
               ]"
             >
             <td class="px-4 py-4" :style="columnStyle(0)">
-              <input
-                type="checkbox"
-                :checked="selectedIds.includes(p.id)"
-                @change="toggleSelect(p.id)"
-                class="rounded border-gray-300 text-brand-dark focus:ring-brand-dark"
-              >
+              <div class="flex items-center gap-2">
+                <button
+                  v-if="p.hasVariants && p.variants && p.variants.length > 0"
+                  @click="toggleProductExpansion(p.id)"
+                  class="flex items-center justify-center w-5 h-5 rounded hover:bg-rose-100 transition-colors"
+                  :title="isProductExpanded(p.id) ? 'Свернуть' : 'Развернуть'"
+                >
+                  <svg
+                    class="w-3 h-3 text-gray-600 transition-transform"
+                    :class="{ 'rotate-90': isProductExpanded(p.id) }"
+                    fill="currentColor"
+                    viewBox="0 0 20 20"
+                  >
+                    <path fill-rule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clip-rule="evenodd" />
+                  </svg>
+                </button>
+                <input
+                  type="checkbox"
+                  :checked="selectedIds.includes(p.id)"
+                  @change="toggleSelect(p.id)"
+                  class="rounded border-gray-300 text-brand-dark focus:ring-brand-dark"
+                >
+              </div>
             </td>
             <td class="px-4 py-4 min-w-[220px]" :style="columnStyle(1)">
               <div class="flex items-center gap-3 min-w-0">
@@ -445,6 +461,59 @@
               </div>
             </td>
           </tr>
+
+          <!-- Variant rows -->
+          <template v-if="p.hasVariants && p.variants && p.variants.length > 0 && isProductExpanded(p.id)">
+            <tr
+              v-for="(variant, vIndex) in p.variants"
+              :key="`${p.id}-variant-${vIndex}`"
+              class="bg-rose-50/30 transition-colors hover:bg-rose-50/50"
+            >
+              <td class="px-4 py-3" :style="columnStyle(0)">
+                <!-- Пустая ячейка или индикатор вложенности -->
+                <div class="pl-7 text-gray-400 text-xs">└</div>
+              </td>
+              <td class="px-4 py-3 min-w-[220px]" :style="columnStyle(1)">
+                <div class="flex items-center gap-3 min-w-0 pl-4">
+                  <div
+                    v-if="variant.colorCode"
+                    class="w-6 h-6 rounded-full border-2 border-white shadow-sm flex-shrink-0"
+                    :style="{ backgroundColor: variant.colorCode }"
+                    :title="variant.name"
+                  ></div>
+                  <div class="min-w-0">
+                    <div class="text-sm text-gray-700 truncate">{{ variant.name }}</div>
+                    <div class="text-xs text-gray-500">Вариант</div>
+                  </div>
+                </div>
+              </td>
+              <td class="px-4 py-3 text-gray-500 text-sm" :style="columnStyle(2)">—</td>
+              <td class="px-4 py-3 text-gray-500 text-sm" :style="columnStyle(3)">—</td>
+              <td class="px-4 py-3 text-gray-500 text-sm" :style="columnStyle(4)">—</td>
+              <td class="px-4 py-3 text-right text-gray-700 min-w-[100px]" :style="columnStyle(5)">
+                <div class="flex items-center justify-center">
+                  <span v-if="profitUnlocked" class="text-sm">{{ formatRub(p.costPrice) }}</span>
+                  <span
+                    v-else
+                    class="inline-flex items-center rounded-full bg-gray-100 p-1"
+                    :aria-label="`Себестоимость скрыта`"
+                  >
+                    <LockClosedIcon class="h-4 w-4 text-gray-400" />
+                  </span>
+                </div>
+              </td>
+              <td class="px-4 py-3 text-right" :style="columnStyle(6)">
+                <span class="text-sm text-gray-900">{{ Number(variant.stock ?? 0) }}</span>
+              </td>
+              <td class="px-4 py-3 text-right text-gray-700" :style="columnStyle(7)">
+                <span class="text-sm">{{ formatRub(getVariantPrice(p, variant)) }}</span>
+              </td>
+              <td class="px-4 py-3 text-right" :style="columnStyle(8)">
+                <!-- Пустая ячейка для действий варианта -->
+              </td>
+            </tr>
+          </template>
+          </template>
             <tr v-if="!isLoading && !paged.length">
               <td colspan="9" class="py-8 text-center text-gray-600">Ничего не найдено</td>
             </tr>
@@ -477,24 +546,40 @@
       </div>
       
       <div v-else class="divide-y divide-rose-50">
-        <div 
-          v-for="p in paged" 
-          :key="p.id" 
+        <template v-for="p in paged" :key="p.id">
+        <div
           class="p-2 sm:p-4 transition-colors hover:bg-rose-50/50"
           :class="{ 'bg-rose-50/70': selectedIds.includes(p.id) }"
         >
           <!-- Мобильная версия - компактный лейаут -->
           <div class="block sm:hidden">
             <div class="flex gap-2">
-              <input
-                type="checkbox"
-                :checked="selectedIds.includes(p.id)"
-                @change="toggleSelect(p.id)"
-                class="mt-1 rounded border-gray-300 text-brand-dark focus:ring-brand-dark w-4 h-4 touch-manipulation"
-              >
-              <img 
-                :src="getProductCover(p)" 
-                class="w-12 h-12 object-cover rounded border flex-shrink-0" 
+              <div class="flex flex-col gap-1 items-center">
+                <button
+                  v-if="p.hasVariants && p.variants && p.variants.length > 0"
+                  @click="toggleProductExpansion(p.id)"
+                  class="flex items-center justify-center w-5 h-5 rounded hover:bg-rose-100 transition-colors touch-manipulation"
+                  :title="isProductExpanded(p.id) ? 'Свернуть' : 'Развернуть'"
+                >
+                  <svg
+                    class="w-3 h-3 text-gray-600 transition-transform"
+                    :class="{ 'rotate-90': isProductExpanded(p.id) }"
+                    fill="currentColor"
+                    viewBox="0 0 20 20"
+                  >
+                    <path fill-rule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clip-rule="evenodd" />
+                  </svg>
+                </button>
+                <input
+                  type="checkbox"
+                  :checked="selectedIds.includes(p.id)"
+                  @change="toggleSelect(p.id)"
+                  class="rounded border-gray-300 text-brand-dark focus:ring-brand-dark w-4 h-4 touch-manipulation"
+                >
+              </div>
+              <img
+                :src="getProductCover(p)"
+                class="w-12 h-12 object-cover rounded border flex-shrink-0"
               />
               <div class="flex-1 min-w-0">
                 <div class="flex justify-between items-start gap-2">
@@ -568,15 +653,32 @@
           
           <!-- Десктопная версия - горизонтальный лейаут -->
             <div class="hidden sm:flex items-start gap-4">
-            <input
-              type="checkbox"
-              :checked="selectedIds.includes(p.id)"
-              @change="toggleSelect(p.id)"
-              class="mt-1 rounded border-gray-300 text-brand-dark focus:ring-brand-dark"
-            >
-            <img 
-              :src="getProductCover(p)" 
-              class="w-20 h-20 object-cover rounded-lg border flex-shrink-0" 
+            <div class="flex flex-col gap-2 items-center mt-1">
+              <button
+                v-if="p.hasVariants && p.variants && p.variants.length > 0"
+                @click="toggleProductExpansion(p.id)"
+                class="flex items-center justify-center w-6 h-6 rounded hover:bg-rose-100 transition-colors"
+                :title="isProductExpanded(p.id) ? 'Свернуть' : 'Развернуть'"
+              >
+                <svg
+                  class="w-4 h-4 text-gray-600 transition-transform"
+                  :class="{ 'rotate-90': isProductExpanded(p.id) }"
+                  fill="currentColor"
+                  viewBox="0 0 20 20"
+                >
+                  <path fill-rule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clip-rule="evenodd" />
+                </svg>
+              </button>
+              <input
+                type="checkbox"
+                :checked="selectedIds.includes(p.id)"
+                @change="toggleSelect(p.id)"
+                class="rounded border-gray-300 text-brand-dark focus:ring-brand-dark"
+              >
+            </div>
+            <img
+              :src="getProductCover(p)"
+              class="w-20 h-20 object-cover rounded-lg border flex-shrink-0"
             />
             <div class="flex-1 min-w-0">
               <div class="flex items-start justify-between gap-4">
@@ -658,7 +760,53 @@
               </div>
             </div>
           </div>
+
+          <!-- Variants list (for both mobile and desktop) -->
+          <div v-if="p.hasVariants && p.variants && p.variants.length > 0 && isProductExpanded(p.id)" class="mt-3 space-y-2">
+            <div class="border-t border-rose-100 pt-3">
+              <h4 class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2 px-2">Варианты товара</h4>
+              <div class="space-y-2">
+                <div
+                  v-for="(variant, vIndex) in p.variants"
+                  :key="`${p.id}-variant-list-${vIndex}`"
+                  class="bg-rose-50/40 rounded-lg p-3 hover:bg-rose-50/60 transition-colors"
+                >
+                  <div class="flex items-start gap-3">
+                    <div
+                      v-if="variant.colorCode"
+                      class="w-8 h-8 rounded-full border-2 border-white shadow-sm flex-shrink-0"
+                      :style="{ backgroundColor: variant.colorCode }"
+                      :title="variant.name"
+                    ></div>
+                    <div class="flex-1 min-w-0">
+                      <div class="flex items-start justify-between gap-2">
+                        <div class="flex-1">
+                          <div class="text-sm font-medium text-gray-900">{{ variant.name }}</div>
+                          <div class="mt-1 grid grid-cols-2 sm:grid-cols-4 gap-x-3 gap-y-1 text-xs">
+                            <div class="text-gray-600">
+                              <span class="font-medium">Себес:</span>
+                              <span v-if="profitUnlocked" class="ml-1">{{ formatRub(p.costPrice) }}</span>
+                              <LockClosedIcon v-else class="inline h-3 w-3 text-gray-400 ml-1" />
+                            </div>
+                            <div class="text-gray-600">
+                              <span class="font-medium">Цена:</span>
+                              <span class="ml-1">{{ formatRub(getVariantPrice(p, variant)) }}</span>
+                            </div>
+                            <div class="text-gray-600">
+                              <span class="font-medium">Остаток:</span>
+                              <span class="ml-1">{{ Number(variant.stock ?? 0) }}</span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
+        </template>
       </div>
     </div>
     
@@ -972,6 +1120,16 @@ import { storeToRefs } from 'pinia'
 
 interface ProductLink { label?: string; url: string }
 interface Category { id: string; name: string }
+interface ProductVariant {
+  id?: string
+  product_id?: string
+  name: string
+  colorCode?: string | null
+  priceRub?: number | null
+  stock?: number
+  position?: number
+  images: string[]
+}
 interface Product {
   id: string
   categoryId: string
@@ -986,6 +1144,8 @@ interface Product {
   costPrice?: number
   stock?: number
   minStock?: number
+  hasVariants?: boolean
+  variants?: ProductVariant[]
 }
 interface Pagination { page: number; limit: number; total: number; totalPages: number }
 
@@ -1024,6 +1184,7 @@ const selectedCategoryId = ref('')
 const isMobile = ref(false)
 const viewMode = ref<'table' | 'list'>('table')
 const isInitialized = ref(false)
+const expandedProductIds = ref<Set<string>>(new Set())
 const adminStore = useAdminStore()
 const crmStore = useCrmStore()
 const { profitUnlocked } = storeToRefs(crmStore)
@@ -1650,6 +1811,26 @@ function formatRub(value?: number) {
     minimumFractionDigits: 0,
     maximumFractionDigits: 2
   }).format(Number.isFinite(numeric) ? numeric : 0)
+}
+
+function toggleProductExpansion(productId: string) {
+  if (expandedProductIds.value.has(productId)) {
+    expandedProductIds.value.delete(productId)
+  } else {
+    expandedProductIds.value.add(productId)
+  }
+  // Триггерим реактивность
+  expandedProductIds.value = new Set(expandedProductIds.value)
+  // Перемеряем колонки после изменения количества строк
+  queueColumnMeasurement()
+}
+
+function isProductExpanded(productId: string): boolean {
+  return expandedProductIds.value.has(productId)
+}
+
+function getVariantPrice(product: Product, variant: ProductVariant): number {
+  return variant.priceRub ?? product.priceRub
 }
 
 // Selection methods
