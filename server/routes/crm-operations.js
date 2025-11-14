@@ -69,15 +69,24 @@ function applyDiscounts(totalAmount, discountAmount, discountPercent) {
 crmOperationsRouter.get('/api/admin/crm/orders', authMiddleware, (req, res) => {
   try {
     const { status, page = 1, limit = 20, search } = req.query;
-    
+
     const whereClauses = [];
     const params = [];
-    
+
     if (status) {
       whereClauses.push('o.status = ?');
       params.push(status);
     }
-    
+
+    // Фильтрация выданных заказов: показываем только заказы текущего дня
+    // Выданные заказы (delivered) должны быть созданы или выданы сегодня
+    const now = new Date();
+    const startOfToday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+    const endOfToday = new Date(startOfToday.getTime() + 24 * 60 * 60 * 1000);
+
+    whereClauses.push(`(o.status != 'delivered' OR (o.status = 'delivered' AND o.completed_at >= ? AND o.completed_at < ?))`);
+    params.push(startOfToday.toISOString(), endOfToday.toISOString());
+
     if (search) {
       const searchTerm = String(search).trim();
       if (searchTerm) {
@@ -87,7 +96,7 @@ crmOperationsRouter.get('/api/admin/crm/orders', authMiddleware, (req, res) => {
         params.push(likePattern, likePattern, likePattern, likePattern, likePattern);
       }
     }
-    
+
     const whereClause = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
 
     const offset = (parseInt(page) - 1) * parseInt(limit);
