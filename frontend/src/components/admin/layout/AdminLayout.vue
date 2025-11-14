@@ -6,7 +6,7 @@
       :title="title"
       :main-active="mainActive"
       :crm-links="crmLinks"
-      @logout="$emit('logout')"
+      @lock="$emit('lock')"
     />
 
     <div class="flex-1 flex flex-col min-w-0 md:h-full md:min-h-0 md:overflow-hidden">
@@ -100,14 +100,15 @@
           </div>
 
           <div class="border-t border-gray-100 px-5 py-4">
-            <button 
-              @click="() => { $emit('logout'); closeMenu() }" 
+            <button
+              @click="() => { $emit('lock'); closeMenu() }"
               class="sidebar-button sidebar-button--default w-full flex items-center justify-start gap-4 text-left text-base font-semibold transition-all duration-200"
+              title="Заблокировать панель"
             >
               <span class="sidebar-button__icon">
-                <ArrowRightOnRectangleIcon class="w-5 h-5" />
+                <LockClosedIcon class="w-5 h-5" />
               </span>
-              <span class="text-slate-900">Выйти</span>
+              <span class="text-slate-900">Блокировка</span>
             </button>
           </div>
         </div>
@@ -119,7 +120,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
-import { Bars3Icon, XMarkIcon, ArrowRightOnRectangleIcon } from '@heroicons/vue/24/outline'
+import { Bars3Icon, XMarkIcon, LockClosedIcon } from '@heroicons/vue/24/outline'
 import AdminSidebar from './AdminSidebar.vue'
 
 interface Tab { id: string; name: string; icon: any; description?: string }
@@ -134,7 +135,7 @@ const props = withDefaults(defineProps<{
   crmLinks?: SidebarLink[]
 }>(), { title: 'НАВАЛИВАЙ Admin', subtitle: 'Админ-панель', mainActive: true, crmLinks: () => [] })
 
-const emit = defineEmits<{ (e: 'update:modelValue', v: string): void; (e: 'logout'): void }>()
+const emit = defineEmits<{ (e: 'update:modelValue', v: string): void; (e: 'lock'): void }>()
 
 const innerValue = ref(props.modelValue)
 watch(() => props.modelValue, v => innerValue.value = v)
