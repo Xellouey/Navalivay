@@ -3,7 +3,8 @@
     <!-- Locked view: show only access form -->
     <div v-if="!profitUnlocked" class="mx-auto w-full max-w-md">
       <div class="rounded-lg bg-white p-6 shadow-sm">
-        <h1 class="text-xl font-semibold text-gray-900 mb-4 text-center">Введите код доступа</h1>
+        <h1 class="text-xl font-semibold text-gray-900 mb-2 text-center">Введите код доступа</h1>
+        <p class="text-sm text-gray-600 mb-4 text-center">Оплатите подписку на сервис</p>
         <form class="space-y-4" @submit.prevent="submitPassword">
           <div>
             <input

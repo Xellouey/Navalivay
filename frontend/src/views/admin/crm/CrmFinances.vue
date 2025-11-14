@@ -98,7 +98,7 @@
           <div class="space-y-2">
             <h2 class="text-2xl font-semibold text-gray-900">Финансовые данные скрыты</h2>
             <p class="text-sm text-gray-600">
-              Введите пароль, чтобы просмотреть кассы, балансы и историю транзакций.
+              Оплатите подписку на сервис
             </p>
           </div>
           <button
