@@ -31,8 +31,11 @@
       </div>
     </div>
 
+    <!-- Lock screen -->
+    <AdminLockScreen v-if="adminStore.isAuthenticated && isLocked" @unlocked="handleUnlock" />
+
     <!-- Authenticated layout -->
-<AdminLayout v-else v-model="layoutTab" :tabs="adminTabs" :main-active="!isCrmRoute" :crm-links="crmLinks" @logout="handleLogout">
+<AdminLayout v-else-if="adminStore.isAuthenticated" v-model="layoutTab" :tabs="adminTabs" :main-active="!isCrmRoute" :crm-links="crmLinks" @lock="handleLock">
         <template #default>
           <RouterView v-if="isCrmRoute" />
           <template v-else>
@@ -823,6 +826,7 @@ import AdminLayout from '@/components/admin/layout/AdminLayout.vue'
 import AdminSectionHero from '@/components/admin/layout/AdminSectionHero.vue'
 import AdminProductsTable from '@/components/admin/AdminProductsTable.vue'
 import AdminCategoryGroupForm from '@/components/admin/AdminCategoryGroupForm.vue'
+import AdminLockScreen from '@/components/admin/AdminLockScreen.vue'
 import CountUp from '@/components/CountUp.vue'
 import CountUpCurrency from '@/components/CountUpCurrency.vue'
 import { adminTabs, crmLinks, adminTabOptions, type AdminTabId } from '@/constants/adminNavigation'
@@ -833,6 +837,10 @@ const adminStore = useAdminStore()
 const crmStore = useCrmStore()
 const { dashboardStats, loadingDashboard, profitUnlocked, verifyingProfitAccess } = storeToRefs(crmStore)
 const isCrmRoute = computed(() => route.path.startsWith('/admin/crm'))
+
+// Lock screen state
+const LOCK_STATE_KEY = 'admin_panel_locked'
+const isLocked = ref(false)
 
 const overviewPeriods = [
   { value: 'today', label: 'Сегодня' },
@@ -1270,6 +1278,16 @@ function handleLogout() {
   resetLoadedState()
   crmStore.lockProfitAccess()
   router.push('/')
+}
+
+function handleLock() {
+  isLocked.value = true
+  localStorage.setItem(LOCK_STATE_KEY, 'true')
+}
+
+function handleUnlock() {
+  isLocked.value = false
+  localStorage.removeItem(LOCK_STATE_KEY)
 }
 
 // Overview navigation
@@ -1914,6 +1932,12 @@ async function handlePasswordChange() {
 
 // Init
 onMounted(async () => {
+  // Check lock state
+  const savedLockState = localStorage.getItem(LOCK_STATE_KEY)
+  if (savedLockState === 'true') {
+    isLocked.value = true
+  }
+
   resetLoadedState()
   // @ts-ignore - checkAuth method exists in adminStore
   await adminStore.checkAuth()
