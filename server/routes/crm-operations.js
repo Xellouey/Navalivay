@@ -1125,4 +1125,39 @@ crmOperationsRouter.post('/api/admin/crm/cleanup-delivered-orders', authMiddlewa
   }
 });
 
+// Debug endpoint для проверки delivered заказов
+crmOperationsRouter.get('/api/admin/crm/debug-delivered-orders', authMiddleware, (req, res) => {
+  try {
+    const now = new Date();
+    const startOfToday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+
+    const orders = db.prepare(`
+      SELECT
+        id,
+        order_number,
+        status,
+        completed_at,
+        created_at,
+        CASE
+          WHEN completed_at IS NULL THEN 'NULL'
+          WHEN completed_at < ? THEN 'OLD (should be deleted)'
+          ELSE 'TODAY (should be visible)'
+        END as classification
+      FROM orders
+      WHERE status = 'delivered'
+      ORDER BY completed_at DESC
+      LIMIT 20
+    `).all(startOfToday.toISOString());
+
+    res.json({
+      currentTime: now.toISOString(),
+      startOfToday: startOfToday.toISOString(),
+      orders
+    });
+  } catch (error) {
+    console.error('[crm] Debug endpoint error:', error);
+    res.status(500).json({ error: 'failed', message: error.message });
+  }
+});
+
 // Продолжение следует...
