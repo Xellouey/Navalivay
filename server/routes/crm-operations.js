@@ -1,6 +1,7 @@
 import express from 'express';
 import { db } from '../db.js';
 import { authMiddleware } from '../auth.js';
+import { cleanupOldDeliveredOrders } from '../cleanup-delivered-orders.js';
 
 export const crmOperationsRouter = express.Router();
 
@@ -1103,6 +1104,23 @@ crmOperationsRouter.post('/api/admin/crm/procurements/:id/complete', authMiddlew
     res.json(updated);
   } catch (error) {
     console.error('[crm] Complete procurement error:', error);
+    res.status(500).json({ error: 'failed', message: error.message });
+  }
+});
+
+// =========================
+// CLEANUP (Очистка старых заказов)
+// =========================
+crmOperationsRouter.post('/api/admin/crm/cleanup-delivered-orders', authMiddleware, (req, res) => {
+  try {
+    console.log('[crm] Manual cleanup triggered');
+    const result = cleanupOldDeliveredOrders();
+    res.json({
+      ok: true,
+      ...result
+    });
+  } catch (error) {
+    console.error('[crm] Manual cleanup error:', error);
     res.status(500).json({ error: 'failed', message: error.message });
   }
 });

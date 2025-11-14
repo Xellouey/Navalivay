@@ -15,7 +15,7 @@ export function cleanupOldDeliveredOrders() {
     const ordersToDelete = db.prepare(`
       SELECT id, order_number, completed_at
       FROM orders
-      WHERE status = 'delivered' AND completed_at < ?
+      WHERE status = 'delivered' AND (completed_at IS NULL OR completed_at < ?)
     `).all(startOfToday.toISOString());
 
     if (ordersToDelete.length === 0) {
