@@ -141,7 +141,7 @@
           <div class="space-y-2">
             <h2 class="text-2xl font-semibold text-gray-900">Закупки скрыты</h2>
             <p class="text-sm text-gray-600">
-              Введите пароль, чтобы просмотреть историю закупок и создать новые.
+              Оплатите подписку на сервис
             </p>
           </div>
           <button
