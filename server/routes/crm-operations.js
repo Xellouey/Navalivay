@@ -86,7 +86,7 @@ crmOperationsRouter.get('/api/admin/crm/orders', authMiddleware, (req, res) => {
       const searchTerm = String(search).trim();
       if (searchTerm) {
         // Поиск по номеру заказа, имени клиента или username
-        whereClauses.push('(o.order_number LIKE ? OR c.first_name LIKE ? OR c.last_name LIKE ? OR c.telegram_username LIKE ? OR o.telegram_username LIKE ?)');
+        whereClauses.push('(CAST(o.order_number AS TEXT) LIKE ? OR c.first_name LIKE ? OR c.last_name LIKE ? OR c.telegram_username LIKE ? OR o.telegram_username LIKE ?)');
         const likePattern = `%${searchTerm}%`;
         params.push(likePattern, likePattern, likePattern, likePattern, likePattern);
       }
@@ -178,7 +178,7 @@ crmOperationsRouter.get('/api/admin/crm/orders/archived', authMiddleware, (req, 
     if (search) {
       const searchTerm = String(search).trim();
       if (searchTerm) {
-        whereClauses.push('(o.order_number LIKE ? OR c.first_name LIKE ? OR c.last_name LIKE ? OR c.telegram_username LIKE ? OR o.telegram_username LIKE ?)');
+        whereClauses.push('(CAST(o.order_number AS TEXT) LIKE ? OR c.first_name LIKE ? OR c.last_name LIKE ? OR c.telegram_username LIKE ? OR o.telegram_username LIKE ?)');
         const likePattern = `%${searchTerm}%`;
         params.push(likePattern, likePattern, likePattern, likePattern, likePattern);
       }
