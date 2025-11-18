@@ -97,9 +97,7 @@ crmOperationsRouter.get('/api/admin/crm/orders', authMiddleware, (req, res) => {
     const offset = (parseInt(page) - 1) * parseInt(limit);
     
     const countSql = `SELECT COUNT(*) as count FROM orders o LEFT JOIN customers c ON c.id = o.customer_id ${whereClause}`;
-    const total = params.length > 0
-      ? db.prepare(countSql).get(...params).count
-      : db.prepare(`SELECT COUNT(*) as count FROM orders o`).get().count;
+    const total = db.prepare(countSql).get(...params).count;
 
     const ordersSql = `
       SELECT 
@@ -113,18 +111,9 @@ crmOperationsRouter.get('/api/admin/crm/orders', authMiddleware, (req, res) => {
       LIMIT ? OFFSET ?
     `;
     
-    const orders = params.length > 0
-      ? db.prepare(ordersSql).all(...params, parseInt(limit), offset)
-      : db.prepare(`
-          SELECT 
-            o.*,
-            COALESCE(o.telegram_username, c.telegram_username) as telegram_username,
-            c.first_name || ' ' || COALESCE(c.last_name, '') as customer_name
-          FROM orders o
-          LEFT JOIN customers c ON c.id = o.customer_id
-          ORDER BY o.created_at DESC
-          LIMIT ? OFFSET ?
-        `).all(parseInt(limit), offset);
+    const orders = db
+      .prepare(ordersSql)
+      .all(...params, parseInt(limit), offset);
 
     let ordersWithItems = orders;
     if (orders.length > 0) {
