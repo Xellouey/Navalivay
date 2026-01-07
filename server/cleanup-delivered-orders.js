@@ -1,16 +1,63 @@
 import { db } from './db.js';
 
 /**
- * Архивирует выданные заказы (статус 'delivered'), которые были выданы раньше сегодняшнего дня.
- * Запускается при старте сервера и каждый день в полночь.
+ * Helper to calculate the start of the current day in Minsk timezone (UTC+3).
+ * Returns a Date object representing 00:00:00 Minsk time in UTC.
+ */
+function getMinskMidnight() {
+  const now = new Date();
+
+  // Get current time components in Minsk
+  const formatter = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Europe/Minsk',
+    year: 'numeric',
+    month: 'numeric',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: 'numeric',
+    second: 'numeric',
+    hour12: false
+  });
+
+  // Create a UTC date for the current day at 00:00:00 UTC
+  const parts = formatter.formatToParts(now);
+  const getPart = (type) => parts.find(p => p.type === type).value;
+
+  const year = parseInt(getPart('year'));
+  const month = parseInt(getPart('month')) - 1;
+  const day = parseInt(getPart('day'));
+
+  const utcMidnight = new Date(Date.UTC(year, month, day, 0, 0, 0));
+
+  // Calculate the offset between UTC and Minsk for this specific date
+  // We format the UTC midnight as Minsk time to see what time it is there
+  const partsGuess = formatter.formatToParts(utcMidnight);
+  const getPartGuess = (type) => partsGuess.find(p => p.type === type).value;
+
+  const gYear = parseInt(getPartGuess('year'));
+  const gMonth = parseInt(getPartGuess('month')) - 1;
+  const gDay = parseInt(getPartGuess('day'));
+  const gHour = parseInt(getPartGuess('hour'));
+  const gMinute = parseInt(getPartGuess('minute'));
+
+  // Construct the "Minsk Time" as if it was UTC to calculate the difference
+  const minskTimeAsUtc = new Date(Date.UTC(gYear, gMonth, gDay, gHour, gMinute));
+  const diff = minskTimeAsUtc.getTime() - utcMidnight.getTime();
+
+  // Subtract the difference to get the true UTC timestamp for Minsk midnight
+  return new Date(utcMidnight.getTime() - diff);
+}
+
+/**
+ * Архивирует выданные заказы (статус 'delivered'), которые были выданы раньше сегодняшнего дня по Минску.
+ * Запускается при старте сервера и каждый день в полночь по Минску.
  * Заказы не удаляются, а помечаются как archived=1 для сохранения исторических данных.
  */
 export function archiveOldDeliveredOrders() {
   try {
-    const now = new Date();
-    const startOfToday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+    const startOfTodayMinsk = getMinskMidnight();
 
-    console.log(`[archive] Archiving delivered orders older than ${startOfToday.toISOString()}`);
+    console.log(`[archive] Archiving delivered orders older than ${startOfTodayMinsk.toISOString()} (Minsk Midnight)`);
 
     // Получаем заказы для архивации (статусы 'delivered' и 'completed')
     const ordersToArchive = db.prepare(`
@@ -19,7 +66,7 @@ export function archiveOldDeliveredOrders() {
       WHERE (status = 'delivered' OR status = 'completed')
         AND archived = 0
         AND (completed_at IS NULL OR completed_at < ?)
-    `).all(startOfToday.toISOString());
+    `).all(startOfTodayMinsk.toISOString());
 
     if (ordersToArchive.length === 0) {
       console.log('[archive] No old delivered orders to archive');
@@ -47,19 +94,21 @@ export function archiveOldDeliveredOrders() {
 }
 
 /**
- * Планирует выполнение архивации каждый день в полночь (00:00 UTC)
+ * Планирует выполнение архивации каждый день в полночь по Минску
  */
 export function scheduleArchiving() {
-  // Вычисляем время до следующей полуночи UTC
-  function getMillisecondsUntilMidnight() {
+  // Вычисляем время до следующей полуночи по Минску
+  function getMillisecondsUntilNextMinskMidnight() {
+    const midnight = getMinskMidnight();
+    // Add 24 hours to get next midnight
+    const nextMidnight = new Date(midnight.getTime() + 24 * 60 * 60 * 1000);
     const now = new Date();
-    const midnight = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1, 0, 0, 0));
-    return midnight.getTime() - now.getTime();
+    return nextMidnight.getTime() - now.getTime();
   }
 
   // Запускаем первую архивацию через время до полуночи
-  const msUntilMidnight = getMillisecondsUntilMidnight();
-  console.log(`[archive] Scheduled next archiving in ${Math.round(msUntilMidnight / 1000 / 60)} minutes (at midnight UTC)`);
+  const msUntilMidnight = getMillisecondsUntilNextMinskMidnight();
+  console.log(`[archive] Scheduled next archiving in ${Math.round(msUntilMidnight / 1000 / 60)} minutes (at Minsk midnight)`);
 
   setTimeout(() => {
     archiveOldDeliveredOrders();

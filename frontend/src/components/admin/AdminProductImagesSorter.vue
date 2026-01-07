@@ -15,6 +15,7 @@
         <!-- Перемещение -->
         <div class="flex gap-1">
           <button
+            type="button"
             class="
               w-6 h-6 sm:w-7 sm:h-7 rounded-md bg-white/95 shadow-md
               flex items-center justify-center
@@ -25,13 +26,14 @@
             "
             title="Вверх"
             :disabled="index === 0 || disabled"
-            @click="moveUp(index)"
+            @click.stop.prevent="moveUp(index)"
           >
             <svg class="w-3 h-3 sm:w-4 sm:h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 15l7-7 7 7"/>
             </svg>
           </button>
           <button
+            type="button"
             class="
               w-6 h-6 sm:w-7 sm:h-7 rounded-md bg-white/95 shadow-md
               flex items-center justify-center
@@ -42,7 +44,7 @@
             "
             title="Вниз"
             :disabled="index === localImages.length - 1 || disabled"
-            @click="moveDown(index)"
+            @click.stop.prevent="moveDown(index)"
           >
             <svg class="w-3 h-3 sm:w-4 sm:h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 9l-7 7-7-7"/>
@@ -53,6 +55,7 @@
         <!-- Удаление -->
         <button
           v-if="!disabled"
+          type="button"
           class="
             w-6 h-6 sm:w-7 sm:h-7 rounded-md bg-white/95 shadow-md
             flex items-center justify-center
@@ -61,7 +64,7 @@
             border border-red-200
           "
           title="Удалить"
-          @click="$emit('remove', index)"
+          @click.stop.prevent="$emit('remove', index)"
         >
           <svg class="w-3 h-3 sm:w-4 sm:h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12"/>

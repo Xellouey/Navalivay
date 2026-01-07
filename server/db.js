@@ -26,6 +26,8 @@ import { migrateProductVariants } from './migrations/add_product_variants.js';
 import { addTelegramUsernameToOrders } from './migrations/add_telegram_username_to_orders.js';
 import { migrateCustomerFeedbacks } from './migrations/add_customer_feedbacks.js';
 import { migrateArchivedToOrders } from './migrations/add_archived_to_orders.js';
+import { migrateAddBaseProductToOrderItems } from './migrations/add_base_product_to_order_items.js';
+import { migrateColorImageToVariants } from './migrations/add_color_image_to_variants.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -138,6 +140,8 @@ export function initDb() {
   addTelegramUsernameToOrders();
   migrateCustomerFeedbacks();
   migrateArchivedToOrders();
+  migrateAddBaseProductToOrderItems();
+  migrateColorImageToVariants();
 
   seedIfEmpty();
 }

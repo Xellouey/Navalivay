@@ -24,13 +24,24 @@
             <span v-if="!isRefreshing">Обновить</span>
             <span v-else>Обновляем...</span>
           </button>
+          <button
+            @click="toggleView()"
+            class="inline-flex items-center gap-2 rounded-lg border px-4 py-2 text-sm font-medium transition-colors"
+            :class="viewMode === 'archived' ? 'border-blue-500 bg-blue-50 text-blue-600' : 'border-red-500 bg-red-50 text-red-600'"
+          >
+            <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" v-if="viewMode === 'cancelled'" />
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" v-else />
+            </svg>
+            {{ viewMode === 'archived' ? 'Завершенные' : 'Отмененные' }}
+          </button>
         </div>
       </div>
 
       <!-- Заголовок -->
       <header class="flex flex-col gap-2">
-        <h1 class="text-2xl font-bold text-gray-900 sm:text-3xl">Архив заказов</h1>
-        <p class="text-sm text-gray-600 sm:text-base">Завершённые заказы, автоматически перенесённые в архив в полночь</p>
+        <h1 class="text-2xl font-bold text-gray-900 sm:text-3xl">{{ viewMode === 'archived' ? 'Архив заказов' : 'Отмененные заказы' }}</h1>
+        <p class="text-sm text-gray-600 sm:text-base">{{ viewMode === 'archived' ? 'Завершённые заказы, автоматически перенесённые в архив в полночь' : 'Отмененные заказы' }}</p>
       </header>
 
       <!-- Поиск -->
@@ -114,6 +125,7 @@ const orders = ref<any[]>([])
 const loadingOrders = ref(false)
 const isRefreshing = ref(false)
 const searchQuery = ref('')
+const viewMode = ref<'archived' | 'cancelled'>('archived')
 let searchDebounceTimer: ReturnType<typeof setTimeout> | null = null
 
 async function fetchArchivedOrders() {

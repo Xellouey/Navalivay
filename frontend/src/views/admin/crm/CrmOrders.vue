@@ -246,7 +246,7 @@
 
                 <ul v-if="order.items?.length" class="mt-3 space-y-1 text-xs text-gray-600">
                   <li v-for="item in previewItems(order)" :key="item.id">
-                    • {{ item.product_title }} × {{ item.quantity }}
+                    • {{ item.base_product_title || item.product_title }}{{ item.variant_name ? " - " + item.variant_name : "" }} × {{ item.quantity }}
                   </li>
                   <li v-if="(order.items?.length || 0) > previewLimit" class="text-[11px] text-gray-400">
                     и ещё {{ (order.items?.length || 0) - previewLimit }} позиций

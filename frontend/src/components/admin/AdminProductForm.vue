@@ -319,19 +319,76 @@
           </div>
 
           <div>
-            <label class="block text-sm font-medium text-gray-700 mb-1">Код цвета (опционально)</label>
-            <div class="flex gap-2">
+            <label class="block text-sm font-medium text-gray-700 mb-1">Отображение цвета</label>
+            <div class="space-y-2">
+              <!-- Переключатель: цвет или картинка -->
+              <div class="flex items-center gap-4">
+                <label class="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    :name="`color-type-${index}`"
+                    :checked="!variant.colorImage"
+                    @change="variant.colorImage = ''"
+                    class="w-4 h-4 text-brand-dark"
+                  />
+                  <span class="text-sm text-gray-600">Цвет</span>
+                </label>
+                <label class="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    :name="`color-type-${index}`"
+                    :checked="!!variant.colorImage"
+                    @change="triggerColorImageUpload(index)"
+                    class="w-4 h-4 text-brand-dark"
+                  />
+                  <span class="text-sm text-gray-600">Картинка</span>
+                </label>
+              </div>
+              
+              <!-- Выбор цвета -->
+              <div v-if="!variant.colorImage" class="flex gap-2">
+                <input
+                  v-model="variant.colorCode"
+                  type="text"
+                  class="flex-1 px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-dark"
+                  placeholder="#000000"
+                />
+                <input
+                  :value="variant.colorCode || '#000000'"
+                  @input="variant.colorCode = ($event.target as HTMLInputElement).value"
+                  type="color"
+                  class="w-12 h-10 border border-gray-300 rounded-lg cursor-pointer"
+                />
+              </div>
+              
+              <!-- Картинка цвета -->
+              <div v-else class="flex items-center gap-3">
+                <div class="relative w-12 h-12 rounded-full overflow-hidden border-2 border-gray-300 shadow-sm">
+                  <img :src="variant.colorImage" class="w-full h-full object-cover" />
+                </div>
+                <button
+                  type="button"
+                  @click="triggerColorImageUpload(index)"
+                  class="px-3 py-1.5 text-xs font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200"
+                >
+                  Заменить
+                </button>
+                <button
+                  type="button"
+                  @click="variant.colorImage = ''"
+                  class="px-3 py-1.5 text-xs font-medium text-red-600 bg-red-50 rounded-lg hover:bg-red-100"
+                >
+                  Удалить
+                </button>
+              </div>
+              
+              <!-- Скрытый input для загрузки картинки цвета -->
               <input
-                v-model="variant.colorCode"
-                type="text"
-                class="flex-1 px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-brand-dark"
-                placeholder="#000000"
-              />
-              <input
-                :value="variant.colorCode || '#000000'"
-                @input="variant.colorCode = ($event.target as HTMLInputElement).value"
-                type="color"
-                class="w-12 h-10 border border-gray-300 rounded-lg cursor-pointer"
+                :ref="el => colorImageInputs[index] = el as HTMLInputElement"
+                type="file"
+                accept="image/*"
+                class="hidden"
+                @change="(e) => onColorImageSelected(e, index)"
               />
             </div>
           </div>
@@ -379,7 +436,7 @@
           </button>
           <AdminProductImagesSorter 
             v-model="variant.images" 
-            @remove="(url) => onRemoveVariantImage(index, url)" 
+            @remove="(imageIndex) => onRemoveVariantImage(index, imageIndex)" 
           />
         </div>
       </div>
@@ -602,6 +659,7 @@ interface ProductVariant {
   id?: string
   name: string
   colorCode?: string | null
+  colorImage?: string | null
   priceRub?: number | null
   stock?: number
   images: string[]
@@ -861,6 +919,13 @@ watch(() => props.product, (p) => {
   form.stock = p?.stock ?? 0
   form.minStock = p?.minStock ?? 0
   form.useCategoryImage = p?.useCategoryImage ?? true
+  form.hasVariants = p?.hasVariants ?? false
+  form.variants = p?.variants ? p.variants.map(v => ({
+    ...v,
+    colorCode: v.colorCode || null,
+    colorImage: v.colorImage || null,
+    images: [...(v.images || [])]
+  })) : []
   form.images = [...(p?.images || [])]
   form.links = [...(p?.links || [])]
   if (form.categoryId) {
@@ -1025,12 +1090,14 @@ function onRemoveImage(index: number) {
 
 // Variant-related functions
 const variantFileInputs = ref<Record<number, HTMLInputElement>>({})
+const colorImageInputs = ref<Record<number, HTMLInputElement>>({})
 
 function addVariant() {
   if (!form.variants) form.variants = []
   form.variants.push({
     name: '',
     colorCode: null,
+    colorImage: null,
     priceRub: null,
     stock: 0,
     images: []
@@ -1046,6 +1113,36 @@ function removeVariant(index: number) {
 function triggerVariantFile(index: number) {
   const input = variantFileInputs.value[index]
   if (input) input.click()
+}
+
+function triggerColorImageUpload(index: number) {
+  const input = colorImageInputs.value[index]
+  if (input) input.click()
+}
+
+async function onColorImageSelected(e: Event, variantIndex: number) {
+  const input = e.target as HTMLInputElement
+  const files = input.files
+  
+  if (!files || files.length === 0 || !form.variants) return
+  
+  try {
+    isUploading.value = true
+    const uploadPath = 'color-images'
+    const uploaded = await admin.uploadFiles(files, uploadPath)
+    
+    if (uploaded && Array.isArray(uploaded) && uploaded.length > 0) {
+      form.variants[variantIndex].colorImage = uploaded[0]
+      // Очищаем colorCode при загрузке картинки
+      form.variants[variantIndex].colorCode = null
+    }
+  } catch (error) {
+    console.error('Ошибка загрузки картинки цвета:', error)
+    alert(`Ошибка загрузки: ${error}`)
+  } finally {
+    isUploading.value = false
+    if (input) input.value = ''
+  }
 }
 
 async function onVariantFilesSelected(e: Event, variantIndex: number) {
@@ -1071,9 +1168,9 @@ async function onVariantFilesSelected(e: Event, variantIndex: number) {
   }
 }
 
-function onRemoveVariantImage(variantIndex: number, url: string) {
+function onRemoveVariantImage(variantIndex: number, imageIndex: number) {
   if (form.variants && form.variants[variantIndex]) {
-    form.variants[variantIndex].images = form.variants[variantIndex].images.filter(img => img !== url)
+    form.variants[variantIndex].images = form.variants[variantIndex].images.filter((_, i) => i !== imageIndex)
   }
 }
 
@@ -1141,6 +1238,7 @@ async function onSubmit() {
       payload.variants = form.variants?.map(v => ({
         name: v.name.trim(),
         colorCode: v.colorCode?.trim() || null,
+        colorImage: v.colorImage || null,
         priceRub: v.priceRub !== null && v.priceRub !== undefined ? Number(v.priceRub) : null,
         stock: v.stock !== undefined ? Number(v.stock) : 0,
         images: [...v.images]

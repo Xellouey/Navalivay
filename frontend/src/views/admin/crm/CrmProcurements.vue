@@ -123,7 +123,7 @@
 
       <div v-else class="rounded-xl bg-white py-16 text-center shadow-sm">
         <h3 class="text-lg font-semibold text-gray-900">Закупки пока не создавались</h3>
-        <p class="mt-2 text-gray-600">Начните с добавления первой закупки — товары подтянутся в складской баланс автоматически.</p>
+        <p class="mt-2 text-gray-600">Начните с добавления первой закупки - товары подтянутся в складской баланс автоматически.</p>
         <button
           class="mt-6 inline-flex items-center rounded-lg bg-blue-600 px-5 py-2 text-sm font-medium text-white transition hover:bg-blue-700"
           @click="openCreateModal"
@@ -201,7 +201,7 @@
     <AdminModal
       :isOpen="showCreateModal"
       :title="editingProcurementId ? 'Редактирование закупки' : 'Новая закупка'"
-      description="Подберите товары, укажите закупочную цену и количество — себестоимость пересчитается автоматически."
+      description="Подберите товары, укажите закупочную цену и количество - себестоимость пересчитается автоматически."
       size="2xl"
       :showActions="false"
       :persistent="true"

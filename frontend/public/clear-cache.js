@@ -1,6 +1,14 @@
-// Агрессивная очистка всех кэшей
+// Очистка кэшей - агрессивная для админки, щадящая для пользователей
 (function() {
-  console.log('[CACHE CLEAR] Starting aggressive cache clearing...');
+  const isAdmin = window.location.pathname.startsWith('/admin');
+  
+  // Для админки - всегда очищаем всё
+  // Для пользователей - проверяем была ли уже очистка в этой сессии
+  if (!isAdmin && sessionStorage.getItem('cache_cleared')) {
+    return; // Уже очищено в этой сессии (для обычных пользователей)
+  }
+  
+  console.log('[CACHE CLEAR] Starting cache clearing...', isAdmin ? '(admin mode)' : '(user mode)');
   
   // 1. Очистка Service Workers
   if ('serviceWorker' in navigator) {
@@ -22,17 +30,21 @@
     });
   }
   
-  // 3. Очистка localStorage
-  try {
-    localStorage.clear();
-    console.log('[CACHE CLEAR] localStorage cleared');
-  } catch(e) {}
+  // 3. Очистка localStorage - ТОЛЬКО для админки
+  if (isAdmin) {
+    try {
+      localStorage.clear();
+      console.log('[CACHE CLEAR] localStorage cleared (admin)');
+    } catch(e) {}
+  }
   
-  // 4. Очистка sessionStorage
-  try {
-    sessionStorage.clear();
-    console.log('[CACHE CLEAR] sessionStorage cleared');
-  } catch(e) {}
+  // 4. Очистка sessionStorage - ТОЛЬКО для админки
+  if (isAdmin) {
+    try {
+      sessionStorage.clear();
+      console.log('[CACHE CLEAR] sessionStorage cleared (admin)');
+    } catch(e) {}
+  }
   
   // 5. Установка метки что очистка выполнена
   sessionStorage.setItem('cache_cleared', Date.now());

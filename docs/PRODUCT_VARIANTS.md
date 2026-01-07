@@ -4,7 +4,7 @@
 
 Система позволяет создавать товары с несколькими вариантами (например, разные цвета устройств). Каждый вариант имеет:
 - Свое название
-- Код цвета (для отображения)
+- Код цвета (для отображения) или картинку цвета/паттерна
 - Собственные изображения
 - Опциональную цену (если отличается от основной)
 - Свой остаток на складе
@@ -18,6 +18,7 @@ CREATE TABLE product_variants (
   product_id TEXT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
   name TEXT NOT NULL,
   color_code TEXT,
+  color_image TEXT,  -- URL картинки цвета/паттерна (альтернатива color_code)
   price_rub INTEGER,
   stock INTEGER DEFAULT 0,
   position INTEGER NOT NULL DEFAULT 0,
@@ -59,6 +60,13 @@ CREATE TABLE product_variants (
       "priceRub": 1990,
       "stock": 18,
       "images": ["/uploads/temp/image2.jpg"]
+    },
+    {
+      "name": "Малахит",
+      "colorImage": "/uploads/color-images/malachite.jpg",
+      "priceRub": 2190,
+      "stock": 10,
+      "images": ["/uploads/temp/image3.jpg"]
     }
   ]
 }
@@ -79,9 +87,19 @@ CREATE TABLE product_variants (
       "id": "v_abc123",
       "name": "Черный",
       "colorCode": "#000000",
+      "colorImage": null,
       "priceRub": 1990,
       "stock": 25,
       "images": ["url1", "url2"]
+    },
+    {
+      "id": "v_def456",
+      "name": "Малахит",
+      "colorCode": null,
+      "colorImage": "/uploads/color-images/malachite.jpg",
+      "priceRub": 2190,
+      "stock": 10,
+      "images": ["url3", "url4"]
     }
   ]
 }
@@ -92,11 +110,14 @@ CREATE TABLE product_variants (
 1. При создании товара включите чекбокс "Товар с вариантами"
 2. Нажмите "+ Добавить вариант"
 3. Для каждого варианта укажите:
-   - Название (например, "Черный", "Синий градиент")
-   - Код цвета (через color picker или вручную в формате #RRGGBB)
+   - Название (например, "Черный", "Синий градиент", "Малахит")
+   - Код цвета (через color picker или вручную в формате #RRGGBB) **ИЛИ**
+   - Картинку цвета/паттерна (для сложных цветов типа "малахит", градиентов и т.п.)
    - Цену (опционально, если отличается)
    - Остаток на складе
    - Загрузите изображения для этого варианта
+
+**Примечание:** Если загружена картинка цвета, она будет использоваться вместо кода цвета для отображения в селекторе вариантов.
 
 ## Отображение в витрине
 

@@ -28,6 +28,7 @@ export interface Category {
   productCount?: number
   hide_empty?: number | boolean
   cover_image?: string | null
+  hasCoverImage?: boolean
   display_mode?: 'default' | 'liquid' | 'visual'
   displayMode?: 'default' | 'liquid' | 'visual'
 }
@@ -42,6 +43,7 @@ export interface ProductVariant {
   product_id?: string
   name: string
   colorCode?: string | null
+  colorImage?: string | null
   priceRub?: number | null
   stock?: number
   position?: number
@@ -76,6 +78,7 @@ export interface CategoryGroup {
   slug: string
   name: string
   coverImage?: string | null
+  hasCoverImage?: boolean
   order: number
   hideEmpty?: boolean
   parentId?: string | null
@@ -177,6 +180,7 @@ export const useAdminStore = defineStore('admin', () => {
         product_id: v.product_id,
         name: v.name || '',
         colorCode: v.colorCode || v.color_code || null,
+        colorImage: v.colorImage || v.color_image || null,
         priceRub: v.priceRub !== undefined ? Number(v.priceRub) : null,
         stock: v.stock !== undefined ? Number(v.stock) : 0,
         position: v.position ?? 0,
@@ -425,16 +429,91 @@ export const useAdminStore = defineStore('admin', () => {
         headers: getAuthHeaders()
       })
 
-      categories.value = response.map((category) => ({
+      // Сохраняем существующие cover_image из локального состояния
+      // (API не возвращает cover_image в списке для экономии трафика)
+      const existingCoverImages = new Map<string, string | null>()
+      categories.value.forEach(cat => {
+        if (cat.cover_image) {
+          existingCoverImages.set(cat.id, cat.cover_image)
+        }
+      })
+
+      categories.value = response.map((category: any) => ({
         ...category,
+        // Сохраняем cover_image если оно уже было загружено ранее
+        cover_image: existingCoverImages.get(category.id) ?? null,
+        hasCoverImage: Boolean(category.has_cover_image),
         displayMode: (category.displayMode ?? category.display_mode ?? 'default') as 'default' | 'liquid' | 'visual',
         display_mode: (category.displayMode ?? category.display_mode ?? 'default') as 'default' | 'liquid' | 'visual'
       }))
+
+      // Загружаем изображения для категорий с has_cover_image=true, у которых ещё нет cover_image
+      const categoriesToLoadImages = categories.value.filter(
+        cat => cat.hasCoverImage && !cat.cover_image
+      )
+      
+      if (categoriesToLoadImages.length > 0) {
+        // Загружаем изображения параллельно (но не блокируем UI)
+        loadCategoryImages(categoriesToLoadImages.map(c => c.id))
+      }
     } catch (err: any) {
       handleApiError(err)
       throw err
     } finally {
       isLoading.value = false
+    }
+  }
+
+  // Загрузить изображения категорий в фоне и обновить состояние
+  async function loadCategoryImages(categoryIds: string[]) {
+    for (const categoryId of categoryIds) {
+      try {
+        const coverImage = await fetchCategoryImage(categoryId)
+        if (coverImage) {
+          const index = categories.value.findIndex(c => c.id === categoryId)
+          if (index !== -1) {
+            // Обновляем массив чтобы Vue отследил изменение
+            categories.value = [
+              ...categories.value.slice(0, index),
+              { ...categories.value[index], cover_image: coverImage },
+              ...categories.value.slice(index + 1)
+            ]
+          }
+        }
+      } catch (err) {
+        console.error(`Failed to load image for category ${categoryId}:`, err)
+      }
+    }
+  }
+
+  // Загрузить изображение категории отдельно (для редактирования)
+  async function fetchCategoryImage(categoryId: string): Promise<string | null> {
+    try {
+      const response = await $fetch<{ cover_image: string | null }>(`/api/admin/categories/${categoryId}/image`, {
+        headers: getAuthHeaders()
+      })
+      return response.cover_image ?? null
+    } catch (err: any) {
+      console.error('Failed to fetch category image:', err)
+      return null
+    }
+  }
+
+  // Загрузить одну категорию со всеми данными
+  async function fetchCategory(categoryId: string): Promise<Category | null> {
+    try {
+      const response = await $fetch<any>(`/api/admin/categories/${categoryId}`, {
+        headers: getAuthHeaders()
+      })
+      return {
+        ...response,
+        hasCoverImage: Boolean(response.cover_image),
+        displayMode: (response.displayMode ?? response.display_mode ?? 'default') as 'default' | 'liquid' | 'visual',
+        display_mode: (response.displayMode ?? response.display_mode ?? 'default') as 'default' | 'liquid' | 'visual'
+      }
+    } catch (err: any) {
+      console.error('Failed to fetch category:', err)
+      return null
     }
   }
 
@@ -512,13 +591,19 @@ async function createCategory(category: { name: string; hideEmpty?: boolean; cov
       const index = categories.value.findIndex(c => c.id === id)
       if (index !== -1) {
         const displayModeValue = (response.displayMode ?? response.display_mode ?? 'default') as 'default' | 'liquid' | 'visual'
-        categories.value[index] = {
+        const updatedCategory = {
           ...categories.value[index],
           ...response,
           display_mode: displayModeValue,
           displayMode: displayModeValue
         }
-        console.log('[admin] Updated local category:', categories.value[index])
+        // Заменяем весь массив чтобы Vue отследил изменение
+        categories.value = [
+          ...categories.value.slice(0, index),
+          updatedCategory,
+          ...categories.value.slice(index + 1)
+        ]
+        console.log('[admin] Updated local category:', updatedCategory)
       }
       return {
         ...response,
@@ -597,12 +682,22 @@ async function createCategory(category: { name: string; hideEmpty?: boolean; cov
         headers: getAuthHeaders()
       })
 
+      // Сохраняем существующие coverImage из локального состояния
+      const existingCoverImages = new Map<string, string | null>()
+      categoryGroups.value.forEach(g => {
+        if (g.coverImage) {
+          existingCoverImages.set(g.id, g.coverImage)
+        }
+      })
+
       const mapped = response.map(group => ({
         id: group.id,
         categoryId: group.categoryId,
         slug: group.slug,
         name: group.name,
-        coverImage: group.cover_image ?? null,
+        // Сохраняем coverImage если оно уже было загружено ранее
+        coverImage: existingCoverImages.get(group.id) ?? null,
+        hasCoverImage: Boolean(group.has_cover_image),
         order: Number(group.order ?? group['order'] ?? 0),
         hideEmpty: Boolean(group.hide_empty),
         parentId: group.parent_group_id ?? null,
@@ -618,12 +713,79 @@ async function createCategory(category: { name: string; hideEmpty?: boolean; cov
         categoryGroups.value = mapped
       }
 
+      // Загружаем изображения для групп с hasCoverImage=true, у которых ещё нет coverImage
+      const groupsToLoadImages = mapped.filter(g => g.hasCoverImage && !g.coverImage)
+      if (groupsToLoadImages.length > 0) {
+        loadCategoryGroupImages(groupsToLoadImages.map(g => g.id))
+      }
+
       return mapped
     } catch (err: any) {
       handleApiError(err)
       throw err
     } finally {
       isLoading.value = false
+    }
+  }
+
+  // Загрузить изображения групп в фоне и обновить состояние
+  async function loadCategoryGroupImages(groupIds: string[]) {
+    for (const groupId of groupIds) {
+      try {
+        const coverImage = await fetchCategoryGroupImage(groupId)
+        if (coverImage) {
+          const index = categoryGroups.value.findIndex(g => g.id === groupId)
+          if (index !== -1) {
+            // Обновляем массив чтобы Vue отследил изменение
+            categoryGroups.value = [
+              ...categoryGroups.value.slice(0, index),
+              { ...categoryGroups.value[index], coverImage },
+              ...categoryGroups.value.slice(index + 1)
+            ]
+          }
+        }
+      } catch (err) {
+        console.error(`Failed to load image for group ${groupId}:`, err)
+      }
+    }
+  }
+
+  // Загрузить изображение группы отдельно (для редактирования)
+  async function fetchCategoryGroupImage(groupId: string): Promise<string | null> {
+    try {
+      const response = await $fetch<{ cover_image: string | null }>(`/api/admin/category-groups/${groupId}/image`, {
+        headers: getAuthHeaders()
+      })
+      return response.cover_image ?? null
+    } catch (err: any) {
+      console.error('Failed to fetch group image:', err)
+      return null
+    }
+  }
+
+  // Загрузить одну группу со всеми данными
+  async function fetchCategoryGroup(groupId: string): Promise<CategoryGroup | null> {
+    try {
+      const response = await $fetch<Record<string, any>>(`/api/admin/category-groups/${groupId}`, {
+        headers: getAuthHeaders()
+      })
+      return {
+        id: response.id,
+        categoryId: response.categoryId,
+        slug: response.slug,
+        name: response.name,
+        coverImage: response.cover_image ?? null,
+        hasCoverImage: Boolean(response.cover_image),
+        order: Number(response.order ?? response['order'] ?? 0),
+        hideEmpty: Boolean(response.hide_empty),
+        parentId: response.parent_group_id ?? null,
+        createdAt: response.createdAt,
+        updatedAt: response.updatedAt,
+        productCount: response.productCount ?? 0
+      }
+    } catch (err: any) {
+      console.error('Failed to fetch group:', err)
+      return null
     }
   }
 
@@ -696,6 +858,7 @@ async function createCategory(category: { name: string; hideEmpty?: boolean; cov
         slug: response.slug,
         name: response.name,
         coverImage: response.cover_image ?? null,
+        hasCoverImage: Boolean(response.cover_image),
         order: Number(response.order ?? response['order'] ?? 0),
         hideEmpty: Boolean(response.hide_empty),
         parentId: response.parent_group_id ?? null,
@@ -707,11 +870,16 @@ async function createCategory(category: { name: string; hideEmpty?: boolean; cov
 
       const idx = categoryGroups.value.findIndex(g => g.id === id)
       if (idx !== -1) {
-        categoryGroups.value.splice(idx, 1, mapped)
+        // Заменяем весь массив чтобы Vue отследил изменение
+        categoryGroups.value = [
+          ...categoryGroups.value.slice(0, idx),
+          mapped,
+          ...categoryGroups.value.slice(idx + 1)
+        ]
       } else {
-        categoryGroups.value.push(mapped)
+        categoryGroups.value = [...categoryGroups.value, mapped]
       }
-      categoryGroups.value.sort((a, b) => a.order - b.order)
+      categoryGroups.value = [...categoryGroups.value].sort((a, b) => a.order - b.order)
 
       return mapped
     } catch (err: any) {
@@ -818,6 +986,7 @@ async function createCategory(category: { name: string; hideEmpty?: boolean; cov
     limit?: number
     category?: string
     search?: string
+    group?: string
   } = {}) {
     try {
       isLoading.value = true
@@ -828,6 +997,7 @@ async function createCategory(category: { name: string; hideEmpty?: boolean; cov
       if (options.limit) params.set('limit', options.limit.toString())
       if (options.category) params.set('category', options.category)
       if (options.search) params.set('search', options.search)
+      if (options.group) params.set('group', options.group)
 
       const response = await $fetch<ProductsResponse>(`/api/admin/products?${params}`, {
         headers: getAuthHeaders()
@@ -1305,11 +1475,15 @@ async function createCategory(category: { name: string; hideEmpty?: boolean; cov
 
     // Category methods
     fetchCategories,
+    fetchCategory,
+    fetchCategoryImage,
     createCategory,
     updateCategory,
     deleteCategory,
     reorderCategories,
     fetchCategoryGroups,
+    fetchCategoryGroup,
+    fetchCategoryGroupImage,
     createCategoryGroup,
     updateCategoryGroup,
     deleteCategoryGroup,

@@ -8,16 +8,29 @@
     
     <!-- Серые карточки -->
     <div class="delivery-cards">
-      <!-- Заказ от 25 Br -->
-      <div class="card-navalivay-dark">
+      <!-- Заказ от минимальной суммы (показываем только если есть минимум) -->
+      <div v-if="hasMinDeliveryAmount" class="card-navalivay-dark">
         <div class="card-icon">
           <svg width="48" height="48" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
             <path d="M13 10V3L4 14h7v7l9-11h-7z" fill="currentColor"/>
           </svg>
         </div>
         <div class="card-content">
-          <p class="card-title">Заказ от <span class="navalivay-text-red">25 Br</span></p>
-          <p class="card-subtitle">доставим бесплатно</p>
+          <p class="card-title">Заказ от <span class="navalivay-text-red">{{ minDeliveryAmount }} BYN</span></p>
+          <p class="card-subtitle">минимальная сумма для доставки</p>
+        </div>
+      </div>
+      
+      <!-- Без минимальной суммы -->
+      <div v-else class="card-navalivay-dark">
+        <div class="card-icon">
+          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M13 10V3L4 14h7v7l9-11h-7z" fill="currentColor"/>
+          </svg>
+        </div>
+        <div class="card-content">
+          <p class="card-title"><span class="navalivay-text-red">Без минимальной суммы</span></p>
+          <p class="card-subtitle">доставим заказ любой суммы</p>
         </div>
       </div>
       
@@ -60,7 +73,29 @@
 </template>
 
 <script setup lang="ts">
+import { computed, onMounted } from 'vue'
 import ExplosionIcon from './icons/ExplosionIcon.vue'
+import { useSettingsStore } from '@/stores/settings'
+
+const settingsStore = useSettingsStore()
+
+// Минимальная сумма для доставки из настроек (реальное значение, без hardcoded fallback)
+const minDeliveryAmount = computed(() => {
+  const val = parseFloat(settingsStore.settings.min_delivery_amount || '0')
+  return isNaN(val) ? 0 : val
+})
+
+// Есть ли минимальная сумма для доставки
+const hasMinDeliveryAmount = computed(() => {
+  return minDeliveryAmount.value > 0
+})
+
+onMounted(() => {
+  // Загружаем настройки если ещё не загружены
+  if (!settingsStore.settings.min_delivery_amount) {
+    settingsStore.fetchSettings()
+  }
+})
 </script>
 
 <style scoped>

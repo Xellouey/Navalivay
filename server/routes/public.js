@@ -269,7 +269,7 @@ publicRouter.get('/api/products', (req, res) => {
     ORDER BY rowid ASC
   `);
   const stmtVariants = db.prepare(`
-    SELECT id, product_id, name, color_code AS colorCode, price_rub AS priceRub, stock, position
+    SELECT id, product_id, name, color_code AS colorCode, color_image AS colorImage, price_rub AS priceRub, stock, position
     FROM product_variants
     WHERE product_id = ?
     ORDER BY position ASC
@@ -379,7 +379,7 @@ publicRouter.get('/api/product/:id', (req, res) => {
   if (p.hasVariants) {
     // Для товаров с вариантами получаем варианты и их изображения
     const variants = db.prepare(`
-      SELECT id, product_id, name, color_code AS colorCode, price_rub AS priceRub, stock, position
+      SELECT id, product_id, name, color_code AS colorCode, color_image AS colorImage, price_rub AS priceRub, stock, position
       FROM product_variants
       WHERE product_id = ?
       ORDER BY position ASC
@@ -469,7 +469,7 @@ publicRouter.get('/api/cross-sells', (req, res) => {
     ORDER BY rowid ASC
   `);
   const variantStmt = db.prepare(`
-    SELECT id, product_id, name, color_code AS colorCode, price_rub AS priceRub, stock, position
+    SELECT id, product_id, name, color_code AS colorCode, color_image AS colorImage, price_rub AS priceRub, stock, position
     FROM product_variants
     WHERE product_id = ?
     ORDER BY position ASC
@@ -533,16 +533,36 @@ publicRouter.get('/api/cross-sells', (req, res) => {
 // Public settings (only specific settings that are safe to expose)
 publicRouter.get('/api/settings', (req, res) => {
   try {
-    const managerTelegram = db.prepare('SELECT value FROM settings WHERE key = ?').get('manager_telegram');
-    
+    const getSettingValue = (key, defaultValue = '') => {
+      const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key);
+      return row?.value || defaultValue;
+    };
+
     res.json({
-      manager_telegram: managerTelegram?.value || 'dmitriy_mityuk'
+      manager_telegram: getSettingValue('manager_telegram', 'dmitriy_mityuk'),
+      // Минимальная сумма для доставки
+      min_delivery_amount: getSettingValue('min_delivery_amount', '0'),
+      min_delivery_banner_image: getSettingValue('min_delivery_banner_image', ''),
+      min_delivery_banner_button_text: getSettingValue('min_delivery_banner_button_text', 'Понятно'),
+      min_delivery_banner_button_color: getSettingValue('min_delivery_banner_button_color', '#FFD700'),
+      // Баннер условий доставки (fullscreen)
+      delivery_conditions_image: getSettingValue('delivery_conditions_image', ''),
+      // Редирект в Telegram после заказа
+      order_redirect_telegram: getSettingValue('order_redirect_telegram', ''),
+      order_redirect_text_template: getSettingValue('order_redirect_text_template', 'Мой номер заказа - #{order_number}')
     });
   } catch (error) {
     console.error('[public] Failed to get settings:', error);
     // Возвращаем дефолтные значения в случае ошибки
     res.json({
-      manager_telegram: 'dmitriy_mityuk'
+      manager_telegram: 'dmitriy_mityuk',
+      min_delivery_amount: '0',
+      min_delivery_banner_image: '',
+      min_delivery_banner_button_text: 'Понятно',
+      min_delivery_banner_button_color: '#FFD700',
+      delivery_conditions_image: '',
+      order_redirect_telegram: '',
+      order_redirect_text_template: 'Мой номер заказа - #{order_number}'
     });
   }
 });
@@ -588,6 +608,31 @@ publicRouter.post('/api/orders', (req, res) => {
       }
       if (!delivery_address || !delivery_address.trim()) {
         return res.status(400).json({ error: 'address_required', message: 'Укажите адрес доставки' });
+      }
+      
+      // Check minimum delivery amount
+      const minDeliveryRow = db.prepare('SELECT value FROM settings WHERE key = ?').get('min_delivery_amount');
+      const minDeliveryAmount = parseFloat(minDeliveryRow?.value || '0') || 0;
+      
+      if (minDeliveryAmount > 0) {
+        // Pre-calculate total amount to check against minimum
+        let preCalcTotal = 0;
+        for (const item of items) {
+          const product = db.prepare('SELECT priceRub FROM products WHERE id = ?').get(item.product_id);
+          if (product) {
+            const pricePerUnit = item.price_per_unit || product.priceRub;
+            preCalcTotal += pricePerUnit * item.quantity;
+          }
+        }
+        
+        if (preCalcTotal < minDeliveryAmount) {
+          return res.status(400).json({ 
+            error: 'min_delivery_amount_not_met', 
+            message: `Минимальная сумма заказа для доставки: ${minDeliveryAmount} BYN. Сейчас в корзине: ${preCalcTotal.toFixed(2)} BYN`,
+            min_amount: minDeliveryAmount,
+            current_amount: preCalcTotal
+          });
+        }
       }
     }
 
@@ -649,12 +694,28 @@ publicRouter.post('/api/orders', (req, res) => {
           throw new Error(`Товар не найден: ${item.product_id}`);
         }
 
-        // Check stock
-        if (product.stock !== null && product.stock < item.quantity) {
-          throw new Error(`Недостаточно товара: ${product.title}`);
+        // Check stock - для товаров с вариантами проверяем stock варианта
+        let stockToCheck = product.stock;
+        let variantData = null;
+        
+        if (item.variant_id) {
+          // Товар с вариантом - проверяем stock варианта
+          variantData = db.prepare('SELECT * FROM product_variants WHERE id = ?').get(item.variant_id);
+          if (variantData) {
+            stockToCheck = variantData.stock;
+          }
+        } else if (product.has_variants) {
+          // Товар имеет варианты, но variant_id не указан - пропускаем проверку stock базового товара
+          // т.к. stock хранится в вариантах
+          stockToCheck = null;
+        }
+        
+        if (stockToCheck !== null && stockToCheck < item.quantity) {
+          const itemTitle = item.variant_name ? `${product.title} (${item.variant_name})` : product.title;
+          throw new Error(`Недостаточно товара: ${itemTitle}`);
         }
 
-        const pricePerUnit = item.price_per_unit || product.priceRub;
+        const pricePerUnit = item.price_per_unit || (variantData?.price_rub) || product.priceRub;
         const costPerUnit = product.cost_price || 0;
         const totalPrice = pricePerUnit * item.quantity;
         const totalItemCost = costPerUnit * item.quantity;
@@ -665,13 +726,18 @@ publicRouter.post('/api/orders', (req, res) => {
         return {
           id: generateId('oi'),
           product_id: item.product_id,
-          product_title: product.title || 'Без названия',
+          variant_id: item.variant_id || null,
+          product_title: item.variant_name ? `${product.title} - ${item.variant_name}` : product.title || 'Без названия',
+          base_product_title: item.product_title || product.title || 'Без названия',
+          base_product_id: item.product_id,
+          variant_name: item.variant_name || null,
           quantity: item.quantity,
           price_per_unit: pricePerUnit,
           cost_per_unit: costPerUnit,
           discount_amount: 0,
           total_price: totalPrice,
-          total_cost: totalItemCost
+          total_cost: totalItemCost,
+          has_variants: product.has_variants
         };
       });
 
@@ -701,9 +767,9 @@ publicRouter.post('/api/orders', (req, res) => {
       // Insert order items
       const itemStmt = db.prepare(`
         INSERT INTO order_items (
-          id, order_id, product_id, product_title, quantity,
+          id, order_id, product_id, product_title, base_product_title, base_product_id, variant_name, quantity,
           price_per_unit, cost_per_unit, discount_amount, total_price, total_cost
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
 
       for (const item of orderItems) {
@@ -712,6 +778,9 @@ publicRouter.post('/api/orders', (req, res) => {
           orderId,
           item.product_id,
           item.product_title,
+          item.base_product_title,
+          item.base_product_id,
+          item.variant_name,
           item.quantity,
           item.price_per_unit,
           item.cost_per_unit,
@@ -720,12 +789,25 @@ publicRouter.post('/api/orders', (req, res) => {
           item.total_cost
         );
 
-        // Update stock
-        if (db.prepare('SELECT stock FROM products WHERE id = ?').get(item.product_id).stock !== null) {
-          db.prepare('UPDATE products SET stock = stock - ? WHERE id = ?').run(
-            item.quantity,
-            item.product_id
-          );
+        // Update stock - для вариантов обновляем stock варианта, иначе stock продукта
+        if (item.variant_id) {
+          // Обновляем stock варианта
+          const variant = db.prepare('SELECT stock FROM product_variants WHERE id = ?').get(item.variant_id);
+          if (variant && variant.stock !== null) {
+            db.prepare('UPDATE product_variants SET stock = stock - ? WHERE id = ?').run(
+              item.quantity,
+              item.variant_id
+            );
+          }
+        } else if (!item.has_variants) {
+          // Обновляем stock продукта только если у него нет вариантов
+          const productStock = db.prepare('SELECT stock FROM products WHERE id = ?').get(item.product_id);
+          if (productStock && productStock.stock !== null) {
+            db.prepare('UPDATE products SET stock = stock - ? WHERE id = ?').run(
+              item.quantity,
+              item.product_id
+            );
+          }
         }
       }
 

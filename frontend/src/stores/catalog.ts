@@ -41,6 +41,7 @@ export interface ProductVariant {
   product_id?: string
   name: string
   colorCode?: string | null
+  colorImage?: string | null
   priceRub?: number | null
   stock?: number
   position?: number

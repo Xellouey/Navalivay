@@ -1,0 +1,290 @@
+# NAVALIVAY Project - AI Agent Guidelines
+
+## Project Overview
+E-commerce Telegram Mini App with admin panel (CRM). Stack: Vue 3 + Vite (frontend), Express + SQLite (backend).
+
+---
+
+## 🔴 CRITICAL: Project Structure
+
+```
+/var/www/NAVALIVAY/
+├── frontend/           # Vue 3 + Vite + TypeScript
+│   ├── src/
+│   │   ├── views/      # Page components
+│   │   ├── components/ # Reusable components
+│   │   ├── stores/     # Pinia stores (state management)
+│   │   └── ...
+│   └── dist/           # Built production files
+├── server/             # Express.js backend (ES Modules)
+│   ├── index.js        # Main entry point
+│   ├── routes/         # API route handlers
+│   ├── db.js           # SQLite database connection
+│   └── bot.js          # Telegram bot
+└── data/               # SQLite database files
+```
+
+---
+
+## 🔴 CRITICAL: ES Modules in Backend
+
+**The backend uses ES Modules (ESM), NOT CommonJS!**
+
+✅ CORRECT:
+```javascript
+import express from 'express';
+import fs from 'fs';
+import { db } from '../db.js';
+```
+
+❌ WRONG (will cause `ReferenceError: require is not defined`):
+```javascript
+const express = require('express');
+const fs = require('fs');
+```
+
+**Always check file imports before adding new ones.**
+
+---
+
+## 🔴 CRITICAL: Server Management
+
+### Finding running server:
+```bash
+lsof -i :8082 | grep LISTEN
+# or
+ps aux | grep "node index.js"
+```
+
+### Restarting server (REQUIRED after backend changes):
+```bash
+kill -9 $(lsof -t -i:8082) 2>/dev/null
+sleep 2
+cd /var/www/NAVALIVAY/server
+nohup node index.js > /tmp/server.log 2>&1 &
+```
+
+### Checking server logs:
+```bash
+cat /tmp/server.log | tail -50
+# For errors:
+cat /tmp/server.log | grep -i "error" | tail -20
+```
+
+**Port:** 8082
+
+---
+
+## 🔴 CRITICAL: Frontend Build
+
+### Building frontend (REQUIRED after .vue file changes):
+```bash
+cd /var/www/NAVALIVAY/frontend
+NODE_OPTIONS="--max-old-space-size=2048" npm run build-only
+```
+
+**Note:** Use `--max-old-space-size=2048` to avoid "JavaScript heap out of memory" errors.
+
+### Quick build (skip type-check, faster):
+```bash
+npm run build-only
+```
+
+### Full build with type-check:
+```bash
+NODE_OPTIONS="--max-old-space-size=4096" npm run build
+```
+
+---
+
+## API Structure
+
+### Base URLs:
+- Public API: `/api/...`
+- Admin API: `/api/admin/...`
+- CRM API: `/api/admin/crm/...`
+
+### Authentication:
+Admin routes use `authMiddleware` from `server/auth.js`. Token is passed via `Authorization` header.
+
+### Main CRM endpoints:
+- `GET /api/admin/crm/orders` - List orders
+- `GET /api/admin/crm/orders/:id` - Get single order
+- `PATCH /api/admin/crm/orders/:id` - Update order (status, items, etc.)
+- `POST /api/admin/crm/orders/:id/issue` - Issue order with payment
+- `DELETE /api/admin/crm/orders/:id/payment` - Remove payment
+
+---
+
+## Database
+
+### Connection:
+```javascript
+import { db } from '../db.js';
+
+// Query
+const row = db.prepare('SELECT * FROM orders WHERE id = ?').get(id);
+const rows = db.prepare('SELECT * FROM products').all();
+
+// Insert/Update
+db.prepare('UPDATE orders SET status = ? WHERE id = ?').run(status, id);
+
+// Transaction
+const tx = db.transaction(() => {
+  // multiple operations
+});
+tx();
+```
+
+### Main tables:
+- `orders` - Orders
+- `order_items` - Order line items
+- `products` - Products
+- `product_variants` - Product variants
+- `customers` - Customers
+- `categories` - Categories
+- `banners` - Promotional banners
+- `settings` - App settings
+
+---
+
+## Frontend State Management (Pinia)
+
+### Main stores:
+- `stores/crm.ts` - CRM data (orders, customers, products)
+- `stores/admin.ts` - Admin panel data
+- `stores/cart.ts` - Shopping cart
+- `stores/catalog.ts` - Product catalog
+
+### Using stores:
+```typescript
+import { useCrmStore } from '@/stores/crm'
+
+const crmStore = useCrmStore()
+await crmStore.updateOrder(orderId, { status: 'cancelled' })
+```
+
+---
+
+## Common Pitfalls
+
+### 1. SQL Parameter Count Mismatch
+When writing INSERT statements, ensure the number of `?` placeholders matches the number of values in `.run()`:
+```javascript
+// If SQL has 12 columns, .run() must have 12 values!
+db.prepare(`INSERT INTO table (col1, col2, ..., col12) VALUES (?, ?, ..., ?)`).run(
+  val1, val2, ..., val12  // Must be exactly 12 values
+);
+```
+
+### 2. Forgetting to Restart Server
+Backend changes require server restart. Frontend changes require rebuild.
+
+### 3. Memory Issues During Build
+Always use `NODE_OPTIONS="--max-old-space-size=2048"` for builds.
+
+### 4. Port Already in Use
+If server won't start with `EADDRINUSE`, kill the old process first:
+```bash
+kill -9 $(lsof -t -i:8082)
+```
+
+### 5. Products with Variants (Colors)
+Products can have variants (e.g., colors). Important:
+- `products` table has `has_variants` flag
+- `product_variants` table stores variants with their own `stock`
+- When checking stock for variant products, check `product_variants.stock`, NOT `products.stock`
+- Cart stores `variantId` - must be passed to backend as `variant_id`
+- When creating orders, update `product_variants.stock` for variant items
+
+```javascript
+// Check if product has variants
+if (item.variant_id) {
+  const variant = db.prepare('SELECT * FROM product_variants WHERE id = ?').get(item.variant_id);
+  stockToCheck = variant.stock;
+}
+```
+
+### 6. Low Memory Build Issues
+If build fails with "Killed" (OOM), stop the server first to free memory:
+```bash
+kill -9 $(lsof -t -i:8082) 2>/dev/null
+cd /var/www/NAVALIVAY/frontend
+NODE_OPTIONS="--max-old-space-size=2048" npm run build-only
+# Then restart server
+cd /var/www/NAVALIVAY/server && nohup node index.js > /tmp/server.log 2>&1 &
+```
+System has 2GB swap configured (`/swapfile` + `/swapfile2`).
+
+### 7. Vue Reactivity with Arrays
+When updating items in Pinia store arrays, **replace the entire array** instead of mutating by index:
+```typescript
+// ❌ WRONG - Vue may not detect the change
+categories.value[index] = { ...categories.value[index], ...updates }
+
+// ✅ CORRECT - Replace array to trigger reactivity
+categories.value = categories.value.map(c => 
+  c.id === id ? { ...c, ...updates } : c
+)
+```
+
+### 8. Images in List APIs (Performance Optimization)
+List APIs (`/api/admin/categories`, `/api/admin/category-groups`) do NOT return `cover_image` (base64) to save traffic.
+- They return `has_cover_image` flag instead
+- Frontend loads images separately via `fetchCategoryImage()` / `fetchCategoryGroupImage()`
+- When updating, preserve existing `coverImage` from local state
+
+### 9. Product Variants with colorImage
+Variants can have `colorImage` (base64) instead of `colorCode` (hex):
+- Backend: `color_image` column in `product_variants` table
+- API must SELECT `color_image AS colorImage` in product queries
+- Frontend `normalizeProductData()` must map `colorImage` field
+- Form must initialize `form.variants` from `props.product.variants`
+
+---
+
+## Debugging Tips
+
+### Backend debugging:
+1. Add `console.log()` or `console.error()` statements
+2. Restart server
+3. Check `/tmp/server.log`
+
+### Frontend debugging:
+1. Add `console.log()` statements
+2. Rebuild frontend
+3. Check browser DevTools console
+
+### Database inspection:
+```bash
+cd /var/www/NAVALIVAY/server/data
+sqlite3 navalivay.db
+.tables
+.schema orders
+SELECT * FROM orders LIMIT 5;
+```
+
+---
+
+## File Locations Quick Reference
+
+| What | Where |
+|------|-------|
+| Order update API | `server/routes/crm-operations.js` |
+| Order create (public) | `server/routes/public.js` |
+| Order detail page | `frontend/src/views/admin/crm/CrmOrderDetail.vue` |
+| Orders list page | `frontend/src/views/admin/crm/CrmOrders.vue` |
+| Checkout page | `frontend/src/views/CheckoutView.vue` |
+| Cart store | `frontend/src/stores/cart.ts` |
+| CRM store | `frontend/src/stores/crm.ts` |
+| Admin store | `frontend/src/stores/admin.ts` |
+| Database | `server/data/navalivay.db` |
+| Server entry | `server/index.js` |
+| Auth middleware | `server/auth.js` |
+| Product variants card | `frontend/src/components/product/ProductVariantCard.vue` |
+| Admin categories/groups API | `server/routes/admin.js` |
+| Product form (variants) | `frontend/src/components/admin/AdminProductForm.vue` |
+| Products table | `frontend/src/components/admin/AdminProductsTable.vue` |
+| Category form | `frontend/src/components/admin/AdminCategoryForm.vue` |
+| Image sorter (variants) | `frontend/src/components/admin/AdminProductImagesSorter.vue` |
+

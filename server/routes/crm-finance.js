@@ -317,6 +317,52 @@ crmFinanceRouter.patch('/api/admin/crm/cash-accounts/:id', authMiddleware, (req,
   }
 });
 
+// Удаление счета
+crmFinanceRouter.delete('/api/admin/crm/cash-accounts/:id', authMiddleware, (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const account = db.prepare('SELECT * FROM cash_accounts WHERE id = ?').get(id);
+    if (!account) {
+      return res.status(404).json({ error: 'not_found' });
+    }
+
+    // Проверяем, есть ли транзакции по этому счету
+    const transactionsCount = db.prepare('SELECT COUNT(*) as count FROM cash_transactions WHERE account_id = ?').get(id);
+    if (transactionsCount.count > 0) {
+      return res.status(409).json({ 
+        error: 'has_transactions', 
+        message: `Невозможно удалить счёт: есть ${transactionsCount.count} транзакций` 
+      });
+    }
+
+    // Проверяем, не является ли это единственным счетом
+    const accountsCount = db.prepare('SELECT COUNT(*) as count FROM cash_accounts WHERE active = 1').get();
+    if (accountsCount.count <= 1) {
+      return res.status(409).json({ 
+        error: 'last_account', 
+        message: 'Невозможно удалить последний счёт' 
+      });
+    }
+
+    // Если удаляем дефолтный счет, назначаем другой дефолтным
+    if (account.is_default) {
+      const anotherAccount = db.prepare('SELECT id FROM cash_accounts WHERE id != ? AND active = 1 LIMIT 1').get(id);
+      if (anotherAccount) {
+        db.prepare('UPDATE cash_accounts SET is_default = 1 WHERE id = ?').run(anotherAccount.id);
+      }
+    }
+
+    // Удаляем счет
+    db.prepare('DELETE FROM cash_accounts WHERE id = ?').run(id);
+
+    res.json({ ok: true });
+  } catch (error) {
+    console.error('[crm] Delete cash account error:', error);
+    res.status(500).json({ error: 'failed', message: error.message });
+  }
+});
+
 // =========================
 // CASH TRANSACTIONS (Движения денег)
 // =========================

@@ -18,7 +18,18 @@
             <div v-for="account in cashAccounts" :key="account.id" class="bg-white rounded-lg shadow-sm p-6">
               <div class="flex items-center justify-between mb-2">
                 <h3 class="font-medium text-gray-900">{{ account.name }}</h3>
-                <span v-if="account.is_default" class="px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs font-medium">По умолчанию</span>
+                <div class="flex items-center gap-2">
+                  <span v-if="account.is_default" class="px-2 py-1 bg-blue-100 text-blue-800 rounded text-xs font-medium">По умолчанию</span>
+                  <button 
+                    @click="confirmDeleteAccount(account)" 
+                    class="p-1.5 rounded-md text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+                    title="Удалить счёт"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                    </svg>
+                  </button>
+                </div>
               </div>
               <div class="text-2xl font-bold text-gray-900">{{ formatCurrency(account.balance) }}</div>
             </div>
@@ -396,6 +407,33 @@ function resetNewAccount() {
 function closeAccountModal() {
   showAccountModal.value = false
   resetNewAccount()
+}
+
+async function confirmDeleteAccount(account: { id: string; name: string }) {
+  if (!confirm(`Удалить счёт "${account.name}"?\n\nЭто действие нельзя отменить.`)) {
+    return
+  }
+
+  try {
+    await crmStore.deleteCashAccount(account.id)
+    await crmStore.fetchCashAccounts()
+  } catch (error: any) {
+    let message = 'Ошибка удаления счёта'
+    
+    // Парсим ошибку от сервера
+    const errorCode = error?.error || error?.message
+    if (errorCode === 'has_transactions') {
+      message = 'Невозможно удалить счёт: на нём есть транзакции. Сначала удалите все транзакции.'
+    } else if (errorCode === 'last_account') {
+      message = 'Невозможно удалить последний счёт. Должен остаться хотя бы один.'
+    } else if (errorCode === 'not_found') {
+      message = 'Счёт не найден'
+    } else if (error?.message) {
+      message = error.message
+    }
+    
+    alert(message)
+  }
 }
 
 function openPasswordModal() {

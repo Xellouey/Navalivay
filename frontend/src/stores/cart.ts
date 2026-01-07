@@ -5,6 +5,7 @@ import type { Product } from './catalog'
 export interface CartItem {
   productId: string
   title: string
+  productTitle?: string | null
   priceRub: number
   quantity: number
   image?: string | null
@@ -27,7 +28,23 @@ export const useCartStore = defineStore('cart', () => {
     try {
       const stored = localStorage.getItem('navalivay_cart')
       if (stored) {
-        items.value = JSON.parse(stored)
+        const loadedItems = JSON.parse(stored)
+        // Migrate old items that don't have productTitle
+        items.value = loadedItems.map((item: CartItem) => {
+          if (!item.productTitle) {
+            // For old items, extract productTitle from title
+            // If title contains  - , the part before it is the product title
+            const titleParts = item.title.split(' - ')
+            return {
+              ...item,
+              productTitle: titleParts.length > 1 ? titleParts[0] : item.title,
+              variantName: titleParts.length > 1 ? titleParts.slice(1).join(' - ') : null
+            }
+          }
+          return item
+        })
+        // Save migrated data
+        saveToStorage()
       }
     } catch (error) {
       console.error('[Cart] Failed to load from storage', error)
@@ -53,6 +70,7 @@ export const useCartStore = defineStore('cart', () => {
       existing.quantity += quantity
     } else {
       let title = product.title
+      let productTitle = product.groupName || product.title
       let priceRub = product.priceRub
       let image = product.images?.[0] || null
       let variantName: string | null = null
@@ -74,12 +92,13 @@ export const useCartStore = defineStore('cart', () => {
       
       items.value.push({
         productId: product.id,
+        productTitle,
         title,
         priceRub,
         quantity,
         image,
         variantId: variantId || null,
-        variantName
+        variantName: variantName || (product.groupName ? product.title : null)
       })
     }
     

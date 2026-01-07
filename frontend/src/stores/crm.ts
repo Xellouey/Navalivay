@@ -78,6 +78,8 @@ export interface OrderItem {
   order_id: string
   product_id: string | null
   product_title: string
+  base_product_id?: string | null
+  base_product_title?: string | null
   quantity: number
   price_per_unit: number
   cost_per_unit: number
@@ -791,6 +793,11 @@ export const useCrmStore = defineStore('crm', () => {
     return account
   }
 
+  async function deleteCashAccount(id: string) {
+    await fetchAPI(`${API_BASE}/cash-accounts/${id}`, { method: 'DELETE' })
+    cashAccounts.value = cashAccounts.value.filter((a) => a.id !== id)
+  }
+
   async function fetchCashTransactions(params?: {
     account_id?: string
     type?: 'income' | 'expense'
@@ -1047,6 +1054,7 @@ export const useCrmStore = defineStore('crm', () => {
     fetchCashAccounts,
     createCashAccount,
     updateCashAccount,
+    deleteCashAccount,
     fetchCashTransactions,
     createCashTransaction,
     updateCashTransaction,

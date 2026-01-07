@@ -132,7 +132,7 @@
           </div>
         </Transition>
         <p v-if="!groupCards.length && !showLiquidShowcase" class="text-gray-600 bg-gray-100 border border-dashed border-gray-300 rounded-xl px-5 py-4 text-sm font-medium">
-          Для категории пока не добавлены подгруппы — товары будут показаны в общем списке ниже.
+          Для категории пока не добавлены подгруппы - товары будут показаны в общем списке ниже.
         </p>
 
         <section v-if="showLiquidShowcase" class="px-4 space-y-4" ref="ungroupedContainer">

@@ -207,7 +207,10 @@
             >
               <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                 <div>
-                  <p class="text-base font-semibold text-gray-900">{{ item.title }}</p>
+                  <p class="text-base font-semibold text-gray-900">
+                    {{ item.baseProductTitle || item.title }}
+                    <span v-if="item.variantName" class="text-sm text-gray-600"> - {{ item.variantName }}</span>
+                  </p>
                   <p class="text-xs text-gray-500">
                     Себестоимость: {{ formatCurrency(item.cost) }}
                     <span v-if="item.stock !== null && item.stock !== undefined" class="ml-2">Остаток: {{ item.stock }}</span>
@@ -346,6 +349,7 @@ const props = defineProps<{ id: string }>()
 type FormItem = {
   productId: string
   title: string
+  baseProductTitle?: string
   quantity: number
   price: number
   discount: number
@@ -518,6 +522,8 @@ function initializeForm(order: Order) {
     .map((item) => ({
       productId: item.product_id as string,
       title: item.product_title,
+      baseProductTitle: item.base_product_title || null,
+      variantName: item.variant_name || null,
       quantity: Number(item.quantity || 0),
       price: Number(item.price_per_unit || 0),
       discount: Number(item.discount_amount || 0),
@@ -558,6 +564,7 @@ function addProduct(product: CrmProductSummary) {
   form.items.push({
     productId: product.id,
     title: product.title,
+    baseProductTitle: undefined,
     quantity: 1,
     price: product.priceRub,
     discount: 0,

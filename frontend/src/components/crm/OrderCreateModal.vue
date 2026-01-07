@@ -127,7 +127,7 @@
                 v-if="!form.items.length"
                 class="rounded-xl border border-dashed border-gray-300 bg-gray-50 px-4 py-6 text-center text-sm text-gray-500"
               >
-                Добавьте товары через поиск выше — они появятся здесь для редактирования количества и цены.
+                Добавьте товары через поиск выше - они появятся здесь для редактирования количества и цены.
               </div>
 
               <div v-else class="space-y-3">

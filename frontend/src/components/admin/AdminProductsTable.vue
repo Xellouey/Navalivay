@@ -57,17 +57,19 @@
               </button>
             </div>
             <div class="flex items-center gap-2">
-              <select
-                v-model="group"
-                :disabled="!groupFilterOptions.length"
-                class="rounded-2xl border border-white/60 bg-white/85 px-4 py-3 text-sm font-medium text-gray-900 shadow-inner transition focus:border-rose-200 focus:outline-none focus:ring-2 focus:ring-rose-200/70 disabled:bg-gray-100 disabled:text-gray-400"
-                @change="onFiltersChanged"
-              >
-                <option value="">Все линейки</option>
-                <option v-for="option in groupFilterOptions" :key="option.id" :value="option.id">
-                  {{ option.name }}
-                </option>
-              </select>
+              <div ref="groupDropdownTriggerRef" class="relative">
+                <button
+                  type="button"
+                  @click="toggleGroupDropdown"
+                  :disabled="!groupFilterOptions.length"
+                  class="flex items-center justify-between gap-2 min-w-[180px] rounded-2xl border border-white/60 bg-white/85 px-4 py-3 text-sm font-medium text-gray-900 shadow-inner transition focus:border-rose-200 focus:outline-none focus:ring-2 focus:ring-rose-200/70 disabled:bg-gray-100 disabled:text-gray-400"
+                >
+                  <span class="truncate">{{ selectedGroupName }}</span>
+                  <svg class="h-4 w-4 flex-shrink-0 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                  </svg>
+                </button>
+              </div>
               <button
                 type="button"
                 class="inline-flex items-center justify-center rounded-xl border border-white/60 bg-white/85 p-2 text-rose-500 transition hover:bg-white hover:text-rose-600 disabled:cursor-not-allowed disabled:opacity-40"
@@ -475,8 +477,17 @@
               </td>
               <td class="px-4 py-3 min-w-[220px]" :style="columnStyle(1)">
                 <div class="flex items-center gap-3 min-w-0 pl-4">
+                  <!-- Картинка цвета -->
                   <div
-                    v-if="variant.colorCode"
+                    v-if="variant.colorImage"
+                    class="w-6 h-6 rounded-full border-2 border-white shadow-sm flex-shrink-0 overflow-hidden"
+                    :title="variant.name"
+                  >
+                    <img :src="variant.colorImage" class="w-full h-full object-cover" alt="" />
+                  </div>
+                  <!-- Цвет -->
+                  <div
+                    v-else-if="variant.colorCode"
                     class="w-6 h-6 rounded-full border-2 border-white shadow-sm flex-shrink-0"
                     :style="{ backgroundColor: variant.colorCode }"
                     :title="variant.name"
@@ -772,8 +783,17 @@
                   class="bg-rose-50/40 rounded-lg p-3 hover:bg-rose-50/60 transition-colors"
                 >
                   <div class="flex items-start gap-3">
+                    <!-- Картинка цвета -->
                     <div
-                      v-if="variant.colorCode"
+                      v-if="variant.colorImage"
+                      class="w-8 h-8 rounded-full border-2 border-white shadow-sm flex-shrink-0 overflow-hidden"
+                      :title="variant.name"
+                    >
+                      <img :src="variant.colorImage" class="w-full h-full object-cover" alt="" />
+                    </div>
+                    <!-- Цвет -->
+                    <div
+                      v-else-if="variant.colorCode"
                       class="w-8 h-8 rounded-full border-2 border-white shadow-sm flex-shrink-0"
                       :style="{ backgroundColor: variant.colorCode }"
                       :title="variant.name"
@@ -1006,28 +1026,39 @@
                     <span class="sr-only">Создать категорию</span>
                   </button>
                 </div>
-                <div class="flex items-center gap-2">
-                  <select
-                    v-model="group"
-                    :disabled="!groupFilterOptions.length"
-                    class="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-gray-900 focus:border-transparent focus:ring-2 focus:ring-brand-primary disabled:bg-gray-100 disabled:text-gray-400"
-                    @change="onFiltersChanged"
-                  >
-                    <option value="">Все линейки</option>
-                    <option v-for="option in groupFilterOptions" :key="option.id" :value="option.id">
-                      {{ option.name }}
-                    </option>
-                  </select>
-                  <button
-                    type="button"
-                    class="inline-flex items-center justify-center rounded-lg border border-gray-300 bg-white p-2 text-gray-600 transition hover:bg-gray-100 hover:text-gray-800 disabled:cursor-not-allowed disabled:opacity-40"
-                    :disabled="!category"
-                    :title="category ? 'Создать линейку' : 'Сначала выберите категорию'"
-                    @click="handleFiltersModalAction('group')"
-                  >
-                    <PlusIcon class="h-4 w-4" />
-                    <span class="sr-only">Создать линейку</span>
-                  </button>
+                <div class="space-y-2">
+                  <div class="relative">
+                    <MagnifyingGlassIcon class="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400 pointer-events-none" />
+                    <input
+                      v-model="mobileGroupSearchQuery"
+                      type="text"
+                      placeholder="Поиск линейки..."
+                      class="w-full rounded-lg border border-gray-300 bg-white py-2 pl-9 pr-3 text-gray-900 focus:border-transparent focus:ring-2 focus:ring-brand-primary"
+                    />
+                  </div>
+                  <div class="flex items-center gap-2">
+                    <select
+                      v-model="group"
+                      :disabled="!groupFilterOptions.length"
+                      class="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-gray-900 focus:border-transparent focus:ring-2 focus:ring-brand-primary disabled:bg-gray-100 disabled:text-gray-400"
+                      @change="onFiltersChanged"
+                    >
+                      <option value="">Все линейки</option>
+                      <option v-for="option in mobileFilteredGroupOptions" :key="option.id" :value="option.id">
+                        {{ option.name }}
+                      </option>
+                    </select>
+                    <button
+                      type="button"
+                      class="inline-flex items-center justify-center rounded-lg border border-gray-300 bg-white p-2 text-gray-600 transition hover:bg-gray-100 hover:text-gray-800 disabled:cursor-not-allowed disabled:opacity-40"
+                      :disabled="!category"
+                      :title="category ? 'Создать линейку' : 'Сначала выберите категорию'"
+                      @click="handleFiltersModalAction('group')"
+                    >
+                      <PlusIcon class="h-4 w-4" />
+                      <span class="sr-only">Создать линейку</span>
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
@@ -1108,6 +1139,67 @@
       </div>
     </div>
   </Teleport>
+
+  <!-- Group dropdown via Teleport -->
+  <Teleport to="body">
+    <Transition
+      enter-active-class="transition duration-100 ease-out"
+      enter-from-class="opacity-0 scale-95"
+      enter-to-class="opacity-100 scale-100"
+      leave-active-class="transition duration-75 ease-in"
+      leave-from-class="opacity-100 scale-100"
+      leave-to-class="opacity-0 scale-95"
+    >
+      <div
+        v-if="showGroupDropdown"
+        ref="groupDropdownRef"
+        class="fixed z-[100] w-72 rounded-2xl border border-white/60 bg-white shadow-2xl"
+        :style="groupDropdownStyle"
+      >
+        <div class="p-2 border-b border-gray-100">
+          <div class="relative">
+            <MagnifyingGlassIcon class="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+            <input
+              ref="groupSearchInputRef"
+              v-model="groupSearchQuery"
+              type="text"
+              placeholder="Поиск линейки..."
+              class="w-full rounded-xl border border-gray-200 bg-white py-2 pl-9 pr-3 text-sm focus:border-rose-300 focus:outline-none focus:ring-2 focus:ring-rose-200"
+              @keydown.escape="closeGroupDropdown"
+              @keydown.enter="selectFirstFilteredGroup"
+            />
+          </div>
+        </div>
+        <div class="max-h-72 overflow-y-auto py-1 bg-white">
+          <button
+            type="button"
+            @click="selectGroup('')"
+            :class="[
+              'w-full px-3 py-2 text-left text-sm transition bg-white border-0',
+              group === '' ? 'text-rose-600 font-medium' : 'text-gray-700 hover:text-rose-600'
+            ]"
+          >
+            Все линейки
+          </button>
+          <button
+            v-for="option in filteredGroupOptions"
+            :key="option.id"
+            type="button"
+            @click="selectGroup(option.id)"
+            :class="[
+              'w-full px-3 py-2 text-left text-sm transition bg-white border-0',
+              group === option.id ? 'text-rose-600 font-medium' : 'text-gray-700 hover:text-rose-600'
+            ]"
+          >
+            {{ option.name }}
+          </button>
+          <div v-if="filteredGroupOptions.length === 0 && groupSearchQuery" class="px-3 py-4 text-center text-sm text-gray-500">
+            Ничего не найдено
+          </div>
+        </div>
+      </div>
+    </Transition>
+  </Teleport>
 </template>
 
 <script setup lang="ts">
@@ -1125,6 +1217,7 @@ interface ProductVariant {
   product_id?: string
   name: string
   colorCode?: string | null
+  colorImage?: string | null
   priceRub?: number | null
   stock?: number
   position?: number
@@ -1196,6 +1289,15 @@ const sortDirection = ref<SortDirection>('asc')
 const groupModalLoading = ref(false)
 const modalFetchedCategories = new Set<string>()
 const showFiltersModal = ref(false)
+const showGroupDropdown = ref(false)
+const groupSearchQuery = ref('')
+const groupDropdownRef = ref<HTMLDivElement | null>(null)
+const groupDropdownTriggerRef = ref<HTMLDivElement | null>(null)
+const groupSearchInputRef = ref<HTMLInputElement | null>(null)
+const groupDropdownPosition = ref({ top: 0, left: 0 })
+const showMobileGroupDropdown = ref(false)
+const mobileGroupSearchQuery = ref('')
+const mobileGroupDropdownRef = ref<HTMLDivElement | null>(null)
 const tableRef = ref<HTMLTableElement | null>(null)
 const tableScrollContainer = ref<HTMLDivElement | null>(null)
 const bottomScrollRef = ref<HTMLDivElement | null>(null)
@@ -1223,19 +1325,16 @@ let measureRaf: number | null = null
 
 const groupFilterOptions = computed(() => {
   const currentCategory = category.value
-  const map = new Map<string, { id: string; name: string; categoryId: string }>()
-  ;(props.products || []).forEach(product => {
-    if (!product?.groupId || !product.groupName) return
-    if (currentCategory && product.categoryId !== currentCategory) return
-    if (!map.has(product.groupId)) {
-      map.set(product.groupId, {
-        id: product.groupId,
-        name: product.groupName,
-        categoryId: product.categoryId
-      })
-    }
-  })
-  return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name))
+  // Используем все линейки из adminStore.categoryGroups вместо извлечения из props.products
+  const allGroups = adminStore.categoryGroups || []
+  const filtered = currentCategory
+    ? allGroups.filter(g => g.categoryId === currentCategory)
+    : allGroups
+  return filtered.map(g => ({
+    id: g.id,
+    name: g.name,
+    categoryId: g.categoryId
+  })).sort((a, b) => a.name.localeCompare(b.name))
 })
 
 const modalGroupOptions = computed(() => {
@@ -1244,6 +1343,89 @@ const modalGroupOptions = computed(() => {
     .filter(group => group.categoryId === groupModalCategoryId.value)
     .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
 })
+
+const filteredGroupOptions = computed(() => {
+  const query = groupSearchQuery.value.toLowerCase().trim()
+  if (!query) return groupFilterOptions.value
+  return groupFilterOptions.value.filter(g => g.name.toLowerCase().includes(query))
+})
+
+const selectedGroupName = computed(() => {
+  if (!group.value) return 'Все линейки'
+  const found = groupFilterOptions.value.find(g => g.id === group.value)
+  return found?.name || 'Все линейки'
+})
+
+const groupDropdownStyle = computed(() => ({
+  top: `${groupDropdownPosition.value.top}px`,
+  left: `${groupDropdownPosition.value.left}px`
+}))
+
+function toggleGroupDropdown() {
+  if (showGroupDropdown.value) {
+    closeGroupDropdown()
+  } else {
+    openGroupDropdown()
+  }
+}
+
+function openGroupDropdown() {
+  if (!groupDropdownTriggerRef.value) return
+  const rect = groupDropdownTriggerRef.value.getBoundingClientRect()
+  groupDropdownPosition.value = {
+    top: rect.bottom + 4,
+    left: rect.left
+  }
+  showGroupDropdown.value = true
+  groupSearchQuery.value = ''
+  nextTick(() => {
+    groupSearchInputRef.value?.focus()
+  })
+}
+
+function closeGroupDropdown() {
+  showGroupDropdown.value = false
+  groupSearchQuery.value = ''
+}
+
+function selectGroup(id: string) {
+  group.value = id
+  closeGroupDropdown()
+  onFiltersChanged()
+}
+
+function selectFirstFilteredGroup() {
+  if (filteredGroupOptions.value.length > 0) {
+    selectGroup(filteredGroupOptions.value[0].id)
+  } else if (!groupSearchQuery.value) {
+    selectGroup('')
+  }
+}
+
+function handleClickOutsideGroupDropdown(event: MouseEvent) {
+  const target = event.target as Node
+  if (showGroupDropdown.value) {
+    const isInsideDropdown = groupDropdownRef.value?.contains(target)
+    const isInsideTrigger = groupDropdownTriggerRef.value?.contains(target)
+    if (!isInsideDropdown && !isInsideTrigger) {
+      closeGroupDropdown()
+    }
+  }
+  if (mobileGroupDropdownRef.value && !mobileGroupDropdownRef.value.contains(target)) {
+    closeMobileGroupDropdown()
+  }
+}
+
+const mobileFilteredGroupOptions = computed(() => {
+  const query = mobileGroupSearchQuery.value.toLowerCase().trim()
+  if (!query) return groupFilterOptions.value
+  return groupFilterOptions.value.filter(g => g.name.toLowerCase().includes(query))
+})
+
+function closeMobileGroupDropdown() {
+  showMobileGroupDropdown.value = false
+  mobileGroupSearchQuery.value = ''
+}
 
 function measureColumnWidths() {
   const table = tableRef.value
@@ -1356,6 +1538,7 @@ onMounted(() => {
   window.addEventListener('resize', queueColumnMeasurement)
   window.addEventListener('resize', updateScrollMetrics)
   window.addEventListener('scroll', handleWindowScroll, { passive: true })
+  document.addEventListener('click', handleClickOutsideGroupDropdown)
 })
 
 onUnmounted(() => {
@@ -1363,6 +1546,7 @@ onUnmounted(() => {
   window.removeEventListener('resize', queueColumnMeasurement)
   window.removeEventListener('resize', updateScrollMetrics)
   window.removeEventListener('scroll', handleWindowScroll)
+  document.removeEventListener('click', handleClickOutsideGroupDropdown)
   detachScrollSync()
   if (windowScrollRaf !== null) {
     cancelAnimationFrame(windowScrollRaf)

@@ -308,6 +308,19 @@ crmOperationsRouter.post('/api/admin/crm/orders', authMiddleware, (req, res) => 
         throw new Error(`Insufficient stock for ${product.title}`);
       }
 
+      // Получаем базовый продукт, если это вариант
+      let baseProductId = null;
+      let baseProductTitle = null;
+      
+      const variant = db.prepare('SELECT product_id FROM product_variants WHERE id = ?').get(item.product_id);
+      if (variant) {
+        baseProductId = variant.product_id;
+        const baseProduct = db.prepare('SELECT title FROM products WHERE id = ?').get(baseProductId);
+        if (baseProduct) {
+          baseProductTitle = baseProduct.title;
+        }
+      }
+
       const pricePerUnit = item.price_per_unit || product.priceRub;
       const costPerUnit = product.cost_price || 0;
       const itemDiscount = item.discount_amount || 0;
@@ -321,6 +334,8 @@ crmOperationsRouter.post('/api/admin/crm/orders', authMiddleware, (req, res) => 
         id: generateId('oi'),
         product_id: item.product_id,
         product_title: product.title || 'Без названия',
+        base_product_id: baseProductId,
+        base_product_title: baseProductTitle,
         quantity: item.quantity,
         price_per_unit: pricePerUnit,
         cost_per_unit: costPerUnit,
@@ -354,14 +369,14 @@ crmOperationsRouter.post('/api/admin/crm/orders', authMiddleware, (req, res) => 
       // Вставляем позиции
       const itemStmt = db.prepare(`
         INSERT INTO order_items (
-          id, order_id, product_id, product_title, quantity,
+          id, order_id, product_id, product_title, base_product_id, base_product_title, quantity,
           price_per_unit, cost_per_unit, discount_amount, total_price, total_cost
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
 
       for (const item of orderItems) {
         itemStmt.run(
-          item.id, orderId, item.product_id, item.product_title, item.quantity,
+          item.id, orderId, item.product_id, item.product_title, item.base_product_id, item.base_product_title, item.quantity,
           item.price_per_unit, item.cost_per_unit, item.discount_amount,
           item.total_price, item.total_cost
         );
@@ -530,9 +545,9 @@ crmOperationsRouter.patch('/api/admin/crm/orders/:id', authMiddleware, (req, res
 
         const itemStmt = db.prepare(`
           INSERT INTO order_items (
-            id, order_id, product_id, product_title, quantity,
+            id, order_id, product_id, product_title, base_product_id, base_product_title, quantity,
             price_per_unit, cost_per_unit, discount_amount, total_price, total_cost
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `);
 
         for (const item of items) {
@@ -572,6 +587,8 @@ crmOperationsRouter.patch('/api/admin/crm/orders/:id', authMiddleware, (req, res
             id,
             item.product_id,
             product.title || 'Без названия',
+            product.base_product_id || null,
+            product.base_product_title || null,
             quantity,
             pricePerUnit,
             costPerUnit,

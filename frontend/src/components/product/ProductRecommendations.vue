@@ -165,6 +165,7 @@ interface ProductVariant {
   id?: string
   name: string
   colorCode?: string | null
+  colorImage?: string | null
   priceRub?: number | null
   stock?: number
   images: string[]

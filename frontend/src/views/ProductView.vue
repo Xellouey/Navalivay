@@ -88,7 +88,19 @@
                     : 'border-gray-200 active:border-gray-300'
                 ]"
               >
+                <!-- Color image or color code circle -->
                 <div
+                  v-if="variant.colorImage"
+                  class="w-12 h-12 rounded-full border-2 border-white shadow-md overflow-hidden"
+                >
+                  <img 
+                    :src="variant.colorImage" 
+                    :alt="variant.name"
+                    class="w-full h-full object-cover"
+                  />
+                </div>
+                <div
+                  v-else
                   class="w-12 h-12 rounded-full border-2 border-white shadow-md"
                   :style="{ backgroundColor: variant.colorCode || '#9ca3af' }"
                 ></div>
@@ -263,9 +275,21 @@
                             : 'border-gray-200 hover:border-gray-300'
                         ]"
                       >
+                        <!-- Color image or color code circle -->
                         <div
+                          v-if="variant.colorImage"
+                          class="w-12 h-12 rounded-full border-2 border-white shadow-md overflow-hidden"
+                        >
+                          <img 
+                            :src="variant.colorImage" 
+                            :alt="variant.name"
+                            class="w-full h-full object-cover"
+                          />
+                        </div>
+                        <div
+                          v-else
                           class="w-12 h-12 rounded-full border-2 border-white shadow-md"
-                          :style="{ backgroundColor: variant.colorCode || '#gray' }"
+                          :style="{ backgroundColor: variant.colorCode || '#9ca3af' }"
                         ></div>
                         <span class="text-xs font-medium text-gray-700">{{ variant.name }}</span>
                         <div v-if="selectedVariant?.id === variant.id" class="absolute -top-1 -right-1 w-5 h-5 bg-brand-primary rounded-full flex items-center justify-center">

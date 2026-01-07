@@ -33,3 +33,22 @@ lerna-debug.log*
 
 # OS
 Thumbs.db
+
+# Database (contains real data - backup separately)
+*.db
+server/data/*.db
+
+# Uploaded files (backup separately)
+uploads/temp/
+uploads/products/
+uploads/color-images/
+uploads/settings/
+
+# Backup files
+*.backup
+*.bak
+
+# Local test files
+test-*.js
+migrate_existing_orders.*
+navalivay.db

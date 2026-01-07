@@ -27,7 +27,8 @@
             </div>
             
             <div class="flex-1 min-w-0">
-              <p class="cart-item-title">{{ item.title }}</p>
+              <p class="cart-item-title">{{ item.productTitle || item.title }}</p>
+              <p class="cart-item-variant" v-if="item.variantName" style="font-size: 0.85rem; color: #666; margin-top: 0.1rem;">{{ item.variantName }}</p>
               <p class="cart-item-meta">{{ formatPrice(item.priceRub) }} BYN × {{ item.quantity }}</p>
             </div>
             
@@ -166,15 +167,37 @@
       </section>
     </div>
   </div>
+
+  <!-- Min Delivery Amount Banner -->
+  <MinDeliveryBanner
+    :isOpen="showMinDeliveryBanner"
+    :minAmount="minDeliveryAmount"
+    :currentAmount="cartStore.totalAmount"
+    :bannerImage="settingsStore.settings.min_delivery_banner_image"
+    :buttonText="settingsStore.settings.min_delivery_banner_button_text"
+    :buttonColor="settingsStore.settings.min_delivery_banner_button_color"
+    @close="showMinDeliveryBanner = false"
+  />
+
+  <!-- Delivery Conditions Banner (Fullscreen) -->
+  <DeliveryConditionsBanner
+    :isOpen="showDeliveryConditionsBanner"
+    :image="settingsStore.settings.delivery_conditions_image"
+    @close="showDeliveryConditionsBanner = false"
+  />
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useCartStore } from '@/stores/cart'
+import { useSettingsStore } from '@/stores/settings'
+import MinDeliveryBanner from '@/components/MinDeliveryBanner.vue'
+import DeliveryConditionsBanner from '@/components/DeliveryConditionsBanner.vue'
 
 const router = useRouter()
 const cartStore = useCartStore()
+const settingsStore = useSettingsStore()
 
 const form = reactive({
   deliveryType: 'pickup' as 'pickup' | 'delivery',
@@ -193,6 +216,21 @@ const errors = reactive({
 const isSubmitting = ref(false)
 const submitError = ref('')
 
+// Delivery banners state
+const showMinDeliveryBanner = ref(false)
+const showDeliveryConditionsBanner = ref(false)
+const deliveryConditionsShown = ref(false) // Track if conditions were already shown
+
+// Settings computed
+const minDeliveryAmount = computed(() => {
+  const val = parseFloat(settingsStore.settings.min_delivery_amount || '0')
+  return isNaN(val) ? 0 : val
+})
+
+const canUseDelivery = computed(() => {
+  return minDeliveryAmount.value <= 0 || cartStore.totalAmount >= minDeliveryAmount.value
+})
+
 const telegramUser = computed(() => {
   if (typeof window !== 'undefined' && window.Telegram?.WebApp) {
     return window.Telegram.WebApp.initDataUnsafe?.user
@@ -200,7 +238,28 @@ const telegramUser = computed(() => {
   return null
 })
 
-onMounted(() => {
+// Watch delivery type selection
+watch(() => form.deliveryType, (newType, oldType) => {
+  if (newType === 'delivery' && oldType === 'pickup') {
+    // Check minimum amount
+    if (!canUseDelivery.value) {
+      // Revert to pickup and show banner
+      form.deliveryType = 'pickup'
+      showMinDeliveryBanner.value = true
+    } else if (!deliveryConditionsShown.value && settingsStore.settings.delivery_conditions_image) {
+      // Show conditions banner after 1 second
+      setTimeout(() => {
+        showDeliveryConditionsBanner.value = true
+        deliveryConditionsShown.value = true
+      }, 1000)
+    }
+  }
+})
+
+onMounted(async () => {
+  // Fetch settings
+  await settingsStore.fetchSettings()
+  
   // Auto-fill telegram username and phone if available from Telegram
   const user = telegramUser.value
   if (user) {
@@ -288,8 +347,11 @@ async function submitOrder() {
       notes: form.notes || undefined,
       items: cartStore.items.map(item => ({
         product_id: item.productId,
+        variant_id: item.variantId || null,
         quantity: item.quantity,
-        price_per_unit: item.priceRub
+        price_per_unit: item.priceRub,
+        product_title: item.productTitle || item.title,
+        variant_name: item.variantName || null
       }))
     }
     
@@ -301,23 +363,76 @@ async function submitOrder() {
       body: JSON.stringify(orderData)
     })
     
+    // Parse response body
+    let result: any
+    try {
+      result = await response.json()
+    } catch (parseError) {
+      console.error('[Checkout] Failed to parse response:', parseError)
     if (!response.ok) {
       throw new Error('Не удалось создать заказ')
     }
+    }
     
-    const result = await response.json()
+    // Handle error responses with detailed messages
+    if (!response.ok) {
+      // Check for min_delivery_amount error and show banner
+      if (result?.error === 'min_delivery_amount_not_met') {
+        showMinDeliveryBanner.value = true
+        form.deliveryType = 'pickup'
+        throw new Error(result.message || 'Сумма заказа меньше минимальной для доставки')
+      }
+      
+      // Use server message if available
+      const errorMessage = result?.message || 'Не удалось создать заказ'
+      throw new Error(errorMessage)
+    }
     
     // Clear cart and redirect
     cartStore.clearCart()
     
-    // Show success and redirect
-    if (window.Telegram?.WebApp) {
-      window.Telegram.WebApp.showAlert('Заказ успешно оформлен! Номер заказа: ' + result.order_number, () => {
-        router.push('/')
+    // Redirect to Telegram manager if configured
+    const redirectTelegram = settingsStore.settings.order_redirect_telegram?.trim()
+    
+    // Helper function to show alert with fallback for unsupported Telegram versions
+    const showSuccessAlert = (message: string, callback: () => void) => {
+      const tg = window.Telegram?.WebApp
+      // Check if showAlert is supported (version >= 6.2)
+      if (tg && typeof tg.showAlert === 'function' && tg.version && parseFloat(tg.version) >= 6.2) {
+        try {
+          tg.showAlert(message, callback)
+        } catch (e) {
+          // Fallback if showAlert fails
+          alert(message)
+          callback()
+        }
+      } else {
+        // Fallback for older versions or non-Telegram environment
+        alert(message)
+        callback()
+      }
+    }
+    
+    if (redirectTelegram) {
+      const textTemplate = settingsStore.settings.order_redirect_text_template || 'Мой номер заказа - #{order_number}'
+      const messageText = textTemplate.replace('{order_number}', result.order_number).replace('#{order_number}', result.order_number)
+      const encodedText = encodeURIComponent(messageText)
+      const tgLink = `https://t.me/${redirectTelegram}?text=${encodedText}`
+      
+      // Show success message and redirect to manager
+      showSuccessAlert('Заказ успешно оформлен! Номер заказа: ' + result.order_number, () => {
+        // Open Telegram link first
+        window.open(tgLink, '_blank')
+        // Then navigate to home using location.href for reliability in Telegram WebApp
+        setTimeout(() => {
+          window.location.href = '/'
+        }, 100)
       })
     } else {
-      alert('Заказ успешно оформлен! Номер заказа: ' + result.order_number)
-      router.push('/')
+      // No redirect configured, just show success
+      showSuccessAlert('Заказ успешно оформлен! Номер заказа: ' + result.order_number, () => {
+        window.location.href = '/'
+      })
     }
   } catch (error: any) {
     console.error('[Checkout] Submit error', error)

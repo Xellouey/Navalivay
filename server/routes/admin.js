@@ -288,7 +288,7 @@ adminRouter.post('/api/admin/products', authMiddleware, (req, res) => {
     // Handle variants if product has them
     if (hasVariants && Array.isArray(variants) && variants.length > 0) {
       console.log(`[admin] Creating ${variants.length} variants for product ${id}`);
-      const variantStmt = db.prepare('INSERT INTO product_variants (id, product_id, name, color_code, price_rub, stock, position) VALUES (?, ?, ?, ?, ?, ?, ?)');
+      const variantStmt = db.prepare('INSERT INTO product_variants (id, product_id, name, color_code, color_image, price_rub, stock, position) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
       
       for (let idx = 0; idx < variants.length; idx++) {
         const variant = variants[idx];
@@ -299,6 +299,7 @@ adminRouter.post('/api/admin/products', authMiddleware, (req, res) => {
           id,
           variant.name,
           variant.colorCode || null,
+          variant.colorImage || null,
           variant.priceRub ? Number(variant.priceRub) : null,
           variant.stock !== undefined ? Number(variant.stock) : 0,
           idx
@@ -455,7 +456,7 @@ adminRouter.post('/api/admin/products', authMiddleware, (req, res) => {
     if (product.hasVariants) {
       // Для товаров с вариантами получаем варианты и их изображения
       productVariants = db.prepare(`
-        SELECT id, product_id, name, color_code AS colorCode, price_rub AS priceRub, stock, position
+        SELECT id, product_id, name, color_code AS colorCode, color_image AS colorImage, price_rub AS priceRub, stock, position
         FROM product_variants
         WHERE product_id = ?
         ORDER BY position ASC
@@ -624,7 +625,7 @@ adminRouter.patch('/api/admin/products/:id', authMiddleware, (req, res) => {
       
       const deleteVariantsStmt = db.prepare('DELETE FROM product_variants WHERE product_id = ?');
       const deleteAllImagesStmt = db.prepare('DELETE FROM product_images WHERE productId = ?');
-      const variantStmt = db.prepare('INSERT INTO product_variants (id, product_id, name, color_code, price_rub, stock, position) VALUES (?, ?, ?, ?, ?, ?, ?)');
+      const variantStmt = db.prepare('INSERT INTO product_variants (id, product_id, name, color_code, color_image, price_rub, stock, position) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
       const imageStmt = db.prepare('INSERT INTO product_images (productId, variant_id, url, position) VALUES (?, ?, ?, ?)');
       
       const txVariants = db.transaction((items) => {
@@ -640,6 +641,7 @@ adminRouter.patch('/api/admin/products/:id', authMiddleware, (req, res) => {
             variantId,
             name: variant.name,
             colorCode: variant.colorCode,
+            colorImage: variant.colorImage,
             priceRub: variant.priceRub,
             stock: variant.stock,
             imagesCount: variant.images?.length || 0
@@ -650,6 +652,7 @@ adminRouter.patch('/api/admin/products/:id', authMiddleware, (req, res) => {
             id,
             variant.name || '',
             variant.colorCode || variant.color || '',
+            variant.colorImage || null,
             variant.priceRub !== null && variant.priceRub !== undefined ? Number(variant.priceRub) : null,
             variant.stock !== undefined ? Number(variant.stock) : 0,
             index
@@ -708,10 +711,12 @@ adminRouter.get('/api/admin/products', authMiddleware, (req, res) => {
   const limit = Math.min(Math.max(parseInt(req.query.limit ?? '20', 10) || 20, 1), 100)
   const category = req.query.category
   const search = req.query.search
+  const group = req.query.group
 
   let where = ''
   const params = []
   if (category) { where += (where ? ' AND ' : 'WHERE ') + 'p.categoryId = ?'; params.push(String(category)) }
+  if (group) { where += (where ? ' AND ' : 'WHERE ') + 'p.groupId = ?'; params.push(String(group)) }
   if (search) {
     // SQLite's LOWER() не работает с кириллицей, поэтому ищем по всем вариантам регистра
     const trimmed = search.trim();
@@ -784,7 +789,7 @@ adminRouter.get('/api/admin/products', authMiddleware, (req, res) => {
   const imgStmt = db.prepare('SELECT url FROM product_images WHERE productId = ? AND variant_id IS NULL ORDER BY position ASC')
   const linkStmt = db.prepare('SELECT label, url FROM product_links WHERE productId = ? ORDER BY position ASC')
   const variantStmt = db.prepare(`
-    SELECT id, product_id, name, color_code AS colorCode, price_rub AS priceRub, stock, position
+    SELECT id, product_id, name, color_code AS colorCode, color_image AS colorImage, price_rub AS priceRub, stock, position
     FROM product_variants
     WHERE product_id = ?
     ORDER BY position ASC
@@ -858,7 +863,7 @@ adminRouter.get('/api/admin/products/:id', authMiddleware, (req, res) => {
   if (p.hasVariants) {
     // Для товаров с вариантами получаем варианты и их изображения
     const variants = db.prepare(`
-      SELECT id, product_id, name, color_code AS colorCode, price_rub AS priceRub, stock, position
+      SELECT id, product_id, name, color_code AS colorCode, color_image AS colorImage, price_rub AS priceRub, stock, position
       FROM product_variants
       WHERE product_id = ?
       ORDER BY position ASC
@@ -919,17 +924,51 @@ adminRouter.delete('/api/admin/products/:id/images', authMiddleware, (req, res) 
 // Categories CRUD
 adminRouter.get('/api/admin/categories', authMiddleware, (req, res) => {
   try {
+    // НЕ выбираем cover_image в списке - экономим трафик
     const rows = db.prepare(`
-      SELECT c.id, c.slug, c.name, c.[order], c.hide_empty, c.cover_image, c.display_mode, COUNT(p.id) as productCount
+      SELECT c.id, c.slug, c.name, c.[order], c.hide_empty, 
+        CASE WHEN c.cover_image IS NOT NULL AND c.cover_image != '' THEN 1 ELSE 0 END as has_cover_image,
+        c.display_mode, COUNT(p.id) as productCount
       FROM categories c
       LEFT JOIN products p ON c.id = p.categoryId
-      GROUP BY c.id, c.slug, c.name, c.[order], c.hide_empty, c.cover_image, c.display_mode
+      GROUP BY c.id, c.slug, c.name, c.[order], c.hide_empty, c.display_mode
       ORDER BY c.[order] ASC, c.name ASC
     `).all();
     res.json(rows);
   } catch (e) {
     res.status(500).json({ error: 'failed', details: String(e) });
   }
+});
+
+// Получить изображение категории отдельно
+adminRouter.get('/api/admin/categories/:id/image', authMiddleware, (req, res) => {
+  const { id } = req.params;
+  const row = db.prepare('SELECT cover_image FROM categories WHERE id = ?').get(id);
+  if (!row) {
+    return res.status(404).json({ error: 'not_found' });
+  }
+  res.json({ cover_image: row.cover_image || null });
+});
+
+// Получить одну категорию со всеми данными
+adminRouter.get('/api/admin/categories/:id', authMiddleware, (req, res) => {
+  const { id } = req.params;
+  const row = db.prepare(`
+    SELECT c.id, c.slug, c.name, c.[order], c.hide_empty, c.cover_image, c.display_mode
+    FROM categories c
+    WHERE c.id = ?
+  `).get(id);
+  
+  if (!row) {
+    return res.status(404).json({ error: 'not_found' });
+  }
+  
+  const productCount = db.prepare('SELECT COUNT(*) as cnt FROM products WHERE categoryId = ?').get(id)?.cnt || 0;
+  
+  res.json({
+    ...row,
+    productCount: Number(productCount)
+  });
 });
 
 // Banners CRUD
@@ -1258,13 +1297,15 @@ adminRouter.get('/api/admin/category-groups', authMiddleware, (req, res) => {
     params.push(String(categoryId));
   }
 
+  // НЕ выбираем cover_image в списке - это экономит ~70MB трафика!
+  // Изображения загружаются отдельно через /api/admin/category-groups/:id/image
   const rows = db.prepare(`
     SELECT 
       g.id,
       g.categoryId,
       g.slug,
       g.name,
-      g.cover_image,
+      CASE WHEN g.cover_image IS NOT NULL AND g.cover_image != '' THEN 1 ELSE 0 END as has_cover_image,
       g.[order],
       g.hide_empty,
       g.parent_group_id,
@@ -1274,9 +1315,10 @@ adminRouter.get('/api/admin/category-groups', authMiddleware, (req, res) => {
     FROM category_groups g
     LEFT JOIN products p ON p.groupId = g.id
     ${whereClause}
-    GROUP BY g.id, g.categoryId, g.slug, g.name, g.cover_image, g.[order], g.hide_empty, g.parent_group_id, g.createdAt, g.updatedAt
+    GROUP BY g.id, g.categoryId, g.slug, g.name, g.[order], g.hide_empty, g.parent_group_id, g.createdAt, g.updatedAt
     ORDER BY g.categoryId ASC, g.[order] ASC, g.name ASC
   `).all(...params);
+
 
   const nodes = rows.map(row => ({
     ...row,
@@ -1334,6 +1376,48 @@ adminRouter.get('/api/admin/category-groups', authMiddleware, (req, res) => {
   });
 
   res.json(flattened);
+});
+
+// Отдельный эндпоинт для получения изображения группы (чтобы не грузить все изображения в списке)
+adminRouter.get('/api/admin/category-groups/:id/image', authMiddleware, (req, res) => {
+  const { id } = req.params;
+  const row = db.prepare('SELECT cover_image FROM category_groups WHERE id = ?').get(id);
+  if (!row) {
+    return res.status(404).json({ error: 'not_found' });
+  }
+  res.json({ cover_image: row.cover_image || null });
+});
+
+// Получить одну группу со всеми данными включая изображение
+adminRouter.get('/api/admin/category-groups/:id', authMiddleware, (req, res) => {
+  const { id } = req.params;
+  const row = db.prepare(`
+    SELECT 
+      g.id,
+      g.categoryId,
+      g.slug,
+      g.name,
+      g.cover_image,
+      g.[order],
+      g.hide_empty,
+      g.parent_group_id,
+      g.createdAt,
+      g.updatedAt
+    FROM category_groups g
+    WHERE g.id = ?
+  `).get(id);
+  
+  if (!row) {
+    return res.status(404).json({ error: 'not_found' });
+  }
+  
+  const productCount = db.prepare('SELECT COUNT(*) as cnt FROM products WHERE groupId = ?').get(id)?.cnt || 0;
+  
+  res.json({
+    ...row,
+    productCount: Number(productCount),
+    parent_group_id: row.parent_group_id ?? null
+  });
 });
 
 adminRouter.post('/api/admin/category-groups', authMiddleware, (req, res) => {
