@@ -3,6 +3,15 @@
 ## Project Overview
 E-commerce Telegram Mini App with admin panel (CRM). Stack: Vue 3 + Vite (frontend), Express + SQLite (backend).
 
+## Server Info
+- **Domain**: https://navalivay.store
+- **Hosting**: TimeWeb Cloud (SPB-3)
+- **IP**: 89.191.229.34
+- **OS**: Ubuntu 22.04 LTS
+- **RAM**: 4 GB
+- **Node.js**: 20.x
+- **SSL**: Let's Encrypt (auto-renew via certbot.timer)
+
 ---
 
 ## 🔴 CRITICAL: Project Structure
@@ -181,7 +190,7 @@ db.prepare(`INSERT INTO table (col1, col2, ..., col12) VALUES (?, ?, ..., ?)`).r
 Backend changes require server restart. Frontend changes require rebuild.
 
 ### 3. Memory Issues During Build
-Always use `NODE_OPTIONS="--max-old-space-size=2048"` for builds.
+With 4GB RAM, builds should work without issues. If needed, use `NODE_OPTIONS="--max-old-space-size=2048"`.
 
 ### 4. Port Already in Use
 If server won't start with `EADDRINUSE`, kill the old process first:
@@ -206,15 +215,7 @@ if (item.variant_id) {
 ```
 
 ### 6. Low Memory Build Issues
-If build fails with "Killed" (OOM), stop the server first to free memory:
-```bash
-kill -9 $(lsof -t -i:8082) 2>/dev/null
-cd /var/www/NAVALIVAY/frontend
-NODE_OPTIONS="--max-old-space-size=2048" npm run build-only
-# Then restart server
-cd /var/www/NAVALIVAY/server && nohup node index.js > /tmp/server.log 2>&1 &
-```
-System has 2GB swap configured (`/swapfile` + `/swapfile2`).
+With 4GB RAM on TimeWeb, this is no longer an issue. Builds complete in ~25 seconds.
 
 ### 7. Vue Reactivity with Arrays
 When updating items in Pinia store arrays, **replace the entire array** instead of mutating by index:
