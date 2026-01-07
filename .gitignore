@@ -34,15 +34,11 @@ lerna-debug.log*
 # OS
 Thumbs.db
 
-# Database (contains real data - backup separately)
-*.db
-server/data/*.db
+# Database (raw file too large for GitHub)
+server/data/navalivay.db
 
-# Uploaded files (backup separately)
-uploads/temp/
-uploads/products/
-uploads/color-images/
-uploads/settings/
+# Uploaded files (raw folder too large)
+uploads/
 
 # Backup files
 *.backup
