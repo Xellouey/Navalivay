@@ -35,8 +35,8 @@ lerna-debug.log*
 # OS
 Thumbs.db
 
-# Database (raw file too large for GitHub)
-server/data/navalivay.db
+# Database - включена в репозиторий для продакшена
+# server/data/navalivay.db
 
 # Uploaded files (raw folder too large)
 uploads/
