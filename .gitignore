@@ -49,3 +49,4 @@ uploads/
 test-*.js
 migrate_existing_orders.*
 # navalivay.db - убрано, так как продакшен БД должна быть в репозитории
+server/data/navalivay.db
