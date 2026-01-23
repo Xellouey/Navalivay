@@ -102,7 +102,7 @@ const localImages = ref<string[]>([])
 watch(
   () => props.modelValue,
   (v) => { localImages.value = Array.isArray(v) ? [...v] : [] },
-  { immediate: true }
+  { immediate: true, deep: true }
 )
 
 function commit() {

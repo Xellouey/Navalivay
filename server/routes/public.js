@@ -4,14 +4,21 @@ import { db } from '../db.js';
 export const publicRouter = express.Router();
 
 publicRouter.get('/api/categories', (req, res) => {
+  // ОПТИМИЗАЦИЯ: не загружаем cover_image в списке - экономит ~8MB трафика
+  // Фронтенд загружает обложки отдельно через /api/categories/:id/image
   const categoriesRaw = db.prepare(`
-    SELECT c.id, c.slug, c.name, c.[order], c.hide_empty, c.cover_image, c.display_mode
+    SELECT c.id, c.slug, c.name, c.[order], c.hide_empty, 
+           CASE WHEN c.cover_image IS NOT NULL AND c.cover_image != '' THEN 1 ELSE 0 END as hasCoverImage,
+           c.display_mode
     FROM categories c
     ORDER BY c.[order] ASC, c.name ASC
   `).all();
 
+  // Для групп тоже не загружаем cover_image
   const groupsRaw = db.prepare(`
-    SELECT g.id, g.categoryId, g.slug, g.name, g.cover_image, g.[order], g.hide_empty, g.parent_group_id
+    SELECT g.id, g.categoryId, g.slug, g.name, 
+           CASE WHEN g.cover_image IS NOT NULL AND g.cover_image != '' THEN 1 ELSE 0 END as hasCoverImage,
+           g.[order], g.hide_empty, g.parent_group_id
     FROM category_groups g
     ORDER BY g.categoryId ASC, g.[order] ASC, g.name ASC
   `).all();
@@ -60,7 +67,7 @@ publicRouter.get('/api/categories', (req, res) => {
     slug: group.slug,
     name: group.name,
     order: group['order'],
-    coverImage: group.cover_image || null,
+    hasCoverImage: group.hasCoverImage === 1,
     hideEmpty: group.hide_empty === 1,
     parentId: group.parent_group_id || null,
     productCount: groupCounts.get(group.id) || 0,
@@ -106,7 +113,7 @@ publicRouter.get('/api/categories', (req, res) => {
       slug: node.slug,
       name: node.name,
       order: node.order,
-      coverImage: node.coverImage,
+      hasCoverImage: node.hasCoverImage,
       hideEmpty: node.hideEmpty,
       parentId: node.parentId,
       productCount: node.productCount,
@@ -149,7 +156,7 @@ publicRouter.get('/api/categories', (req, res) => {
       slug: cat.slug,
       name: cat.name,
       order: cat['order'],
-      coverImage: cat.cover_image || null,
+      hasCoverImage: cat.hasCoverImage === 1,
       productCount: totalProducts,
       groups,
       displayMode: cat.display_mode || 'default'
@@ -164,11 +171,32 @@ publicRouter.get('/api/banners', (req, res) => {
   res.json(rows);
 });
 
+// Endpoint для получения обложки категории отдельно (оптимизация трафика)
+publicRouter.get('/api/categories/:id/image', (req, res) => {
+  const { id } = req.params;
+  const row = db.prepare('SELECT cover_image FROM categories WHERE id = ?').get(id);
+  if (!row || !row.cover_image) {
+    return res.status(404).json({ error: 'Image not found' });
+  }
+  res.json({ image: row.cover_image });
+});
+
+// Endpoint для получения обложки группы категорий
+publicRouter.get('/api/category-groups/:id/image', (req, res) => {
+  const { id } = req.params;
+  const row = db.prepare('SELECT cover_image FROM category_groups WHERE id = ?').get(id);
+  if (!row || !row.cover_image) {
+    return res.status(404).json({ error: 'Image not found' });
+  }
+  res.json({ image: row.cover_image });
+});
+
 publicRouter.get('/api/products', (req, res) => {
   const { category, group, sort } = req.query;
 
   // Pagination params (defaults aligned with frontend)
-  const limit = Math.min(Math.max(parseInt(req.query.limit ?? '50', 10) || 50, 1), 100);
+  // Увеличен максимальный лимит до 1000 для загрузки всех товаров категории
+  const limit = Math.min(Math.max(parseInt(req.query.limit ?? '50', 10) || 50, 1), 1000);
   const offset = Math.max(parseInt(req.query.offset ?? '0', 10) || 0, 0);
 
   let whereClauses = [];
@@ -230,6 +258,8 @@ publicRouter.get('/api/products', (req, res) => {
     : db.prepare(countSql).get().total;
 
   // Fetch products with pagination
+  // ОПТИМИЗАЦИЯ: не загружаем cover_image категории здесь - это экономит ~80MB трафика
+  // Фронтенд загружает обложки категорий отдельно через /api/categories/:id/image
   const sql = `
     SELECT 
       p.id, 
@@ -247,11 +277,9 @@ publicRouter.get('/api/products', (req, res) => {
       p.has_variants AS hasVariants,
       p.createdAt,
       g.slug as groupSlug,
-      g.name as groupName,
-      c.cover_image AS categoryCoverImage
+      g.name as groupName
     FROM products p
     LEFT JOIN category_groups g ON p.groupId = g.id
-    LEFT JOIN categories c ON p.categoryId = c.id
     ${where}
     ${orderBy}
     LIMIT ? OFFSET ?
@@ -278,10 +306,9 @@ publicRouter.get('/api/products', (req, res) => {
   
   const enriched = products.map((p) => {
     const stockValue = typeof p.stock === 'number' ? p.stock : null;
-    const { categoryCoverImage, ...productData } = p;
     
     const result = {
-      ...productData,
+      ...p,
       stock: stockValue,
       costPrice: typeof p.costPrice === 'number' ? p.costPrice : null,
       minStock: typeof p.minStock === 'number' ? p.minStock : null,
@@ -308,11 +335,11 @@ publicRouter.get('/api/products', (req, res) => {
     } else {
       // Обычный товар без вариантов
       const productImages = stmtImgs.all(p.id).map(r => r.url);
-      // Если у товара включена опция "использовать изображение категории" и у него нет своих изображений,
-      // используем обложку категории
-      result.images = (p.useCategoryImage && productImages.length === 0 && categoryCoverImage) 
-        ? [categoryCoverImage] 
-        : productImages;
+      result.images = productImages;
+      // ОПТИМИЗАЦИЯ: если у товара нет своих изображений и useCategoryImage=1,
+      // фронтенд сам загрузит обложку категории через кэш
+      // Добавляем флаг needsCategoryImage для фронтенда
+      result.needsCategoryImage = p.useCategoryImage && productImages.length === 0;
     }
     
     return result;
@@ -323,6 +350,7 @@ publicRouter.get('/api/products', (req, res) => {
 
 publicRouter.get('/api/product/:id', (req, res) => {
   const id = req.params.id;
+  // ОПТИМИЗАЦИЯ: не загружаем cover_image категории - фронтенд загрузит отдельно при необходимости
   const p = db.prepare(`
     SELECT 
       p.id,
@@ -340,11 +368,9 @@ publicRouter.get('/api/product/:id', (req, res) => {
       p.has_variants AS hasVariants,
       p.createdAt,
       g.slug AS groupSlug,
-      g.name AS groupName,
-      c.cover_image AS categoryCoverImage
+      g.name AS groupName
     FROM products p
     LEFT JOIN category_groups g ON p.groupId = g.id
-    LEFT JOIN categories c ON p.categoryId = c.id
     WHERE p.id = ?
   `).get(id);
   if (!p) return res.status(404).json({ error: 'Not found' });
@@ -360,10 +386,9 @@ publicRouter.get('/api/product/:id', (req, res) => {
     ORDER BY rowid ASC
   `).all(id);
   const stockValue = typeof p.stock === 'number' ? p.stock : null;
-  const { categoryCoverImage, ...productData } = p;
   
   const result = {
-    ...productData,
+    ...p,
     stock: stockValue,
     costPrice: typeof p.costPrice === 'number' ? p.costPrice : null,
     minStock: typeof p.minStock === 'number' ? p.minStock : null,
@@ -398,11 +423,9 @@ publicRouter.get('/api/product/:id', (req, res) => {
     // Обычный товар без вариантов
     const productImages = db.prepare('SELECT url FROM product_images WHERE productId = ? AND variant_id IS NULL ORDER BY position ASC')
       .all(id).map(r => r.url);
-    // Если у товара включена опция "использовать изображение категории" и у него нет своих изображений,
-    // используем обложку категории
-    result.images = (p.useCategoryImage && productImages.length === 0 && categoryCoverImage) 
-      ? [categoryCoverImage] 
-      : productImages;
+    result.images = productImages;
+    // Флаг для фронтенда - нужно загрузить обложку категории
+    result.needsCategoryImage = p.useCategoryImage && productImages.length === 0;
   }
   
   res.json(result);
@@ -421,6 +444,7 @@ publicRouter.get('/api/cross-sells', (req, res) => {
 
   const maxItems = Math.min(Math.max(parseInt(limit ?? '6', 10) || 6, 1), 12);
 
+  // ОПТИМИЗАЦИЯ: не загружаем cover_image категории
   const rows = db.prepare(`
     SELECT 
       cs.id,
@@ -440,12 +464,10 @@ publicRouter.get('/api/cross-sells', (req, res) => {
       p.categoryId,
       p.groupId,
       g.slug as groupSlug,
-      g.name as groupName,
-      c.cover_image AS categoryCoverImage
+      g.name as groupName
     FROM category_cross_sells cs
     JOIN products p ON p.id = cs.productId
     LEFT JOIN category_groups g ON p.groupId = g.id
-    LEFT JOIN categories c ON p.categoryId = c.id
     WHERE cs.categoryId = ?
       AND (
         (p.has_variants = 0 AND (p.stock IS NULL OR p.stock > 0))
@@ -517,11 +539,9 @@ publicRouter.get('/api/cross-sells', (req, res) => {
     } else {
       // Обычный товар без вариантов
       const productImages = imageStmt.all(row.productId).map(r => r.url);
-      // Если у товара включена опция "использовать изображение категории" и у него нет своих изображений,
-      // используем обложку категории
-      result.images = (row.useCategoryImage && productImages.length === 0 && row.categoryCoverImage) 
-        ? [row.categoryCoverImage] 
-        : productImages;
+      result.images = productImages;
+      // Флаг для фронтенда
+      result.needsCategoryImage = row.useCategoryImage && productImages.length === 0;
     }
     
     return result;

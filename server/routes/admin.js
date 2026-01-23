@@ -7,6 +7,7 @@ import bcrypt from 'bcryptjs';
 import { db } from '../db.js';
 import { authMiddleware, issueToken, verifyPassword, changePassword, getAdminUsername } from '../auth.js';
 import { DEFAULT_PROFIT_PASSWORD } from '../migrations/add_profit_password_setting.js';
+import { convertImageToWebP } from '../utils/imageUtils.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -719,17 +720,18 @@ adminRouter.get('/api/admin/products', authMiddleware, (req, res) => {
   if (group) { where += (where ? ' AND ' : 'WHERE ') + 'p.groupId = ?'; params.push(String(group)) }
   if (search) {
     // SQLite's LOWER() не работает с кириллицей, поэтому ищем по всем вариантам регистра
+    // Также ищем по названию группы (линейки) для удобства поиска
     const trimmed = search.trim();
     const lowerPat = `%${trimmed.toLowerCase()}%`;
     const upperPat = `%${trimmed.toUpperCase()}%`;
     const titlePat = `%${trimmed.charAt(0).toUpperCase() + trimmed.slice(1).toLowerCase()}%`;
-    where += (where ? ' AND ' : 'WHERE ') + '(p.title LIKE ? OR p.title LIKE ? OR p.title LIKE ? OR p.description LIKE ? OR p.description LIKE ? OR p.description LIKE ?)'
-    params.push(lowerPat, upperPat, titlePat, lowerPat, upperPat, titlePat)
+    where += (where ? ' AND ' : 'WHERE ') + '(p.title LIKE ? OR p.title LIKE ? OR p.title LIKE ? OR p.description LIKE ? OR p.description LIKE ? OR p.description LIKE ? OR g.name LIKE ? OR g.name LIKE ? OR g.name LIKE ?)'
+    params.push(lowerPat, upperPat, titlePat, lowerPat, upperPat, titlePat, lowerPat, upperPat, titlePat)
   }
 
   const total = (params.length
-    ? db.prepare(`SELECT COUNT(*) as total FROM products p ${where}`).get(...params)
-    : db.prepare(`SELECT COUNT(*) as total FROM products p ${where}`).get()
+    ? db.prepare(`SELECT COUNT(*) as total FROM products p LEFT JOIN category_groups g ON p.groupId = g.id ${where}`).get(...params)
+    : db.prepare(`SELECT COUNT(*) as total FROM products p LEFT JOIN category_groups g ON p.groupId = g.id ${where}`).get()
   ).total
 
   const offset = (page - 1) * limit
@@ -1088,7 +1090,7 @@ adminRouter.delete('/api/admin/banners/:id', authMiddleware, (req, res) => {
 });
 
 // Categories CRUD
-adminRouter.post('/api/admin/categories', authMiddleware, (req, res) => {
+adminRouter.post('/api/admin/categories', authMiddleware, async (req, res) => {
   const { name, order, hide_empty, coverImage, cover_image, displayMode, display_mode } = req.body || {};
   if (!name) return res.status(400).json({ error: 'name_required' });
   // Проверяем дубликаты по имени сразу
@@ -1138,7 +1140,9 @@ adminRouter.post('/api/admin/categories', authMiddleware, (req, res) => {
   }
   try {
     const hideEmptyValue = hide_empty ? 1 : 0;
-    const coverImageValue = coverImage ?? cover_image ?? null;
+    // Конвертируем изображение в WebP для экономии места и сохранения прозрачности
+    const rawCoverImage = coverImage ?? cover_image ?? null;
+    const coverImageValue = rawCoverImage ? await convertImageToWebP(rawCoverImage) : null;
     db.prepare('INSERT INTO categories (id, slug, name, [order], hide_empty, cover_image, display_mode) VALUES (?, ?, ?, ?, ?, ?, ?)')
       .run(id, slug, name, finalOrder, hideEmptyValue, coverImageValue, displayModeValue);
     res.json({ ok: true, id, slug, name, order: finalOrder, hide_empty: hideEmptyValue, cover_image: coverImageValue, display_mode: displayModeValue });
@@ -1147,7 +1151,7 @@ adminRouter.post('/api/admin/categories', authMiddleware, (req, res) => {
     res.status(400).json({ error: 'insert_failed', message: e.message, details: String(e) });
   }
 });
-adminRouter.put('/api/admin/categories/:id', authMiddleware, (req, res) => {
+adminRouter.put('/api/admin/categories/:id', authMiddleware, async (req, res) => {
   const { id } = req.params;
   const { name, slug, order, hide_empty, coverImage, cover_image, displayMode, display_mode } = req.body || {};
   try {
@@ -1211,20 +1215,29 @@ adminRouter.put('/api/admin/categories/:id', authMiddleware, (req, res) => {
       displayModeValue = allowedDisplayModes.has(incoming) ? incoming : 'default';
     }
 
+    // Обрабатываем cover_image с конвертацией в WebP
+    let coverImageValue = cur.cover_image ?? null;
+    const incomingCoverImage = coverImage !== undefined ? coverImage : cover_image;
+    if (incomingCoverImage !== undefined) {
+      if (incomingCoverImage === null) {
+        coverImageValue = null;
+      } else {
+        const trimmed = String(incomingCoverImage).trim();
+        if (trimmed.length) {
+          // Конвертируем в WebP для экономии места и сохранения прозрачности
+          coverImageValue = await convertImageToWebP(trimmed);
+        } else {
+          coverImageValue = null;
+        }
+      }
+    }
+
     const next = {
       name: name !== undefined ? name : cur.name,
       slug: newSlug !== undefined ? newSlug : cur.slug,
       order: Number.isFinite(order) ? Number(order) : cur.order,
       hide_empty: hide_empty !== undefined ? (hide_empty ? 1 : 0) : cur.hide_empty,
-      cover_image: (() => {
-        const incoming = coverImage !== undefined ? coverImage : cover_image;
-        if (incoming !== undefined) {
-          if (incoming === null) return null;
-          const trimmed = String(incoming).trim();
-          return trimmed.length ? trimmed : null;
-        }
-        return cur.cover_image ?? null;
-      })(),
+      cover_image: coverImageValue,
       display_mode: displayModeValue
     };
     
@@ -1420,7 +1433,7 @@ adminRouter.get('/api/admin/category-groups/:id', authMiddleware, (req, res) => 
   });
 });
 
-adminRouter.post('/api/admin/category-groups', authMiddleware, (req, res) => {
+adminRouter.post('/api/admin/category-groups', authMiddleware, async (req, res) => {
   const { categoryId, name, slug, coverImage, hide_empty, parentId } = req.body || {};
 
   if (!categoryId || !name) {
@@ -1449,10 +1462,13 @@ adminRouter.post('/api/admin/category-groups', authMiddleware, (req, res) => {
     resolvedParentId = parent.id;
   }
 
+  // Конвертируем изображение в WebP
+  const coverImageValue = coverImage ? await convertImageToWebP(coverImage) : null;
+
   db.prepare(`
     INSERT INTO category_groups (id, categoryId, slug, name, cover_image, [order], hide_empty, parent_group_id, createdAt, updatedAt)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, DATETIME('now'), DATETIME('now'))
-  `).run(newId, String(categoryId), finalSlug, name, coverImage || null, nextOrder, hide_empty ? 1 : 0, resolvedParentId);
+  `).run(newId, String(categoryId), finalSlug, name, coverImageValue, nextOrder, hide_empty ? 1 : 0, resolvedParentId);
 
   const result = db.prepare(`
     SELECT 
@@ -1496,7 +1512,7 @@ adminRouter.post('/api/admin/category-groups', authMiddleware, (req, res) => {
   });
 });
 
-adminRouter.put('/api/admin/category-groups/:id', authMiddleware, (req, res) => {
+adminRouter.put('/api/admin/category-groups/:id', authMiddleware, async (req, res) => {
   const { id } = req.params;
   const { name, slug, coverImage, hide_empty, order, parentId } = req.body || {};
 
@@ -1507,7 +1523,15 @@ adminRouter.put('/api/admin/category-groups/:id', authMiddleware, (req, res) => 
 
   const nextName = name ? String(name) : current.name;
   const nextSlug = generateGroupSlug(current.categoryId, nextName, slug, id);
-  const nextCover = coverImage !== undefined ? (coverImage ? String(coverImage) : null) : current.cover_image;
+  // Конвертируем изображение в WebP если оно новое
+  let nextCover = current.cover_image;
+  if (coverImage !== undefined) {
+    if (coverImage) {
+      nextCover = await convertImageToWebP(String(coverImage));
+    } else {
+      nextCover = null;
+    }
+  }
   const nextHideEmpty = hide_empty !== undefined ? (hide_empty ? 1 : 0) : current.hide_empty;
   const nextOrder = Number.isFinite(Number(order)) ? Number(order) : current.order;
 

@@ -3,7 +3,7 @@
     <div class="mx-auto max-w-4xl px-4 py-6 space-y-6">
       <!-- Header -->
       <div class="flex items-center gap-4">
-        <button @click="$router.back()" class="back-chip">
+        <button @click="handleBack" class="back-chip">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M15 18l-6-6 6-6" />
           </svg>
@@ -39,7 +39,13 @@
                 </svg>
               </button>
               <span class="qty-value">{{ item.quantity }}</span>
-              <button @click="incrementQuantity(item.productId)" class="qty-btn">
+              <button 
+                @click="incrementQuantity(item.productId)" 
+                class="qty-btn"
+                :class="{ 'qty-btn-disabled': !canIncrement(item) }"
+                :disabled="!canIncrement(item)"
+                :title="!canIncrement(item) ? `Максимум: ${getMaxStock(item.productId, item.variantId)}` : ''"
+              >
                 <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
                 </svg>
@@ -95,7 +101,11 @@
               </svg>
             </label>
             
-            <label class="delivery-option" :class="{ 'active': form.deliveryType === 'delivery' }">
+            <label 
+              class="delivery-option" 
+              :class="{ 'active': form.deliveryType === 'delivery' }"
+              @click="handleDeliveryClick"
+            >
               <input type="radio" v-model="form.deliveryType" value="delivery" class="sr-only" />
               <div class="flex-1">
                 <p class="delivery-option-title">Доставка</p>
@@ -216,6 +226,10 @@ const errors = reactive({
 const isSubmitting = ref(false)
 const submitError = ref('')
 
+// Stock limits for cart items (productId -> maxStock)
+const stockLimits = ref<Map<string, number>>(new Map())
+const stockLoading = ref(false)
+
 // Delivery banners state
 const showMinDeliveryBanner = ref(false)
 const showDeliveryConditionsBanner = ref(false)
@@ -260,6 +274,9 @@ onMounted(async () => {
   // Fetch settings
   await settingsStore.fetchSettings()
   
+  // Fetch stock limits for cart items
+  await fetchStockLimits()
+  
   // Auto-fill telegram username and phone if available from Telegram
   const user = telegramUser.value
   if (user) {
@@ -271,21 +288,93 @@ onMounted(async () => {
   }
 })
 
+// Fetch current stock for all cart items
+async function fetchStockLimits() {
+  stockLoading.value = true
+  const newLimits = new Map<string, number>()
+  
+  try {
+    for (const item of cartStore.items) {
+      const response = await fetch(`/api/product/${item.productId}`)
+      if (response.ok) {
+        const product = await response.json()
+        
+        let stock: number | null = null
+        if (item.variantId && product.variants) {
+          // For variant products, get variant stock
+          const variant = product.variants.find((v: any) => v.id === item.variantId)
+          stock = variant?.stock ?? null
+        } else if (!product.hasVariants) {
+          // For regular products
+          stock = product.stock
+        }
+        
+        // Use productId + variantId as key for variants
+        const key = item.variantId ? `${item.productId}_${item.variantId}` : item.productId
+        if (stock !== null) {
+          newLimits.set(key, stock)
+        }
+      }
+    }
+    stockLimits.value = newLimits
+  } catch (error) {
+    console.error('[Checkout] Failed to fetch stock limits:', error)
+  } finally {
+    stockLoading.value = false
+  }
+}
+
+// Get max stock for a cart item
+function getMaxStock(productId: string, variantId?: string | null): number | null {
+  const key = variantId ? `${productId}_${variantId}` : productId
+  return stockLimits.value.get(key) ?? null
+}
+
+// Check if can increment quantity
+function canIncrement(item: typeof cartStore.items[0]): boolean {
+  const maxStock = getMaxStock(item.productId, item.variantId)
+  if (maxStock === null) return true // No stock tracking
+  return item.quantity < maxStock
+}
+
 function formatPrice(price: number): string {
   return price.toFixed(2)
+}
+
+function handleBack() {
+  // Close any open banners before navigating
+  showMinDeliveryBanner.value = false
+  showDeliveryConditionsBanner.value = false
+  // Use push instead of back() to ensure proper navigation
+  router.push('/')
+}
+
+function handleDeliveryClick() {
+  // Force set delivery type if conditions are met
+  if (canUseDelivery.value && form.deliveryType !== 'delivery') {
+    form.deliveryType = 'delivery'
+  } else if (!canUseDelivery.value) {
+    // Show banner if can't use delivery
+    showMinDeliveryBanner.value = true
+  }
 }
 
 function incrementQuantity(productId: string) {
   const item = cartStore.items.find(i => i.productId === productId)
   if (item) {
-    cartStore.updateQuantity(productId, item.quantity + 1)
+    // Check stock limit before incrementing
+    if (!canIncrement(item)) {
+      return // Don't increment if at max stock
+    }
+    
+    cartStore.updateQuantity(productId, item.quantity + 1, item.variantId)
   }
 }
 
 function decrementQuantity(productId: string) {
   const item = cartStore.items.find(i => i.productId === productId)
   if (item && item.quantity > 1) {
-    cartStore.updateQuantity(productId, item.quantity - 1)
+    cartStore.updateQuantity(productId, item.quantity - 1, item.variantId)
   }
 }
 
@@ -577,6 +666,19 @@ async function submitOrder() {
 .qty-btn:hover {
   border-color: var(--navalivay-black);
   background: rgba(26, 26, 26, 0.05);
+}
+
+.qty-btn-disabled,
+.qty-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  border-color: rgba(26, 26, 26, 0.1);
+}
+
+.qty-btn-disabled:hover,
+.qty-btn:disabled:hover {
+  border-color: rgba(26, 26, 26, 0.1);
+  background: transparent;
 }
 
 .qty-value {

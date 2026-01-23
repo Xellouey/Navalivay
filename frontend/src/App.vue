@@ -15,12 +15,9 @@ onMounted(() => {
 
 <template>
   <div class="min-h-screen" style="background: #ffffff;">
-    <RouterView v-slot="{ Component }">
-      <Transition name="page" mode="out-in">
-        <component :is="Component" />
-      </Transition>
+    <RouterView v-slot="{ Component, route }">
+      <component :is="Component" :key="route.fullPath" />
     </RouterView>
-
     <VapeSmoke />
     <TelegramDebugPanel />
   </div>
@@ -31,20 +28,5 @@ html, body, #app {
   margin: 0;
   padding: 0;
   min-height: 100%;
-}
-
-.page-enter-active,
-.page-leave-active {
-  transition: all 0.3s ease;
-}
-
-.page-enter-from {
-  opacity: 0;
-  transform: translateX(-10px);
-}
-
-.page-leave-to {
-  opacity: 0;
-  transform: translateX(10px);
 }
 </style>

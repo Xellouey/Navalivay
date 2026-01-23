@@ -259,7 +259,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch, nextTick, onErrorCaptured } from 'vue'
 import { useRouter } from 'vue-router'
 import { ExclamationTriangleIcon, PhotoIcon, PlusIcon, MinusIcon } from '@heroicons/vue/24/outline'
 
@@ -419,7 +419,9 @@ const groupCards = computed<GroupCardNode[]>(() => {
   if (!selectedCategory.value) return []
 
   const groups = selectedCategory.value.groups
-  const categoryProducts = catalogStore.products.filter(p => p.categoryId === selectedCategory.value!.id)
+  // Используем allProducts для полного списка товаров (не ограниченного пагинацией)
+  const productsPool = catalogStore.allProducts.length ? catalogStore.allProducts : catalogStore.products
+  const categoryProducts = productsPool.filter(p => p.categoryId === selectedCategory.value!.id)
   const nodes = new Map<string, GroupCardNode>()
 
   // Создаём узлы для всех групп
@@ -467,7 +469,9 @@ const liquidStructure = computed(() => {
 
   const category = selectedCategory.value
   const fallbackCover = category.coverImage || PLACEHOLDER_IMAGE
-  const categoryProducts = catalogStore.products.filter(p => p.categoryId === category.id)
+  // Используем allProducts для полного списка товаров (не ограниченного пагинацией)
+  const productsPool = catalogStore.allProducts.length ? catalogStore.allProducts : catalogStore.products
+  const categoryProducts = productsPool.filter(p => p.categoryId === category.id)
   
   // Строим иерархическое дерево для liquid-режима
   const buildLiquidTree = (): LiquidGroup[] => {
@@ -551,7 +555,9 @@ const liquidUngrouped = computed(() => {
 })
 const nicaBoosterProduct = computed(() => {
   if (!selectedCategory.value) return null
-  const categoryProducts = catalogStore.products.filter(product => product.categoryId === selectedCategory.value!.id)
+  // Используем allProducts для полного списка товаров
+  const productsPool = catalogStore.allProducts.length ? catalogStore.allProducts : catalogStore.products
+  const categoryProducts = productsPool.filter(product => product.categoryId === selectedCategory.value!.id)
   return categoryProducts.find(p => 
     p.title.toLowerCase().includes('никобустер') ||
     p.title.toLowerCase().includes('nikobuster') ||

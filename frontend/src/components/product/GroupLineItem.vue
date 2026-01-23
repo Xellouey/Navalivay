@@ -34,12 +34,12 @@
     </div>
 
     <!-- Содержимое (товары + подлинейки) -->
-    <div ref="contentWrapper" class="group-line-content-wrapper" :style="wrapperStyle">
+    <div class="group-line-content-wrapper" :class="{ 'is-expanded': isExpanded }" :data-group-id="node.id">
       <div class="group-line-content">
       <!-- Товары линейки -->
-      <div v-if="node.products.length" ref="productsContainer" class="group-line-products">
+      <div v-if="node.products.length" class="group-line-products">
         <!-- Товары с вариантами: сначала компактная карточка, потом полная -->
-        <div v-for="product in productsWithVariants" :key="product.id" class="product-card-transition-wrapper">
+        <div v-for="product in productsWithVariants" :key="product.id" class="product-card-transition-wrapper" :data-product-id="product.id">
           <Transition name="product-card-fade" mode="out-in">
             <!-- Компактная карточка -->
             <ProductCompactCard
@@ -92,14 +92,13 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch, nextTick } from 'vue'
+import { computed, ref } from 'vue'
 import { ChevronRightIcon } from '@heroicons/vue/24/outline'
 import { useCartStore } from '@/stores/cart'
 import type { Product } from '@/stores/catalog'
 import ProductVariantCard from '@/components/product/ProductVariantCard.vue'
 import ProductCompactCard from '@/components/product/ProductCompactCard.vue'
 import SingleProductCard from '@/components/product/SingleProductCard.vue'
-import { useProductCardLayout } from '@/composables/useProductCardLayout'
 
 interface GroupNode {
   id: string
@@ -129,13 +128,7 @@ const emit = defineEmits<{
 
 const cartStore = useCartStore()
 
-const contentWrapper = ref<HTMLElement | null>(null)
-const contentHeight = ref(0)
 const expandedProducts = ref<Record<string, boolean>>({})
-const productsContainer = ref<HTMLElement | null>(null)
-
-// Используем композабл для адаптации шрифтов
-const { adjustFontSizes } = useProductCardLayout(productsContainer)
 
 const isExpanded = computed(() => props.expandedGroups[props.node.id] ?? false)
 const hasChildren = computed(() => props.node.children.length > 0)
@@ -156,81 +149,15 @@ function toggleProductExpansion(productId: string) {
     ...expandedProducts.value,
     [productId]: !expandedProducts.value[productId]
   }
-  // Пересчитываем высоту после изменения с задержками для плавной анимации
-  nextTick(() => {
-    calculateHeight()
-    setTimeout(() => calculateHeight(), 50)
-    setTimeout(() => calculateHeight(), 150)
-    setTimeout(() => calculateHeight(), 350)
-  })
 }
 
 function isProductExpanded(productId: string): boolean {
   return expandedProducts.value[productId] ?? false
 }
 
-const wrapperStyle = computed(() => {
-  if (!isExpanded.value) {
-    return { maxHeight: '0px' }
-  }
-  // Всегда используем конкретное значение высоты для плавной анимации
-  // Если высота ещё не рассчитана, используем большое значение, но с transition
-  const height = contentHeight.value > 0 ? contentHeight.value : 5000
-  return { maxHeight: `${height}px` }
-})
-
-// Функция для расчёта высоты
-const calculateHeight = async () => {
-  await nextTick()
-  if (contentWrapper.value) {
-    contentHeight.value = contentWrapper.value.scrollHeight
-    // Уведомляем родителя об изменении высоты
-    emit('heightChanged')
-  }
-}
-
-// Пересчитываем высоту при раскрытии
-watch(() => isExpanded.value, async (newVal) => {
-  if (newVal) {
-    // Сначала устанавливаем высоту контента для плавной анимации
-    await nextTick()
-    await calculateHeight()
-    // Дополнительные пересчёты для плавности (на случай отложенной загрузки контента)
-    setTimeout(() => calculateHeight(), 50)
-    setTimeout(() => calculateHeight(), 150)
-    setTimeout(() => calculateHeight(), 350)
-  } else {
-    // При сворачивании сбрасываем высоту
-    contentHeight.value = 0
-  }
-})
-
-// Пересчитываем высоту при изменении количества товаров в корзине
-watch(() => cartStore.items.length, async () => {
-  if (isExpanded.value) {
-    await calculateHeight()
-    // Множественные пересчёты для плавности
-    setTimeout(() => calculateHeight(), 50)
-    setTimeout(() => calculateHeight(), 150)
-    setTimeout(() => calculateHeight(), 300)
-  }
-}, { deep: true })
-
-// Пересчитываем при изменении состояния дочерних элементов
-watch(() => props.expandedGroups, async () => {
-  if (isExpanded.value) {
-    await calculateHeight()
-    setTimeout(() => calculateHeight(), 50)
-    setTimeout(() => calculateHeight(), 150)
-    setTimeout(() => calculateHeight(), 300)
-  }
-}, { deep: true })
-
-// Обработчик изменения высоты дочерних элементов
+// Обработчик изменения высоты дочерних элементов (оставляем для совместимости)
 function handleChildHeightChange() {
-  if (isExpanded.value) {
-    calculateHeight()
-  }
+  // Больше не нужен с фиксированным max-height
 }
 
 function toggle() {
@@ -290,20 +217,6 @@ function handleIncrement(product: Product) {
 function decrementQuantity(product: Product) {
   cartStore.removeItem(product.id)
 }
-
-// Пересчитываем шрифты при раскрытии
-watch(() => isExpanded.value, async (newVal) => {
-  if (newVal) {
-    setTimeout(() => adjustFontSizes(), 350)
-  }
-})
-
-// Пересчитываем шрифты при изменении корзины
-watch(() => cartStore.items.length, () => {
-  if (isExpanded.value) {
-    setTimeout(() => adjustFontSizes(), 100)
-  }
-}, { deep: true })
 </script>
 
 <style scoped>
@@ -397,9 +310,30 @@ watch(() => cartStore.items.length, () => {
 }
 
 .group-line-content-wrapper {
-  @apply overflow-hidden;
-  transition: max-height 500ms cubic-bezier(0.4, 0, 0.2, 1);
-  max-height: 0;
+  display: grid;
+  grid-template-rows: 0fr;
+  overflow: hidden;
+  transition: grid-template-rows 400ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.group-line-content-wrapper.is-expanded {
+  grid-template-rows: 1fr;
+}
+
+.group-line-content-wrapper > .group-line-content {
+  min-height: 0;
+  overflow: hidden;
+  opacity: 0;
+  transform: translateY(-16px) scale(0.98);
+  transform-origin: top center;
+  transition: opacity 200ms ease-out, transform 200ms ease-out;
+}
+
+.group-line-content-wrapper.is-expanded > .group-line-content {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  /* Задержка чтобы grid успел начать раскрываться */
+  transition: opacity 350ms cubic-bezier(0.4, 0, 0.2, 1) 50ms, transform 350ms cubic-bezier(0.4, 0, 0.2, 1) 50ms;
 }
 
 .group-line-content {
@@ -416,31 +350,45 @@ watch(() => cartStore.items.length, () => {
 }
 
 /* Анимация переключения между карточками */
-.product-card-fade-leave-active {
-  transition: max-height 0.3s ease, opacity 0.2s ease;
+.product-card-fade-enter-active {
+  transition: opacity 0.35s cubic-bezier(0.4, 0, 0.2, 1), 
+              transform 0.35s cubic-bezier(0.4, 0, 0.2, 1),
+              max-height 0.4s cubic-bezier(0.4, 0, 0.2, 1);
   overflow: hidden;
 }
 
-.product-card-fade-enter-active {
-  transition: none;
+.product-card-fade-leave-active {
+  transition: opacity 0.2s ease-out, 
+              transform 0.2s ease-out,
+              max-height 0.25s ease-out;
+  overflow: hidden;
 }
 
 .product-card-fade-enter-from {
+  opacity: 0;
+  transform: translateY(-12px) scale(0.98);
+  max-height: 0;
+}
+
+.product-card-fade-enter-to {
   opacity: 1;
+  transform: translateY(0) scale(1);
+  max-height: 800px;
+}
+
+.product-card-fade-leave-from {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  max-height: 200px;
 }
 
 .product-card-fade-leave-to {
-  max-height: 0 !important;
   opacity: 0;
+  transform: translateY(-8px) scale(0.98);
+  max-height: 0;
   margin-bottom: 0 !important;
   padding-top: 0 !important;
   padding-bottom: 0 !important;
-}
-
-.product-card-fade-enter-to,
-.product-card-fade-leave-from {
-  opacity: 1;
-  max-height: 1000px;
 }
 
 /* Стили для обычных товаров теперь в SingleProductCard.vue */

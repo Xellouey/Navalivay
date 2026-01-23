@@ -7,6 +7,7 @@ export interface CategoryGroup {
   name: string
   order: number
   coverImage?: string | null
+  hasCoverImage?: boolean
   productCount: number
   totalProductCount?: number
   parentId?: string | null
@@ -21,6 +22,7 @@ export interface Category {
   order: number
   productCount: number
   coverImage?: string | null
+  hasCoverImage?: boolean
   groups: CategoryGroup[]
   displayMode?: 'default' | 'liquid' | 'visual'
 }
@@ -70,6 +72,7 @@ export interface Product {
   badges?: ProductBadge[]
   hasVariants?: boolean
   variants?: ProductVariant[]
+  needsCategoryImage?: boolean // Флаг: нужно загрузить обложку категории
 }
 
 export interface Banner {
@@ -109,6 +112,14 @@ export const useCatalogStore = defineStore('catalog', () => {
   const itemsPerPage = ref(20)
   const hasMore = ref(true)
   const totalProducts = ref(0)
+
+  // Кэш изображений категорий (categoryId -> base64 image)
+  const categoryImageCache = ref<Map<string, string>>(new Map())
+  // Кэш изображений групп (groupId -> base64 image)
+  const groupImageCache = ref<Map<string, string>>(new Map())
+  // Отслеживание загрузок в процессе
+  const loadingCategoryImages = ref<Set<string>>(new Set())
+  const loadingGroupImages = ref<Set<string>>(new Set())
 
   // Computed
   const filteredProducts = computed(() => {
@@ -166,6 +177,77 @@ export const useCatalogStore = defineStore('catalog', () => {
     }
   }
 
+  // Функция загрузки изображения категории с кэшированием
+  async function fetchCategoryImage(categoryId: string): Promise<string | null> {
+    // Проверяем кэш
+    if (categoryImageCache.value.has(categoryId)) {
+      return categoryImageCache.value.get(categoryId) || null
+    }
+    // Проверяем, не загружается ли уже
+    if (loadingCategoryImages.value.has(categoryId)) {
+      // Ждём завершения загрузки
+      while (loadingCategoryImages.value.has(categoryId)) {
+        await delay(50)
+      }
+      return categoryImageCache.value.get(categoryId) || null
+    }
+    
+    try {
+      loadingCategoryImages.value.add(categoryId)
+      const response = await fetch(`/api/categories/${categoryId}/image`)
+      if (!response.ok) return null
+      const data = await response.json()
+      if (data.image) {
+        categoryImageCache.value.set(categoryId, data.image)
+        return data.image
+      }
+      return null
+    } catch {
+      return null
+    } finally {
+      loadingCategoryImages.value.delete(categoryId)
+    }
+  }
+
+  // Функция загрузки изображения группы с кэшированием
+  async function fetchGroupImage(groupId: string): Promise<string | null> {
+    if (groupImageCache.value.has(groupId)) {
+      return groupImageCache.value.get(groupId) || null
+    }
+    if (loadingGroupImages.value.has(groupId)) {
+      while (loadingGroupImages.value.has(groupId)) {
+        await delay(50)
+      }
+      return groupImageCache.value.get(groupId) || null
+    }
+    
+    try {
+      loadingGroupImages.value.add(groupId)
+      const response = await fetch(`/api/category-groups/${groupId}/image`)
+      if (!response.ok) return null
+      const data = await response.json()
+      if (data.image) {
+        groupImageCache.value.set(groupId, data.image)
+        return data.image
+      }
+      return null
+    } catch {
+      return null
+    } finally {
+      loadingGroupImages.value.delete(groupId)
+    }
+  }
+
+  // Получить изображение категории из кэша (синхронно)
+  function getCategoryImage(categoryId: string): string | null {
+    return categoryImageCache.value.get(categoryId) || null
+  }
+
+  // Получить изображение группы из кэша (синхронно)
+  function getGroupImage(groupId: string): string | null {
+    return groupImageCache.value.get(groupId) || null
+  }
+
   // Actions
   async function fetchCategories() {
     try {
@@ -178,7 +260,9 @@ export const useCatalogStore = defineStore('catalog', () => {
         name: cat.name,
         order: cat.order ?? 0,
         productCount: cat.productCount ?? 0,
-        coverImage: cat.coverImage ?? cat.cover_image ?? null,
+        // Используем кэш если есть, иначе null
+        coverImage: categoryImageCache.value.get(String(cat.id)) || null,
+        hasCoverImage: cat.hasCoverImage ?? false,
         displayMode: (cat.displayMode ?? cat.display_mode ?? 'default') as 'default' | 'liquid' | 'visual',
         groups: Array.isArray(cat.groups)
           ? (cat.groups as any[]).map((group) => ({
@@ -186,7 +270,8 @@ export const useCatalogStore = defineStore('catalog', () => {
               slug: group.slug,
               name: group.name,
               order: group.order ?? 0,
-              coverImage: group.coverImage ?? null,
+              coverImage: groupImageCache.value.get(String(group.id)) || null,
+              hasCoverImage: group.hasCoverImage ?? false,
               productCount: group.productCount ?? 0,
               totalProductCount: group.totalProductCount ?? group.productCount ?? 0,
               parentId: group.parentId ?? null,
@@ -196,9 +281,56 @@ export const useCatalogStore = defineStore('catalog', () => {
           : []
       }))
       categories.value = mapped.sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+      
+      // Асинхронно загружаем изображения для категорий с hasCoverImage
+      loadCategoryImages()
     } catch (err) {
       error.value = err instanceof Error ? err.message : 'Unknown error'
       console.error('Error fetching categories:', err)
+    }
+  }
+
+  // Загрузка изображений категорий в фоне
+  async function loadCategoryImages() {
+    const categoriesToLoad = categories.value.filter(c => c.hasCoverImage && !c.coverImage)
+    
+    // Загружаем параллельно, но не более 3 одновременно
+    const batchSize = 3
+    for (let i = 0; i < categoriesToLoad.length; i += batchSize) {
+      const batch = categoriesToLoad.slice(i, i + batchSize)
+      await Promise.all(batch.map(async (cat) => {
+        const image = await fetchCategoryImage(cat.id)
+        if (image) {
+          // Обновляем категорию в массиве
+          const idx = categories.value.findIndex(c => c.id === cat.id)
+          if (idx !== -1) {
+            categories.value[idx] = { ...categories.value[idx], coverImage: image }
+          }
+        }
+      }))
+    }
+    
+    // Также загружаем изображения групп
+    const groupsToLoad: { categoryIdx: number; groupIdx: number; groupId: string }[] = []
+    categories.value.forEach((cat, catIdx) => {
+      cat.groups.forEach((group, groupIdx) => {
+        if (group.hasCoverImage && !group.coverImage) {
+          groupsToLoad.push({ categoryIdx: catIdx, groupIdx, groupId: group.id })
+        }
+      })
+    })
+    
+    for (let i = 0; i < groupsToLoad.length; i += batchSize) {
+      const batch = groupsToLoad.slice(i, i + batchSize)
+      await Promise.all(batch.map(async ({ categoryIdx, groupIdx, groupId }) => {
+        const image = await fetchGroupImage(groupId)
+        if (image && categories.value[categoryIdx]?.groups[groupIdx]) {
+          categories.value[categoryIdx].groups[groupIdx] = {
+            ...categories.value[categoryIdx].groups[groupIdx],
+            coverImage: image
+          }
+        }
+      }))
     }
   }
 
@@ -229,11 +361,14 @@ export const useCatalogStore = defineStore('catalog', () => {
       
       const data = await response.json()
       
+      // Обрабатываем товары, которым нужна обложка категории
+      const processedProducts = await processProductImages(data.products)
+      
       if (loadMore) {
-        products.value.push(...data.products)
+        products.value.push(...processedProducts)
         currentPage.value++
       } else {
-      products.value = data.products
+        products.value = processedProducts
         currentPage.value = 0
       }
       
@@ -248,13 +383,41 @@ export const useCatalogStore = defineStore('catalog', () => {
     }
   }
 
+  // Обработка изображений товаров - подставляем обложки категорий где нужно
+  async function processProductImages(productsList: Product[]): Promise<Product[]> {
+    // Собираем уникальные categoryId для товаров с needsCategoryImage
+    const categoryIdsToLoad = new Set<string>()
+    productsList.forEach(p => {
+      if (p.needsCategoryImage && p.categoryId) {
+        categoryIdsToLoad.add(p.categoryId)
+      }
+    })
+    
+    // Загружаем недостающие изображения категорий
+    await Promise.all(
+      Array.from(categoryIdsToLoad).map(catId => fetchCategoryImage(catId))
+    )
+    
+    // Подставляем изображения из кэша
+    return productsList.map(p => {
+      if (p.needsCategoryImage && p.categoryId) {
+        const categoryImage = categoryImageCache.value.get(p.categoryId)
+        if (categoryImage) {
+          return { ...p, images: [categoryImage] }
+        }
+      }
+      return p
+    })
+  }
+
   async function fetchAllProducts() {
     try {
       // Fetch all products without pagination or category filter for counts
       const response = await fetch('/api/products?limit=1000&offset=0')
       if (!response.ok) throw new Error('Failed to fetch all products')
       const data = await response.json()
-      allProducts.value = data.products
+      // Обрабатываем изображения
+      allProducts.value = await processProductImages(data.products)
     } catch (err) {
       console.error('Error fetching all products for counts:', err)
     }
@@ -268,7 +431,17 @@ export const useCatalogStore = defineStore('catalog', () => {
       const response = await fetch(`/api/product/${id}`)
       if (!response.ok) throw new Error('Product not found')
       
-      currentProduct.value = await response.json()
+      let product = await response.json()
+      
+      // Если нужна обложка категории
+      if (product.needsCategoryImage && product.categoryId) {
+        const categoryImage = await fetchCategoryImage(product.categoryId)
+        if (categoryImage) {
+          product = { ...product, images: [categoryImage] }
+        }
+      }
+      
+      currentProduct.value = product
       
     } catch (err) {
       error.value = err instanceof Error ? err.message : 'Unknown error'
@@ -370,8 +543,10 @@ export const useCatalogStore = defineStore('catalog', () => {
       const response = await fetch(`/api/cross-sells?category=${encodeURIComponent(categorySlug)}`)
       if (!response.ok) throw new Error('Failed to fetch cross sell items')
       const data = await response.json()
-      crossSellProducts.value = { ...crossSellProducts.value, [categorySlug]: data }
-      return data as Product[]
+      // Обрабатываем изображения
+      const processed = await processProductImages(data)
+      crossSellProducts.value = { ...crossSellProducts.value, [categorySlug]: processed }
+      return processed as Product[]
     } catch (err) {
       console.error('Error fetching cross-sell:', err)
       return []
@@ -414,6 +589,8 @@ export const useCatalogStore = defineStore('catalog', () => {
     currentPage,
     hasMore,
     totalProducts,
+    categoryImageCache,
+    groupImageCache,
     
     // Computed
     filteredProducts,
@@ -436,6 +613,12 @@ export const useCatalogStore = defineStore('catalog', () => {
     clearError,
     clearCurrentProduct,
     fetchCrossSell,
-    initialize
+    initialize,
+    // Новые функции для работы с изображениями
+    fetchCategoryImage,
+    fetchGroupImage,
+    getCategoryImage,
+    getGroupImage,
+    loadCategoryImages
   }
 })

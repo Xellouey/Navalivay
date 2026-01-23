@@ -1277,8 +1277,11 @@ const layoutTab = computed<AdminTabId>({
 })
 
 watch(activeTab, (tab) => {
-  void ensureTabData(tab)
-})
+  // Загружаем данные только если пользователь авторизован
+  if (adminStore.isAuthenticated) {
+    void ensureTabData(tab)
+  }
+}, { immediate: true })
 
 const passwordForm = ref({ currentPassword: '', newPassword: '', confirmPassword: '' })
 const managerForm = ref({ telegram: '' })
@@ -1855,10 +1858,13 @@ async function handleProductFormSubmit(formData: any) {
   }
   showProductModal.value = false
   
-  // Обновляем список товаров
+  // Обновляем список товаров с учётом текущих фильтров
   await adminStore.fetchProducts({ 
     page: adminStore.productsPagination?.page || 1, 
-    limit: adminStore.productsPagination?.limit || 10 
+    limit: adminStore.productsPagination?.limit || 10,
+    category: productsFilters.value.category || undefined,
+    search: productsFilters.value.search || undefined,
+    group: productsFilters.value.group || undefined
   })
   
   // Обновляем счётчики в линейках если товар был назначен в линейку
@@ -2370,13 +2376,17 @@ onMounted(async () => {
   // @ts-ignore - checkAuth method exists in adminStore
   await adminStore.checkAuth()
   if (adminStore.isAuthenticated) {
-    await loadInitialAdminData()
+    // Загружаем данные для текущей вкладки
+    await ensureTabData(activeTab.value)
     updateManagerForm()
   }
 })
 
-watch(() => adminStore.isAuthenticated, (loggedIn) => {
-  if (!loggedIn) {
+watch(() => adminStore.isAuthenticated, async (loggedIn, wasLoggedIn) => {
+  if (loggedIn && !wasLoggedIn) {
+    // Пользователь только что авторизовался - загружаем данные для текущей вкладки
+    await ensureTabData(activeTab.value)
+  } else if (!loggedIn) {
     crmStore.lockProfitAccess()
     resetLoadedState()
   }

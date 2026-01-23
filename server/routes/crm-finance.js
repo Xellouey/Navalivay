@@ -748,6 +748,7 @@ crmFinanceRouter.get('/api/admin/crm/visit-logs', authMiddleware, (req, res) => 
 // =========================
 // PRODUCTS SEARCH FOR CRM (Поиск товаров для CRM)
 // =========================
+
 crmFinanceRouter.get('/api/admin/crm/products/search', authMiddleware, (req, res) => {
   try {
     const { search, limit = 25 } = req.query;
@@ -756,24 +757,40 @@ crmFinanceRouter.get('/api/admin/crm/products/search', authMiddleware, (req, res
     let params = [];
     
     if (search && typeof search === 'string' && search.trim()) {
-      // SQLite's LOWER() не работает с кириллицей, поэтому ищем по обоим вариантам
+      // Разбиваем запрос на слова и ищем товары, содержащие ВСЕ слова
       const trimmed = search.trim();
-      const lowerPattern = `%${trimmed.toLowerCase()}%`;
-      const upperPattern = `%${trimmed.toUpperCase()}%`;
-      const titlePattern = `%${trimmed.charAt(0).toUpperCase() + trimmed.slice(1).toLowerCase()}%`;
+      const words = trimmed.split(/\s+/).filter(w => w.length >= 2); // Только слова от 2 символов
       
-      whereClauses.push('(p.title LIKE ? OR p.title LIKE ? OR p.title LIKE ? OR p.description LIKE ? OR p.description LIKE ? OR p.description LIKE ? OR g.name LIKE ? OR g.name LIKE ? OR g.name LIKE ?)');
-      params.push(lowerPattern, upperPattern, titlePattern, lowerPattern, upperPattern, titlePattern, lowerPattern, upperPattern, titlePattern);
+      if (words.length > 0) {
+        // Для каждого слова создаём условие поиска по title, description и group name
+        // SQLite's LOWER() не работает с кириллицей, поэтому ищем по разным вариантам регистра
+        // Слово должно быть найдено в ЛЮБОМ из полей (title OR description OR group_name)
+        const wordConditions = words.map(word => {
+          const lowerPattern = `%${word.toLowerCase()}%`;
+          const upperPattern = `%${word.toUpperCase()}%`;
+          const titlePattern = `%${word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()}%`;
+          
+          // Добавляем параметры для этого слова (9 параметров на слово)
+          params.push(lowerPattern, upperPattern, titlePattern, lowerPattern, upperPattern, titlePattern, lowerPattern, upperPattern, titlePattern);
+          
+          return '(p.title LIKE ? OR p.title LIKE ? OR p.title LIKE ? OR p.description LIKE ? OR p.description LIKE ? OR p.description LIKE ? OR g.name LIKE ? OR g.name LIKE ? OR g.name LIKE ?)';
+        });
+        
+        // Объединяем условия через AND — найдём товары со ВСЕМИ словами
+        // Каждое слово должно присутствовать (в title, description или group_name)
+        whereClauses.push(`(${wordConditions.join(' AND ')})`);
+      }
     }
     
     const searchCondition = whereClauses.length > 0 ? whereClauses.join(' AND ') : '';
     
-    // Получаем обычные товары
+    // Получаем обычные товары (с первым изображением)
     const regularQuery = `
       SELECT 
         p.*,
         c.name as category_name,
-        g.name as group_name
+        g.name as group_name,
+        (SELECT url FROM product_images WHERE productId = p.id ORDER BY position LIMIT 1) as first_image
       FROM products p
       LEFT JOIN categories c ON c.id = p.categoryId
       LEFT JOIN category_groups g ON g.id = p.groupId
@@ -787,7 +804,8 @@ crmFinanceRouter.get('/api/admin/crm/products/search', authMiddleware, (req, res
           SELECT 
             p.*,
             c.name as category_name,
-            g.name as group_name
+            g.name as group_name,
+            (SELECT url FROM product_images WHERE productId = p.id ORDER BY position LIMIT 1) as first_image
           FROM products p
           LEFT JOIN categories c ON c.id = p.categoryId
           LEFT JOIN category_groups g ON g.id = p.groupId
@@ -795,7 +813,7 @@ crmFinanceRouter.get('/api/admin/crm/products/search', authMiddleware, (req, res
           LIMIT ?
         `).all(Number(limit));
     
-    // Получаем варианты как отдельные товары
+    // Получаем варианты как отдельные товары (с изображением варианта или товара)
     const variantsQuery = `
       SELECT 
         v.id,
@@ -811,7 +829,8 @@ crmFinanceRouter.get('/api/admin/crm/products/search', authMiddleware, (req, res
         p.categoryId,
         c.name as category_name,
         p.groupId,
-        g.name as group_name
+        g.name as group_name,
+        (SELECT url FROM product_images WHERE productId = p.id AND (variant_id = v.id OR variant_id IS NULL) ORDER BY variant_id DESC, position LIMIT 1) as first_image
       FROM product_variants v
       INNER JOIN products p ON p.id = v.product_id
       LEFT JOIN categories c ON c.id = p.categoryId
@@ -837,7 +856,8 @@ crmFinanceRouter.get('/api/admin/crm/products/search', authMiddleware, (req, res
             p.categoryId,
             c.name as category_name,
             p.groupId,
-            g.name as group_name
+            g.name as group_name,
+            (SELECT url FROM product_images WHERE productId = p.id AND (variant_id = v.id OR variant_id IS NULL) ORDER BY variant_id DESC, position LIMIT 1) as first_image
           FROM product_variants v
           INNER JOIN products p ON p.id = v.product_id
           LEFT JOIN categories c ON c.id = p.categoryId
@@ -862,13 +882,65 @@ crmFinanceRouter.get('/api/admin/crm/products/search', authMiddleware, (req, res
       groupId: v.groupId,
       group_name: v.group_name,
       has_variants: 0,
-      is_variant: true
+      is_variant: true,
+      // Убираем base64 изображения - они слишком тяжёлые для поиска
+      // Используем только URL изображения товара (не base64)
+      imageUrl: v.first_image || null
+    }));
+    
+    // Добавляем imageUrl к обычным товарам (без base64)
+    const regularWithImages = regularProducts.map(p => ({
+      ...p,
+      // Только URL изображения товара, без base64 линейки
+      imageUrl: p.first_image || null
     }));
     
     // Объединяем
-    const allProducts = [...regularProducts, ...variantsAsProducts].slice(0, Number(limit));
+    let allProducts = [...regularWithImages, ...variantsAsProducts];
     
-    res.json(allProducts);
+    // Сортировка по релевантности если есть поисковый запрос
+    if (search && typeof search === 'string' && search.trim()) {
+      const searchLower = search.trim().toLowerCase();
+      const searchWords = searchLower.split(/\s+/).filter(w => w.length >= 2);
+      
+      allProducts.sort((a, b) => {
+        const titleA = (a.title || '').toLowerCase();
+        const titleB = (b.title || '').toLowerCase();
+        
+        // Точное совпадение title с поисковым запросом - высший приоритет
+        const exactMatchA = titleA === searchLower;
+        const exactMatchB = titleB === searchLower;
+        if (exactMatchA && !exactMatchB) return -1;
+        if (exactMatchB && !exactMatchA) return 1;
+        
+        // Title начинается с поискового запроса
+        const startsWithA = titleA.startsWith(searchLower);
+        const startsWithB = titleB.startsWith(searchLower);
+        if (startsWithA && !startsWithB) return -1;
+        if (startsWithB && !startsWithA) return 1;
+        
+        // Title содержит полный поисковый запрос
+        const containsFullA = titleA.includes(searchLower);
+        const containsFullB = titleB.includes(searchLower);
+        if (containsFullA && !containsFullB) return -1;
+        if (containsFullB && !containsFullA) return 1;
+        
+        // Подсчёт совпавших слов
+        const matchCountA = searchWords.filter(w => titleA.includes(w)).length;
+        const matchCountB = searchWords.filter(w => titleB.includes(w)).length;
+        if (matchCountA !== matchCountB) return matchCountB - matchCountA;
+        
+        // По алфавиту как fallback
+        return titleA.localeCompare(titleB);
+      });
+    }
+    
+    allProducts = allProducts.slice(0, Number(limit));
+    
+    // Убираем тяжёлые поля из ответа
+    const cleanProducts = allProducts.map(({ group_cover_image, first_image, variant_color_image, ...rest }) => rest);
+    
+    res.json(cleanProducts);
   } catch (error) {
     console.error('[crm] Search products error:', error);
     res.status(500).json({ error: 'failed', message: error.message });

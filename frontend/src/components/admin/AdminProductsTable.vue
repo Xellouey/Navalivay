@@ -1675,7 +1675,8 @@ const filteredProducts = computed(() => {
   return (props.products || []).filter(p => {
     // Skip null/undefined products
     if (!p || !p.id) return false
-    const bySearch = !s || (p.title || '').toLowerCase().includes(s)
+    // Поиск по названию товара И по названию группы (линейки)
+    const bySearch = !s || (p.title || '').toLowerCase().includes(s) || (p.groupName || '').toLowerCase().includes(s)
     const byCat = !cid || p.categoryId === cid
     const byGroup = !gid || p.groupId === gid
     return bySearch && byCat && byGroup

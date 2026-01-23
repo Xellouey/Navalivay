@@ -306,9 +306,8 @@
                 >
                   <div>
                     <div class="font-medium text-gray-900">{{ product.title }}</div>
+                    <div v-if="product.groupName" class="text-xs font-semibold text-blue-600">{{ product.groupName }}</div>
                     <div class="text-xs text-gray-500">
-                      <span v-if="product.groupName" class="font-medium">{{ product.groupName }}</span>
-                      <span v-if="product.groupName"> • </span>
                       Остаток: {{ product.stock }} • Себестоимость: {{ formatCurrency(product.costPrice) }}
                     </div>
                   </div>
@@ -342,6 +341,7 @@
                 <tr v-for="item in draftItems" :key="item.product.id">
                   <td class="px-4 py-3">
                     <div class="font-medium text-gray-900">{{ item.product.title }}</div>
+                    <div v-if="item.product.groupName" class="text-xs font-semibold text-blue-600">{{ item.product.groupName }}</div>
                     <div class="text-xs text-gray-500">Текущая себестоимость: {{ formatCurrency(item.product.costPrice) }}</div>
                   </td>
                   <td class="px-4 py-3 text-sm text-gray-600">
@@ -583,7 +583,7 @@
             <input
               v-model.number="quickProduct.priceRub"
               type="number"
-              min="1"
+              min="0"
               step="1"
               class="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
             />
@@ -623,7 +623,24 @@
           </label>
         </div>
 
-        <div class="space-y-3 rounded-lg border border-gray-200 bg-white/60 p-4">
+        <!-- Использовать фото категории -->
+        <div class="flex items-start gap-3 rounded-lg border border-gray-200 p-3 hover:bg-gray-50 cursor-pointer" @click="quickProduct.useCategoryImage = !quickProduct.useCategoryImage">
+          <input
+            type="checkbox"
+            :checked="quickProduct.useCategoryImage"
+            class="mt-0.5 h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-2 focus:ring-blue-200 pointer-events-none"
+          />
+          <div class="flex-1">
+            <span class="text-sm font-medium text-gray-700">
+              Использовать фото категории
+            </span>
+            <p class="text-xs text-gray-500 mt-0.5">
+              Товар будет использовать обложку своей категории/линейки
+            </p>
+          </div>
+        </div>
+
+        <div v-if="!quickProduct.useCategoryImage" class="space-y-3 rounded-lg border border-gray-200 bg-white/60 p-4">
           <div class="flex flex-wrap items-center justify-between gap-3">
             <div class="text-sm font-medium text-gray-700">Фото товара</div>
             <div class="flex items-center gap-2">
@@ -665,7 +682,7 @@
               </button>
             </div>
           </div>
-          <p v-else class="text-xs text-gray-500">Загрузите минимум одно изображение, чтобы добавить товар в закупку.</p>
+          <p v-else class="text-xs text-gray-500">Добавьте изображения товара</p>
         </div>
 
         <p v-if="quickProductError" class="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-600">
@@ -674,9 +691,10 @@
 
         <div class="flex gap-3 pt-2">
           <button
-            type="submit"
+            type="button"
             class="flex-1 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-300"
             :disabled="quickProductSaving || quickProductUploading"
+            @click="submitQuickProduct"
           >
             {{ quickProductSaving ? 'Создаём…' : 'Создать и добавить' }}
           </button>
@@ -831,7 +849,8 @@ const quickProduct = reactive({
   priceRub: 0,
   costPrice: 0,
   stock: 0,
-  minStock: 0
+  minStock: 0,
+  useCategoryImage: true
 })
 const quickProductImages = ref<string[]>([])
 const quickProductUploading = ref(false)
@@ -1000,7 +1019,7 @@ async function loadProducts(search?: string) {
   isSearchingProducts.value = true
   searchError.value = ''
   try {
-    productResults.value = await crmStore.searchCrmProducts({ search, limit: 20 })
+    productResults.value = await crmStore.searchCrmProducts({ search, limit: 100 })
   } catch (error) {
     console.error('[CRM] search products error', error)
     searchError.value = 'Не удалось загрузить список товаров. Попробуйте обновить страницу.'
@@ -1143,6 +1162,7 @@ async function openQuickProductModal() {
   quickProduct.costPrice = 0
   quickProduct.stock = 0
   quickProduct.minStock = 0
+  quickProduct.useCategoryImage = true
   quickProductImages.value = []
   quickGroupParentId.value = ''
   quickCategoryName.value = ''
@@ -1312,8 +1332,9 @@ async function submitQuickProduct() {
     quickProductError.value = 'Выберите категорию'
     return
   }
-  if (!quickProductImages.value.length) {
-    quickProductError.value = 'Добавьте хотя бы одно фото товара'
+  // Фото обязательно только если НЕ используется фото категории
+  if (!quickProduct.useCategoryImage && !quickProductImages.value.length) {
+    quickProductError.value = 'Добавьте хотя бы одно фото товара или включите "Использовать фото категории"'
     return
   }
   if (quickProduct.priceRub <= 0) {
@@ -1333,12 +1354,13 @@ async function submitQuickProduct() {
       title: quickProduct.title.trim(),
       priceRub: Math.round(quickProduct.priceRub),
       description: '',
-      images: [...quickProductImages.value],
+      images: quickProduct.useCategoryImage ? [] : [...quickProductImages.value],
       links: [],
       strength: null,
       costPrice: Number(quickProduct.costPrice || 0),
       stock: Number(quickProduct.stock || 0),
-      minStock: Number(quickProduct.minStock || 0)
+      minStock: Number(quickProduct.minStock || 0),
+      useCategoryImage: quickProduct.useCategoryImage
     })
 
     closeQuickProductModal()

@@ -27,6 +27,7 @@ lerna-debug.log*
 # IDE
 .idea/
 .vscode/
+.cursor/debug.log
 *.swp
 *.swo
 *~

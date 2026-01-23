@@ -151,6 +151,7 @@ export interface CrmProductSummary {
   groupName?: string | null
   isVariant?: boolean // Это вариант товара
   variantName?: string | null // Название варианта (цвет)
+  imageUrl?: string | null // URL изображения товара или линейки
 }
 
 export interface CashAccount {
@@ -890,7 +891,8 @@ export const useCrmStore = defineStore('crm', () => {
       groupId: product.groupId ? String(product.groupId) : product.group_id ? String(product.group_id) : null,
       groupName: product.groupName ?? product.group_name ?? null,
       isVariant: product.is_variant === true,
-      variantName: product.variant_name ?? null
+      variantName: product.variant_name ?? null,
+      imageUrl: product.imageUrl ?? null
     })) as CrmProductSummary[]
   }
 
