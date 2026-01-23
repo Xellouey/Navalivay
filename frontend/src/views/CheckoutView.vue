@@ -1,981 +1,1121 @@
 <template>
-  <div class="min-h-screen" style="background: #ffffff;">
-    <div class="mx-auto max-w-4xl px-4 py-6 space-y-6">
-      <!-- Header -->
-      <div class="flex items-center gap-4">
-        <button @click="handleBack" class="back-chip">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M15 18l-6-6 6-6" />
-          </svg>
-          Назад
-        </button>
+  <div class="checkout-page">
+    <div class="header-area">
+      <div class="checkout-header">
         <h1 class="checkout-title">Оформление заказа</h1>
+        <button
+          v-if="cartStore.items.length"
+          @click="handleClearCart"
+          class="header-trash-btn"
+          aria-label="Очистить корзину"
+        >
+          <svg width="18" height="20" viewBox="0 0 18 20" fill="none">
+            <path
+              d="M1 5H17M15 5V17C15 18 14 19 13 19H5C4 19 3 18 3 17V5M6 5V3C6 2 7 1 8 1H10C11 1 12 2 12 3V5"
+              stroke="#AAB2BD"
+              stroke-width="1.5"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+          </svg>
+        </button>
+      </div>
+    </div>
+
+    <div class="checkout-container">
+      <div v-if="!cartStore.items.length" class="empty-cart">
+        <div class="empty-cart-icon">🛒</div>
+        <p>Корзина пуста</p>
+        <button @click="handleBack" class="back-to-shop-btn">
+          Вернуться к покупкам
+        </button>
       </div>
 
-      <!-- Cart Items -->
-      <section class="checkout-card">
-        <h2 class="checkout-card-title">Состав заказа</h2>
-        
-        <div v-if="!cartStore.items.length" class="empty-cart">
-          Корзина пуста
-        </div>
-        
-        <div v-else class="space-y-3">
-          <div v-for="item in cartStore.items" :key="item.productId" class="cart-item">
-            <div v-if="item.image" class="cart-item-image">
-              <img :src="item.image" :alt="item.title" class="h-full w-full object-cover" />
-            </div>
-            
-            <div class="flex-1 min-w-0">
-              <p class="cart-item-title">{{ item.productTitle || item.title }}</p>
-              <p class="cart-item-variant" v-if="item.variantName" style="font-size: 0.85rem; color: #666; margin-top: 0.1rem;">{{ item.variantName }}</p>
-              <p class="cart-item-meta">{{ formatPrice(item.priceRub) }} BYN × {{ item.quantity }}</p>
-            </div>
-            
-            <div class="flex items-center gap-2">
-              <button @click="decrementQuantity(item.productId)" class="qty-btn">
-                <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 12H4" />
-                </svg>
-              </button>
-              <span class="qty-value">{{ item.quantity }}</span>
-              <button 
-                @click="incrementQuantity(item.productId)" 
-                class="qty-btn"
-                :class="{ 'qty-btn-disabled': !canIncrement(item) }"
-                :disabled="!canIncrement(item)"
-                :title="!canIncrement(item) ? `Максимум: ${getMaxStock(item.productId, item.variantId)}` : ''"
+      <div v-else class="checkout-content">
+        <div class="cart-card">
+          <div class="cart-items">
+            <TransitionGroup name="list" tag="div">
+              <div
+                v-for="(item, index) in displayedItems"
+                :key="item.productId + (item.variantId || '')"
+                class="cart-item"
+                :class="{
+                  'cart-item-border': index < displayedItems.length - 1,
+                }"
               >
-                <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
-                </svg>
-              </button>
-              <button @click="cartStore.removeItem(item.productId)" class="remove-btn">
-                <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                </svg>
-              </button>
-            </div>
-            
-            <p class="cart-item-total">{{ formatPrice(item.priceRub * item.quantity) }} BYN</p>
-          </div>
-          
-          <div class="cart-total">
-            <span class="cart-total-label">Итого:</span>
-            <span class="cart-total-amount">{{ formatPrice(cartStore.totalAmount) }} BYN</span>
+                <div class="cart-item-image-wrap">
+                  <div class="cart-item-image">
+                    <img
+                      v-if="item.image"
+                      :src="item.image"
+                      :alt="item.title"
+                    />
+                    <div v-else class="cart-item-placeholder">
+                      <svg
+                        width="24"
+                        height="24"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="#ccc"
+                        stroke-width="1.5"
+                      >
+                        <rect
+                          x="3"
+                          y="3"
+                          width="18"
+                          height="18"
+                          rx="2"
+                          ry="2"
+                        />
+                      </svg>
+                    </div>
+                  </div>
+                  <span v-if="isIceProduct(item)" class="ice-badge">
+                    <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+                      <path
+                        d="M5 0.5V9.5M0.5 5H9.5M1.5 1.5L8.5 8.5M8.5 1.5L1.5 8.5"
+                        stroke="white"
+                        stroke-width="1.4"
+                        stroke-linecap="round"
+                      />
+                    </svg>
+                  </span>
+                </div>
+
+                <div class="cart-item-info">
+                  <h3 class="cart-item-title">
+                    {{ item.productTitle || item.title }}
+                  </h3>
+                  <p class="cart-item-meta" v-if="item.variantName">
+                    {{ item.variantName }}
+                  </p>
+
+                  <div class="item-badge-new">
+                    <svg width="7" height="10" viewBox="0 0 7 10" fill="white">
+                      <path d="M4.5 0L0 5.5H3L2.5 10L7 4.5H4L4.5 0Z" />
+                    </svg>
+                    <span>Новинка</span>
+                  </div>
+
+                  <p class="cart-item-price">
+                    {{ formatPrice(item.priceRub * item.quantity) }} BYN
+                  </p>
+                </div>
+
+                <div class="cart-item-controls">
+                  <button
+                    @click="incrementQuantity(item.productId, item.variantId)"
+                    class="qty-btn"
+                    :class="{ 'qty-btn-disabled': !canIncrement(item) }"
+                    :disabled="!canIncrement(item)"
+                    aria-label="Увеличить количество"
+                  >
+                    <span>+</span>
+                  </button>
+                  <div class="qty-value">
+                    <span>{{ item.quantity }}</span>
+                  </div>
+                  <button
+                    @click="decrementQuantity(item.productId, item.variantId)"
+                    class="qty-btn"
+                    aria-label="Уменьшить количество"
+                  >
+                    <span>−</span>
+                  </button>
+                </div>
+              </div>
+            </TransitionGroup>
           </div>
         </div>
-      </section>
 
-      <!-- Delivery Form -->
-      <section v-if="cartStore.items.length" class="checkout-card">
-        <h2 class="checkout-card-title">Способ получения</h2>
-        
-        <div class="space-y-4">
-          <!-- Обязательное поле Telegram Username -->
-          <div>
-            <label class="form-label">
-              Telegram Username <span style="color: var(--navalivay-red);">*</span>
-            </label>
+        <button
+          v-if="cartStore.items.length > 1"
+          @click="toggleItemsExpanded"
+          class="toggle-items-btn"
+        >
+          <span>{{
+            isItemsExpanded ? "Скрыть товары" : "Показать товары"
+          }}</span>
+          <span class="toggle-count">{{ cartStore.items.length }}</span>
+        </button>
+
+        <div class="promo-card">
+          <p class="promo-label">Есть промокод?</p>
+
+          <div v-if="!promoApplied" class="promo-input-row">
             <input
-              v-model="form.telegramUsername"
+              v-model="promoCode"
               type="text"
-              required
-              class="form-input"
-              :class="{ 'error': errors.telegramUsername }"
-              placeholder="@username или username"
+              class="promo-input"
+              placeholder="Введите промокод"
             />
-            <p v-if="errors.telegramUsername" class="form-error">{{ errors.telegramUsername }}</p>
-            <p class="mt-1 text-xs text-gray-500">Укажите ваш username в Telegram для связи</p>
+            <Transition name="fade-btn">
+              <button
+                v-if="promoCode.trim()"
+                @click="applyPromoCode"
+                class="promo-apply-btn"
+              >
+                Применить
+              </button>
+            </Transition>
           </div>
-          
-          <div class="grid grid-cols-2 gap-4">
-            <label class="delivery-option" :class="{ 'active': form.deliveryType === 'pickup' }">
-              <input type="radio" v-model="form.deliveryType" value="pickup" class="sr-only" />
-              <div class="flex-1">
-                <p class="delivery-option-title">Самовывоз</p>
-                <p class="delivery-option-desc">Забрать в точке выдачи</p>
-              </div>
-              <svg v-if="form.deliveryType === 'pickup'" class="h-6 w-6" style="color: var(--navalivay-red);" fill="currentColor" viewBox="0 0 20 20">
-                <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
-              </svg>
-            </label>
-            
-            <label 
-              class="delivery-option" 
-              :class="{ 'active': form.deliveryType === 'delivery' }"
-              @click="handleDeliveryClick"
-            >
-              <input type="radio" v-model="form.deliveryType" value="delivery" class="sr-only" />
-              <div class="flex-1">
-                <p class="delivery-option-title">Доставка</p>
-                <p class="delivery-option-desc">Доставим по адресу</p>
-              </div>
-              <svg v-if="form.deliveryType === 'delivery'" class="h-6 w-6" style="color: var(--navalivay-red);" fill="currentColor" viewBox="0 0 20 20">
-                <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
-              </svg>
-            </label>
-          </div>
-          
-          <div v-if="form.deliveryType === 'delivery'" class="space-y-4 pt-2">
-            <div>
-              <label class="form-label">
-                Телефон <span style="color: var(--navalivay-red);">*</span>
-              </label>
-              <input
-                v-model="form.phone"
-                type="tel"
-                required
-                class="form-input"
-                :class="{ 'error': errors.phone }"
-                placeholder="+375 XX XXX XX XX"
-              />
-              <p v-if="errors.phone" class="form-error">{{ errors.phone }}</p>
-            </div>
-            
-            <div>
-              <label class="form-label">
-                Адрес доставки <span style="color: var(--navalivay-red);">*</span>
-              </label>
-              <textarea
-                v-model="form.address"
-                rows="3"
-                required
-                class="form-input"
-                :class="{ 'error': errors.address }"
-                placeholder="Улица, дом, квартира, подъезд"
-              />
-              <p v-if="errors.address" class="form-error">{{ errors.address }}</p>
-            </div>
-          </div>
-          
-          <div>
-            <label class="form-label">Комментарий к заказу</label>
-            <textarea
-              v-model="form.notes"
-              rows="2"
-              class="form-input"
-              placeholder="Дополнительная информация"
-            />
-          </div>
-        </div>
-      </section>
 
-      <!-- Submit -->
-      <section v-if="cartStore.items.length" class="checkout-card submit-section">
-        <div v-if="submitError" class="submit-error">
-          {{ submitError }}
+          <div v-else class="promo-applied-row">
+            <div class="promo-applied-info">
+              <span class="promo-input-label">Введите промокод</span>
+              <div class="promo-code-display">
+                <span class="promo-code-text">{{ promoCode }}</span>
+                <svg width="14" height="11" viewBox="0 0 14 11" fill="none">
+                  <path
+                    d="M1 5L5 9L13 1"
+                    stroke="#34C759"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  />
+                </svg>
+              </div>
+            </div>
+            <button @click="cancelPromoCode" class="promo-cancel-btn">
+              Отменить
+            </button>
+          </div>
+
+          <p v-if="promoApplied" class="promo-discount-text">
+            Скидка 20% на все товары
+          </p>
         </div>
-        
+
+        <div v-if="promoApplied" class="summary-row">
+          <span class="summary-label">Скидка</span>
+          <span class="summary-discount">−8 BYN</span>
+        </div>
+
+        <div class="total-block">
+          <span class="total-label">Итого</span>
+          <span class="total-amount"
+            >{{ formatPrice(cartStore.totalAmount) }} BYN</span
+          >
+        </div>
+
         <button
           @click="submitOrder"
           :disabled="isSubmitting"
           class="submit-button"
         >
-          {{ isSubmitting ? 'Оформляем заказ...' : `Оформить заказ на ${formatPrice(cartStore.totalAmount)} BYN` }}
+          {{ isSubmitting ? "Оформляем..." : "Оформить заказ" }}
         </button>
-      </section>
+
+        <div v-if="submitError" class="submit-error">{{ submitError }}</div>
+      </div>
     </div>
+
+    <MinDeliveryBanner
+      :isOpen="showMinDeliveryBanner"
+      :minAmount="minDeliveryAmount"
+      :currentAmount="cartStore.totalAmount"
+      :bannerImage="settingsStore.settings.min_delivery_banner_image"
+      :buttonText="settingsStore.settings.min_delivery_banner_button_text"
+      :buttonColor="settingsStore.settings.min_delivery_banner_button_color"
+      @close="showMinDeliveryBanner = false"
+    />
+
+    <DeliveryConditionsBanner
+      :isOpen="showDeliveryConditionsBanner"
+      :image="settingsStore.settings.delivery_conditions_image"
+      @close="showDeliveryConditionsBanner = false"
+    />
   </div>
-
-  <!-- Min Delivery Amount Banner -->
-  <MinDeliveryBanner
-    :isOpen="showMinDeliveryBanner"
-    :minAmount="minDeliveryAmount"
-    :currentAmount="cartStore.totalAmount"
-    :bannerImage="settingsStore.settings.min_delivery_banner_image"
-    :buttonText="settingsStore.settings.min_delivery_banner_button_text"
-    :buttonColor="settingsStore.settings.min_delivery_banner_button_color"
-    @close="showMinDeliveryBanner = false"
-  />
-
-  <!-- Delivery Conditions Banner (Fullscreen) -->
-  <DeliveryConditionsBanner
-    :isOpen="showDeliveryConditionsBanner"
-    :image="settingsStore.settings.delivery_conditions_image"
-    @close="showDeliveryConditionsBanner = false"
-  />
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted, watch } from 'vue'
-import { useRouter } from 'vue-router'
-import { useCartStore } from '@/stores/cart'
-import { useSettingsStore } from '@/stores/settings'
-import MinDeliveryBanner from '@/components/MinDeliveryBanner.vue'
-import DeliveryConditionsBanner from '@/components/DeliveryConditionsBanner.vue'
+import { ref, reactive, computed, onMounted, watch } from "vue";
+import { useRouter } from "vue-router";
+import { useCartStore } from "@/stores/cart";
+import { useSettingsStore } from "@/stores/settings";
+import MinDeliveryBanner from "@/components/MinDeliveryBanner.vue";
+import DeliveryConditionsBanner from "@/components/DeliveryConditionsBanner.vue";
 
-const router = useRouter()
-const cartStore = useCartStore()
-const settingsStore = useSettingsStore()
+const router = useRouter();
+const cartStore = useCartStore();
+const settingsStore = useSettingsStore();
+
+const isItemsExpanded = ref(false);
+const promoCode = ref("");
+const promoApplied = ref(false);
 
 const form = reactive({
-  deliveryType: 'pickup' as 'pickup' | 'delivery',
-  telegramUsername: '',
-  phone: '',
-  address: '',
-  notes: ''
-})
+  deliveryType: "pickup" as "pickup" | "delivery",
+  telegramUsername: "",
+  phone: "",
+  address: "",
+  notes: "",
+});
 
 const errors = reactive({
-  telegramUsername: '',
-  phone: '',
-  address: ''
-})
+  telegramUsername: "",
+  phone: "",
+  address: "",
+});
 
-const isSubmitting = ref(false)
-const submitError = ref('')
+const isSubmitting = ref(false);
+const submitError = ref("");
+const stockLimits = ref<Map<string, number>>(new Map());
+const stockLoading = ref(false);
+const showMinDeliveryBanner = ref(false);
+const showDeliveryConditionsBanner = ref(false);
+const deliveryConditionsShown = ref(false);
 
-// Stock limits for cart items (productId -> maxStock)
-const stockLimits = ref<Map<string, number>>(new Map())
-const stockLoading = ref(false)
-
-// Delivery banners state
-const showMinDeliveryBanner = ref(false)
-const showDeliveryConditionsBanner = ref(false)
-const deliveryConditionsShown = ref(false) // Track if conditions were already shown
-
-// Settings computed
 const minDeliveryAmount = computed(() => {
-  const val = parseFloat(settingsStore.settings.min_delivery_amount || '0')
-  return isNaN(val) ? 0 : val
-})
+  const val = parseFloat(settingsStore.settings.min_delivery_amount || "0");
+  return isNaN(val) ? 0 : val;
+});
 
 const canUseDelivery = computed(() => {
-  return minDeliveryAmount.value <= 0 || cartStore.totalAmount >= minDeliveryAmount.value
-})
+  return (
+    minDeliveryAmount.value <= 0 ||
+    cartStore.totalAmount >= minDeliveryAmount.value
+  );
+});
 
 const telegramUser = computed(() => {
-  if (typeof window !== 'undefined' && window.Telegram?.WebApp) {
-    return window.Telegram.WebApp.initDataUnsafe?.user
+  if (typeof window !== "undefined" && window.Telegram?.WebApp) {
+    return window.Telegram.WebApp.initDataUnsafe?.user;
   }
-  return null
-})
+  return null;
+});
 
-// Watch delivery type selection
-watch(() => form.deliveryType, (newType, oldType) => {
-  if (newType === 'delivery' && oldType === 'pickup') {
-    // Check minimum amount
-    if (!canUseDelivery.value) {
-      // Revert to pickup and show banner
-      form.deliveryType = 'pickup'
-      showMinDeliveryBanner.value = true
-    } else if (!deliveryConditionsShown.value && settingsStore.settings.delivery_conditions_image) {
-      // Show conditions banner after 1 second
-      setTimeout(() => {
-        showDeliveryConditionsBanner.value = true
-        deliveryConditionsShown.value = true
-      }, 1000)
-    }
+const displayedItems = computed(() => {
+  if (isItemsExpanded.value || cartStore.items.length <= 1) {
+    return cartStore.items;
   }
-})
+  return cartStore.items.slice(0, 1);
+});
+
+function isIceProduct(item: (typeof cartStore.items)[0]): boolean {
+  const title = (item.title || "").toLowerCase();
+  const variant = (item.variantName || "").toLowerCase();
+  return title.includes("ice") || variant.includes("ice");
+}
+
+function toggleItemsExpanded() {
+  isItemsExpanded.value = !isItemsExpanded.value;
+}
+
+function applyPromoCode() {
+  if (promoCode.value.trim()) {
+    promoApplied.value = true;
+  }
+}
+
+function cancelPromoCode() {
+  promoApplied.value = false;
+  promoCode.value = "";
+}
+
+watch(
+  () => form.deliveryType,
+  (newType, oldType) => {
+    if (newType === "delivery" && oldType === "pickup") {
+      if (!canUseDelivery.value) {
+        form.deliveryType = "pickup";
+        showMinDeliveryBanner.value = true;
+      } else if (
+        !deliveryConditionsShown.value &&
+        settingsStore.settings.delivery_conditions_image
+      ) {
+        setTimeout(() => {
+          showDeliveryConditionsBanner.value = true;
+          deliveryConditionsShown.value = true;
+        }, 1000);
+      }
+    }
+  },
+);
 
 onMounted(async () => {
-  // Fetch settings
-  await settingsStore.fetchSettings()
-  
-  // Fetch stock limits for cart items
-  await fetchStockLimits()
-  
-  // Auto-fill telegram username and phone if available from Telegram
-  const user = telegramUser.value
-  if (user) {
-    if (user.username) {
-      form.telegramUsername = user.username
-    }
-    // Note: Telegram WebApp doesn't expose phone number by default
-    // This would need to be requested via bot
+  await settingsStore.fetchSettings();
+  await fetchStockLimits();
+  const user = telegramUser.value;
+  if (user?.username) {
+    form.telegramUsername = user.username;
   }
-})
+});
 
-// Fetch current stock for all cart items
 async function fetchStockLimits() {
-  stockLoading.value = true
-  const newLimits = new Map<string, number>()
-  
+  stockLoading.value = true;
+  const newLimits = new Map<string, number>();
   try {
     for (const item of cartStore.items) {
-      const response = await fetch(`/api/product/${item.productId}`)
+      const response = await fetch(`/api/product/${item.productId}`);
       if (response.ok) {
-        const product = await response.json()
-        
-        let stock: number | null = null
+        const product = await response.json();
+        let stock: number | null = null;
         if (item.variantId && product.variants) {
-          // For variant products, get variant stock
-          const variant = product.variants.find((v: any) => v.id === item.variantId)
-          stock = variant?.stock ?? null
+          const variant = product.variants.find(
+            (v: any) => v.id === item.variantId,
+          );
+          stock = variant?.stock ?? null;
         } else if (!product.hasVariants) {
-          // For regular products
-          stock = product.stock
+          stock = product.stock;
         }
-        
-        // Use productId + variantId as key for variants
-        const key = item.variantId ? `${item.productId}_${item.variantId}` : item.productId
+        const key = item.variantId
+          ? `${item.productId}_${item.variantId}`
+          : item.productId;
         if (stock !== null) {
-          newLimits.set(key, stock)
+          newLimits.set(key, stock);
         }
       }
     }
-    stockLimits.value = newLimits
+    stockLimits.value = newLimits;
   } catch (error) {
-    console.error('[Checkout] Failed to fetch stock limits:', error)
+    console.error("[Checkout] Failed to fetch stock limits:", error);
   } finally {
-    stockLoading.value = false
+    stockLoading.value = false;
   }
 }
 
-// Get max stock for a cart item
-function getMaxStock(productId: string, variantId?: string | null): number | null {
-  const key = variantId ? `${productId}_${variantId}` : productId
-  return stockLimits.value.get(key) ?? null
+function getMaxStock(
+  productId: string,
+  variantId?: string | null,
+): number | null {
+  const key = variantId ? `${productId}_${variantId}` : productId;
+  return stockLimits.value.get(key) ?? null;
 }
 
-// Check if can increment quantity
-function canIncrement(item: typeof cartStore.items[0]): boolean {
-  const maxStock = getMaxStock(item.productId, item.variantId)
-  if (maxStock === null) return true // No stock tracking
-  return item.quantity < maxStock
+function canIncrement(item: (typeof cartStore.items)[0]): boolean {
+  const maxStock = getMaxStock(item.productId, item.variantId);
+  if (maxStock === null) return true;
+  return item.quantity < maxStock;
 }
 
 function formatPrice(price: number): string {
-  return price.toFixed(2)
+  return price.toFixed(0);
 }
 
 function handleBack() {
-  // Close any open banners before navigating
-  showMinDeliveryBanner.value = false
-  showDeliveryConditionsBanner.value = false
-  // Use push instead of back() to ensure proper navigation
-  router.push('/')
+  showMinDeliveryBanner.value = false;
+  showDeliveryConditionsBanner.value = false;
+  router.push("/");
 }
 
-function handleDeliveryClick() {
-  // Force set delivery type if conditions are met
-  if (canUseDelivery.value && form.deliveryType !== 'delivery') {
-    form.deliveryType = 'delivery'
-  } else if (!canUseDelivery.value) {
-    // Show banner if can't use delivery
-    showMinDeliveryBanner.value = true
+function handleClearCart() {
+  if (confirm("Очистить корзину?")) {
+    cartStore.clearCart();
   }
 }
 
-function incrementQuantity(productId: string) {
-  const item = cartStore.items.find(i => i.productId === productId)
-  if (item) {
-    // Check stock limit before incrementing
-    if (!canIncrement(item)) {
-      return // Don't increment if at max stock
-    }
-    
-    cartStore.updateQuantity(productId, item.quantity + 1, item.variantId)
+function incrementQuantity(productId: string, variantId?: string | null) {
+  const item = cartStore.items.find(
+    (i) =>
+      i.productId === productId && (!variantId || i.variantId === variantId),
+  );
+  if (item && canIncrement(item)) {
+    cartStore.updateQuantity(productId, item.quantity + 1, variantId);
   }
 }
 
-function decrementQuantity(productId: string) {
-  const item = cartStore.items.find(i => i.productId === productId)
+function decrementQuantity(productId: string, variantId?: string | null) {
+  const item = cartStore.items.find(
+    (i) =>
+      i.productId === productId && (!variantId || i.variantId === variantId),
+  );
   if (item && item.quantity > 1) {
-    cartStore.updateQuantity(productId, item.quantity - 1, item.variantId)
+    cartStore.updateQuantity(productId, item.quantity - 1, variantId);
+  } else if (item && item.quantity === 1) {
+    cartStore.removeItem(productId, variantId);
   }
 }
 
 function validateForm(): boolean {
-  errors.telegramUsername = ''
-  errors.phone = ''
-  errors.address = ''
-  
-  // Telegram username обязателен всегда
+  errors.telegramUsername = "";
+  errors.phone = "";
+  errors.address = "";
+
   if (!form.telegramUsername.trim()) {
-    errors.telegramUsername = 'Укажите ваш Telegram username'
-    return false
+    errors.telegramUsername = "Укажите ваш Telegram username";
+    return false;
   }
-  
-  // Валидация формата username (опционально может начинаться с @)
-  const username = form.telegramUsername.trim().replace(/^@/, '')
+
+  const username = form.telegramUsername.trim().replace(/^@/, "");
   if (!/^[a-zA-Z0-9_]{5,32}$/.test(username)) {
-    errors.telegramUsername = 'Username должен содержать от 5 до 32 символов (буквы, цифры, подчеркивание)'
-    return false
+    errors.telegramUsername = "Username должен содержать от 5 до 32 символов";
+    return false;
   }
-  
-  if (form.deliveryType === 'delivery') {
+
+  if (form.deliveryType === "delivery") {
     if (!form.phone.trim()) {
-      errors.phone = 'Укажите номер телефона'
-      return false
+      errors.phone = "Укажите номер телефона";
+      return false;
     }
-    
     if (!form.address.trim()) {
-      errors.address = 'Укажите адрес доставки'
-      return false
+      errors.address = "Укажите адрес доставки";
+      return false;
     }
   }
-  
-  return true
+
+  return true;
 }
 
 async function submitOrder() {
-  if (!validateForm()) {
-    return
-  }
-  
-  submitError.value = ''
-  isSubmitting.value = true
-  
+  if (!validateForm()) return;
+
+  submitError.value = "";
+  isSubmitting.value = true;
+
   try {
-    const user = telegramUser.value
-    
-    // Очищаем username от @ если есть
-    const cleanUsername = form.telegramUsername.trim().replace(/^@/, '')
-    
+    const user = telegramUser.value;
+    const cleanUsername = form.telegramUsername.trim().replace(/^@/, "");
+
     const orderData = {
       telegram_id: user?.id ? String(user.id) : undefined,
       telegram_username: cleanUsername,
       first_name: user?.first_name || undefined,
       last_name: user?.last_name || undefined,
       delivery_type: form.deliveryType,
-      delivery_address: form.deliveryType === 'delivery' ? form.address : undefined,
-      phone: form.deliveryType === 'delivery' ? form.phone : undefined,
+      delivery_address:
+        form.deliveryType === "delivery" ? form.address : undefined,
+      phone: form.deliveryType === "delivery" ? form.phone : undefined,
       notes: form.notes || undefined,
-      items: cartStore.items.map(item => ({
+      promo_code: promoCode.value || undefined,
+      items: cartStore.items.map((item) => ({
         product_id: item.productId,
         variant_id: item.variantId || null,
         quantity: item.quantity,
         price_per_unit: item.priceRub,
         product_title: item.productTitle || item.title,
-        variant_name: item.variantName || null
-      }))
-    }
-    
-    const response = await fetch('/api/orders', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(orderData)
-    })
-    
-    // Parse response body
-    let result: any
+        variant_name: item.variantName || null,
+      })),
+    };
+
+    const response = await fetch("/api/orders", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(orderData),
+    });
+
+    let result: any;
     try {
-      result = await response.json()
-    } catch (parseError) {
-      console.error('[Checkout] Failed to parse response:', parseError)
-    if (!response.ok) {
-      throw new Error('Не удалось создать заказ')
+      result = await response.json();
+    } catch {
+      if (!response.ok) throw new Error("Не удалось создать заказ");
     }
-    }
-    
-    // Handle error responses with detailed messages
+
     if (!response.ok) {
-      // Check for min_delivery_amount error and show banner
-      if (result?.error === 'min_delivery_amount_not_met') {
-        showMinDeliveryBanner.value = true
-        form.deliveryType = 'pickup'
-        throw new Error(result.message || 'Сумма заказа меньше минимальной для доставки')
+      if (result?.error === "min_delivery_amount_not_met") {
+        showMinDeliveryBanner.value = true;
+        form.deliveryType = "pickup";
+        throw new Error(
+          result.message || "Сумма заказа меньше минимальной для доставки",
+        );
       }
-      
-      // Use server message if available
-      const errorMessage = result?.message || 'Не удалось создать заказ'
-      throw new Error(errorMessage)
+      throw new Error(result?.message || "Не удалось создать заказ");
     }
-    
-    // Clear cart and redirect
-    cartStore.clearCart()
-    
-    // Redirect to Telegram manager if configured
-    const redirectTelegram = settingsStore.settings.order_redirect_telegram?.trim()
-    
-    // Helper function to show alert with fallback for unsupported Telegram versions
+
+    cartStore.clearCart();
+
+    const redirectTelegram =
+      settingsStore.settings.order_redirect_telegram?.trim();
     const showSuccessAlert = (message: string, callback: () => void) => {
-      const tg = window.Telegram?.WebApp
-      // Check if showAlert is supported (version >= 6.2)
-      if (tg && typeof tg.showAlert === 'function' && tg.version && parseFloat(tg.version) >= 6.2) {
+      const tg = window.Telegram?.WebApp;
+      if (
+        tg &&
+        typeof tg.showAlert === "function" &&
+        tg.version &&
+        parseFloat(tg.version) >= 6.2
+      ) {
         try {
-          tg.showAlert(message, callback)
-        } catch (e) {
-          // Fallback if showAlert fails
-          alert(message)
-          callback()
+          tg.showAlert(message, callback);
+        } catch {
+          alert(message);
+          callback();
         }
       } else {
-        // Fallback for older versions or non-Telegram environment
-        alert(message)
-        callback()
+        alert(message);
+        callback();
       }
-    }
-    
+    };
+
     if (redirectTelegram) {
-      const textTemplate = settingsStore.settings.order_redirect_text_template || 'Мой номер заказа - #{order_number}'
-      const messageText = textTemplate.replace('{order_number}', result.order_number).replace('#{order_number}', result.order_number)
-      const encodedText = encodeURIComponent(messageText)
-      const tgLink = `https://t.me/${redirectTelegram}?text=${encodedText}`
-      
-      // Show success message and redirect to manager
-      showSuccessAlert('Заказ успешно оформлен! Номер заказа: ' + result.order_number, () => {
-        // Open Telegram link first
-        window.open(tgLink, '_blank')
-        // Then navigate to home using location.href for reliability in Telegram WebApp
-        setTimeout(() => {
-          window.location.href = '/'
-        }, 100)
-      })
+      const textTemplate =
+        settingsStore.settings.order_redirect_text_template ||
+        "Мой номер заказа - #{order_number}";
+      const messageText = textTemplate
+        .replace("{order_number}", result.order_number)
+        .replace("#{order_number}", result.order_number);
+      const tgLink = `https://t.me/${redirectTelegram}?text=${encodeURIComponent(messageText)}`;
+      showSuccessAlert(
+        "Заказ успешно оформлен! Номер заказа: " + result.order_number,
+        () => {
+          window.open(tgLink, "_blank");
+          setTimeout(() => {
+            window.location.href = "/";
+          }, 100);
+        },
+      );
     } else {
-      // No redirect configured, just show success
-      showSuccessAlert('Заказ успешно оформлен! Номер заказа: ' + result.order_number, () => {
-        window.location.href = '/'
-      })
+      showSuccessAlert(
+        "Заказ успешно оформлен! Номер заказа: " + result.order_number,
+        () => {
+          window.location.href = "/";
+        },
+      );
     }
   } catch (error: any) {
-    console.error('[Checkout] Submit error', error)
-    submitError.value = error?.message || 'Не удалось оформить заказ. Попробуйте снова.'
+    console.error("[Checkout] Submit error", error);
+    submitError.value =
+      error?.message || "Не удалось оформить заказ. Попробуйте снова.";
   } finally {
-    isSubmitting.value = false
+    isSubmitting.value = false;
   }
 }
 </script>
 
 <style scoped>
-/* ===== Checkout Page Styles - List Receipt Style ===== */
-
-.back-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.55rem 1rem;
-  border-radius: 9999px;
-  font-size: 0.75rem;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  border: 3px solid var(--navalivay-black);
-  background: var(--navalivay-white);
-  color: var(--navalivay-black);
-  transition: all 0.2s ease;
-  cursor: pointer;
+.checkout-page {
+  min-height: 100vh;
+  background: #f5f7fa;
+  padding-bottom: 32px;
 }
 
-.back-chip:hover {
-  transform: translate(-2px, -2px);
-  box-shadow: 4px 4px 0 rgba(26, 26, 26, 0.3);
+.header-area {
+  background: rgba(255, 255, 255, 0.8);
+  backdrop-filter: blur(11.5px);
+  border-radius: 0 0 24px 24px;
+  padding: 12px 16px 20px;
+  margin-bottom: 16px;
+}
+
+.checkout-header {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  height: 32px;
 }
 
 .checkout-title {
-  font-family: var(--font-display);
-  font-size: 1.75rem;
-  font-weight: 900;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--navalivay-black);
+  font-family: "Montserrat", sans-serif;
+  font-weight: 700;
+  font-size: 20px;
+  line-height: 24px;
+  color: #191919;
+  margin: 0;
 }
 
-/* Card container - clean */
-.checkout-card {
+.header-trash-btn {
+  position: absolute;
+  right: 0;
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   background: transparent;
-  border: 1px solid rgba(26, 26, 26, 0.1);
-  border-radius: 16px;
-  padding: 1.5rem;
-}
-
-/* Submit section - no border, minimal margin */
-.checkout-card.submit-section {
   border: none;
-  padding: 0;
-  margin-top: 0.5rem;
+  cursor: pointer;
 }
 
-.checkout-card-title {
-  font-family: var(--font-display);
-  font-size: 1.125rem;
-  font-weight: 800;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--navalivay-black);
-  margin-bottom: 1rem;
+.checkout-container {
+  padding: 0 16px;
 }
 
 .empty-cart {
   text-align: center;
-  padding: 3rem 2rem;
-  color: var(--navalivay-gray);
-  font-weight: 600;
-  font-size: 1rem;
+  padding: 60px 20px;
+  background: #ffffff;
+  border-radius: 20px;
 }
 
-/* List item - simple row */
+.empty-cart-icon {
+  font-size: 48px;
+  margin-bottom: 16px;
+}
+
+.empty-cart p {
+  font-size: 16px;
+  color: #666;
+  margin-bottom: 24px;
+}
+
+.back-to-shop-btn {
+  padding: 16px 32px;
+  background: linear-gradient(90deg, #f50302 0%, #a90f0e 100%);
+  color: #fff;
+  border: none;
+  border-radius: 528px;
+  font-family: "Montserrat", sans-serif;
+  font-size: 16px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.checkout-content {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.cart-card {
+  background: #ffffff;
+  border-radius: 20px;
+  overflow: hidden;
+}
+
+.cart-items {
+  padding: 16px;
+}
+
 .cart-item {
   display: flex;
-  align-items: center;
-  gap: 1rem;
-  padding: 1rem 0;
-  border-bottom: 1px solid rgba(26, 26, 26, 0.1);
-  transition: background-color 0.2s ease;
+  align-items: flex-start;
+  gap: 16px;
+  padding-bottom: 16px;
 }
 
-.cart-item:hover {
-  background-color: rgba(26, 26, 26, 0.02);
+.cart-item-border {
+  border-bottom: 1px solid #e6e9ed;
+  margin-bottom: 16px;
 }
 
-.cart-item:last-child {
-  border-bottom: none;
+.cart-item-image-wrap {
+  position: relative;
+  flex-shrink: 0;
 }
 
 .cart-item-image {
-  width: 3.5rem;
-  height: 3.5rem;
-  flex-shrink: 0;
-  border-radius: 8px;
+  width: 88px;
+  height: 104px;
+  border: 1px solid #e6e9ed;
+  border-radius: 16px;
   overflow: hidden;
-  background: #f8f8f8;
-}
-
-.cart-item-image-placeholder {
-  width: 3.5rem;
-  height: 3.5rem;
-  flex-shrink: 0;
-  border-radius: 8px;
-  background: #f8f8f8;
+  background: #ffffff;
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--navalivay-gray);
+}
+
+.cart-item-image img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.cart-item-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ice-badge {
+  position: absolute;
+  bottom: 0px;
+  right: 0px;
+  width: 24px;
+  height: 24px;
+  background: linear-gradient(90deg, #09b5fd 0%, #00499f 100%);
+  box-shadow: 0px 4px 24px rgba(0, 73, 159, 0.12);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1;
+}
+
+.cart-item-info {
+  flex: 1;
+  min-width: 0;
 }
 
 .cart-item-title {
+  font-family: "Montserrat", sans-serif;
   font-weight: 700;
-  font-size: 0.95rem;
-  color: var(--navalivay-black);
-  line-height: 1.3;
+  font-size: 16px;
+  line-height: 20px;
+  color: #191919;
+  margin: 0 0 4px;
 }
 
 .cart-item-meta {
-  font-size: 0.8rem;
+  font-family: -apple-system, "SF Pro Display", sans-serif;
+  font-weight: 400;
+  font-size: 14px;
+  line-height: 17px;
+  color: #aab2bd;
+  margin: 0 0 8px;
+}
+
+.item-badge-new {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 10px;
+  background: linear-gradient(90deg, #f50302 0%, #a90f0e 100%);
+  border-radius: 23px;
+  margin-bottom: 8px;
+}
+
+.item-badge-new span {
+  font-family: -apple-system, "SF Pro Display", sans-serif;
   font-weight: 500;
-  color: var(--navalivay-gray);
-  margin-top: 0.25rem;
+  font-size: 10px;
+  line-height: 12px;
+  text-transform: uppercase;
+  color: #ffffff;
 }
 
-/* Quantity controls - minimal */
+.cart-item-price {
+  font-family: "Montserrat", sans-serif;
+  font-weight: 700;
+  font-size: 20px;
+  line-height: 24px;
+  color: #191919;
+  margin: 0;
+}
+
+.cart-item-controls {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
 .qty-btn {
-  padding: 0.25rem 0.5rem;
-  border: 1px solid rgba(26, 26, 26, 0.2);
-  border-radius: 6px;
-  background: transparent;
-  color: var(--navalivay-black);
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #f5f7fa;
+  border: none;
+  border-radius: 512px;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: background 0.15s;
 }
 
-.qty-btn:hover {
-  border-color: var(--navalivay-black);
-  background: rgba(26, 26, 26, 0.05);
+.qty-btn:hover:not(:disabled) {
+  background: #e6e9ed;
 }
 
 .qty-btn-disabled,
 .qty-btn:disabled {
   opacity: 0.4;
   cursor: not-allowed;
-  border-color: rgba(26, 26, 26, 0.1);
 }
 
-.qty-btn-disabled:hover,
-.qty-btn:disabled:hover {
-  border-color: rgba(26, 26, 26, 0.1);
-  background: transparent;
+.qty-btn span {
+  font-family: -apple-system, "SF Pro Display", sans-serif;
+  font-weight: 500;
+  font-size: 16px;
+  line-height: 19px;
+  color: #191919;
 }
 
 .qty-value {
-  width: 2rem;
-  text-align: center;
-  font-weight: 700;
-  font-size: 0.9rem;
-  color: var(--navalivay-black);
-}
-
-.remove-btn {
-  margin-left: 0.5rem;
-  padding: 0.25rem 0.5rem;
-  border: 1px solid rgba(211, 47, 47, 0.3);
-  border-radius: 6px;
-  background: transparent;
-  color: var(--navalivay-red);
-  cursor: pointer;
-  transition: all 0.15s ease;
-}
-
-.remove-btn:hover {
-  border-color: var(--navalivay-red);
-  background: rgba(211, 47, 47, 0.05);
-}
-
-.cart-item-total {
-  font-weight: 700;
-  font-size: 1rem;
-  color: var(--navalivay-black);
-  min-width: 5rem;
-  text-align: right;
-}
-
-/* Total section */
-.cart-total {
+  width: 40px;
+  height: 40px;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding-top: 1rem;
-  margin-top: 1rem;
-  border-top: 2px solid var(--navalivay-black);
-}
-
-.cart-total-label {
-  font-weight: 800;
-  font-size: 1.125rem;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--navalivay-black);
-}
-
-.cart-total-amount {
-  font-weight: 900;
-  font-size: 2rem;
-  letter-spacing: 0.02em;
-  color: var(--navalivay-red);
-}
-
-/* Delivery options - clean cards */
-.delivery-option {
-  position: relative;
-  display: flex;
-  cursor: pointer;
+  justify-content: center;
+  background: #ffffff;
+  border: 1px solid #e6e9ed;
   border-radius: 12px;
-  border: 2px solid rgba(26, 26, 26, 0.15);
-  padding: 1rem;
-  background: transparent;
-  transition: all 0.2s ease;
 }
 
-.delivery-option:hover {
-  border-color: rgba(26, 26, 26, 0.3);
-  background: rgba(26, 26, 26, 0.02);
-}
-
-.delivery-option.active {
-  border-color: var(--navalivay-red);
-  border-width: 2px;
-  background: rgba(211, 47, 47, 0.03);
-}
-
-.delivery-option-title {
-  font-weight: 700;
-  font-size: 0.95rem;
-  color: var(--navalivay-black);
-}
-
-.delivery-option-desc {
-  font-size: 0.8rem;
+.qty-value span {
+  font-family: -apple-system, "SF Pro Display", sans-serif;
   font-weight: 500;
-  color: var(--navalivay-gray);
-  margin-top: 0.25rem;
+  font-size: 16px;
+  line-height: 19px;
+  color: #191919;
 }
 
-/* Form inputs - clean */
-.form-label {
-  display: block;
-  font-size: 0.85rem;
-  font-weight: 700;
-  color: var(--navalivay-black);
-  margin-bottom: 0.5rem;
-}
-
-.form-input {
+.toggle-items-btn {
   width: 100%;
-  padding: 0.75rem 1rem;
-  border: 2px solid rgba(26, 26, 26, 0.15);
-  border-radius: 10px;
-  background: transparent;
-  font-family: var(--font-body);
-  font-size: 0.95rem;
+  height: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  background: #ffffff;
+  border: 1px solid #e6e9ed;
+  border-radius: 528px;
+  cursor: pointer;
+}
+
+.toggle-items-btn:hover {
+  background: #fafafa;
+}
+
+.toggle-items-btn span:first-child {
+  font-family: "Montserrat", sans-serif;
   font-weight: 500;
-  color: var(--navalivay-black);
-  transition: all 0.2s ease;
+  font-size: 16px;
+  line-height: 20px;
+  color: #191919;
 }
 
-.form-input:focus {
+.toggle-count {
+  font-family: "Montserrat", sans-serif;
+  font-weight: 500;
+  font-size: 16px;
+  line-height: 20px;
+  color: #aab2be;
+}
+
+.promo-card {
+  background: #ffffff;
+  border-radius: 20px;
+  padding: 24px 16px;
+}
+
+.promo-label {
+  font-family: "Montserrat", sans-serif;
+  font-weight: 700;
+  font-size: 16px;
+  line-height: 20px;
+  color: #191919;
+  margin: 0 0 16px;
+}
+
+.promo-input-row {
+  display: flex;
+  align-items: center;
+  background: #ffffff;
+  border: 1px solid #e6e9ed;
+  border-radius: 16px;
+  height: 64px;
+  padding: 0 10px 0 16px;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+.promo-input {
+  flex: 1;
+  min-width: 0;
+  border: none;
   outline: none;
-  border-color: var(--navalivay-red);
-  background: rgba(211, 47, 47, 0.02);
+  font-family: -apple-system, "SF Pro Display", sans-serif;
+  font-weight: 400;
+  font-size: 16px;
+  line-height: 19px;
+  color: #191919;
+  background: transparent;
 }
 
-.form-input.error {
-  border-color: var(--navalivay-red);
-  background: rgba(211, 47, 47, 0.05);
+.promo-input::placeholder {
+  color: #aab2bd;
 }
 
-.form-input::placeholder {
-  color: var(--navalivay-gray);
-  opacity: 0.5;
+.promo-apply-btn {
+  width: 112px;
+  height: 44px;
+  padding: 10px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 10px;
+  background: linear-gradient(98.83deg, #f50302 0%, #c20b0c 119.75%);
+  border: none;
+  border-radius: 528px;
+  font-family: -apple-system, "SF Pro Display", sans-serif;
+  font-weight: 400;
+  font-size: 14px;
+  line-height: 17px;
+  color: #f5f7fa;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
-.form-error {
-  margin-top: 0.5rem;
-  font-size: 0.8rem;
-  font-weight: 600;
-  color: var(--navalivay-red);
+.promo-apply-btn:hover {
+  opacity: 0.9;
 }
 
-.submit-error {
-  margin-bottom: 1rem;
-  padding: 0.75rem 1rem;
-  border: 2px solid var(--navalivay-red);
-  border-radius: 10px;
-  background: rgba(211, 47, 47, 0.05);
-  font-size: 0.875rem;
-  font-weight: 600;
-  color: var(--navalivay-red);
+.promo-applied-row {
+  display: flex;
+  align-items: center;
+  background: #ffffff;
+  border: 1px solid #e6e9ed;
+  border-radius: 16px;
+  height: 64px;
+  padding-left: 16px;
 }
 
-/* Submit button - черный дизайн с контрастом */
+.promo-applied-info {
+  flex: 1;
+}
+
+.promo-input-label {
+  font-family: -apple-system, "SF Pro Display", sans-serif;
+  font-weight: 400;
+  font-size: 12px;
+  line-height: 14px;
+  color: #aab2bd;
+  display: block;
+}
+
+.promo-code-display {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.promo-code-text {
+  font-family: -apple-system, "SF Pro Display", sans-serif;
+  font-weight: 500;
+  font-size: 16px;
+  line-height: 19px;
+  color: #34c759;
+}
+
+.promo-cancel-btn {
+  margin: 10px;
+  padding: 0 20px;
+  height: 44px;
+  background: #e6e9ed;
+  border: none;
+  border-radius: 528px;
+  font-family: -apple-system, "SF Pro Display", sans-serif;
+  font-weight: 500;
+  font-size: 14px;
+  line-height: 17px;
+  color: #191919;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.promo-discount-text {
+  font-family: -apple-system, "SF Pro Display", sans-serif;
+  font-weight: 400;
+  font-size: 12px;
+  line-height: 14px;
+  color: #34c759;
+  margin: 12px 0 0;
+}
+
+.summary-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 0 8px;
+}
+
+.summary-label {
+  font-family: -apple-system, "SF Pro Display", sans-serif;
+  font-size: 14px;
+  line-height: 17px;
+  color: #aab2bd;
+}
+
+.summary-discount {
+  font-family: -apple-system, "SF Pro Display", sans-serif;
+  font-size: 14px;
+  line-height: 17px;
+  color: #aab2bd;
+}
+
+.total-block {
+  display: flex;
+  flex-direction: column;
+  gap: 0px;
+  padding: 0 8px;
+  margin-top: 10px;
+}
+
+.total-label {
+  font-family: "Montserrat", sans-serif;
+  font-weight: 700;
+  font-size: 16px;
+  line-height: 20px;
+  color: #191919;
+  margin-bottom: 4px;
+}
+
+.total-amount {
+  font-family: "Montserrat", sans-serif;
+  font-weight: 700;
+  font-size: 24px;
+  line-height: 29px;
+  color: #191919;
+}
+
 .submit-button {
   width: 100%;
-  padding: 1.25rem 2rem;
-  background: linear-gradient(135deg, #1a1a1a 0%, #2a2a2a 100%);
+  height: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(90deg, #f50302 0%, #a90f0e 100%);
   border: none;
-  border-radius: 20px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5), 0 0 40px rgba(211, 47, 47, 0.3);
-  font-family: var(--font-display);
-  font-size: 1.125rem;
-  font-weight: 900;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--navalivay-white);
-  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+  border-radius: 528px;
+  font-family: "Montserrat", sans-serif;
+  font-weight: 500;
+  font-size: 16px;
+  line-height: 20px;
+  color: #ffffff;
   cursor: pointer;
-  transition: transform 0.25s ease, box-shadow 0.25s ease;
 }
 
 .submit-button:hover:not(:disabled) {
-  transform: translateY(-2px);
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.6), 0 0 50px rgba(211, 47, 47, 0.5);
-}
-
-.submit-button:active:not(:disabled) {
-  transform: translateY(-1px);
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5), 0 0 35px rgba(211, 47, 47, 0.4);
+  opacity: 0.95;
 }
 
 .submit-button:disabled {
+  opacity: 0.6;
   cursor: not-allowed;
-  opacity: 0.5;
 }
 
-/* Mobile adjustments */
-@media (max-width: 768px) {
-  .checkout-title {
-    font-size: 1.5rem;
+.submit-error {
+  padding: 12px 16px;
+  background: #fee2e2;
+  border-radius: 12px;
+  font-size: 14px;
+  color: #dc2626;
+  text-align: center;
+}
+
+@media (max-width: 400px) {
+  .cart-item-image {
+    width: 72px;
+    height: 88px;
   }
-  
-  .checkout-card {
-    padding: 1.25rem;
-    border-radius: 14px;
-  }
-  
-  .cart-item {
-    padding: 0.85rem 0;
-    gap: 0.75rem;
-  }
-  
-  .cart-item-image,
-  .cart-item-image-placeholder {
-    width: 3rem;
-    height: 3rem;
-  }
-  
+
   .cart-item-title {
-    font-size: 0.85rem;
+    font-size: 14px;
   }
-  
-  .cart-item-total {
-    min-width: 4.5rem;
-    font-size: 0.9rem;
-  }
-  
-  .cart-total-amount {
-    font-size: 1.75rem;
-  }
-  
-  .submit-button {
-    font-size: 0.9rem;
-    padding: 1rem 1.5rem;
-    border-radius: 18px;
-    letter-spacing: 0.06em;
-  }
-}
 
-@media (max-width: 480px) {
-  .checkout-card {
-    padding: 1rem;
-    border-radius: 12px;
+  .cart-item-price {
+    font-size: 18px;
   }
-  
-  .cart-item {
-    display: grid;
-    grid-template-columns: auto 1fr auto;
-    grid-template-rows: auto auto;
-    gap: 0.5rem;
-    padding: 0.75rem 0;
-  }
-  
-  .cart-item-image,
-  .cart-item-image-placeholder {
-    grid-row: 1 / 3;
-    width: 2.5rem;
-    height: 2.5rem;
-  }
-  
-  .cart-item .flex-1 {
-    grid-column: 2;
-    grid-row: 1;
-  }
-  
-  .cart-item .flex.items-center.gap-2 {
-    grid-column: 2;
-    grid-row: 2;
-    gap: 0.5rem;
-  }
-  
-  .cart-item-total {
-    grid-column: 3;
-    grid-row: 1 / 3;
-    display: flex;
-    align-items: center;
-    min-width: auto;
-    font-size: 0.9rem;
-  }
-  
-  .qty-btn {
-    padding: 0.2rem 0.4rem;
-  }
-  
+
+  .qty-btn,
   .qty-value {
-    width: 1.5rem;
-    font-size: 0.85rem;
+    width: 36px;
+    height: 36px;
   }
-  
-  .remove-btn {
-    margin-left: 0.25rem;
-    padding: 0.2rem 0.4rem;
-  }
-  
-  .cart-item-title {
-    font-size: 0.8rem;
-  }
-  
-  .cart-item-meta {
-    font-size: 0.7rem;
-  }
-  
-  .cart-total-amount {
-    font-size: 1.5rem;
-  }
-  
-  .grid-cols-2 {
-    grid-template-columns: 1fr;
-  }
+}
+
+.fade-btn-enter-active,
+.fade-btn-leave-active {
+  transition:
+    opacity 0.2s ease,
+    transform 0.2s ease;
+}
+
+.fade-btn-enter-from,
+.fade-btn-leave-to {
+  opacity: 0;
+  transform: translateX(10px);
+}
+
+.list-enter-active,
+.list-leave-active {
+  transition: all 0.3s ease;
+}
+
+.list-enter-from,
+.list-leave-to {
+  opacity: 0;
+  transform: translateY(-10px);
 }
 </style>
