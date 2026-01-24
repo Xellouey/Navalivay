@@ -366,8 +366,8 @@ const wrapperStyle = computed(() => {
   if (!isExpanded.value) {
     return { maxHeight: "0px" };
   }
-  const height = contentHeight.value > 0 ? contentHeight.value : 5000;
-  return { maxHeight: `${height}px` };
+  const height = Math.max(contentHeight.value, 10000);
+  return { maxHeight: height + "px" };
 });
 
 // Функция для расчета высоты
@@ -426,10 +426,14 @@ watch(
 );
 
 async function onChildHeightChanged() {
-  if (isExpanded.value) {
-    await calculateHeight();
+  if (!isExpanded.value) return;
+  await calculateHeight();
+  setTimeout(() => calculateHeight(), 50);
+  setTimeout(() => calculateHeight(), 150);
+  setTimeout(() => {
+    calculateHeight();
     emit("heightChanged");
-  }
+  }, 350);
 }
 
 function toggle() {
@@ -989,7 +993,7 @@ function decrementVariantQuantity(product: Product, variant: { id?: string }) {
   line-height: 14px;
   color: #0273f5;
   cursor: pointer;
-  transition: opacity 0.2s ease;
+  transition: opacity 0.3s ease;
 }
 
 .group-variant-color-link:hover {
@@ -1075,15 +1079,15 @@ function decrementVariantQuantity(product: Product, variant: { id?: string }) {
 /* ========== Анимация раскрытия ========== */
 .subline-expand-enter-active {
   transition:
-    max-height 0.4s ease,
-    opacity 0.3s ease;
+    max-height 0.55s ease,
+    opacity 0.4s ease;
   overflow: hidden;
 }
 
 .subline-expand-leave-active {
   transition:
-    max-height 0.3s ease,
-    opacity 0.2s ease;
+    max-height 0.45s ease,
+    opacity 0.3s ease;
   overflow: hidden;
 }
 
@@ -1153,7 +1157,7 @@ function decrementVariantQuantity(product: Product, variant: { id?: string }) {
 
 .group-line-body-wrapper {
   overflow: hidden;
-  transition: max-height 500ms cubic-bezier(0.4, 0, 0.2, 1);
+  transition: max-height 650ms cubic-bezier(0.4, 0, 0.2, 1);
   max-height: 0;
 }
 
