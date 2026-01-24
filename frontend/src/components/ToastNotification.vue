@@ -1,51 +1,82 @@
 <template>
   <Transition name="toast-slide">
-    <div v-if="visible" class="toast-container" :class="type">
-      <div class="toast-content">
-        <div class="toast-icon">
-          <ExclamationTriangleIcon v-if="type === 'error'" class="icon" />
-          <CheckCircleIcon v-else-if="type === 'success'" class="icon" />
-          <InformationCircleIcon v-else class="icon" />
-        </div>
-        <p class="toast-message">{{ message }}</p>
-      </div>
+    <div v-if="visible" class="toast-container">
+      <p class="toast-message">{{ displayMessage }}</p>
+      <button class="toast-close" @click="close" aria-label="Закрыть">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+          <path
+            d="M1 1L13 13M13 1L1 13"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+          />
+        </svg>
+      </button>
     </div>
   </Transition>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onBeforeUnmount } from 'vue'
-import { ExclamationTriangleIcon, CheckCircleIcon, InformationCircleIcon } from '@heroicons/vue/24/outline'
+import { ref, computed, onMounted, onBeforeUnmount } from "vue";
 
-const props = withDefaults(defineProps<{
-  message: string
-  type?: 'error' | 'success' | 'info'
-  duration?: number
-}>(), {
-  type: 'info',
-  duration: 3000
-})
+const props = withDefaults(
+  defineProps<{
+    message: string;
+    type?: "error" | "success" | "info";
+    duration?: number;
+  }>(),
+  {
+    type: "info",
+    duration: 3500,
+  },
+);
 
-const visible = ref(false)
-let hideTimeout: NodeJS.Timeout | null = null
+const emit = defineEmits<{
+  close: [];
+}>();
+
+const visible = ref(false);
+let hideTimeout: ReturnType<typeof setTimeout> | null = null;
+
+// Преобразуем сообщение - добавляем "Опс, " к error сообщениям
+const displayMessage = computed(() => {
+  if (props.type === "error") {
+    const msg = props.message.toLowerCase();
+    // Если сообщение уже начинается с "опс", не добавляем
+    if (msg.startsWith("опс")) {
+      return props.message;
+    }
+    // Заменяем стандартные сообщения
+    if (msg.includes("в наличии больше нет") || msg.includes("нет в наличии")) {
+      return `Опс, ${props.message.toLowerCase()}`;
+    }
+    return `Опс, ${props.message.toLowerCase()}`;
+  }
+  return props.message;
+});
+
+function close() {
+  visible.value = false;
+  emit("close");
+}
 
 onMounted(() => {
   if (props.message) {
     setTimeout(() => {
-      visible.value = true
-    }, 50)
-    
+      visible.value = true;
+    }, 50);
+
     hideTimeout = setTimeout(() => {
-      visible.value = false
-    }, props.duration)
+      visible.value = false;
+    }, props.duration);
   }
-})
+});
 
 onBeforeUnmount(() => {
   if (hideTimeout) {
-    clearTimeout(hideTimeout)
+    clearTimeout(hideTimeout);
   }
-})
+});
 </script>
 
 <style scoped>
@@ -55,67 +86,63 @@ onBeforeUnmount(() => {
   left: 50%;
   transform: translateX(-50%);
   z-index: 100;
-  max-width: 90%;
-  width: auto;
-  min-width: 280px;
-}
 
-.toast-content {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
-  padding: 1rem 1.5rem;
-  background: white;
-  border: 3px solid var(--navalivay-black);
-  border-radius: 16px;
-  box-shadow: 4px 4px 0 rgba(26, 26, 26, 0.3);
-}
+  justify-content: space-between;
+  gap: 16px;
 
-.toast-container.error .toast-content {
-  border-color: #e60000;
-  background: #fff5f5;
-}
+  width: calc(100% - 32px);
+  max-width: 377px;
+  padding: 22px 20px;
 
-.toast-container.success .toast-content {
-  border-color: #00c853;
-  background: #f1f8f4;
-}
-
-.toast-container.info .toast-content {
-  border-color: #2196f3;
-  background: #f3f9ff;
-}
-
-.toast-icon {
-  flex-shrink: 0;
-  width: 28px;
-  height: 28px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.toast-container.error .icon {
-  color: #e60000;
-}
-
-.toast-container.success .icon {
-  color: #00c853;
-}
-
-.toast-container.info .icon {
-  color: #2196f3;
+  background: rgba(101, 109, 119, 0.72);
+  backdrop-filter: blur(28px);
+  -webkit-backdrop-filter: blur(28px);
+  border-radius: 20px;
 }
 
 .toast-message {
   margin: 0;
-  font-size: 0.95rem;
+  font-family: "Montserrat", sans-serif;
   font-weight: 700;
-  color: var(--navalivay-black);
-  line-height: 1.3;
-  text-align: left;
+  font-size: 16px;
+  line-height: 20px;
+  color: #ffffff;
+  flex: 1;
 }
 
+.toast-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+
+  background: rgba(245, 247, 250, 0.08);
+  border: none;
+  border-radius: 512px;
+
+  color: #ffffff;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.toast-close:hover {
+  background: rgba(245, 247, 250, 0.16);
+}
+
+.toast-close:active {
+  background: rgba(245, 247, 250, 0.24);
+}
+
+.toast-close svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* Анимация появления */
 .toast-slide-enter-active {
   transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
@@ -125,50 +152,55 @@ onBeforeUnmount(() => {
 }
 
 .toast-slide-enter-from {
-  transform: translate(-50%, 20px);
+  transform: translate(-50%, 30px);
   opacity: 0;
 }
 
 .toast-slide-leave-to {
-  transform: translate(-50%, 20px);
+  transform: translate(-50%, 30px);
   opacity: 0;
 }
 
-@media (max-width: 640px) {
+/* Mobile adjustments */
+@media (max-width: 480px) {
   .toast-container {
     bottom: 90px;
-    min-width: 260px;
+    padding: 18px 16px;
+    gap: 12px;
+    border-radius: 18px;
   }
-  
-  .toast-content {
-    padding: 0.85rem 1.25rem;
-    border-width: 2px;
-    border-radius: 14px;
-  }
-  
-  .toast-icon {
-    width: 24px;
-    height: 24px;
-  }
-  
+
   .toast-message {
-    font-size: 0.88rem;
+    font-size: 15px;
+    line-height: 19px;
+  }
+
+  .toast-close {
+    width: 36px;
+    height: 36px;
+  }
+
+  .toast-close svg {
+    width: 12px;
+    height: 12px;
   }
 }
 
-@media (max-width: 480px) {
+@media (max-width: 360px) {
   .toast-container {
     bottom: 85px;
-    min-width: 240px;
+    padding: 16px 14px;
+    border-radius: 16px;
   }
-  
-  .toast-content {
-    padding: 0.75rem 1rem;
-    gap: 0.6rem;
-  }
-  
+
   .toast-message {
-    font-size: 0.85rem;
+    font-size: 14px;
+    line-height: 18px;
+  }
+
+  .toast-close {
+    width: 34px;
+    height: 34px;
   }
 }
 </style>
