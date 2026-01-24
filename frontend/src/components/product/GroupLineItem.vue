@@ -270,6 +270,7 @@
             :expanded-groups="expandedGroups"
             @toggle="$emit('toggle', $event)"
             @productClick="$emit('productClick', $event)"
+            @heightChanged="onChildHeightChanged"
             @showToast="
               (msg: string, type: 'error' | 'success' | 'info') =>
                 $emit('showToast', msg, type)
@@ -315,6 +316,7 @@ interface GroupNode {
 }
 
 const props = defineProps<{
+  categoryImage?: string | null;
   node: GroupNode;
   expandedGroups: Record<string, boolean>;
 }>();
@@ -323,6 +325,7 @@ const emit = defineEmits<{
   (e: "toggle", groupId: string): void;
   (e: "productClick", product: Product): void;
   (e: "showToast", message: string, type: "error" | "success" | "info"): void;
+  (e: "heightChanged"): void;
 }>();
 
 const cartStore = useCartStore();
@@ -384,9 +387,13 @@ watch(
       await calculateHeight();
       setTimeout(() => calculateHeight(), 50);
       setTimeout(() => calculateHeight(), 150);
-      setTimeout(() => calculateHeight(), 350);
+      setTimeout(() => {
+        calculateHeight();
+        emit("heightChanged");
+      }, 350);
     } else {
       contentHeight.value = 0;
+      emit("heightChanged");
     }
   },
 );
@@ -409,11 +416,21 @@ watch(
       await calculateHeight();
       setTimeout(() => calculateHeight(), 50);
       setTimeout(() => calculateHeight(), 150);
-      setTimeout(() => calculateHeight(), 350);
+      setTimeout(() => {
+        calculateHeight();
+        emit("heightChanged");
+      }, 350);
     }
   },
   { deep: true },
 );
+
+async function onChildHeightChanged() {
+  if (isExpanded.value) {
+    await calculateHeight();
+    emit("heightChanged");
+  }
+}
 
 function toggle() {
   emit("toggle", props.node.id);
@@ -436,6 +453,10 @@ function formatPrice(value?: number | null) {
 }
 
 function getProductImage(product: Product): string | null {
+  // Если установлен флаг использовать изображение категории
+  if (product.needsCategoryImage && (props.node.coverImage || props.categoryImage)) {
+    return props.node.coverImage || props.categoryImage || null;
+  }
   if (
     product.hasVariants &&
     product.variants?.length &&

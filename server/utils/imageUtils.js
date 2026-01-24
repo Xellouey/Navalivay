@@ -33,9 +33,6 @@ export async function convertImageToWebP(base64String) {
     const originalFormat = matches[1].toLowerCase();
     
     // Если уже WebP - возвращаем как есть
-    if (originalFormat === 'webp') {
-      return base64String;
-    }
 
     const imageBuffer = Buffer.from(matches[2], 'base64');
 

@@ -3,6 +3,39 @@ import { db } from '../db.js';
 
 export const publicRouter = express.Router();
 
+const MAX_SQL_VARS = 900;
+
+function chunkArray(arr, size = MAX_SQL_VARS) {
+  const chunks = [];
+  for (let i = 0; i < arr.length; i += size) {
+    chunks.push(arr.slice(i, i + size));
+  }
+  return chunks;
+}
+
+function pushToMap(map, key, value) {
+  const list = map.get(key);
+  if (list) {
+    list.push(value);
+  } else {
+    map.set(key, [value]);
+  }
+}
+
+function pushVariantImage(map, productId, variantId, url) {
+  let byProduct = map.get(productId);
+  if (!byProduct) {
+    byProduct = new Map();
+    map.set(productId, byProduct);
+  }
+  const list = byProduct.get(variantId);
+  if (list) {
+    list.push(url);
+  } else {
+    byProduct.set(variantId, [url]);
+  }
+}
+
 publicRouter.get('/api/categories', (req, res) => {
   // ОПТИМИЗАЦИЯ: не загружаем cover_image в списке - экономит ~8MB трафика
   // Фронтенд загружает обложки отдельно через /api/categories/:id/image
@@ -288,45 +321,86 @@ publicRouter.get('/api/products', (req, res) => {
     ? db.prepare(sql).all(...whereParams, limit, offset)
     : db.prepare(sql).all(limit, offset);
 
-  const stmtImgs = db.prepare('SELECT url FROM product_images WHERE productId = ? AND variant_id IS NULL ORDER BY position ASC');
-  const stmtLinks = db.prepare('SELECT label, url FROM product_links WHERE productId = ? ORDER BY position ASC');
-  const stmtBadges = db.prepare(`
-    SELECT type, label, color
-    FROM product_badges
-    WHERE product_id = ?
-    ORDER BY rowid ASC
-  `);
-  const stmtVariants = db.prepare(`
-    SELECT id, product_id, name, color_code AS colorCode, color_image AS colorImage, price_rub AS priceRub, stock, position
-    FROM product_variants
-    WHERE product_id = ?
-    ORDER BY position ASC
-  `);
-  const stmtVariantImgs = db.prepare('SELECT url FROM product_images WHERE productId = ? AND variant_id = ? ORDER BY position ASC');
-  
+  const productIds = products.map(p => p.id);
+  const baseImagesByProduct = new Map();
+  const variantImagesByProduct = new Map();
+  const linksByProduct = new Map();
+  const badgesByProduct = new Map();
+  const variantsByProduct = new Map();
+
+  if (productIds.length > 0) {
+    for (const chunk of chunkArray(productIds)) {
+      const placeholders = chunk.map(() => '?').join(',');
+
+      const imageRows = db.prepare(`
+        SELECT productId, variant_id AS variantId, url, position
+        FROM product_images
+        WHERE productId IN (${placeholders})
+        ORDER BY productId ASC, variant_id ASC, position ASC
+      `).all(...chunk);
+      imageRows.forEach(row => {
+        if (row.variantId) {
+          pushVariantImage(variantImagesByProduct, row.productId, row.variantId, row.url);
+        } else {
+          pushToMap(baseImagesByProduct, row.productId, row.url);
+        }
+      });
+
+      const linkRows = db.prepare(`
+        SELECT productId, label, url, position
+        FROM product_links
+        WHERE productId IN (${placeholders})
+        ORDER BY productId ASC, position ASC
+      `).all(...chunk);
+      linkRows.forEach(row => {
+        pushToMap(linksByProduct, row.productId, { label: row.label ?? '', url: row.url });
+      });
+
+      const badgeRows = db.prepare(`
+        SELECT product_id as productId, type, label, color
+        FROM product_badges
+        WHERE product_id IN (${placeholders})
+        ORDER BY product_id ASC, rowid ASC
+      `).all(...chunk);
+      badgeRows.forEach(row => {
+        pushToMap(badgesByProduct, row.productId, {
+          type: row.type || null,
+          label: row.label || null,
+          color: row.color || null
+        });
+      });
+
+      const variantRows = db.prepare(`
+        SELECT id, product_id, name, color_code AS colorCode, color_image AS colorImage, price_rub AS priceRub, stock, position
+        FROM product_variants
+        WHERE product_id IN (${placeholders})
+        ORDER BY product_id ASC, position ASC
+      `).all(...chunk);
+      variantRows.forEach(row => {
+        pushToMap(variantsByProduct, row.product_id, row);
+      });
+    }
+  }
+
   const enriched = products.map((p) => {
     const stockValue = typeof p.stock === 'number' ? p.stock : null;
-    
+
     const result = {
       ...p,
       stock: stockValue,
       costPrice: typeof p.costPrice === 'number' ? p.costPrice : null,
       minStock: typeof p.minStock === 'number' ? p.minStock : null,
-      badges: stmtBadges.all(p.id).map((badge) => ({
-        type: badge.type || null,
-        label: badge.label || null,
-        color: badge.color || null
-      })),
+      badges: badgesByProduct.get(p.id) ?? [],
       isAvailable: stockValue === null ? true : stockValue > 0,
-      links: stmtLinks.all(p.id).map(link => ({ label: link.label ?? '', url: link.url }))
+      links: linksByProduct.get(p.id) ?? []
     };
-    
+
     if (p.hasVariants) {
       // Для товаров с вариантами получаем варианты и их изображения
-      const variants = stmtVariants.all(p.id);
+      const variants = variantsByProduct.get(p.id) ?? [];
       result.variants = variants.map(v => ({
         ...v,
-        images: stmtVariantImgs.all(p.id, v.id).map(r => r.url)
+        images: (variantImagesByProduct.get(p.id)?.get(v.id)) ?? []
       }));
       // Для обратной совместимости, показываем изображения первого варианта как изображения товара
       result.images = result.variants.length > 0 && result.variants[0].images && result.variants[0].images.length > 0 ? result.variants[0].images : [];
@@ -334,14 +408,14 @@ publicRouter.get('/api/products', (req, res) => {
       result.isAvailable = result.variants.some(v => (v.stock === null || v.stock > 0));
     } else {
       // Обычный товар без вариантов
-      const productImages = stmtImgs.all(p.id).map(r => r.url);
+      const productImages = baseImagesByProduct.get(p.id) ?? [];
       result.images = productImages;
       // ОПТИМИЗАЦИЯ: если у товара нет своих изображений и useCategoryImage=1,
       // фронтенд сам загрузит обложку категории через кэш
       // Добавляем флаг needsCategoryImage для фронтенда
       result.needsCategoryImage = p.useCategoryImage && productImages.length === 0;
     }
-    
+
     return result;
   });
 

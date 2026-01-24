@@ -39,6 +39,9 @@ Thumbs.db
 # БД хранится ТОЛЬКО на сервере, бэкапы в /var/backups/NAVALIVAY/
 server/data/navalivay.db
 server/data/*.db
+server/data/*.db-wal
+server/data/*.db-shm
+server/data/*.db.bak*
 *.db.old
 *.db.backup
 
@@ -48,6 +51,7 @@ uploads/
 # Backup files
 *.backup
 *.bak
+*.bak.*
 
 # Local test files
 test-*.js

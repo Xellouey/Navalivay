@@ -17,6 +17,39 @@ function ensureDir(p) {
   if (!fs.existsSync(p)) fs.mkdirSync(p, { recursive: true });
 }
 
+const MAX_SQL_VARS = 900;
+
+function chunkArray(arr, size = MAX_SQL_VARS) {
+  const chunks = [];
+  for (let i = 0; i < arr.length; i += size) {
+    chunks.push(arr.slice(i, i + size));
+  }
+  return chunks;
+}
+
+function pushToMap(map, key, value) {
+  const list = map.get(key);
+  if (list) {
+    list.push(value);
+  } else {
+    map.set(key, [value]);
+  }
+}
+
+function pushVariantImage(map, productId, variantId, url) {
+  let byProduct = map.get(productId);
+  if (!byProduct) {
+    byProduct = new Map();
+    map.set(productId, byProduct);
+  }
+  const list = byProduct.get(variantId);
+  if (list) {
+    list.push(url);
+  } else {
+    byProduct.set(variantId, [url]);
+  }
+}
+
 function getProfitPasswordHash() {
   const row = db.prepare('SELECT value FROM settings WHERE key = ?').get('profit_password_hash');
   if (row?.value) {
@@ -788,29 +821,65 @@ adminRouter.get('/api/admin/products', authMiddleware, (req, res) => {
       `).all(limit, offset)
   )
 
-  const imgStmt = db.prepare('SELECT url FROM product_images WHERE productId = ? AND variant_id IS NULL ORDER BY position ASC')
-  const linkStmt = db.prepare('SELECT label, url FROM product_links WHERE productId = ? ORDER BY position ASC')
-  const variantStmt = db.prepare(`
-    SELECT id, product_id, name, color_code AS colorCode, color_image AS colorImage, price_rub AS priceRub, stock, position
-    FROM product_variants
-    WHERE product_id = ?
-    ORDER BY position ASC
-  `)
-  const variantImgStmt = db.prepare('SELECT url FROM product_images WHERE productId = ? AND variant_id = ? ORDER BY position ASC')
-  
+  const productIds = rows.map(r => r.id);
+  const linksByProduct = new Map();
+  const baseImagesByProduct = new Map();
+  const variantsByProduct = new Map();
+  const variantImagesByProduct = new Map();
+
+  if (productIds.length > 0) {
+    for (const chunk of chunkArray(productIds)) {
+      const placeholders = chunk.map(() => '?').join(',');
+
+      const linkRows = db.prepare(`
+        SELECT productId, label, url, position
+        FROM product_links
+        WHERE productId IN (${placeholders})
+        ORDER BY productId ASC, position ASC
+      `).all(...chunk);
+      linkRows.forEach(row => {
+        pushToMap(linksByProduct, row.productId, { label: row.label ?? '', url: row.url });
+      });
+
+      const imageRows = db.prepare(`
+        SELECT productId, variant_id AS variantId, url, position
+        FROM product_images
+        WHERE productId IN (${placeholders})
+        ORDER BY productId ASC, variant_id ASC, position ASC
+      `).all(...chunk);
+      imageRows.forEach(row => {
+        if (row.variantId) {
+          pushVariantImage(variantImagesByProduct, row.productId, row.variantId, row.url);
+        } else {
+          pushToMap(baseImagesByProduct, row.productId, row.url);
+        }
+      });
+
+      const variantRows = db.prepare(`
+        SELECT id, product_id, name, color_code AS colorCode, color_image AS colorImage, price_rub AS priceRub, stock, position
+        FROM product_variants
+        WHERE product_id IN (${placeholders})
+        ORDER BY product_id ASC, position ASC
+      `).all(...chunk);
+      variantRows.forEach(row => {
+        pushToMap(variantsByProduct, row.product_id, row);
+      });
+    }
+  }
+
   const products = rows.map(r => {
     const product = {
       ...r,
-      links: linkStmt.all(r.id).map(link => ({ label: link.label ?? '', url: link.url }))
+      links: linksByProduct.get(r.id) ?? []
     };
-    
+
     if (r.hasVariants) {
-      const variants = variantStmt.all(r.id);
+      const variants = variantsByProduct.get(r.id) ?? [];
       product.variants = variants.map(v => ({
         ...v,
-        images: variantImgStmt.all(r.id, v.id).map(x => x.url)
+        images: (variantImagesByProduct.get(r.id)?.get(v.id)) ?? []
       }));
-      
+
       // Рассчитываем минимальный и максимальный остаток из вариантов
       if (variants.length > 0) {
         const stocks = variants.map(v => Number(v.stock || 0));
@@ -821,9 +890,9 @@ adminRouter.get('/api/admin/products', authMiddleware, (req, res) => {
         product.maxVariantStock = 0;
       }
     } else {
-      product.images = imgStmt.all(r.id).map(x => x.url);
+      product.images = baseImagesByProduct.get(r.id) ?? [];
     }
-    
+
     return product;
   })
 

@@ -96,9 +96,11 @@
               v-for="group in groupCards"
               :key="group.id"
               :node="group"
+              :category-image="selectedCategory?.coverImage"
               :expanded-groups="groupExpansionState"
               @toggle="toggleGroupExpansion"
               @productClick="openProduct"
+              @heightChanged="() => {}"
               @showToast="showToast"
             />
           </div>
@@ -133,7 +135,8 @@
             :group="group"
             :expanded-groups="liquidExpansionState"
             @toggle="toggleLiquidExpansion"
-            @showToast="showToast"
+            @heightChanged="() => {}"
+              @showToast="showToast"
           />
 
           <SingleProductCard

@@ -23,6 +23,7 @@ import { migrateMessageTemplates } from './migrations/add_message_templates.js';
 import { addPhoneToOrders } from './migrations/add_phone_to_orders.js';
 import { migrateUseCategoryImage } from './migrations/add_use_category_image_to_products.js';
 import { migrateProductVariants } from './migrations/add_product_variants.js';
+import { migrateProductListIndexes } from './migrations/add_product_list_indexes.js';
 import { addTelegramUsernameToOrders } from './migrations/add_telegram_username_to_orders.js';
 import { migrateCustomerFeedbacks } from './migrations/add_customer_feedbacks.js';
 import { migrateArchivedToOrders } from './migrations/add_archived_to_orders.js';
@@ -44,6 +45,17 @@ export const db = new Database(DB_FILE);
 
 export function initDb() {
   db.pragma('foreign_keys = ON');
+
+  // Improve read concurrency/latency under write load by using WAL.
+  db.pragma('journal_mode = WAL');
+  // Reasonable durability/performance tradeoff for a VPS.
+  db.pragma('synchronous = NORMAL');
+  db.pragma('temp_store = MEMORY');
+  // Negative value = KB. ~20MB cache.
+  db.pragma('cache_size = -20000');
+  // Wait a bit on lock contention instead of failing or stalling callers.
+  db.pragma('busy_timeout = 5000');
+  db.pragma('wal_autocheckpoint = 1000');
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS categories (
@@ -137,6 +149,7 @@ export function initDb() {
   addPhoneToOrders();
   migrateUseCategoryImage();
   migrateProductVariants();
+  migrateProductListIndexes();
   addTelegramUsernameToOrders();
   migrateCustomerFeedbacks();
   migrateArchivedToOrders();
