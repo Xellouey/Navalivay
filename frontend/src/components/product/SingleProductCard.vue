@@ -1,568 +1,508 @@
 <template>
-  <div class="liquid-line-card-single">
-    <div class="liquid-line-single-header">
-      <div class="liquid-line-single-main">
-        <div v-if="productImage" class="liquid-line-image">
+  <div class="single-product-card">
+    <div class="single-product-main">
+      <!-- Изображение товара -->
+      <div class="single-product-image-wrapper">
+        <div v-if="productImage" class="single-product-image">
           <img :src="productImage" :alt="product.title" />
         </div>
-        <div class="liquid-line-info">
-          <span
-            v-for="(badge, badgeIndex) in badges"
-            :key="`${badge.type || 'badge'}-${badgeIndex}`"
-            class="liquid-line-badge"
-            :style="getBadgeStyle(badge)"
-          >
-            {{ getBadgeLabel(badge) }}
-          </span>
-          <h3 class="liquid-line-title">{{ product.title || 'Без названия' }}</h3>
-          <p v-if="product.description" class="liquid-line-description">{{ product.description }}</p>
-        </div>
-      </div>
-      <div class="liquid-line-single-side">
         <div
-          v-if="quantity > 0"
-          class="liquid-flavor-quantity"
-          :class="{ 'is-limit': isAtStockLimit }"
-        >
-          <button
-            type="button"
-            class="flavor-qty-btn flavor-qty-btn-minus"
-            @click.stop="$emit('decrement')"
-            aria-label="Убавить количество"
-          >
-            <MinusIcon class="flavor-qty-icon" />
-          </button>
-          <span class="flavor-qty-value">{{ quantity }}</span>
-          <button
-            type="button"
-            class="flavor-qty-btn flavor-qty-btn-plus"
-            :class="{ 'is-disabled': isAtStockLimit }"
-            @click.stop="$emit('increment')"
-            aria-label="Добавить еще"
-          >
-            <PlusIcon class="flavor-qty-icon" />
-          </button>
-        </div>
-        <button
           v-else
-          type="button"
-          class="liquid-flavor-add"
-          :class="{ 'is-disabled': !canAdd }"
-          @click.stop="$emit('add')"
-          aria-label="Добавить в корзину"
+          class="single-product-image single-product-image-placeholder"
         >
-          <PlusIcon class="flavor-add-icon" />
-        </button>
-        <div class="liquid-line-price">
-          <span class="price-value">{{ formattedPrice }}</span>
-          <span class="price-currency">₽</span>
+          <svg
+            width="32"
+            height="32"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="#E6E9ED"
+            stroke-width="1.5"
+          >
+            <rect x="3" y="3" width="18" height="18" rx="2" />
+            <circle cx="8.5" cy="8.5" r="1.5" />
+            <path d="M21 15l-5-5L5 21" />
+          </svg>
         </div>
       </div>
+
+      <!-- Информация о товаре -->
+      <div class="single-product-info">
+        <h3 class="single-product-title">
+          {{ product.title || "Без названия" }}
+        </h3>
+        <p v-if="product.description" class="single-product-description">
+          {{ product.description }}
+        </p>
+        <p class="single-product-price">{{ formattedPrice }} BYN</p>
+      </div>
+    </div>
+
+    <!-- Кнопки действий -->
+    <div class="single-product-actions">
+      <template v-if="quantity > 0">
+        <button
+          type="button"
+          class="single-qty-btn single-qty-btn-minus"
+          :class="{ 'is-first': quantity === 1 }"
+          @click.stop="$emit('decrement')"
+          aria-label="Убавить количество"
+        >
+          <MinusIcon class="single-qty-icon" />
+        </button>
+        <span class="single-qty-field">{{ quantity }}</span>
+        <button
+          type="button"
+          class="single-qty-btn single-qty-btn-plus"
+          :class="{ 'is-disabled': isAtStockLimit }"
+          @click.stop="$emit('increment')"
+          aria-label="Добавить еще"
+        >
+          <PlusIcon class="single-qty-icon" />
+        </button>
+      </template>
+      <button
+        v-else
+        type="button"
+        class="single-qty-btn single-qty-btn-add"
+        :class="{ 'is-disabled': !canAdd }"
+        @click.stop="$emit('add')"
+        aria-label="Добавить в корзину"
+      >
+        <PlusIcon class="single-qty-icon" />
+      </button>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
-import { PlusIcon, MinusIcon } from '@heroicons/vue/24/outline'
-import type { Product, ProductBadge } from '@/stores/catalog'
+import { computed } from "vue";
+import { PlusIcon, MinusIcon } from "@heroicons/vue/24/outline";
+import type { Product } from "@/stores/catalog";
 
 interface Props {
-  product: Product
-  quantity?: number
+  product: Product;
+  quantity?: number;
 }
 
 const props = withDefaults(defineProps<Props>(), {
-  quantity: 0
-})
+  quantity: 0,
+});
 
 defineEmits<{
-  (e: 'add'): void
-  (e: 'increment'): void
-  (e: 'decrement'): void
-}>()
+  (e: "add"): void;
+  (e: "increment"): void;
+  (e: "decrement"): void;
+}>();
 
 const productImage = computed(() => {
   // Для товаров с вариантами берём изображение первого варианта
-  if (props.product.hasVariants && props.product.variants?.length && props.product.variants[0].images?.length) {
-    return props.product.variants[0].images[0]
+  if (
+    props.product.hasVariants &&
+    props.product.variants?.length &&
+    props.product.variants[0].images?.length
+  ) {
+    return props.product.variants[0].images[0];
   }
-  
-  if (props.product.images?.[0]) return props.product.images[0]
+
+  if (props.product.images?.[0]) return props.product.images[0];
   if (props.product.links?.length) {
     for (const link of props.product.links) {
-      const url = link.url?.toLowerCase() || ''
+      const url = link.url?.toLowerCase() || "";
       if (url.match(/\.(jpg|jpeg|png|gif|webp|svg)(\?.*)?$/i)) {
-        return link.url
+        return link.url;
       }
     }
-    return props.product.links[0]?.url || null
+    return props.product.links[0]?.url || null;
   }
-  return null
-})
-
-const badges = computed(() => {
-  if (!Array.isArray(props.product.badges)) {
-    return []
-  }
-  return props.product.badges.filter((badge): badge is ProductBadge => Boolean(badge && (badge.label || badge.type)))
-})
+  return null;
+});
 
 const formattedPrice = computed(() => {
-  return props.product.priceRub.toLocaleString('ru-RU')
-})
+  return props.product.priceRub.toLocaleString("ru-RU");
+});
 
 const canAdd = computed(() => {
-  if (props.product.isAvailable === false) return false
-  if (typeof props.product.stock === 'number') {
-    const stock = Math.max(props.product.stock, 0)
-    if (stock === 0) return false
-    return props.quantity < stock
+  if (props.product.isAvailable === false) return false;
+  if (typeof props.product.stock === "number") {
+    const stock = Math.max(props.product.stock, 0);
+    if (stock === 0) return false;
+    return props.quantity < stock;
   }
-  return true
-})
+  return true;
+});
 
 const isAtStockLimit = computed(() => {
-  if (props.product.isAvailable === false) return true
-  if (typeof props.product.stock === 'number') {
-    const stock = Math.max(props.product.stock, 0)
-    if (stock === 0) return true
-    return props.quantity >= stock
+  if (props.product.isAvailable === false) return true;
+  if (typeof props.product.stock === "number") {
+    const stock = Math.max(props.product.stock, 0);
+    if (stock === 0) return true;
+    return props.quantity >= stock;
   }
-  return false
-})
-
-function getBadgeLabel(badge: ProductBadge) {
-  return badge.label || badge.type || ''
-}
-
-function getBadgeStyle(badge: ProductBadge) {
-  const style: Record<string, string> = {}
-  if (badge.color) {
-    style.backgroundColor = badge.color
-    style.borderColor = badge.color
-  }
-  return style
-}
+  return false;
+});
 </script>
 
 <style scoped>
-/* Все стили вынесены в общий файл через CSS-переменные */
-/* См. SingleProductCard.css или основной файл стилей */
-
-.liquid-line-card-single {
-  padding: 1rem 0 !important;
-  border-bottom: 1px solid #e5e5e5 !important;
-  background: white !important;
-  animation: fadeInItem 0.5s ease-out 0.3s both;
+/* Figma Redesign - Карточка единичного товара */
+.single-product-card {
+  background: #ffffff;
+  border-radius: 20px;
+  padding: 16px;
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
 }
 
-@keyframes fadeInItem {
-  from {
-    opacity: 0;
-    transform: translateY(10px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+.single-product-card:last-of-type {
+  margin-bottom: 0;
 }
 
-.liquid-line-card-single:first-of-type {
-  padding-top: 0 !important;
+.single-product-main {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+  min-width: 0;
 }
 
-.liquid-line-single-header {
-  display: flex !important;
-  align-items: center !important;
-  justify-content: space-between !important;
-  gap: 0.75rem !important;
-  min-height: 90px !important;
+/* Изображение товара */
+.single-product-image-wrapper {
+  flex-shrink: 0;
 }
 
-.liquid-line-single-main {
-  display: flex !important;
-  align-items: center !important;
-  gap: 0.75rem !important;
-  flex: 1 !important;
-  min-width: 0 !important;
+.single-product-image {
+  width: 88px;
+  height: 104px;
+  background: #ffffff;
+  border: 1px solid #e6e9ed;
+  border-radius: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  box-sizing: border-box;
 }
 
-.liquid-line-image {
-  width: 70px !important;
-  height: 93px !important;
-  flex-shrink: 0 !important;
-  display: flex !important;
-  align-items: center !important;
-  justify-content: center !important;
-  overflow: hidden !important;
-  border-radius: 6px !important;
-}
-
-.liquid-line-image img {
-  width: 100%;
-  height: 100%;
+.single-product-image img {
+  max-width: 90%;
+  max-height: 90%;
   object-fit: contain;
 }
 
-.liquid-line-info {
-  display: flex !important;
-  flex-direction: column !important;
-  gap: 0.25rem !important;
-  min-width: 0 !important;
-  flex: 1 !important;
-  justify-content: center !important;
+.single-product-image-placeholder {
+  background: #fafafa;
 }
 
-.liquid-line-badge {
-  align-self: flex-start !important;
-  padding: 0.25rem 0.5rem !important;
-  border-radius: 4px !important;
-  background: #ed1d24 !important;
-  color: #ffffff !important;
-  font-size: 0.6rem !important;
-  font-weight: 900 !important;
-  letter-spacing: 0.02em !important;
-  text-transform: uppercase !important;
-  line-height: 1 !important;
+/* Информация о товаре */
+.single-product-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  flex: 1;
 }
 
-.liquid-line-title {
-  margin: 0 !important;
-  font-size: 0.85rem !important;
-  font-weight: 900 !important;
-  letter-spacing: -0.01em !important;
-  text-transform: uppercase !important;
-  color: #000000 !important;
-  line-height: 1.1 !important;
-  word-wrap: break-word !important;
-  overflow-wrap: break-word !important;
+.single-product-title {
+  margin: 0;
+  font-family: "Montserrat", sans-serif;
+  font-style: normal;
+  font-weight: 700;
+  font-size: 16px;
+  line-height: 20px;
+  color: #191919;
 }
 
-.liquid-line-description {
-  font-size: 0.65rem !important;
-  font-weight: 600 !important;
-  letter-spacing: 0.01em !important;
-  text-transform: uppercase !important;
-  color: #a5a5a5 !important;
-  line-height: 1.15 !important;
-  margin: 0 !important;
-  word-wrap: break-word !important;
-  overflow-wrap: break-word !important;
+.single-product-description {
+  margin: 0;
+  font-family:
+    "SF Pro Display",
+    -apple-system,
+    BlinkMacSystemFont,
+    sans-serif;
+  font-style: normal;
+  font-weight: 400;
+  font-size: 14px;
+  line-height: 17px;
+  color: #aab2bd;
 }
 
-.liquid-line-single-side {
-  display: flex !important;
-  flex-direction: row !important;
-  align-items: center !important;
-  gap: 0.6rem !important;
-  flex-shrink: 0 !important;
+.single-product-price {
+  margin: 0;
+  font-family: "Montserrat", sans-serif;
+  font-style: normal;
+  font-weight: 700;
+  font-size: 20px;
+  line-height: 24px;
+  color: #191919;
 }
 
-.liquid-line-price {
-  display: flex !important;
-  flex-direction: row !important;
-  align-items: baseline !important;
-  gap: 0.2rem !important;
-  font-weight: 900 !important;
-  color: #ed1d24 !important;
-  line-height: 1 !important;
+/* Кнопки действий */
+.single-product-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
 }
 
-.price-value {
-  font-size: 1.25rem !important;
-  letter-spacing: -0.02em !important;
+.single-qty-btn {
+  width: 40px;
+  height: 40px;
+  border-radius: 512px;
+  border: none;
+  background: #f5f7fa;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
 }
 
-.price-currency {
-  font-size: 0.85rem !important;
+.single-qty-btn:hover:not(:disabled):not(.is-disabled) {
+  background: #e6e9ed;
 }
 
-.liquid-flavor-add {
-  width: 42px !important;
-  height: 42px !important;
-  border: none !important;
-  border-radius: 12px !important;
-  background: linear-gradient(180deg, #ff6666 0%, #e60000 100%) !important;
-  color: #ffffff !important;
-  display: flex !important;
-  align-items: center !important;
-  justify-content: center !important;
-  cursor: pointer !important;
-  transition: all 0.2s ease !important;
-  flex-shrink: 0 !important;
-}
-
-.liquid-flavor-add:hover:not(:disabled) {
-  opacity: 0.9;
-}
-
-.liquid-flavor-add:disabled,
-.liquid-flavor-add.is-disabled {
-  background: #d9d9d9;
-  color: #9b9b9b;
+.single-qty-btn.is-disabled {
+  opacity: 0.4;
   cursor: not-allowed;
-  pointer-events: auto;
 }
 
-.flavor-add-icon {
-  width: 20px !important;
-  height: 20px !important;
-  stroke-width: 3 !important;
+.single-qty-btn.is-first {
+  opacity: 0.4;
 }
 
-.liquid-flavor-quantity {
-  display: flex !important;
-  align-items: center !important;
-  gap: 0.4rem !important;
-  flex-shrink: 0 !important;
+.single-qty-btn-minus {
+  background: #f5f7fa;
 }
 
-.flavor-qty-btn {
-  width: 42px !important;
-  height: 42px !important;
-  border-radius: 12px !important;
-  border: none !important;
-  display: flex !important;
-  align-items: center !important;
-  justify-content: center !important;
-  cursor: pointer !important;
-  transition: all 0.2s ease !important;
-  background: linear-gradient(180deg, #ff6666 0%, #e60000 100%) !important;
-  color: #ffffff !important;
-  flex-shrink: 0 !important;
+.single-qty-btn-plus,
+.single-qty-btn-add {
+  background: #f5f7fa;
 }
 
-.flavor-qty-btn:hover:not(:disabled) {
-  opacity: 0.9;
+.single-qty-icon {
+  width: 18px;
+  height: 18px;
+  color: #191919;
+  stroke-width: 2;
 }
 
-.flavor-qty-btn:disabled,
-.flavor-qty-btn.is-disabled {
-  background: #d9d9d9;
-  color: #9b9b9b;
-  cursor: not-allowed;
-  opacity: 0.6;
-  pointer-events: auto;
+.single-qty-field {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  width: 40px;
+  height: 40px;
+  background: #ffffff;
+  border: 1px solid #e6e9ed;
+  border-radius: 12px;
+  font-family:
+    "SF Pro Display",
+    -apple-system,
+    BlinkMacSystemFont,
+    sans-serif;
+  font-style: normal;
+  font-weight: 500;
+  font-size: 16px;
+  line-height: 19px;
+  color: #191919;
 }
 
-.flavor-qty-btn-minus {
-  background: linear-gradient(180deg, #d0d0d0 0%, #b0b0b0 100%) !important;
-  color: #666666 !important;
+/* Адаптивные стили */
+@media (max-width: 1024px) {
+  .single-product-card {
+    padding: 14px;
+  }
+
+  .single-product-image {
+    width: 80px;
+    height: 96px;
+  }
+
+  .single-product-title {
+    font-size: 15px;
+  }
+
+  .single-product-price {
+    font-size: 18px;
+  }
+
+  .single-qty-btn {
+    width: 36px;
+    height: 36px;
+  }
+
+  .single-qty-field {
+    width: 36px;
+    height: 36px;
+    font-size: 15px;
+  }
 }
 
-.flavor-qty-icon {
-  width: 18px !important;
-  height: 18px !important;
-  stroke-width: 3 !important;
-}
-
-.flavor-qty-value {
-  font-size: 1rem !important;
-  font-weight: 800 !important;
-  color: #000000 !important;
-  min-width: 1.75rem !important;
-  text-align: center !important;
-  flex-shrink: 0 !important;
-}
-
-/* Адаптивность для планшетов */
 @media (max-width: 768px) {
-  .liquid-line-card-single {
-    padding: 0.875rem 0 !important;
+  .single-product-card {
+    padding: 12px;
+    border-radius: 18px;
+    margin-bottom: 6px;
   }
 
-  .liquid-line-single-header {
-    min-height: 108px !important;
-    gap: 0.75rem !important;
-  }
-  
-  .liquid-line-single-main {
-    gap: 0.75rem !important;
-  }
-  
-  .liquid-line-image {
-    width: 81px !important;
-    height: 108px !important;
-  }
-  
-  .liquid-line-title {
-    font-size: 1.00625rem !important;
-  }
-  
-  .liquid-line-description {
-    font-size: 0.71875rem !important;
-  }
-  
-  .liquid-line-badge {
-    font-size: 0.6325rem !important;
-    padding: 0.23rem 0.46rem !important;
+  .single-product-main {
+    gap: 10px;
   }
 
-  .liquid-flavor-add,
-  .flavor-qty-btn {
-    width: 40px !important;
-    height: 40px !important;
+  .single-product-image {
+    width: 72px;
+    height: 88px;
+    border-radius: 14px;
   }
 
-  .flavor-add-icon,
-  .flavor-qty-icon {
-    width: 18px !important;
-    height: 18px !important;
+  .single-product-info {
+    gap: 3px;
   }
 
-  .flavor-qty-value {
-    font-size: 0.95rem !important;
-    min-width: 1.5rem !important;
+  .single-product-title {
+    font-size: 14px;
+    line-height: 18px;
   }
 
-  .price-value {
-    font-size: 1.3225rem !important;
+  .single-product-description {
+    font-size: 13px;
   }
 
-  .price-currency {
-    font-size: 0.92rem !important;
+  .single-product-price {
+    font-size: 16px;
+    line-height: 20px;
+  }
+
+  .single-product-actions {
+    gap: 6px;
+  }
+
+  .single-qty-btn {
+    width: 34px;
+    height: 34px;
+  }
+
+  .single-qty-field {
+    width: 34px;
+    height: 34px;
+    font-size: 14px;
+    border-radius: 10px;
+  }
+
+  .single-qty-icon {
+    width: 16px;
+    height: 16px;
   }
 }
 
-/* Оптимизация для мобильных устройств */
 @media (max-width: 480px) {
-  .liquid-line-card-single {
-    padding: 0.75rem 0 !important;
+  .single-product-card {
+    padding: 10px;
+    border-radius: 16px;
   }
 
-  .liquid-line-single-header {
-    min-height: auto !important;
-    gap: 0.625rem !important;
-  }
-  
-  .liquid-line-single-main {
-    gap: 0.625rem !important;
-    flex: 1 !important;
-    min-width: 0 !important;
-  }
-  
-  .liquid-line-image {
-    width: 74.25px !important;
-    height: 98.55px !important;
-    border-radius: 10.8px !important;
+  .single-product-main {
+    gap: 8px;
   }
 
-  .liquid-line-info {
-    gap: 0.25rem !important;
-  }
-  
-  .liquid-line-title {
-    font-size: 0.92rem !important;
-    line-height: 1.2 !important;
-  }
-  
-  .liquid-line-description {
-    font-size: 0.69rem !important;
-    line-height: 1.2 !important;
+  .single-product-image {
+    width: 64px;
+    height: 78px;
+    border-radius: 12px;
   }
 
-  .liquid-line-badge {
-    font-size: 0.575rem !important;
-    padding: 0.23rem 0.46rem !important;
+  .single-product-info {
+    gap: 2px;
   }
 
-  .liquid-line-single-side {
-    gap: 0.5rem !important;
-    flex-shrink: 0 !important;
-  }
-  
-  .liquid-flavor-add,
-  .flavor-qty-btn {
-    width: 38px !important;
-    height: 38px !important;
-    border-radius: 12px !important;
-  }
-  
-  .flavor-add-icon,
-  .flavor-qty-icon {
-    width: 18px !important;
-    height: 18px !important;
-    stroke-width: 3 !important;
+  .single-product-title {
+    font-size: 13px;
+    line-height: 16px;
   }
 
-  .liquid-flavor-quantity {
-    gap: 0.35rem !important;
+  .single-product-description {
+    font-size: 12px;
   }
-  
-  .flavor-qty-value {
-    font-size: 0.9rem !important;
-    min-width: 1.3rem !important;
+
+  .single-product-price {
+    font-size: 14px;
+    line-height: 18px;
   }
-  
-  .price-value {
-    font-size: 1.265rem !important;
+
+  .single-product-actions {
+    gap: 5px;
   }
-  
-  .price-currency {
-    font-size: 0.8625rem !important;
+
+  .single-qty-btn {
+    width: 32px;
+    height: 32px;
+  }
+
+  .single-qty-field {
+    width: 32px;
+    height: 32px;
+    font-size: 13px;
+    border-radius: 8px;
+  }
+
+  .single-qty-icon {
+    width: 14px;
+    height: 14px;
   }
 }
 
-/* Оптимизация для маленьких экранов */
 @media (max-width: 360px) {
-  .liquid-line-card-single {
-    padding: 0.625rem 0 !important;
+  .single-product-card {
+    padding: 8px;
+    border-radius: 14px;
   }
 
-  .liquid-line-single-header {
-    gap: 0.5rem !important;
+  .single-product-main {
+    gap: 6px;
   }
 
-  .liquid-line-single-main {
-    gap: 0.5rem !important;
+  .single-product-image {
+    width: 56px;
+    height: 68px;
+    border-radius: 10px;
   }
 
-  .liquid-line-image {
-    width: 64.8px !important;
-    height: 86.4px !important;
+  .single-product-title {
+    font-size: 12px;
+    line-height: 15px;
   }
 
-  .liquid-line-title {
-    font-size: 0.8625rem !important;
+  .single-product-description {
+    font-size: 11px;
   }
 
-  .liquid-line-description {
-    font-size: 0.6325rem !important;
+  .single-product-price {
+    font-size: 13px;
+    line-height: 16px;
   }
 
-  .liquid-line-badge {
-    font-size: 0.5175rem !important;
-    padding: 0.17rem 0.4rem !important;
+  .single-product-actions {
+    gap: 4px;
   }
 
-  .liquid-line-single-side {
-    gap: 0.45rem !important;
+  .single-qty-btn {
+    width: 28px;
+    height: 28px;
   }
 
-  .liquid-flavor-add,
-  .flavor-qty-btn {
-    width: 36px !important;
-    height: 36px !important;
+  .single-qty-field {
+    width: 28px;
+    height: 28px;
+    font-size: 12px;
+    border-radius: 6px;
   }
 
-  .flavor-add-icon,
-  .flavor-qty-icon {
-    width: 16px !important;
-    height: 16px !important;
-  }
-
-  .flavor-qty-value {
-    font-size: 0.85rem !important;
-    min-width: 1.2rem !important;
-  }
-
-  .price-value {
-    font-size: 1.15rem !important;
-  }
-
-  .price-currency {
-    font-size: 0.805rem !important;
+  .single-qty-icon {
+    width: 12px;
+    height: 12px;
   }
 }
 </style>

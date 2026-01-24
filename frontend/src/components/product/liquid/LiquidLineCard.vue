@@ -124,7 +124,30 @@
                   :key="variant.id ?? variant.name"
                   class="liquid-variant-row"
                 >
-                  <span class="liquid-variant-title">{{ variant.name }}</span>
+                  <!-- Круглое превью варианта -->
+                  <div class="liquid-variant-preview">
+                    <img
+                      v-if="getVariantImage(variant)"
+                      :src="getVariantImage(variant)!"
+                      :alt="variant.name"
+                      class="liquid-variant-preview-img"
+                    />
+                    <div
+                      v-else
+                      class="liquid-variant-preview-placeholder"
+                    ></div>
+                  </div>
+                  <div class="liquid-variant-info">
+                    <span class="liquid-variant-title">{{ variant.name }}</span>
+                    <button
+                      v-if="getVariantImage(variant)"
+                      type="button"
+                      class="liquid-variant-color-link"
+                      @click.stop="openColorPreview(variant)"
+                    >
+                      Как выглядит цвет
+                    </button>
+                  </div>
                   <div class="liquid-variant-actions">
                     <template
                       v-if="variant.id && getVariantQuantity(variant.id) > 0"
@@ -222,6 +245,14 @@
         </ul>
       </div>
     </div>
+
+    <!-- Модальное окно для просмотра цвета -->
+    <ColorPreviewModal
+      :is-open="colorPreviewOpen"
+      :image-url="colorPreviewImage"
+      :title="colorPreviewTitle"
+      @close="closeColorPreview"
+    />
   </div>
 </template>
 
@@ -233,7 +264,15 @@ import {
   MinusIcon,
 } from "@heroicons/vue/24/outline";
 import { useCartStore } from "@/stores/cart";
-import type { Product, CategoryGroup } from "@/stores/catalog";
+import type { Product } from "@/stores/catalog";
+import ColorPreviewModal from "@/components/product/ColorPreviewModal.vue";
+
+interface SubgroupInfo {
+  id: string;
+  name: string;
+  slug?: string;
+  productCount?: number;
+}
 
 const props = defineProps<{
   groupId: string;
@@ -242,7 +281,7 @@ const props = defineProps<{
   expanded: boolean;
   coverImage?: string | null;
   fallbackImage?: string;
-  subgroups?: CategoryGroup[];
+  subgroups?: SubgroupInfo[];
   badge?: string;
   badgeColor?: string;
 }>();
@@ -645,6 +684,32 @@ function decrementVariantQuantity(product: Product, variant: { id?: string }) {
     cartStore.removeItem(product.id, variant.id);
   }
 }
+
+// Функция для получения изображения варианта
+function getVariantImage(variant: { images?: string[] }): string | null {
+  if (variant.images?.length) {
+    return variant.images[0];
+  }
+  return null;
+}
+
+// Состояние для модального окна просмотра цвета
+const colorPreviewOpen = ref(false);
+const colorPreviewImage = ref<string | null>(null);
+const colorPreviewTitle = ref("");
+
+function openColorPreview(variant: { name: string; images?: string[] }) {
+  const image = getVariantImage(variant);
+  if (image) {
+    colorPreviewImage.value = image;
+    colorPreviewTitle.value = variant.name;
+    colorPreviewOpen.value = true;
+  }
+}
+
+function closeColorPreview() {
+  colorPreviewOpen.value = false;
+}
 </script>
 
 <style scoped>
@@ -908,7 +973,7 @@ function decrementVariantQuantity(product: Product, variant: { id?: string }) {
 .liquid-variant-row {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 12px;
   padding: 16px 0;
   border-bottom: 1px solid #e6e9ed;
 }
@@ -922,6 +987,37 @@ function decrementVariantQuantity(product: Product, variant: { id?: string }) {
   padding-bottom: 0;
 }
 
+/* Превью варианта (круглое изображение) */
+.liquid-variant-preview {
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  overflow: hidden;
+  border: 1px solid #e6e9ed;
+}
+
+.liquid-variant-preview-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.liquid-variant-preview-placeholder {
+  width: 100%;
+  height: 100%;
+  background: #f5f7fa;
+}
+
+/* Инфо варианта (название + ссылка) */
+.liquid-variant-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
 .liquid-variant-title {
   font-family: "Montserrat", sans-serif;
   font-style: normal;
@@ -929,8 +1025,30 @@ function decrementVariantQuantity(product: Product, variant: { id?: string }) {
   font-size: 16px;
   line-height: 20px;
   color: #191919;
-  flex: 1;
-  min-width: 0;
+}
+
+.liquid-variant-color-link {
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  font-family:
+    "SF Pro Display",
+    -apple-system,
+    BlinkMacSystemFont,
+    sans-serif;
+  font-style: normal;
+  font-weight: 400;
+  font-size: 12px;
+  line-height: 14px;
+  color: #0273f5;
+  cursor: pointer;
+  text-align: left;
+  text-decoration: none;
+}
+
+.liquid-variant-color-link:hover {
+  text-decoration: underline;
 }
 
 .liquid-variant-actions {
