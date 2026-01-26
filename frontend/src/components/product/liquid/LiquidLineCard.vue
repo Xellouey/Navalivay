@@ -715,10 +715,11 @@ function closeColorPreview() {
 <style scoped>
 /* Figma Redesign - Карточка линейки жидкостей */
 .liquid-line-card {
+  box-sizing: border-box;
   background: #ffffff;
   border-radius: 20px;
   padding: 16px;
-  margin-bottom: 8px;
+  margin-bottom: 0;
 }
 
 .liquid-line-card:last-of-type {
@@ -729,14 +730,14 @@ function closeColorPreview() {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: 10px;
   cursor: pointer;
 }
 
 .liquid-line-main {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
   flex: 1;
   cursor: pointer;
   outline: none;
@@ -761,8 +762,8 @@ function closeColorPreview() {
 }
 
 .liquid-line-image img {
-  max-width: 90%;
-  max-height: 90%;
+  max-width: 65px;
+  max-height: 66px;
   object-fit: contain;
 }
 
@@ -773,7 +774,7 @@ function closeColorPreview() {
 .liquid-line-info {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
   min-width: 0;
   flex: 1;
 }
@@ -794,7 +795,8 @@ function closeColorPreview() {
   flex-direction: row;
   justify-content: center;
   align-items: center;
-  padding: 5px 8px;
+  padding: 10px 8px;
+  gap: 10px;
   background: #f5f7fa;
   border-radius: 24px;
 }
@@ -838,14 +840,15 @@ function closeColorPreview() {
 }
 
 .liquid-line-toggle.expanded .liquid-line-toggle-icon {
-  transform: rotate(180deg);
+  transform: rotate(-90deg) rotate(90deg);
 }
 
 .liquid-line-toggle-icon {
-  width: 16px;
-  height: 16px;
+  width: 12px;
+  height: 12px;
   color: #191919;
   transition: transform 0.3s ease;
+  transform: rotate(-90deg);
 }
 
 /* ========== Подлинейки (sublines) ========== */
@@ -889,8 +892,8 @@ function closeColorPreview() {
 }
 
 .liquid-subline-image img {
-  max-width: 90%;
-  max-height: 90%;
+  max-width: 65px;
+  max-height: 66px;
   object-fit: contain;
 }
 
@@ -959,10 +962,11 @@ function closeColorPreview() {
 }
 
 .liquid-subline-toggle-icon {
-  width: 16px;
-  height: 16px;
+  width: 12px;
+  height: 12px;
   color: #191919;
   transition: transform 0.3s ease;
+  transform: rotate(90deg);
 }
 
 /* ========== Список вариантов (variants) ========== */
@@ -1217,27 +1221,43 @@ function closeColorPreview() {
 
 @media (max-width: 1024px) {
   .liquid-line-card {
-    padding: 14px;
+    padding: 11px;
   }
 
-  .liquid-line-image,
+  .liquid-line-image {
+    width: 60px;
+    height: 60px;
+    border-radius: 12px;
+  }
+
   .liquid-subline-image {
     width: 80px;
     height: 96px;
   }
 
-  .liquid-line-title,
+  .liquid-line-title {
+    font-size: 14px;
+  }
+
   .liquid-subline-title {
     font-size: 15px;
   }
 
-  .liquid-line-toggle,
+  .liquid-line-toggle {
+    width: 32px;
+    height: 32px;
+  }
+
   .liquid-subline-toggle {
     width: 36px;
     height: 36px;
   }
 
-  .liquid-line-toggle-icon,
+  .liquid-line-toggle-icon {
+    width: 13px;
+    height: 13px;
+  }
+
   .liquid-subline-toggle-icon {
     width: 14px;
     height: 14px;
@@ -1261,21 +1281,29 @@ function closeColorPreview() {
 
 @media (max-width: 768px) {
   .liquid-line-card {
-    padding: 12px;
-    border-radius: 18px;
-    margin-bottom: 6px;
+    padding: 10px;
+    border-radius: 14px;
+    margin-bottom: 0;
   }
 
-  .liquid-line-header,
+  .liquid-line-header {
+    gap: 8px;
+  }
+
   .liquid-subline-header {
     gap: 10px;
   }
 
   .liquid-line-main {
-    gap: 10px;
+    gap: 7px;
   }
 
-  .liquid-line-image,
+  .liquid-line-image {
+    width: 72px;
+    height: 88px;
+    border-radius: 12px;
+  }
+
   .liquid-subline-image {
     width: 72px;
     height: 88px;
@@ -1283,31 +1311,43 @@ function closeColorPreview() {
   }
 
   .liquid-line-info {
-    gap: 6px;
+    gap: 4px;
   }
 
-  .liquid-line-title,
+  .liquid-line-title {
+    font-size: 13px;
+    line-height: 16px;
+  }
+
   .liquid-subline-title {
     font-size: 14px;
     line-height: 18px;
   }
 
   .liquid-line-count-badge {
-    padding: 4px 6px;
+    padding: 3px 5px;
   }
 
   .liquid-line-count-badge span {
-    font-size: 11px;
-    line-height: 13px;
+    font-size: 8px;
+    line-height: 10px;
   }
 
-  .liquid-line-toggle,
+  .liquid-line-toggle {
+    width: 30px;
+    height: 30px;
+  }
+
   .liquid-subline-toggle {
     width: 34px;
     height: 34px;
   }
 
-  .liquid-line-toggle-icon,
+  .liquid-line-toggle-icon {
+    width: 11px;
+    height: 11px;
+  }
+
   .liquid-subline-toggle-icon {
     width: 13px;
     height: 13px;
@@ -1352,11 +1392,14 @@ function closeColorPreview() {
 
 @media (max-width: 480px) {
   .liquid-line-card {
-    padding: 10px;
-    border-radius: 16px;
+    padding: 9px;
+    border-radius: 14px;
   }
 
-  .liquid-line-header,
+  .liquid-line-header {
+    gap: 7px;
+  }
+
   .liquid-subline-header {
     gap: 8px;
   }
@@ -1365,7 +1408,12 @@ function closeColorPreview() {
     gap: 8px;
   }
 
-  .liquid-line-image,
+  .liquid-line-image {
+    width: 64px;
+    height: 78px;
+    border-radius: 10px;
+  }
+
   .liquid-subline-image {
     width: 64px;
     height: 78px;
@@ -1376,15 +1424,19 @@ function closeColorPreview() {
     gap: 5px;
   }
 
-  .liquid-line-title,
+  .liquid-line-title {
+    font-size: 12px;
+    line-height: 15px;
+  }
+
   .liquid-subline-title {
     font-size: 13px;
     line-height: 16px;
   }
 
   .liquid-line-count-badge {
-    padding: 3px 5px;
-    border-radius: 20px;
+    padding: 2px 4px;
+    border-radius: 18px;
   }
 
   .liquid-line-count-badge span {
@@ -1392,13 +1444,21 @@ function closeColorPreview() {
     line-height: 12px;
   }
 
-  .liquid-line-toggle,
+  .liquid-line-toggle {
+    width: 28px;
+    height: 28px;
+  }
+
   .liquid-subline-toggle {
     width: 32px;
     height: 32px;
   }
 
-  .liquid-line-toggle-icon,
+  .liquid-line-toggle-icon {
+    width: 10px;
+    height: 10px;
+  }
+
   .liquid-subline-toggle-icon {
     width: 12px;
     height: 12px;
@@ -1454,10 +1514,13 @@ function closeColorPreview() {
 @media (max-width: 360px) {
   .liquid-line-card {
     padding: 8px;
-    border-radius: 14px;
+    border-radius: 12px;
   }
 
-  .liquid-line-header,
+  .liquid-line-header {
+    gap: 6px;
+  }
+
   .liquid-subline-header {
     gap: 6px;
   }
@@ -1466,7 +1529,12 @@ function closeColorPreview() {
     gap: 6px;
   }
 
-  .liquid-line-image,
+  .liquid-line-image {
+    width: 56px;
+    height: 68px;
+    border-radius: 8px;
+  }
+
   .liquid-subline-image {
     width: 56px;
     height: 68px;
@@ -1477,7 +1545,11 @@ function closeColorPreview() {
     gap: 4px;
   }
 
-  .liquid-line-title,
+  .liquid-line-title {
+    font-size: 11px;
+    line-height: 14px;
+  }
+
   .liquid-subline-title {
     font-size: 12px;
     line-height: 15px;
@@ -1485,7 +1557,7 @@ function closeColorPreview() {
 
   .liquid-line-count-badge {
     padding: 2px 4px;
-    border-radius: 16px;
+    border-radius: 14px;
   }
 
   .liquid-line-count-badge span {
@@ -1493,13 +1565,21 @@ function closeColorPreview() {
     line-height: 11px;
   }
 
-  .liquid-line-toggle,
+  .liquid-line-toggle {
+    width: 26px;
+    height: 26px;
+  }
+
   .liquid-subline-toggle {
     width: 28px;
     height: 28px;
   }
 
-  .liquid-line-toggle-icon,
+  .liquid-line-toggle-icon {
+    width: 9px;
+    height: 9px;
+  }
+
   .liquid-subline-toggle-icon {
     width: 10px;
     height: 10px;

@@ -304,6 +304,8 @@
       :key="toastKey"
       :message="toastMessage"
       :type="toastType"
+      :duration="toastDuration"
+      @close="toastMessage = ''"
     />
   </div>
 </template>
@@ -341,6 +343,7 @@ const route = useRoute();
 const toastMessage = ref("");
 const toastType = ref<"error" | "success" | "info">("info");
 const toastKey = ref(0);
+const toastDuration = ref(3500);
 
 function showToast(
   message: string,
@@ -348,11 +351,13 @@ function showToast(
 ) {
   toastMessage.value = message;
   toastType.value = type;
-  toastKey.value++;
 
-  setTimeout(() => {
-    toastMessage.value = "";
-  }, 3500);
+  const msg = message.toLowerCase();
+  const isOutOfStock =
+    msg.includes("в наличии больше нет") || msg.includes("нет в наличии");
+
+  toastDuration.value = isOutOfStock ? 3000 : 3500;
+  toastKey.value++;
 }
 
 // Контейнеры для адаптации шрифтов
@@ -1167,7 +1172,7 @@ watch(
 .group-list-container {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 12px;
 }
 
 @media (max-width: 768px) {

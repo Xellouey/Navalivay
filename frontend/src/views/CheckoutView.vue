@@ -90,12 +90,12 @@
                     {{ item.variantName }}
                   </p>
 
-                  <div class="item-badge-new">
+                  <!-- <div class="item-badge-new">
                     <svg width="7" height="10" viewBox="0 0 7 10" fill="white">
                       <path d="M4.5 0L0 5.5H3L2.5 10L7 4.5H4L4.5 0Z" />
                     </svg>
                     <span>Новинка</span>
-                  </div>
+                  </div> -->
 
                   <p class="cart-item-price">
                     {{ formatPrice(item.priceRub * item.quantity) }} BYN
@@ -142,47 +142,17 @@
         <div class="promo-card">
           <p class="promo-label">Есть промокод?</p>
 
-          <div v-if="!promoApplied" class="promo-input-row">
+          <div class="promo-input-row">
             <input
               v-model="promoCode"
               type="text"
               class="promo-input"
               placeholder="Введите промокод"
             />
-            <Transition name="fade-btn">
-              <button
-                v-if="promoCode.trim()"
-                @click="applyPromoCode"
-                class="promo-apply-btn"
-              >
-                Применить
-              </button>
-            </Transition>
           </div>
 
-          <div v-else class="promo-applied-row">
-            <div class="promo-applied-info">
-              <span class="promo-input-label">Введите промокод</span>
-              <div class="promo-code-display">
-                <span class="promo-code-text">{{ promoCode }}</span>
-                <svg width="14" height="11" viewBox="0 0 14 11" fill="none">
-                  <path
-                    d="M1 5L5 9L13 1"
-                    stroke="#34C759"
-                    stroke-width="2"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                  />
-                </svg>
-              </div>
-            </div>
-            <button @click="cancelPromoCode" class="promo-cancel-btn">
-              Отменить
-            </button>
-          </div>
-
-          <p v-if="promoApplied" class="promo-discount-text">
-            Скидка 20% на все товары
+          <p v-if="promoCode.trim()" class="promo-info-text">
+            Раздел с промокодами пока не работает, но скоро мы его добавим. Система промокодов уже разрабатывается и будет автоматизирована!
           </p>
         </div>
 
@@ -878,6 +848,15 @@ async function submitOrder() {
   margin: 0 0 16px;
 }
 
+.promo-info-text {
+  font-family: -apple-system, "SF Pro Display", sans-serif;
+  font-weight: 400;
+  font-size: 14px;
+  line-height: 18px;
+  color: #aab2bd;
+  margin: 12px 0 0;
+}
+
 .promo-input-row {
   display: flex;
   align-items: center;
@@ -928,8 +907,13 @@ async function submitOrder() {
   flex-shrink: 0;
 }
 
-.promo-apply-btn:hover {
+.promo-apply-btn:hover:not(:disabled) {
   opacity: 0.9;
+}
+
+.promo-apply-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .promo-applied-row {

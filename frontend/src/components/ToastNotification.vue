@@ -36,7 +36,9 @@ const emit = defineEmits<{
 }>();
 
 const visible = ref(false);
+let showTimeout: ReturnType<typeof setTimeout> | null = null;
 let hideTimeout: ReturnType<typeof setTimeout> | null = null;
+let emitCloseTimeout: ReturnType<typeof setTimeout> | null = null;
 
 // Преобразуем сообщение - добавляем "Опс, " к error сообщениям
 const displayMessage = computed(() => {
@@ -55,27 +57,53 @@ const displayMessage = computed(() => {
   return props.message;
 });
 
+const effectiveDuration = computed(() => {
+  const msg = (props.message || "").toLowerCase();
+  const isOutOfStock =
+    msg.includes("\u0432 \u043d\u0430\u043b\u0438\u0447\u0438\u0438 \u0431\u043e\u043b\u044c\u0448\u0435 \u043d\u0435\u0442") ||
+    msg.includes("\u043d\u0435\u0442 \u0432 \u043d\u0430\u043b\u0438\u0447\u0438\u0438");
+
+  const base = Number.isFinite(props.duration) ? props.duration : 3500;
+  return isOutOfStock ? Math.max(base, 3000) : base;
+});
+
+
+function clearTimers() {
+  if (showTimeout) {
+    clearTimeout(showTimeout);
+    showTimeout = null;
+  }
+  if (hideTimeout) {
+    clearTimeout(hideTimeout);
+    hideTimeout = null;
+  }
+  if (emitCloseTimeout) {
+    clearTimeout(emitCloseTimeout);
+    emitCloseTimeout = null;
+  }
+}
+
 function close() {
+  clearTimers();
   visible.value = false;
-  emit("close");
+  // Let the leave transition play, then unmount?
+  emitCloseTimeout = setTimeout(() => emit('close'), 220);
 }
 
 onMounted(() => {
   if (props.message) {
-    setTimeout(() => {
+    showTimeout = setTimeout(() => {
       visible.value = true;
-    }, 50);
 
-    hideTimeout = setTimeout(() => {
-      visible.value = false;
-    }, props.duration);
+      hideTimeout = setTimeout(() => {
+        close();
+      }, effectiveDuration.value);
+    }, 50);
   }
 });
 
 onBeforeUnmount(() => {
-  if (hideTimeout) {
-    clearTimeout(hideTimeout);
-  }
+  clearTimers();
 });
 </script>
 

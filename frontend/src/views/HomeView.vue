@@ -154,7 +154,7 @@ onMounted(async () => {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
   background: transparent;
   border: none;
   cursor: pointer;
@@ -179,8 +179,8 @@ onMounted(async () => {
 }
 
 .category-card-media {
-  width: 70%;
-  height: 70%;
+  width: 84%;
+  height: 84%;
   background-size: contain;
   background-position: center;
   background-repeat: no-repeat;
@@ -199,7 +199,7 @@ onMounted(async () => {
 
 .category-grid {
   display: grid;
-  gap: 16px 8px;
+  gap: 12px 6px;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   padding: 0 8px;
   justify-items: center;
@@ -208,7 +208,7 @@ onMounted(async () => {
 @media (max-width: 768px) {
   .category-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 16px 8px;
+    gap: 10px 6px;
   }
 
   .category-card-box {
@@ -225,7 +225,7 @@ onMounted(async () => {
 @media (max-width: 480px) {
   .category-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 12px 6px;
+    gap: 8px 4px;
   }
 
   .category-card-box {
@@ -243,7 +243,7 @@ onMounted(async () => {
 @media (max-width: 360px) {
   .category-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 10px 4px;
+    gap: 6px 4px;
   }
 
   .category-card-box {

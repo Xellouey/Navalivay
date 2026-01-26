@@ -665,10 +665,11 @@ function decrementVariantQuantity(product: Product, variant: { id?: string }) {
 <style scoped>
 /* Figma Redesign - Карточка группы/линейки устройств */
 .group-line-card {
+  box-sizing: border-box;
   background: #ffffff;
   border-radius: 20px;
   padding: 16px;
-  margin-bottom: 8px;
+  margin-bottom: 0;
 }
 
 .group-line-card:last-of-type {
@@ -679,14 +680,14 @@ function decrementVariantQuantity(product: Product, variant: { id?: string }) {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: 10px;
   cursor: pointer;
 }
 
 .group-line-main {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
   flex: 1;
   cursor: pointer;
   outline: none;
@@ -711,8 +712,8 @@ function decrementVariantQuantity(product: Product, variant: { id?: string }) {
 }
 
 .group-line-image img {
-  max-width: 90%;
-  max-height: 90%;
+  max-width: 65px;
+  max-height: 66px;
   object-fit: contain;
 }
 
@@ -723,7 +724,7 @@ function decrementVariantQuantity(product: Product, variant: { id?: string }) {
 .group-line-info {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
   min-width: 0;
   flex: 1;
 }
@@ -744,7 +745,8 @@ function decrementVariantQuantity(product: Product, variant: { id?: string }) {
   flex-direction: row;
   justify-content: center;
   align-items: center;
-  padding: 5px 8px;
+  padding: 10px 8px;
+  gap: 10px;
   background: #f5f7fa;
   border-radius: 24px;
 }
@@ -788,14 +790,15 @@ function decrementVariantQuantity(product: Product, variant: { id?: string }) {
 }
 
 .group-line-toggle.expanded .group-line-toggle-icon {
-  transform: rotate(180deg);
+  transform: rotate(-90deg) rotate(90deg);
 }
 
 .group-line-toggle-icon {
-  width: 16px;
-  height: 16px;
+  width: 12px;
+  height: 12px;
   color: #191919;
   transition: transform 0.3s ease;
+  transform: rotate(-90deg);
 }
 
 /* ========== Подлинейки (товары с вариантами) ========== */
@@ -839,8 +842,8 @@ function decrementVariantQuantity(product: Product, variant: { id?: string }) {
 }
 
 .group-subline-image img {
-  max-width: 90%;
-  max-height: 90%;
+  max-width: 65px;
+  max-height: 66px;
   object-fit: contain;
 }
 
@@ -909,10 +912,11 @@ function decrementVariantQuantity(product: Product, variant: { id?: string }) {
 }
 
 .group-subline-toggle-icon {
-  width: 16px;
-  height: 16px;
+  width: 12px;
+  height: 12px;
   color: #191919;
   transition: transform 0.3s ease;
+  transform: rotate(90deg);
 }
 
 /* ========== Список вариантов (цветов) ========== */
@@ -1167,34 +1171,53 @@ function decrementVariantQuantity(product: Product, variant: { id?: string }) {
 }
 
 .group-line-children {
-  margin-top: 16px;
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
 /* Адаптивные стили */
 
 @media (max-width: 1024px) {
   .group-line-card {
-    padding: 14px;
+    padding: 11px;
   }
 
-  .group-line-image,
+  .group-line-image {
+    width: 60px;
+    height: 60px;
+    border-radius: 12px;
+  }
+
   .group-subline-image {
     width: 80px;
     height: 96px;
   }
 
-  .group-line-title,
+  .group-line-title {
+    font-size: 14px;
+  }
+
   .group-subline-title {
     font-size: 15px;
   }
 
-  .group-line-toggle,
+  .group-line-toggle {
+    width: 32px;
+    height: 32px;
+  }
+
   .group-subline-toggle {
     width: 36px;
     height: 36px;
   }
 
-  .group-line-toggle-icon,
+  .group-line-toggle-icon {
+    width: 13px;
+    height: 13px;
+  }
+
   .group-subline-toggle-icon {
     width: 14px;
     height: 14px;
@@ -1218,21 +1241,29 @@ function decrementVariantQuantity(product: Product, variant: { id?: string }) {
 
 @media (max-width: 768px) {
   .group-line-card {
-    padding: 12px;
-    border-radius: 18px;
-    margin-bottom: 6px;
+    padding: 10px;
+    border-radius: 14px;
+    margin-bottom: 0;
   }
 
-  .group-line-header,
+  .group-line-header {
+    gap: 8px;
+  }
+
   .group-subline-header {
     gap: 10px;
   }
 
   .group-line-main {
-    gap: 10px;
+    gap: 8px;
   }
 
-  .group-line-image,
+  .group-line-image {
+    width: 72px;
+    height: 88px;
+    border-radius: 12px;
+  }
+
   .group-subline-image {
     width: 72px;
     height: 88px;
@@ -1240,31 +1271,43 @@ function decrementVariantQuantity(product: Product, variant: { id?: string }) {
   }
 
   .group-line-info {
-    gap: 6px;
+    gap: 5px;
   }
 
-  .group-line-title,
+  .group-line-title {
+    font-size: 13px;
+    line-height: 16px;
+  }
+
   .group-subline-title {
     font-size: 14px;
     line-height: 18px;
   }
 
   .group-line-count-badge {
-    padding: 4px 6px;
+    padding: 3px 5px;
   }
 
   .group-line-count-badge span {
-    font-size: 11px;
-    line-height: 13px;
+    font-size: 10px;
+    line-height: 12px;
   }
 
-  .group-line-toggle,
+  .group-line-toggle {
+    width: 30px;
+    height: 30px;
+  }
+
   .group-subline-toggle {
     width: 34px;
     height: 34px;
   }
 
-  .group-line-toggle-icon,
+  .group-line-toggle-icon {
+    width: 11px;
+    height: 11px;
+  }
+
   .group-subline-toggle-icon {
     width: 13px;
     height: 13px;
@@ -1309,20 +1352,28 @@ function decrementVariantQuantity(product: Product, variant: { id?: string }) {
 
 @media (max-width: 480px) {
   .group-line-card {
-    padding: 10px;
-    border-radius: 16px;
+    padding: 9px;
+    border-radius: 14px;
   }
 
-  .group-line-header,
+  .group-line-header {
+    gap: 7px;
+  }
+
   .group-subline-header {
     gap: 8px;
   }
 
   .group-line-main {
-    gap: 8px;
+    gap: 7px;
   }
 
-  .group-line-image,
+  .group-line-image {
+    width: 64px;
+    height: 78px;
+    border-radius: 10px;
+  }
+
   .group-subline-image {
     width: 64px;
     height: 78px;
@@ -1330,32 +1381,44 @@ function decrementVariantQuantity(product: Product, variant: { id?: string }) {
   }
 
   .group-line-info {
-    gap: 5px;
+    gap: 4px;
   }
 
-  .group-line-title,
+  .group-line-title {
+    font-size: 12px;
+    line-height: 15px;
+  }
+
   .group-subline-title {
     font-size: 13px;
     line-height: 16px;
   }
 
   .group-line-count-badge {
-    padding: 3px 5px;
-    border-radius: 20px;
+    padding: 2px 4px;
+    border-radius: 18px;
   }
 
   .group-line-count-badge span {
-    font-size: 10px;
-    line-height: 12px;
+    font-size: 9px;
+    line-height: 11px;
   }
 
-  .group-line-toggle,
+  .group-line-toggle {
+    width: 28px;
+    height: 28px;
+  }
+
   .group-subline-toggle {
     width: 32px;
     height: 32px;
   }
 
-  .group-line-toggle-icon,
+  .group-line-toggle-icon {
+    width: 10px;
+    height: 10px;
+  }
+
   .group-subline-toggle-icon {
     width: 12px;
     height: 12px;
@@ -1420,10 +1483,13 @@ function decrementVariantQuantity(product: Product, variant: { id?: string }) {
 @media (max-width: 360px) {
   .group-line-card {
     padding: 8px;
-    border-radius: 14px;
+    border-radius: 12px;
   }
 
-  .group-line-header,
+  .group-line-header {
+    gap: 6px;
+  }
+
   .group-subline-header {
     gap: 6px;
   }
@@ -1432,7 +1498,12 @@ function decrementVariantQuantity(product: Product, variant: { id?: string }) {
     gap: 6px;
   }
 
-  .group-line-image,
+  .group-line-image {
+    width: 56px;
+    height: 68px;
+    border-radius: 8px;
+  }
+
   .group-subline-image {
     width: 56px;
     height: 68px;
@@ -1443,7 +1514,11 @@ function decrementVariantQuantity(product: Product, variant: { id?: string }) {
     gap: 4px;
   }
 
-  .group-line-title,
+  .group-line-title {
+    font-size: 11px;
+    line-height: 14px;
+  }
+
   .group-subline-title {
     font-size: 12px;
     line-height: 15px;
@@ -1451,21 +1526,29 @@ function decrementVariantQuantity(product: Product, variant: { id?: string }) {
 
   .group-line-count-badge {
     padding: 2px 4px;
-    border-radius: 16px;
+    border-radius: 14px;
   }
 
   .group-line-count-badge span {
-    font-size: 9px;
-    line-height: 11px;
+    font-size: 8px;
+    line-height: 10px;
   }
 
-  .group-line-toggle,
+  .group-line-toggle {
+    width: 26px;
+    height: 26px;
+  }
+
   .group-subline-toggle {
     width: 28px;
     height: 28px;
   }
 
-  .group-line-toggle-icon,
+  .group-line-toggle-icon {
+    width: 9px;
+    height: 9px;
+  }
+
   .group-subline-toggle-icon {
     width: 10px;
     height: 10px;
