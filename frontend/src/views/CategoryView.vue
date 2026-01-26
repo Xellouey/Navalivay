@@ -1164,7 +1164,7 @@ watch(
 
 /* Liquid Showcase Container */
 .liquid-showcase-container {
-  padding: 16px;
+  padding: 8px;
   background: #f5f7fa;
 }
 
@@ -1177,7 +1177,7 @@ watch(
 
 @media (max-width: 768px) {
   .liquid-showcase-container {
-    padding: 12px;
+    padding: 6px;
   }
 
   .category-content {
@@ -1187,7 +1187,7 @@ watch(
 
 @media (max-width: 480px) {
   .liquid-showcase-container {
-    padding: 10px;
+    padding: 5px;
   }
 
   .category-content {
@@ -1197,7 +1197,7 @@ watch(
 
 @media (max-width: 360px) {
   .liquid-showcase-container {
-    padding: 8px;
+    padding: 4px;
   }
 
   .category-content {

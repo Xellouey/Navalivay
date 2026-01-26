@@ -125,22 +125,28 @@
                   class="liquid-variant-row"
                 >
                   <!-- Круглое превью варианта -->
-                  <div class="liquid-variant-preview">
+                  <div
+                    class="liquid-variant-preview"
+                    :style="getVariantColorStyle(variant)"
+                  >
                     <img
-                      v-if="getVariantImage(variant)"
-                      :src="getVariantImage(variant)!"
+                      v-if="
+                        hasValidColorImage(variant) &&
+                        !isImageFailed(variant.colorImage!)
+                      "
+                      :src="variant.colorImage!"
                       :alt="variant.name"
                       class="liquid-variant-preview-img"
+                      @error="(e) => handleImageError(e, variant.colorImage!)"
                     />
-                    <div
-                      v-else
-                      class="liquid-variant-preview-placeholder"
-                    ></div>
                   </div>
                   <div class="liquid-variant-info">
                     <span class="liquid-variant-title">{{ variant.name }}</span>
                     <button
-                      v-if="getVariantImage(variant)"
+                      v-if="
+                        hasValidColorImage(variant) &&
+                        !isImageFailed(variant.colorImage!)
+                      "
                       type="button"
                       class="liquid-variant-color-link"
                       @click.stop="openColorPreview(variant)"
@@ -295,6 +301,7 @@ const cartStore = useCartStore();
 const bodyWrapper = ref<HTMLElement | null>(null);
 const contentHeight = ref(0);
 const expandedVariantProducts = ref<Record<string, boolean>>({});
+const failedImages = ref<Set<string>>(new Set());
 
 // Разделение товаров на те, у которых есть варианты, и без них
 const productsWithVariants = computed(() =>
@@ -685,12 +692,39 @@ function decrementVariantQuantity(product: Product, variant: { id?: string }) {
   }
 }
 
-// Функция для получения изображения варианта
-function getVariantImage(variant: { images?: string[] }): string | null {
-  if (variant.images?.length) {
-    return variant.images[0];
+// Функция для получения стиля цвета варианта
+function getVariantColorStyle(variant: {
+  colorCode?: string | null;
+}): Record<string, string> {
+  if (variant.colorCode) {
+    return { backgroundColor: variant.colorCode };
   }
-  return null;
+  return { backgroundColor: "#F5F7FA" };
+}
+
+// Проверка валидности изображения цвета
+function hasValidColorImage(variant: {
+  colorImage?: string | null;
+}): boolean {
+  return !!(
+    variant.colorImage &&
+    typeof variant.colorImage === "string" &&
+    variant.colorImage.trim() !== ""
+  );
+}
+
+// Проверка, не загрузилось ли изображение
+function isImageFailed(imageUrl: string): boolean {
+  return failedImages.value.has(imageUrl);
+}
+
+// Обработка ошибки загрузки изображения
+function handleImageError(event: Event, imageUrl: string) {
+  failedImages.value.add(imageUrl);
+  const img = event.target as HTMLImageElement;
+  if (img) {
+    img.style.display = "none";
+  }
 }
 
 // Состояние для модального окна просмотра цвета
@@ -698,10 +732,15 @@ const colorPreviewOpen = ref(false);
 const colorPreviewImage = ref<string | null>(null);
 const colorPreviewTitle = ref("");
 
-function openColorPreview(variant: { name: string; images?: string[] }) {
-  const image = getVariantImage(variant);
-  if (image) {
-    colorPreviewImage.value = image;
+function openColorPreview(variant: {
+  name: string;
+  colorImage?: string | null;
+}) {
+  if (
+    hasValidColorImage(variant) &&
+    !isImageFailed(variant.colorImage!)
+  ) {
+    colorPreviewImage.value = variant.colorImage!;
     colorPreviewTitle.value = variant.name;
     colorPreviewOpen.value = true;
   }
@@ -795,10 +834,11 @@ function closeColorPreview() {
   flex-direction: row;
   justify-content: center;
   align-items: center;
-  padding: 10px 8px;
-  gap: 10px;
+  padding: 5px 8px;
   background: #f5f7fa;
   border-radius: 24px;
+  height: 24px;
+  box-sizing: border-box;
 }
 
 .liquid-line-count-badge span {
@@ -1007,11 +1047,6 @@ function closeColorPreview() {
   object-fit: cover;
 }
 
-.liquid-variant-preview-placeholder {
-  width: 100%;
-  height: 100%;
-  background: #f5f7fa;
-}
 
 /* Инфо варианта (название + ссылка) */
 .liquid-variant-info {

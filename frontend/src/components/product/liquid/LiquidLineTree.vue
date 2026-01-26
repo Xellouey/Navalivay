@@ -143,7 +143,7 @@ function toggleExpand(groupId: string) {
 
 <style scoped>
 .liquid-tree-item {
-  @apply mb-3;
+  @apply mb-2;
 }
 
 .liquid-tree-children-wrapper {

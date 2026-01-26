@@ -168,8 +168,8 @@ onMounted(async () => {
 
 /* White box containing the image */
 .category-card-box {
-  width: 111px;
-  height: 111px;
+  width: 107px;
+  height: 107px;
   background: #ffffff;
   border-radius: 16px;
   display: flex;
@@ -197,23 +197,50 @@ onMounted(async () => {
   margin: 0;
 }
 
+/* Сетка категорий - автоматические равномерные отступы включая края экрана */
 .category-grid {
   display: grid;
-  gap: 12px 6px;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  padding: 0 8px;
-  justify-items: center;
+  grid-template-columns: repeat(3, 107px);
+  justify-content: space-around;
+  row-gap: 12px;
+  padding: 0;
 }
 
-@media (max-width: 768px) {
+@media (max-width: 393px) {
+  /* iPhone 14/15 и аналогичные - 393px ширина */
   .category-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 10px 6px;
+    grid-template-columns: repeat(3, 107px);
+    row-gap: 12px;
+    padding: 0;
+  }
+}
+
+@media (max-width: 375px) {
+  /* iPhone SE/Mini - чуть меньше отступы */
+  .category-grid {
+    grid-template-columns: repeat(3, 103px);
+    row-gap: 10px;
+    padding: 0;
   }
 
   .category-card-box {
-    width: 100px;
-    height: 100px;
+    width: 103px;
+    height: 103px;
+  }
+}
+
+@media (max-width: 360px) {
+  /* 360px экраны */
+  .category-grid {
+    grid-template-columns: repeat(3, 97px);
+    row-gap: 8px;
+    padding: 0;
+  }
+
+  .category-card-box {
+    width: 97px;
+    height: 97px;
+    border-radius: 14px;
   }
 
   .category-card-title {
@@ -222,39 +249,23 @@ onMounted(async () => {
   }
 }
 
-@media (max-width: 480px) {
+@media (max-width: 320px) {
+  /* 320px экраны */
   .category-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 8px 4px;
+    grid-template-columns: repeat(3, 85px);
+    row-gap: 6px;
+    padding: 0;
   }
 
   .category-card-box {
-    width: 90px;
-    height: 90px;
-    border-radius: 14px;
+    width: 85px;
+    height: 85px;
+    border-radius: 12px;
   }
 
   .category-card-title {
     font-size: 12px;
     line-height: 16px;
-  }
-}
-
-@media (max-width: 360px) {
-  .category-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 6px 4px;
-  }
-
-  .category-card-box {
-    width: 80px;
-    height: 80px;
-    border-radius: 12px;
-  }
-
-  .category-card-title {
-    font-size: 11px;
-    line-height: 14px;
   }
 }
 
