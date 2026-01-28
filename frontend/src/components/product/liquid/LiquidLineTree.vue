@@ -8,6 +8,8 @@
       :cover-image="group.coverImage"
       :badge="group.badge ?? undefined"
       :badge-color="group.badgeColor ?? undefined"
+      :meta-label="group.metaLabel ?? null"
+      :meta-value="group.metaValue ?? null"
       :subgroups="group.children"
       :expanded="isExpanded"
       @toggle="toggleExpand"
@@ -56,6 +58,8 @@ interface LiquidGroup {
   productCount: number;
   badge?: string | null;
   badgeColor?: string | null;
+  metaLabel?: string | null;
+  metaValue?: string | null;
   children: LiquidGroup[];
 }
 

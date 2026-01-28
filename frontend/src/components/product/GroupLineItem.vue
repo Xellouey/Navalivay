@@ -29,6 +29,10 @@
         </div>
         <div class="group-line-info">
           <h3 class="group-line-title">{{ node.name }}</h3>
+          <p v-if="metaText" class="group-line-meta">{{ metaText }}</p>
+          <p v-if="firstProductPrice" class="group-line-price">
+            {{ formatPrice(firstProductPrice) }} BYN
+          </p>
           <div
             v-if="!isExpanded && totalProductCount > 0"
             class="group-line-count-badge"
@@ -56,160 +60,109 @@
       :style="wrapperStyle"
     >
       <div class="group-line-body">
-        <!-- Товары с вариантами (устройства) -->
-        <div v-if="productsWithVariants.length" class="group-sublines">
+        <!-- Товары с вариантами (устройства) - сразу показываем варианты -->
+        <div v-if="productsWithVariants.length" class="group-variants-list-direct">
           <div
             v-for="product in productsWithVariants"
             :key="product.id"
-            class="group-subline-card"
           >
-            <!-- Разделитель сверху -->
-            <div class="group-subline-divider"></div>
-
-            <!-- Заголовок товара -->
             <div
-              class="group-subline-header"
-              @click="toggleProductExpansion(product.id)"
+              v-for="variant in product.variants"
+              :key="variant.id ?? variant.name"
+              class="group-variant-row"
             >
-              <div class="group-subline-image-wrapper">
-                <div class="group-subline-image">
-                  <img
-                    v-if="getProductImage(product)"
-                    :src="getProductImage(product)!"
-                    :alt="product.title"
-                  />
-                  <svg
-                    v-else
-                    width="24"
-                    height="24"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="#E6E9ED"
-                    stroke-width="1.5"
-                  >
-                    <rect x="3" y="3" width="18" height="18" rx="2" />
-                    <circle cx="8.5" cy="8.5" r="1.5" />
-                    <path d="M21 15l-5-5L5 21" />
-                  </svg>
-                </div>
-              </div>
-              <div class="group-subline-info">
-                <h4 class="group-subline-title">{{ product.title }}</h4>
-                <p v-if="product.variant" class="group-subline-description">
-                  {{ product.variant }}
-                </p>
-                <p class="group-subline-price">
-                  {{ formatPrice(product.priceRub) }} BYN
-                </p>
-              </div>
-              <button
-                type="button"
-                class="group-subline-toggle"
-                :class="{ expanded: isProductExpanded(product.id) }"
-                @click.stop="toggleProductExpansion(product.id)"
-                aria-label="Переключить варианты"
-              >
-                <ChevronDownIcon class="group-subline-toggle-icon" />
-              </button>
-            </div>
-
-            <!-- Раскрытый список вариантов -->
-            <Transition name="subline-expand">
-              <div
-                v-if="isProductExpanded(product.id)"
-                class="group-variants-list"
-              >
+              <!-- Круглое превью цвета/изображения -->
+              <div class="group-variant-color-wrapper">
                 <div
-                  v-for="variant in product.variants"
-                  :key="variant.id ?? variant.name"
-                  class="group-variant-row"
+                  class="group-variant-color"
+                  :style="getVariantColorStyle(variant)"
                 >
-                  <!-- Круглое превью цвета/изображения -->
-                  <div class="group-variant-color-wrapper">
-                    <div
-                      class="group-variant-color"
-                      :style="getVariantColorStyle(variant)"
-                    >
-                      <img
-                        v-if="variant.colorImage || variant.images?.[0]"
-                        :src="variant.colorImage || variant.images?.[0]"
-                        :alt="variant.name"
-                      />
-                    </div>
-                  </div>
-                  <div class="group-variant-info">
-                    <span class="group-variant-title">{{ variant.name }}</span>
-                    <button
-                      v-if="variant.colorImage || variant.images?.[0]"
-                      type="button"
-                      class="group-variant-color-link"
-                      @click.stop="showColorPreview(variant)"
-                    >
-                      Как выглядит цвет
-                      <svg
-                        width="12"
-                        height="12"
-                        viewBox="0 0 12 12"
-                        fill="none"
-                      >
-                        <circle cx="6" cy="6" r="5.5" stroke="currentColor" />
-                        <text
-                          x="6"
-                          y="9"
-                          text-anchor="middle"
-                          font-size="8"
-                          fill="currentColor"
-                        >
-                          ?
-                        </text>
-                      </svg>
-                    </button>
-                  </div>
-                  <div class="group-variant-actions">
-                    <template
-                      v-if="variant.id && getVariantQuantity(variant.id) > 0"
-                    >
-                      <button
-                        type="button"
-                        class="group-qty-btn group-qty-btn-minus"
-                        :class="{
-                          'is-first':
-                            variant.id && getVariantQuantity(variant.id) === 1,
-                        }"
-                        @click.stop="decrementVariantQuantity(product, variant)"
-                        aria-label="Убавить количество"
-                      >
-                        <MinusIcon class="group-qty-icon" />
-                      </button>
-                      <span class="group-qty-field">{{
-                        variant.id ? getVariantQuantity(variant.id) : 0
-                      }}</span>
-                      <button
-                        type="button"
-                        class="group-qty-btn group-qty-btn-plus"
-                        :class="{
-                          'is-disabled': isVariantAtStockLimit(variant),
-                        }"
-                        @click.stop="handleVariantIncrement(product, variant)"
-                        aria-label="Добавить еще"
-                      >
-                        <PlusIcon class="group-qty-icon" />
-                      </button>
-                    </template>
-                    <button
-                      v-else
-                      type="button"
-                      class="group-qty-btn group-qty-btn-add"
-                      :class="{ 'is-disabled': !canAddVariant(variant) }"
-                      @click.stop="handleVariantAdd(product, variant)"
-                      aria-label="Добавить в корзину"
-                    >
-                      <PlusIcon class="group-qty-icon" />
-                    </button>
-                  </div>
+                  <!-- Режим "картинка": показываем colorImage в кружочке -->
+                  <img
+                    v-if="isImageDisplayMode(variant) && variant.colorImage"
+                    :src="variant.colorImage"
+                    :alt="variant.name"
+                    @error="handleVariantPreviewError"
+                  />
                 </div>
               </div>
-            </Transition>
+              <div class="group-variant-info">
+                <!-- Название варианта - всегда черным текстом -->
+                <span class="group-variant-title">{{ variant.name }}</span>
+                <span v-if="variant.priceRub && variant.priceRub !== firstProductPrice" class="group-variant-price">{{ formatPrice(variant.priceRub) }} BYN</span>
+                <!-- 
+                  Кнопка "Как выглядит цвет" показывается ВСЕГДА когда есть изображение товара варианта
+                  Независимо от режима отображения (цвет или картинка)
+                -->
+                <button
+                  v-if="getVariantProductImage(variant)"
+                  type="button"
+                  class="group-variant-color-link"
+                  @click.stop="showColorPreview(variant)"
+                >
+                  Как выглядит цвет
+                  <svg
+                    width="12"
+                    height="12"
+                    viewBox="0 0 12 12"
+                    fill="none"
+                  >
+                    <circle cx="6" cy="6" r="5.5" stroke="currentColor" />
+                    <text
+                      x="6"
+                      y="9"
+                      text-anchor="middle"
+                      font-size="8"
+                      fill="currentColor"
+                    >
+                      ?
+                    </text>
+                  </svg>
+                </button>
+              </div>
+              <div class="group-variant-actions">
+                <template
+                  v-if="variant.id && getVariantQuantity(variant.id) > 0"
+                >
+                  <button
+                    type="button"
+                    class="group-qty-btn group-qty-btn-minus"
+                    :class="{
+                      'is-first':
+                        variant.id && getVariantQuantity(variant.id) === 1,
+                    }"
+                    @click.stop="decrementVariantQuantity(product, variant)"
+                    aria-label="Убавить количество"
+                  >
+                    <MinusIcon class="group-qty-icon" />
+                  </button>
+                  <span class="group-qty-field">{{
+                    variant.id ? getVariantQuantity(variant.id) : 0
+                  }}</span>
+                  <button
+                    type="button"
+                    class="group-qty-btn group-qty-btn-plus"
+                    :class="{
+                      'is-disabled': isVariantAtStockLimit(variant),
+                    }"
+                    @click.stop="handleVariantIncrement(product, variant)"
+                    aria-label="Добавить еще"
+                  >
+                    <PlusIcon class="group-qty-icon" />
+                  </button>
+                </template>
+                <button
+                  v-else
+                  type="button"
+                  class="group-qty-btn group-qty-btn-add"
+                  :class="{ 'is-disabled': !canAddVariant(variant) }"
+                  @click.stop="handleVariantAdd(product, variant)"
+                  aria-label="Добавить в корзину"
+                >
+                  <PlusIcon class="group-qty-icon" />
+                </button>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -222,6 +175,7 @@
           >
             <div class="group-product-info">
               <span class="group-product-title">{{ product.title }}</span>
+              <span v-if="product.priceRub && product.priceRub !== firstProductPrice" class="group-product-price">{{ formatPrice(product.priceRub) }} BYN</span>
             </div>
             <div class="group-product-actions">
               <template v-if="getQuantity(product.id) > 0">
@@ -267,6 +221,7 @@
             v-for="child in node.children"
             :key="child.id"
             :node="child"
+            :category-image="categoryImage"
             :expanded-groups="expandedGroups"
             @toggle="$emit('toggle', $event)"
             @productClick="$emit('productClick', $event)"
@@ -311,6 +266,8 @@ interface GroupNode {
   totalProductCount?: number;
   depth: number;
   parentId?: string | null;
+  metaLabel?: string | null;
+  metaValue?: string | null;
   children: GroupNode[];
   products: Product[];
 }
@@ -361,6 +318,29 @@ const productsWithVariants = computed(() =>
 const productsWithoutVariants = computed(() =>
   props.node.products.filter((p) => !p.hasVariants),
 );
+
+// Цена первого товара для отображения в заголовке
+const firstProductPrice = computed(() => {
+  const firstProduct = props.node.products[0];
+  if (!firstProduct) return null;
+  
+  // Если товар с вариантами, берем цену первого варианта
+  if (firstProduct.hasVariants && firstProduct.variants?.length) {
+    return firstProduct.variants[0].priceRub ?? null;
+  }
+  
+  // Иначе берем цену самого товара
+  return firstProduct.priceRub ?? null;
+});
+
+const metaText = computed(() => {
+  const label = (props.node.metaLabel ?? '').trim();
+  const value = (props.node.metaValue ?? '').trim();
+  if (label && value) {
+    return `${label} ${value}`;
+  }
+  return label || value;
+});
 
 const wrapperStyle = computed(() => {
   if (!isExpanded.value) {
@@ -490,9 +470,31 @@ function getVariantColorStyle(variant: ProductVariant): Record<string, string> {
   return { backgroundColor: "#F5F7FA" };
 }
 
+// Проверка режима "картинка" (colorDisplayMode === 'image')
+function isImageDisplayMode(variant: ProductVariant): boolean {
+  return variant.colorDisplayMode === 'image';
+}
+
+// Получить изображение товара варианта (НЕ colorImage, а фото самого товара)
+function getVariantProductImage(variant: ProductVariant): string | null {
+  if (!Array.isArray(variant.images)) return null;
+  const url = variant.images.find(
+    (src) => typeof src === "string" && src.trim().length > 0,
+  );
+  return url ? url : null;
+}
+
+function handleVariantPreviewError(event: Event) {
+  const img = event.target as HTMLImageElement | null;
+  if (img) {
+    img.style.display = "none";
+  }
+}
+
 function showColorPreview(variant: ProductVariant) {
-  // Получаем изображение варианта
-  const imageUrl = variant.colorImage || variant.images?.[0] || null;
+  // При клике показываем фото ТОВАРА варианта (variant.images[0]), а НЕ colorImage
+  const imageUrl = getVariantProductImage(variant);
+  if (!imageUrl) return;
   colorPreviewImage.value = imageUrl;
   colorPreviewTitle.value = variant.name;
   colorPreviewOpen.value = true;
@@ -687,7 +689,7 @@ function decrementVariantQuantity(product: Product, variant: { id?: string }) {
 .group-line-main {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   flex: 1;
   cursor: pointer;
   outline: none;
@@ -709,11 +711,12 @@ function decrementVariantQuantity(product: Product, variant: { id?: string }) {
   justify-content: center;
   overflow: hidden;
   box-sizing: border-box;
+  padding: 6px;
 }
 
 .group-line-image img {
-  max-width: 65px;
-  max-height: 66px;
+  max-width: 100%;
+  max-height: 100%;
   object-fit: contain;
 }
 
@@ -730,6 +733,30 @@ function decrementVariantQuantity(product: Product, variant: { id?: string }) {
 }
 
 .group-line-title {
+  margin: 0;
+  font-family: "Montserrat", sans-serif;
+  font-style: normal;
+  font-weight: 700;
+  font-size: 16px;
+  line-height: 20px;
+  color: #191919;
+}
+
+.group-line-meta {
+  margin: 0;
+  font-family:
+    "SF Pro Display",
+    -apple-system,
+    BlinkMacSystemFont,
+    sans-serif;
+  font-style: normal;
+  font-weight: 500;
+  font-size: 14.4px;
+  line-height: 17.3px;
+  color: #aab2bd;
+}
+
+.group-line-price {
   margin: 0;
   font-family: "Montserrat", sans-serif;
   font-style: normal;
@@ -801,127 +828,9 @@ function decrementVariantQuantity(product: Product, variant: { id?: string }) {
   transform: rotate(-90deg);
 }
 
-/* ========== Подлинейки (товары с вариантами) ========== */
-.group-sublines {
+/* ========== Список вариантов (цветов) - прямой показ ========== */
+.group-variants-list-direct {
   margin-top: 0;
-}
-
-.group-subline-card {
-  position: relative;
-}
-
-.group-subline-divider {
-  width: 100%;
-  height: 1px;
-  background: #e6e9ed;
-  margin: 16px 0;
-}
-
-.group-subline-header {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  cursor: pointer;
-}
-
-.group-subline-image-wrapper {
-  flex-shrink: 0;
-}
-
-.group-subline-image {
-  width: 88px;
-  height: 104px;
-  background: #ffffff;
-  border: 1px solid #e6e9ed;
-  border-radius: 16px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  overflow: hidden;
-  box-sizing: border-box;
-}
-
-.group-subline-image img {
-  max-width: 65px;
-  max-height: 66px;
-  object-fit: contain;
-}
-
-.group-subline-info {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  flex: 1;
-  min-width: 0;
-}
-
-.group-subline-title {
-  margin: 0;
-  font-family: "Montserrat", sans-serif;
-  font-style: normal;
-  font-weight: 700;
-  font-size: 16px;
-  line-height: 20px;
-  color: #191919;
-}
-
-.group-subline-description {
-  margin: 0;
-  font-family:
-    "SF Pro Display",
-    -apple-system,
-    BlinkMacSystemFont,
-    sans-serif;
-  font-style: normal;
-  font-weight: 400;
-  font-size: 14px;
-  line-height: 17px;
-  color: #aab2bd;
-}
-
-.group-subline-price {
-  margin: 0;
-  font-family: "Montserrat", sans-serif;
-  font-style: normal;
-  font-weight: 700;
-  font-size: 20px;
-  line-height: 24px;
-  color: #191919;
-}
-
-.group-subline-toggle {
-  width: 40px;
-  height: 40px;
-  border-radius: 512px;
-  border: none;
-  background: #f5f7fa;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  flex-shrink: 0;
-}
-
-.group-subline-toggle:hover {
-  background: #e6e9ed;
-}
-
-.group-subline-toggle.expanded .group-subline-toggle-icon {
-  transform: rotate(180deg);
-}
-
-.group-subline-toggle-icon {
-  width: 12px;
-  height: 12px;
-  color: #191919;
-  transition: transform 0.3s ease;
-  transform: rotate(90deg);
-}
-
-/* ========== Список вариантов (цветов) ========== */
-.group-variants-list {
-  margin-top: 16px;
 }
 
 .group-variant-row {
@@ -933,7 +842,8 @@ function decrementVariantQuantity(product: Product, variant: { id?: string }) {
 }
 
 .group-variant-row:first-child {
-  padding-top: 0;
+  padding-top: 16px;
+  border-top: 1px solid #e6e9ed;
 }
 
 .group-variant-row:last-child {
@@ -971,6 +881,15 @@ function decrementVariantQuantity(product: Product, variant: { id?: string }) {
 }
 
 .group-variant-title {
+  font-family: "Montserrat", sans-serif;
+  font-style: normal;
+  font-weight: 700;
+  font-size: 16px;
+  line-height: 20px;
+  color: #191919;
+}
+
+.group-variant-price {
   font-family: "Montserrat", sans-serif;
   font-style: normal;
   font-weight: 700;
@@ -1081,30 +1000,10 @@ function decrementVariantQuantity(product: Product, variant: { id?: string }) {
 }
 
 /* ========== Анимация раскрытия ========== */
-.subline-expand-enter-active {
-  transition:
-    max-height 0.55s ease,
-    opacity 0.4s ease;
+.group-line-body-wrapper {
   overflow: hidden;
-}
-
-.subline-expand-leave-active {
-  transition:
-    max-height 0.45s ease,
-    opacity 0.3s ease;
-  overflow: hidden;
-}
-
-.subline-expand-enter-from,
-.subline-expand-leave-to {
+  transition: max-height 650ms cubic-bezier(0.4, 0, 0.2, 1);
   max-height: 0;
-  opacity: 0;
-}
-
-.subline-expand-enter-to,
-.subline-expand-leave-from {
-  max-height: 1000px;
-  opacity: 1;
 }
 
 /* ========== Список обычных товаров ========== */
@@ -1139,10 +1038,20 @@ function decrementVariantQuantity(product: Product, variant: { id?: string }) {
   flex: 1;
   min-width: 0;
   display: flex;
-  align-items: center;
+  flex-direction: column;
+  gap: 4px;
 }
 
 .group-product-title {
+  font-family: "Montserrat", sans-serif;
+  font-style: normal;
+  font-weight: 700;
+  font-size: 16px;
+  line-height: 20px;
+  color: #191919;
+}
+
+.group-product-price {
   font-family: "Montserrat", sans-serif;
   font-style: normal;
   font-weight: 700;
@@ -1157,12 +1066,6 @@ function decrementVariantQuantity(product: Product, variant: { id?: string }) {
   align-items: center;
   gap: 8px;
   flex-shrink: 0;
-}
-
-.group-line-body-wrapper {
-  overflow: hidden;
-  transition: max-height 650ms cubic-bezier(0.4, 0, 0.2, 1);
-  max-height: 0;
 }
 
 .group-line-body {
@@ -1181,50 +1084,47 @@ function decrementVariantQuantity(product: Product, variant: { id?: string }) {
 
 @media (max-width: 1024px) {
   .group-line-card {
-    padding: 11px;
+    padding: 16px;
   }
 
   .group-line-image {
-    width: 60px;
-    height: 60px;
-    border-radius: 12px;
+    width: 88px;
+    height: 104px;
+    border-radius: 16px;
+    padding: 6px;
   }
 
-  .group-subline-image {
-    width: 80px;
-    height: 96px;
+  .group-line-image img {
+    max-width: 100%;
+    max-height: 100%;
   }
 
   .group-line-title {
-    font-size: 14px;
+    font-size: 16px;
+    line-height: 20px;
   }
 
-  .group-subline-title {
-    font-size: 15px;
+  .group-line-price {
+    font-size: 16px;
+    line-height: 20px;
+  }
+
+  .group-line-header {
+    gap: 10px;
+  }
+
+  .group-line-main {
+    gap: 12px;
   }
 
   .group-line-toggle {
-    width: 32px;
-    height: 32px;
-  }
-
-  .group-subline-toggle {
-    width: 36px;
-    height: 36px;
+    width: 40px;
+    height: 40px;
   }
 
   .group-line-toggle-icon {
-    width: 13px;
-    height: 13px;
-  }
-
-  .group-subline-toggle-icon {
-    width: 14px;
-    height: 14px;
-  }
-
-  .group-subline-price {
-    font-size: 18px;
+    width: 12px;
+    height: 12px;
   }
 
   .group-qty-btn {
@@ -1241,85 +1141,62 @@ function decrementVariantQuantity(product: Product, variant: { id?: string }) {
 
 @media (max-width: 768px) {
   .group-line-card {
-    padding: 10px;
-    border-radius: 14px;
+    padding: 16px;
+    border-radius: 20px;
     margin-bottom: 0;
   }
 
   .group-line-header {
-    gap: 8px;
-  }
-
-  .group-subline-header {
     gap: 10px;
   }
 
   .group-line-main {
-    gap: 8px;
+    gap: 12px;
   }
 
   .group-line-image {
-    width: 72px;
-    height: 88px;
-    border-radius: 12px;
+    width: 88px;
+    height: 104px;
+    border-radius: 16px;
+    padding: 6px;
   }
 
-  .group-subline-image {
-    width: 72px;
-    height: 88px;
-    border-radius: 14px;
+  .group-line-image img {
+    max-width: 100%;
+    max-height: 100%;
   }
 
   .group-line-info {
-    gap: 5px;
+    gap: 6px;
   }
 
   .group-line-title {
-    font-size: 13px;
-    line-height: 16px;
+    font-size: 16px;
+    line-height: 20px;
   }
 
-  .group-subline-title {
-    font-size: 14px;
-    line-height: 18px;
+  .group-line-price {
+    font-size: 16px;
+    line-height: 20px;
   }
 
   .group-line-count-badge {
-    padding: 3px 5px;
+    padding: 10px 8px;
   }
 
   .group-line-count-badge span {
-    font-size: 10px;
-    line-height: 12px;
+    font-size: 12px;
+    line-height: 14px;
   }
 
   .group-line-toggle {
-    width: 30px;
-    height: 30px;
-  }
-
-  .group-subline-toggle {
-    width: 34px;
-    height: 34px;
+    width: 40px;
+    height: 40px;
   }
 
   .group-line-toggle-icon {
-    width: 11px;
-    height: 11px;
-  }
-
-  .group-subline-toggle-icon {
-    width: 13px;
-    height: 13px;
-  }
-
-  .group-subline-description {
-    font-size: 13px;
-  }
-
-  .group-subline-price {
-    font-size: 16px;
-    line-height: 20px;
+    width: 12px;
+    height: 12px;
   }
 
   .group-product-row,
@@ -1329,7 +1206,12 @@ function decrementVariantQuantity(product: Product, variant: { id?: string }) {
 
   .group-product-title,
   .group-variant-title {
-    font-size: 14px;
+    font-size: 15px;
+  }
+
+  .group-product-price,
+  .group-variant-price {
+    font-size: 15px;
   }
 
   .group-qty-btn {
@@ -1352,89 +1234,61 @@ function decrementVariantQuantity(product: Product, variant: { id?: string }) {
 
 @media (max-width: 480px) {
   .group-line-card {
-    padding: 9px;
-    border-radius: 14px;
+    padding: 16px;
+    border-radius: 20px;
   }
 
   .group-line-header {
-    gap: 7px;
-  }
-
-  .group-subline-header {
-    gap: 8px;
+    gap: 10px;
   }
 
   .group-line-main {
-    gap: 7px;
+    gap: 12px;
   }
 
   .group-line-image {
-    width: 64px;
-    height: 78px;
-    border-radius: 10px;
+    width: 88px;
+    height: 104px;
+    border-radius: 16px;
+    padding: 6px;
   }
 
-  .group-subline-image {
-    width: 64px;
-    height: 78px;
-    border-radius: 12px;
+  .group-line-image img {
+    max-width: 100%;
+    max-height: 100%;
   }
 
   .group-line-info {
-    gap: 4px;
+    gap: 6px;
   }
 
   .group-line-title {
-    font-size: 12px;
-    line-height: 15px;
+    font-size: 16px;
+    line-height: 20px;
   }
 
-  .group-subline-title {
-    font-size: 13px;
-    line-height: 16px;
+  .group-line-price {
+    font-size: 16px;
+    line-height: 20px;
   }
 
   .group-line-count-badge {
-    padding: 2px 4px;
-    border-radius: 18px;
+    padding: 10px 8px;
   }
 
   .group-line-count-badge span {
-    font-size: 9px;
-    line-height: 11px;
+    font-size: 12px;
+    line-height: 14px;
   }
 
   .group-line-toggle {
-    width: 28px;
-    height: 28px;
-  }
-
-  .group-subline-toggle {
-    width: 32px;
-    height: 32px;
+    width: 40px;
+    height: 40px;
   }
 
   .group-line-toggle-icon {
-    width: 10px;
-    height: 10px;
-  }
-
-  .group-subline-toggle-icon {
     width: 12px;
     height: 12px;
-  }
-
-  .group-subline-divider {
-    margin: 12px 0;
-  }
-
-  .group-subline-description {
-    font-size: 12px;
-  }
-
-  .group-subline-price {
-    font-size: 14px;
-    line-height: 18px;
   }
 
   .group-product-row,
@@ -1444,8 +1298,14 @@ function decrementVariantQuantity(product: Product, variant: { id?: string }) {
 
   .group-product-title,
   .group-variant-title {
-    font-size: 13px;
-    line-height: 16px;
+    font-size: 14px;
+    line-height: 18px;
+  }
+
+  .group-product-price,
+  .group-variant-price {
+    font-size: 14px;
+    line-height: 18px;
   }
 
   .group-qty-btn {
@@ -1482,89 +1342,61 @@ function decrementVariantQuantity(product: Product, variant: { id?: string }) {
 
 @media (max-width: 360px) {
   .group-line-card {
-    padding: 8px;
-    border-radius: 12px;
+    padding: 14px;
+    border-radius: 18px;
   }
 
   .group-line-header {
-    gap: 6px;
-  }
-
-  .group-subline-header {
-    gap: 6px;
+    gap: 8px;
   }
 
   .group-line-main {
-    gap: 6px;
+    gap: 10px;
   }
 
   .group-line-image {
-    width: 56px;
-    height: 68px;
-    border-radius: 8px;
+    width: 80px;
+    height: 96px;
+    border-radius: 14px;
+    padding: 4px;
   }
 
-  .group-subline-image {
-    width: 56px;
-    height: 68px;
-    border-radius: 10px;
+  .group-line-image img {
+    max-width: 100%;
+    max-height: 100%;
   }
 
   .group-line-info {
-    gap: 4px;
+    gap: 5px;
   }
 
   .group-line-title {
-    font-size: 11px;
-    line-height: 14px;
+    font-size: 15px;
+    line-height: 19px;
   }
 
-  .group-subline-title {
-    font-size: 12px;
-    line-height: 15px;
+  .group-line-price {
+    font-size: 15px;
+    line-height: 19px;
   }
 
   .group-line-count-badge {
-    padding: 2px 4px;
-    border-radius: 14px;
+    padding: 8px 6px;
   }
 
   .group-line-count-badge span {
-    font-size: 8px;
-    line-height: 10px;
+    font-size: 11px;
+    line-height: 13px;
   }
 
   .group-line-toggle {
-    width: 26px;
-    height: 26px;
-  }
-
-  .group-subline-toggle {
-    width: 28px;
-    height: 28px;
+    width: 36px;
+    height: 36px;
   }
 
   .group-line-toggle-icon {
-    width: 9px;
-    height: 9px;
-  }
-
-  .group-subline-toggle-icon {
-    width: 10px;
-    height: 10px;
-  }
-
-  .group-subline-divider {
-    margin: 10px 0;
-  }
-
-  .group-subline-description {
-    font-size: 11px;
-  }
-
-  .group-subline-price {
-    font-size: 13px;
-    line-height: 16px;
+    width: 11px;
+    height: 11px;
   }
 
   .group-product-row,
@@ -1574,8 +1406,14 @@ function decrementVariantQuantity(product: Product, variant: { id?: string }) {
 
   .group-product-title,
   .group-variant-title {
-    font-size: 12px;
-    line-height: 15px;
+    font-size: 13px;
+    line-height: 16px;
+  }
+
+  .group-product-price,
+  .group-variant-price {
+    font-size: 13px;
+    line-height: 16px;
   }
 
   .group-qty-btn {

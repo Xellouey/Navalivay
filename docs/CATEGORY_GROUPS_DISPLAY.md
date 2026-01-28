@@ -222,6 +222,10 @@ Products API does NOT include:
 
 This keeps response size manageable (~50-100 KB for 300+ products).
 
+## Product Card Image Areas
+
+Layout of product image containers (padding, img fill) in GroupLineItem and LiquidLineCard is described in **`docs/PRODUCT_CARD_LAYOUT.md`**. Use that doc when changing "air" around photos or image sizing in list/card views.
+
 ## Files Reference
 
 | File | Purpose |
@@ -231,8 +235,12 @@ This keeps response size manageable (~50-100 KB for 300+ products).
 | `frontend/src/views/HomeView.vue` | Group tree building, expansion state |
 | `frontend/src/components/product/GroupLineItem.vue` | Single group row component |
 | `frontend/src/components/product/liquid/LiquidLineTree.vue` | Liquid mode tree |
+| `docs/PRODUCT_CARD_LAYOUT.md` | Image container padding/sizing in cards |
 
 ## Changelog
+
+### January 2026 (image areas)
+- Added: `docs/PRODUCT_CARD_LAYOUT.md` - product image container padding/sizing in GroupLineItem, LiquidLineCard, SingleProductCard; for AI agents see that doc.
 
 ### January 9, 2026
 - Fixed: Groups showing empty when expanded

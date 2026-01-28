@@ -3,21 +3,14 @@
     <SmokeParticles :count="4" area="full" />
 
     <!-- Баннер -->
-    <div class="mb-0 relative banner-wrapper">
+    <div v-if="catalogStore.banners.length" class="mb-0 relative banner-wrapper">
       <div class="banner-container relative">
         <BannerCarousel
-          v-if="catalogStore.banners.length"
           :banners="catalogStore.banners"
           :is-loading="catalogStore.isLoading"
           :auto-play="true"
           :auto-play-interval="5000"
         />
-        <div
-          v-else
-          class="w-full aspect-[16/7] bg-gradient-to-r from-red-600 to-blue-600 flex items-center justify-center rounded-2xl"
-        >
-          <p class="text-white text-2xl font-bold">НАВАЛИВАЙ</p>
-        </div>
       </div>
     </div>
 
@@ -143,6 +136,8 @@ onMounted(async () => {
 .banner-wrapper {
   overflow-x: hidden;
   overflow-y: visible;
+  padding-top: 20px;
+  background-color: #ffffff;
 }
 
 .banner-container {
@@ -160,6 +155,7 @@ onMounted(async () => {
   cursor: pointer;
   transition: transform 0.25s ease;
   padding: 0;
+  -webkit-tap-highlight-color: transparent; /* Remove iOS tap highlight */
 }
 
 .category-card-wrapper:hover {
@@ -204,6 +200,8 @@ onMounted(async () => {
   justify-content: space-around;
   row-gap: 12px;
   padding: 0;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 @media (max-width: 393px) {
@@ -273,7 +271,7 @@ onMounted(async () => {
 .main-content-wrapper {
   max-width: 1280px;
   margin: 0 auto;
-  padding: 0 16px 100px 16px;
+  padding: 0 16px 130px 16px;
   position: relative;
   z-index: 10;
 }
@@ -282,12 +280,14 @@ onMounted(async () => {
   position: relative;
   min-height: 0;
   margin-top: 1rem;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 /* ===== Cart Button Styles (Brutal Card Style) ===== */
 .cart-wrapper {
   position: fixed;
-  bottom: 0;
+  bottom: 40px; /* Подняли выше, чтобы не перекрывалось свайпом iPhone */
   left: 0;
   right: 0;
   z-index: 50;

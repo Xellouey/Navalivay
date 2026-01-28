@@ -215,6 +215,10 @@ logAnimationState('.group-line-content-wrapper', 'Wrapper');
 | Medium (cards, panels) | 300-400ms | Main UI transitions |
 | Large (modals, pages) | 400-500ms | Major view changes |
 
+## Related: Image Container Padding
+
+Padding and image sizing inside product image boxes (e.g. `.group-line-image`, `.liquid-line-image`, `.single-product-image`) are layout, not animation. Convention: padding 6px (4px on small breakpoints), `img { max-width: 100%; max-height: 100%; object-fit: contain }`. See **`docs/PRODUCT_CARD_LAYOUT.md`** for components, classes, and pitfalls for AI agents.
+
 ## Files Reference
 
 | File | Contains |
@@ -223,3 +227,4 @@ logAnimationState('.group-line-content-wrapper', 'Wrapper');
 | `frontend/src/components/product/ProductVariantCard.vue` | Full product card with variants |
 | `frontend/src/components/product/ProductCompactCard.vue` | Compact product card |
 | `frontend/src/components/product/SingleProductCard.vue` | Single product without variants |
+| `docs/PRODUCT_CARD_LAYOUT.md` | Image area padding/sizing in cards |

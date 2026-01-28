@@ -28,7 +28,9 @@ import { addTelegramUsernameToOrders } from './migrations/add_telegram_username_
 import { migrateCustomerFeedbacks } from './migrations/add_customer_feedbacks.js';
 import { migrateArchivedToOrders } from './migrations/add_archived_to_orders.js';
 import { migrateAddBaseProductToOrderItems } from './migrations/add_base_product_to_order_items.js';
+import { migrateColorDisplayMode } from './migrations/add_color_display_mode.js';
 import { migrateColorImageToVariants } from './migrations/add_color_image_to_variants.js';
+import { migrateCategoryGroupMetaFields } from './migrations/add_group_meta_fields.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -102,6 +104,8 @@ export function initDb() {
       cover_image TEXT,
       [order] INTEGER NOT NULL DEFAULT 0,
       hide_empty INTEGER NOT NULL DEFAULT 0,
+      meta_label TEXT,
+      meta_value TEXT,
       parent_group_id TEXT REFERENCES category_groups(id) ON DELETE SET NULL,
       createdAt TEXT NOT NULL DEFAULT (DATETIME('now')),
       updatedAt TEXT NOT NULL DEFAULT (DATETIME('now')),
@@ -141,6 +145,7 @@ export function initDb() {
   migrateCategoryDisplayMode();
   migrateCategoryGroupsAndCrossSells();
   migrateCategoryGroupHierarchy();
+  migrateCategoryGroupMetaFields();
   migrateCrmTables();
   migrateProductBadges();
   migrateOrderPaymentFields();
@@ -154,6 +159,7 @@ export function initDb() {
   migrateCustomerFeedbacks();
   migrateArchivedToOrders();
   migrateAddBaseProductToOrderItems();
+  migrateColorDisplayMode();
   migrateColorImageToVariants();
 
   seedIfEmpty();

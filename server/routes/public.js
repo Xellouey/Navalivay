@@ -51,7 +51,7 @@ publicRouter.get('/api/categories', (req, res) => {
   const groupsRaw = db.prepare(`
     SELECT g.id, g.categoryId, g.slug, g.name, 
            CASE WHEN g.cover_image IS NOT NULL AND g.cover_image != '' THEN 1 ELSE 0 END as hasCoverImage,
-           g.[order], g.hide_empty, g.parent_group_id
+           g.[order], g.hide_empty, g.parent_group_id, g.meta_label, g.meta_value
     FROM category_groups g
     ORDER BY g.categoryId ASC, g.[order] ASC, g.name ASC
   `).all();
@@ -103,6 +103,8 @@ publicRouter.get('/api/categories', (req, res) => {
     hasCoverImage: group.hasCoverImage === 1,
     hideEmpty: group.hide_empty === 1,
     parentId: group.parent_group_id || null,
+    metaLabel: group.meta_label || null,
+    metaValue: group.meta_value || null,
     productCount: groupCounts.get(group.id) || 0,
     totalProductCount: 0,
     children: []
@@ -149,6 +151,8 @@ publicRouter.get('/api/categories', (req, res) => {
       hasCoverImage: node.hasCoverImage,
       hideEmpty: node.hideEmpty,
       parentId: node.parentId,
+      metaLabel: node.metaLabel || null,
+      metaValue: node.metaValue || null,
       productCount: node.productCount,
       totalProductCount: node.totalProductCount
     }];
@@ -371,7 +375,7 @@ publicRouter.get('/api/products', (req, res) => {
       });
 
       const variantRows = db.prepare(`
-        SELECT id, product_id, name, color_code AS colorCode, color_image AS colorImage, price_rub AS priceRub, stock, position
+        SELECT id, product_id, name, color_code AS colorCode, color_image AS colorImage, color_display_mode AS colorDisplayMode, price_rub AS priceRub, stock, position
         FROM product_variants
         WHERE product_id IN (${placeholders})
         ORDER BY product_id ASC, position ASC
@@ -478,7 +482,7 @@ publicRouter.get('/api/product/:id', (req, res) => {
   if (p.hasVariants) {
     // Для товаров с вариантами получаем варианты и их изображения
     const variants = db.prepare(`
-      SELECT id, product_id, name, color_code AS colorCode, color_image AS colorImage, price_rub AS priceRub, stock, position
+      SELECT id, product_id, name, color_code AS colorCode, color_image AS colorImage, color_display_mode AS colorDisplayMode, price_rub AS priceRub, stock, position
       FROM product_variants
       WHERE product_id = ?
       ORDER BY position ASC
@@ -565,7 +569,7 @@ publicRouter.get('/api/cross-sells', (req, res) => {
     ORDER BY rowid ASC
   `);
   const variantStmt = db.prepare(`
-    SELECT id, product_id, name, color_code AS colorCode, color_image AS colorImage, price_rub AS priceRub, stock, position
+    SELECT id, product_id, name, color_code AS colorCode, color_image AS colorImage, color_display_mode AS colorDisplayMode, price_rub AS priceRub, stock, position
     FROM product_variants
     WHERE product_id = ?
     ORDER BY position ASC

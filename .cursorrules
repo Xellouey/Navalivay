@@ -1091,6 +1091,7 @@ Note: `delete_file` tool may fail on `.cursor/debug.log` as it's a protected con
 | `docs/CRM_PRODUCT_SEARCH.md` | CRM product search API & optimization |
 | `docs/CATEGORY_GROUPS_DISPLAY.md` | Category groups (линейки) display logic |
 | `docs/CSS_ANIMATIONS.md` | CSS animations patterns (expand/collapse, transitions) |
+| `docs/PRODUCT_CARD_LAYOUT.md` | Product card image areas, padding/sizing, for AI agents |
 
 ---
 
@@ -1259,3 +1260,20 @@ setTimeout(() => {
 - Inner content MUST have `min-height: 0` and `overflow: hidden`
 - Use `cubic-bezier(0.4, 0, 0.2, 1)` (Material Design easing) for natural feel
 - Add small delay (50ms) to inner content transition to sync with container
+
+### January 2026 - Product Card Image Padding ("Less Air")
+**Problem:** In cards on the "Жидкости" (Liquids) category and in group lines, product images had a lot of empty space inside their containers. Goal: less padding, images feel larger inside the same box.
+
+**Fixes applied:**
+1. **LiquidLineCard.vue** - `.liquid-line-image`, `.liquid-subline-image`: padding 12px → 6px; `img` from fixed `max-width: 65px; max-height: 66px` to `max-width: 100%; max-height: 100%`. Media queries use 6px or 4px padding and img 100%.
+2. **GroupLineItem.vue** - `.group-line-image`: padding 12px → 6px; `img` to 100%. Some breakpoints had `padding: 0`; set to 6px/4px for consistency with liquid cards.
+3. **SingleProductCard.vue** - `.single-product-image`: added `padding: 6px`; `img` from 90% to 100%. In media queries added 4px or 2px padding and `img { max-width: 100%; max-height: 100% }`.
+
+**Files changed:**
+- `frontend/src/components/product/liquid/LiquidLineCard.vue`
+- `frontend/src/components/product/GroupLineItem.vue`
+- `frontend/src/components/product/SingleProductCard.vue`
+
+**Docs added:** `docs/PRODUCT_CARD_LAYOUT.md` - image areas, padding/sizing convention, pitfalls for AI agents.
+
+**For AI agents:** Scope of "photo area" = product image container in list/card views (liquid lines, group lines, single product cards). Not: variant color circles, full-page product view. GroupLineItem had mixed padding 0/12px; normalizing to 6px/4px avoided inconsistent look. SingleProductCard had no padding and 90% img; adding 6px/4px/2px and 100% aligned it with others. Pre-existing CSS warning ("Expected identifier but found '&'" in scrollbar-hide) is unrelated to image layout; no need to change it.

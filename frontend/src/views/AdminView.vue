@@ -2130,7 +2130,7 @@ function closeGroupForm() {
   }
 }
 
-async function handleGroupFormSubmit(payload: { name: string; slug?: string; coverImage?: string | null; hideEmpty?: boolean; parentId?: string | null }) {
+async function handleGroupFormSubmit(payload: { name: string; slug?: string; coverImage?: string | null; hideEmpty?: boolean; parentId?: string | null; metaLabel?: string | null; metaValue?: string | null }) {
   const categoryId = groupFormCategoryId.value || activeGroupCategory.value?.id || null
   if (!categoryId) {
     showToast('Сначала выберите категорию', 'error')
@@ -2152,7 +2152,9 @@ async function handleGroupFormSubmit(payload: { name: string; slug?: string; cov
         slug: payload.slug,
         coverImage: payload.coverImage ?? null,
         hideEmpty: payload.hideEmpty,
-        parentId: payload.parentId ?? null
+        parentId: payload.parentId ?? null,
+        metaLabel: payload.metaLabel ?? null,
+        metaValue: payload.metaValue ?? null
       })
       showToast('Линейка обновлена', 'success')
     } else {
@@ -2162,7 +2164,9 @@ async function handleGroupFormSubmit(payload: { name: string; slug?: string; cov
         slug: payload.slug,
         coverImage: payload.coverImage ?? null,
         hideEmpty: payload.hideEmpty,
-        parentId: payload.parentId ?? null
+        parentId: payload.parentId ?? null,
+        metaLabel: payload.metaLabel ?? null,
+        metaValue: payload.metaValue ?? null
       })
       showToast('Линейка создана', 'success')
     }

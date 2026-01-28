@@ -29,6 +29,10 @@
         </div>
         <div class="liquid-line-info">
           <h3 class="liquid-line-title">{{ title }}</h3>
+          <p v-if="metaText" class="liquid-line-meta">{{ metaText }}</p>
+          <p v-if="minPriceLabel" class="liquid-line-price">
+            {{ minPriceLabel }} BYN
+          </p>
           <div
             v-if="!expanded && totalProductCount > 0"
             class="liquid-line-count-badge"
@@ -124,29 +128,30 @@
                   :key="variant.id ?? variant.name"
                   class="liquid-variant-row"
                 >
-                  <!-- Круглое превью варианта -->
+                  <!-- Круглое превью варианта: colorImage если режим "картинка", иначе цвет -->
                   <div
                     class="liquid-variant-preview"
                     :style="getVariantColorStyle(variant)"
                   >
+                    <!-- Режим "картинка": показываем colorImage в кружочке -->
                     <img
-                      v-if="
-                        hasValidColorImage(variant) &&
-                        !isImageFailed(variant.colorImage!)
-                      "
-                      :src="variant.colorImage!"
+                      v-if="isImageDisplayMode(variant) && variant.colorImage && !isImageFailed(variant.colorImage)"
+                      :src="variant.colorImage"
                       :alt="variant.name"
                       class="liquid-variant-preview-img"
                       @error="(e) => handleImageError(e, variant.colorImage!)"
                     />
                   </div>
                   <div class="liquid-variant-info">
+                    <!-- Название варианта - всегда черным текстом -->
                     <span class="liquid-variant-title">{{ variant.name }}</span>
+                    <span v-if="variant.priceRub && variant.priceRub !== product.priceRub" class="liquid-variant-price">{{ formatPrice(variant.priceRub) }} BYN</span>
+                    <!-- 
+                      Кнопка "Как выглядит цвет" показывается ВСЕГДА когда есть изображение товара варианта
+                      Независимо от режима отображения (цвет или картинка)
+                    -->
                     <button
-                      v-if="
-                        hasValidColorImage(variant) &&
-                        !isImageFailed(variant.colorImage!)
-                      "
+                      v-if="getVariantProductImage(variant) && !isImageFailed(getVariantProductImage(variant)!)"
                       type="button"
                       class="liquid-variant-color-link"
                       @click.stop="openColorPreview(variant)"
@@ -211,6 +216,7 @@
           >
             <div class="liquid-flavor-info">
               <span class="liquid-flavor-title">{{ product.title }}</span>
+              <span v-if="product.priceRub && product.priceRub !== (productsWithVariants.length ? null : productsWithoutVariants[0]?.priceRub)" class="liquid-flavor-price">{{ formatPrice(product.priceRub) }} BYN</span>
             </div>
             <div class="liquid-flavor-actions">
               <template v-if="getQuantity(product.id) > 0">
@@ -290,6 +296,8 @@ const props = defineProps<{
   subgroups?: SubgroupInfo[];
   badge?: string;
   badgeColor?: string;
+  metaLabel?: string | null;
+  metaValue?: string | null;
 }>();
 
 const emit = defineEmits<{
@@ -399,6 +407,15 @@ const minPriceLabel = computed(() => {
   );
 
   return hasVariants ? `от ${formatPrice(minPrice)}` : formatPrice(minPrice);
+});
+
+const metaText = computed(() => {
+  const label = (props.metaLabel ?? '').trim();
+  const value = (props.metaValue ?? '').trim();
+  if (label && value) {
+    return `${label} ${value}`;
+  }
+  return label || value;
 });
 
 const wrapperStyle = computed(() => {
@@ -702,15 +719,19 @@ function getVariantColorStyle(variant: {
   return { backgroundColor: "#F5F7FA" };
 }
 
-// Проверка валидности изображения цвета
-function hasValidColorImage(variant: {
-  colorImage?: string | null;
+// Проверка режима "картинка" (colorDisplayMode === 'image')
+function isImageDisplayMode(variant: {
+  colorDisplayMode?: 'color' | 'image';
 }): boolean {
-  return !!(
-    variant.colorImage &&
-    typeof variant.colorImage === "string" &&
-    variant.colorImage.trim() !== ""
-  );
+  return variant.colorDisplayMode === 'image';
+}
+
+// Получить изображение товара варианта (НЕ colorImage, а фото самого товара)
+function getVariantProductImage(variant: { images?: string[] }): string | null {
+  const url = Array.isArray(variant.images)
+    ? variant.images.find((src) => typeof src === "string" && src.trim().length > 0)
+    : null;
+  return url ? url : null;
 }
 
 // Проверка, не загрузилось ли изображение
@@ -734,13 +755,12 @@ const colorPreviewTitle = ref("");
 
 function openColorPreview(variant: {
   name: string;
-  colorImage?: string | null;
+  images?: string[];
 }) {
-  if (
-    hasValidColorImage(variant) &&
-    !isImageFailed(variant.colorImage!)
-  ) {
-    colorPreviewImage.value = variant.colorImage!;
+  // При клике показываем фото ТОВАРА варианта (variant.images[0]), а НЕ colorImage
+  const imageUrl = getVariantProductImage(variant);
+  if (imageUrl && !isImageFailed(imageUrl)) {
+    colorPreviewImage.value = imageUrl;
     colorPreviewTitle.value = variant.name;
     colorPreviewOpen.value = true;
   }
@@ -798,11 +818,12 @@ function closeColorPreview() {
   justify-content: center;
   overflow: hidden;
   box-sizing: border-box;
+  padding: 6px;
 }
 
 .liquid-line-image img {
-  max-width: 65px;
-  max-height: 66px;
+  max-width: 100%;
+  max-height: 100%;
   object-fit: contain;
 }
 
@@ -828,16 +849,39 @@ function closeColorPreview() {
   color: #191919;
 }
 
+.liquid-line-meta {
+  margin: 0;
+  font-family:
+    "SF Pro Display",
+    -apple-system,
+    BlinkMacSystemFont,
+    sans-serif;
+  font-style: normal;
+  font-weight: 500;
+  font-size: 14.4px;
+  line-height: 17.3px;
+  color: #aab2bd;
+}
+
+.liquid-line-price {
+  margin: 0;
+  font-family: "Montserrat", sans-serif;
+  font-style: normal;
+  font-weight: 700;
+  font-size: 16px;
+  line-height: 20px;
+  color: #191919;
+}
+
 .liquid-line-count-badge {
   display: inline-flex;
   align-self: flex-start;
   flex-direction: row;
   justify-content: center;
   align-items: center;
-  padding: 5px 8px;
+  padding: 10px 8px;
   background: #f5f7fa;
   border-radius: 24px;
-  height: 24px;
   box-sizing: border-box;
 }
 
@@ -929,11 +973,12 @@ function closeColorPreview() {
   justify-content: center;
   overflow: hidden;
   box-sizing: border-box;
+  padding: 6px;
 }
 
 .liquid-subline-image img {
-  max-width: 65px;
-  max-height: 66px;
+  max-width: 100%;
+  max-height: 100%;
   object-fit: contain;
 }
 
@@ -1058,6 +1103,15 @@ function closeColorPreview() {
 }
 
 .liquid-variant-title {
+  font-family: "Montserrat", sans-serif;
+  font-style: normal;
+  font-weight: 700;
+  font-size: 16px;
+  line-height: 20px;
+  color: #191919;
+}
+
+.liquid-variant-price {
   font-family: "Montserrat", sans-serif;
   font-style: normal;
   font-weight: 700;
@@ -1221,10 +1275,20 @@ function closeColorPreview() {
   flex: 1;
   min-width: 0;
   display: flex;
-  align-items: center;
+  flex-direction: column;
+  gap: 4px;
 }
 
 .liquid-flavor-title {
+  font-family: "Montserrat", sans-serif;
+  font-style: normal;
+  font-weight: 700;
+  font-size: 16px;
+  line-height: 20px;
+  color: #191919;
+}
+
+.liquid-flavor-price {
   font-family: "Montserrat", sans-serif;
   font-style: normal;
   font-weight: 700;
@@ -1256,46 +1320,75 @@ function closeColorPreview() {
 
 @media (max-width: 1024px) {
   .liquid-line-card {
-    padding: 11px;
+    padding: 16px;
   }
 
   .liquid-line-image {
-    width: 60px;
-    height: 60px;
-    border-radius: 12px;
+    width: 88px;
+    height: 104px;
+    border-radius: 16px;
+    padding: 6px;
+  }
+
+  .liquid-line-image img {
+    max-width: 100%;
+    max-height: 100%;
   }
 
   .liquid-subline-image {
-    width: 80px;
-    height: 96px;
+    width: 88px;
+    height: 104px;
+    border-radius: 16px;
+    padding: 6px;
+  }
+
+  .liquid-subline-image img {
+    max-width: 100%;
+    max-height: 100%;
   }
 
   .liquid-line-title {
-    font-size: 14px;
+    font-size: 16px;
+    line-height: 20px;
+  }
+
+  .liquid-line-price {
+    font-size: 16px;
+    line-height: 20px;
   }
 
   .liquid-subline-title {
-    font-size: 15px;
+    font-size: 16px;
+    line-height: 20px;
+  }
+
+  .liquid-line-count-badge {
+    padding: 10px 8px;
+  }
+
+  .liquid-line-count-badge span {
+    font-size: 12px;
+    line-height: 14px;
   }
 
   .liquid-line-toggle {
-    width: 32px;
-    height: 32px;
+    width: 40px;
+    height: 40px;
   }
 
   .liquid-subline-toggle {
-    width: 36px;
-    height: 36px;
+    width: 40px;
+    height: 40px;
   }
 
   .liquid-line-toggle-icon {
-    width: 13px;
-    height: 13px;
+    width: 12px;
+    height: 12px;
   }
 
   .liquid-subline-toggle-icon {
-    width: 14px;
-    height: 14px;
+    width: 12px;
+    height: 12px;
   }
 
   .liquid-subline-price {
@@ -1316,76 +1409,93 @@ function closeColorPreview() {
 
 @media (max-width: 768px) {
   .liquid-line-card {
-    padding: 10px;
-    border-radius: 14px;
+    padding: 16px;
+    border-radius: 20px;
     margin-bottom: 0;
   }
 
   .liquid-line-header {
-    gap: 8px;
-  }
-
-  .liquid-subline-header {
     gap: 10px;
   }
 
+  .liquid-subline-header {
+    gap: 12px;
+  }
+
   .liquid-line-main {
-    gap: 7px;
+    gap: 12px;
   }
 
   .liquid-line-image {
-    width: 72px;
-    height: 88px;
-    border-radius: 12px;
+    width: 88px;
+    height: 104px;
+    border-radius: 16px;
+    padding: 6px;
+  }
+
+  .liquid-line-image img {
+    max-width: 100%;
+    max-height: 100%;
   }
 
   .liquid-subline-image {
-    width: 72px;
-    height: 88px;
-    border-radius: 14px;
+    width: 88px;
+    height: 104px;
+    border-radius: 16px;
+    padding: 6px;
+  }
+
+  .liquid-subline-image img {
+    max-width: 100%;
+    max-height: 100%;
   }
 
   .liquid-line-info {
-    gap: 4px;
+    gap: 6px;
   }
 
   .liquid-line-title {
-    font-size: 13px;
-    line-height: 16px;
+    font-size: 16px;
+    line-height: 20px;
+  }
+
+  .liquid-line-price {
+    font-size: 16px;
+    line-height: 20px;
   }
 
   .liquid-subline-title {
-    font-size: 14px;
-    line-height: 18px;
+    font-size: 16px;
+    line-height: 20px;
   }
 
   .liquid-line-count-badge {
-    padding: 3px 5px;
+    padding: 10px 8px;
   }
 
   .liquid-line-count-badge span {
-    font-size: 8px;
-    line-height: 10px;
+    font-size: 12px;
+    line-height: 14px;
   }
 
   .liquid-line-toggle {
-    width: 30px;
-    height: 30px;
+    width: 40px;
+    height: 40px;
   }
 
   .liquid-subline-toggle {
-    width: 34px;
-    height: 34px;
+    width: 40px;
+    height: 40px;
   }
 
   .liquid-line-toggle-icon {
-    width: 11px;
-    height: 11px;
+    width: 12px;
+    height: 12px;
   }
 
   .liquid-subline-toggle-icon {
-    width: 13px;
-    height: 13px;
+    width: 12px;
+    height: 12px;
   }
 
   .liquid-subline-description {
@@ -1404,7 +1514,12 @@ function closeColorPreview() {
 
   .liquid-flavor-title,
   .liquid-variant-title {
-    font-size: 14px;
+    font-size: 15px;
+  }
+
+  .liquid-flavor-price,
+  .liquid-variant-price {
+    font-size: 15px;
   }
 
   .liquid-qty-btn {
@@ -1427,71 +1542,87 @@ function closeColorPreview() {
 
 @media (max-width: 480px) {
   .liquid-line-card {
-    padding: 9px;
-    border-radius: 14px;
+    padding: 16px;
+    border-radius: 20px;
   }
 
   .liquid-line-header {
-    gap: 7px;
+    gap: 10px;
   }
 
   .liquid-subline-header {
-    gap: 8px;
+    gap: 12px;
   }
 
   .liquid-line-main {
-    gap: 8px;
+    gap: 12px;
   }
 
   .liquid-line-image {
-    width: 64px;
-    height: 78px;
-    border-radius: 10px;
+    width: 88px;
+    height: 104px;
+    border-radius: 16px;
+    padding: 6px;
+  }
+
+  .liquid-line-image img {
+    max-width: 100%;
+    max-height: 100%;
   }
 
   .liquid-subline-image {
-    width: 64px;
-    height: 78px;
-    border-radius: 12px;
+    width: 88px;
+    height: 104px;
+    border-radius: 16px;
+    padding: 6px;
+  }
+
+  .liquid-subline-image img {
+    max-width: 100%;
+    max-height: 100%;
   }
 
   .liquid-line-info {
-    gap: 5px;
+    gap: 6px;
   }
 
   .liquid-line-title {
-    font-size: 12px;
-    line-height: 15px;
+    font-size: 16px;
+    line-height: 20px;
+  }
+
+  .liquid-line-price {
+    font-size: 16px;
+    line-height: 20px;
   }
 
   .liquid-subline-title {
-    font-size: 13px;
-    line-height: 16px;
+    font-size: 15px;
+    line-height: 19px;
   }
 
   .liquid-line-count-badge {
-    padding: 2px 4px;
-    border-radius: 18px;
+    padding: 10px 8px;
   }
 
   .liquid-line-count-badge span {
-    font-size: 10px;
-    line-height: 12px;
+    font-size: 12px;
+    line-height: 14px;
   }
 
   .liquid-line-toggle {
-    width: 28px;
-    height: 28px;
+    width: 40px;
+    height: 40px;
   }
 
   .liquid-subline-toggle {
-    width: 32px;
-    height: 32px;
+    width: 40px;
+    height: 40px;
   }
 
   .liquid-line-toggle-icon {
-    width: 10px;
-    height: 10px;
+    width: 12px;
+    height: 12px;
   }
 
   .liquid-subline-toggle-icon {
@@ -1519,8 +1650,14 @@ function closeColorPreview() {
 
   .liquid-flavor-title,
   .liquid-variant-title {
-    font-size: 13px;
-    line-height: 16px;
+    font-size: 14px;
+    line-height: 18px;
+  }
+
+  .liquid-flavor-price,
+  .liquid-variant-price {
+    font-size: 14px;
+    line-height: 18px;
   }
 
   .liquid-qty-btn {
@@ -1548,76 +1685,92 @@ function closeColorPreview() {
 
 @media (max-width: 360px) {
   .liquid-line-card {
-    padding: 8px;
-    border-radius: 12px;
+    padding: 14px;
+    border-radius: 18px;
   }
 
   .liquid-line-header {
-    gap: 6px;
+    gap: 8px;
   }
 
   .liquid-subline-header {
-    gap: 6px;
+    gap: 10px;
   }
 
   .liquid-line-main {
-    gap: 6px;
+    gap: 10px;
   }
 
   .liquid-line-image {
-    width: 56px;
-    height: 68px;
-    border-radius: 8px;
+    width: 80px;
+    height: 96px;
+    border-radius: 14px;
+    padding: 4px;
+  }
+
+  .liquid-line-image img {
+    max-width: 100%;
+    max-height: 100%;
   }
 
   .liquid-subline-image {
-    width: 56px;
-    height: 68px;
-    border-radius: 10px;
+    width: 80px;
+    height: 96px;
+    border-radius: 14px;
+    padding: 4px;
+  }
+
+  .liquid-subline-image img {
+    max-width: 100%;
+    max-height: 100%;
   }
 
   .liquid-line-info {
-    gap: 4px;
+    gap: 5px;
   }
 
   .liquid-line-title {
-    font-size: 11px;
-    line-height: 14px;
+    font-size: 15px;
+    line-height: 19px;
+  }
+
+  .liquid-line-price {
+    font-size: 15px;
+    line-height: 19px;
   }
 
   .liquid-subline-title {
-    font-size: 12px;
-    line-height: 15px;
+    font-size: 14px;
+    line-height: 18px;
   }
 
   .liquid-line-count-badge {
-    padding: 2px 4px;
-    border-radius: 14px;
+    padding: 8px 6px;
   }
 
   .liquid-line-count-badge span {
-    font-size: 9px;
-    line-height: 11px;
+    font-size: 11px;
+    line-height: 13px;
   }
 
   .liquid-line-toggle {
-    width: 26px;
-    height: 26px;
+    width: 36px;
+    height: 36px;
   }
 
   .liquid-subline-toggle {
-    width: 28px;
-    height: 28px;
+    width: 36px;
+    height: 36px;
   }
 
   .liquid-line-toggle-icon {
-    width: 9px;
-    height: 9px;
+    width: 11px;
+    height: 11px;
   }
 
   .liquid-subline-toggle-icon {
-    width: 10px;
-    height: 10px;
+    width: 11px;
+    height: 11px;
   }
 
   .liquid-subline-divider {
@@ -1640,8 +1793,14 @@ function closeColorPreview() {
 
   .liquid-flavor-title,
   .liquid-variant-title {
-    font-size: 12px;
-    line-height: 15px;
+    font-size: 13px;
+    line-height: 16px;
+  }
+
+  .liquid-flavor-price,
+  .liquid-variant-price {
+    font-size: 13px;
+    line-height: 16px;
   }
 
   .liquid-qty-btn {

@@ -12,6 +12,17 @@
       <p v-if="nameError" class="mt-1 text-sm text-red-600">{{ nameError }}</p>
     </div>
 
+    <div>
+      <label class="block text-sm font-medium text-gray-700 mb-2">Дополнительный параметр</label>
+      <input
+        v-model="form.metaValue"
+        type="text"
+        class="w-full rounded-lg border border-gray-300 px-3 py-2 focus:ring-2 focus:ring-brand-dark focus:border-transparent text-sm"
+        placeholder="Крепость 60 мг или Затяжек 2000"
+      />
+      <p class="mt-1 text-xs text-gray-500">Показывается на витрине как единая строка</p>
+    </div>
+
       <div class="space-y-3">
       <div class="flex flex-wrap items-start justify-between gap-3">
         <div>
@@ -170,6 +181,8 @@ interface CategoryGroup {
   coverImage?: string | null
   hideEmpty?: boolean
   parentId?: string | null
+  metaLabel?: string | null
+  metaValue?: string | null
   depth?: number
 }
 
@@ -180,7 +193,7 @@ const props = withDefaults(defineProps<{ editingGroup?: CategoryGroup | null; is
 })
 
 const emit = defineEmits<{
-  (e: 'submit', payload: { name: string; coverImage?: string | null; hideEmpty?: boolean; parentId?: string | null }): void
+  (e: 'submit', payload: { name: string; coverImage?: string | null; hideEmpty?: boolean; parentId?: string | null; metaLabel?: string | null; metaValue?: string | null }): void
   (e: 'cancel'): void
 }>()
 
@@ -188,7 +201,8 @@ const form = reactive({
   name: '',
   coverImage: '',
   hideEmpty: false,
-  parentId: ''
+  parentId: '',
+  metaValue: ''
 })
 
 const nameError = ref('')
@@ -205,6 +219,9 @@ watch(
       form.coverImage = group.coverImage || ''
       form.hideEmpty = !!group.hideEmpty
       form.parentId = group.parentId || ''
+      const label = (group.metaLabel || '').trim()
+      const value = (group.metaValue || '').trim()
+      form.metaValue = label && value ? `${label} ${value}` : (label || value)
       if ((group.coverImage || '').startsWith('data:')) {
         coverMode.value = 'file'
         uploadPreview.value = group.coverImage || ''
@@ -218,6 +235,7 @@ watch(
       form.coverImage = ''
       form.hideEmpty = false
       form.parentId = ''
+      form.metaValue = ''
       coverMode.value = 'url'
       uploadPreview.value = ''
       uploadedFileName.value = ''
@@ -245,11 +263,14 @@ function onSubmit() {
   if (!isValid.value || props.isSubmitting) {
     return
   }
+  const metaValue = form.metaValue.trim()
   emit('submit', {
     name: form.name.trim(),
     coverImage: form.coverImage.trim() ? form.coverImage.trim() : null,
     hideEmpty: form.hideEmpty,
-    parentId: form.parentId ? form.parentId : null
+    parentId: form.parentId ? form.parentId : null,
+    metaLabel: null,
+    metaValue: metaValue.length ? metaValue : null
   })
 }
 

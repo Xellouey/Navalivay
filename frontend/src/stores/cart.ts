@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import type { Product } from './catalog'
+import { useCatalogStore } from './catalog'
 
 export interface CartItem {
   productId: string
@@ -11,6 +12,8 @@ export interface CartItem {
   image?: string | null
   variantId?: string | null
   variantName?: string | null
+  groupId?: string | null
+  categoryId?: string | null
 }
 
 export const useCartStore = defineStore('cart', () => {
@@ -24,26 +27,53 @@ export const useCartStore = defineStore('cart', () => {
     return items.value.reduce((sum, item) => sum + item.priceRub * item.quantity, 0)
   })
 
-  function loadFromStorage() {
+  async function loadFromStorage() {
     try {
       const stored = localStorage.getItem('navalivay_cart')
       if (stored) {
         const loadedItems = JSON.parse(stored)
-        // Migrate old items that don't have productTitle
+        const catalogStore = useCatalogStore()
+        
+        // Ensure catalog is loaded
+        if (!catalogStore.allProducts.length) {
+          await catalogStore.fetchAllProducts()
+        }
+        
+        // Migrate old items
         items.value = loadedItems.map((item: CartItem) => {
+          const migrated = { ...item }
+          
           if (!item.productTitle) {
-            // For old items, extract productTitle from title
-            // If title contains  - , the part before it is the product title
             const titleParts = item.title.split(' - ')
-            return {
-              ...item,
-              productTitle: titleParts.length > 1 ? titleParts[0] : item.title,
-              variantName: titleParts.length > 1 ? titleParts.slice(1).join(' - ') : null
+            migrated.productTitle = titleParts.length > 1 ? titleParts[0] : item.title
+            migrated.variantName = titleParts.length > 1 ? titleParts.slice(1).join(' - ') : null
+          }
+          
+          // Update image from group/category if needed
+          if (item.groupId) {
+            const groupImage = catalogStore.getGroupImage(item.groupId)
+            if (groupImage) migrated.image = groupImage
+          } else if (item.categoryId) {
+            const categoryImage = catalogStore.getCategoryImage(item.categoryId)
+            if (categoryImage) migrated.image = categoryImage
+          } else if (!item.groupId && !item.categoryId) {
+            // Old item without IDs - try to find product in catalog
+            const product = catalogStore.allProducts.find(p => p.id === item.productId)
+            if (product) {
+              migrated.groupId = product.groupId || null
+              migrated.categoryId = product.categoryId || null
+              if (product.groupId) {
+                const groupImage = catalogStore.getGroupImage(product.groupId)
+                if (groupImage) migrated.image = groupImage
+              } else if (product.categoryId) {
+                const categoryImage = catalogStore.getCategoryImage(product.categoryId)
+                if (categoryImage) migrated.image = categoryImage
+              }
             }
           }
-          return item
+          
+          return migrated
         })
-        // Save migrated data
         saveToStorage()
       }
     } catch (error) {
@@ -84,9 +114,23 @@ export const useCartStore = defineStore('cart', () => {
           if (variant.priceRub) {
             priceRub = variant.priceRub
           }
-          if (variant.images && variant.images.length > 0) {
+          // Изображение варианта берем только если НЕТ флага needsCategoryImage
+          if (!product.needsCategoryImage && variant.images && variant.images.length > 0) {
             image = variant.images[0]
           }
+        }
+      }
+      
+      // Если у товара флаг needsCategoryImage - ВСЕГДА берем из группы или категории
+      if (product.needsCategoryImage) {
+        const catalogStore = useCatalogStore()
+        if (product.groupId) {
+          const groupImage = catalogStore.getGroupImage(product.groupId)
+          if (groupImage) image = groupImage
+        }
+        if (!image && product.categoryId) {
+          const categoryImage = catalogStore.getCategoryImage(product.categoryId)
+          if (categoryImage) image = categoryImage
         }
       }
       
@@ -98,7 +142,9 @@ export const useCartStore = defineStore('cart', () => {
         quantity,
         image,
         variantId: variantId || null,
-        variantName: variantName || (product.groupName ? product.title : null)
+        variantName: variantName || (product.groupName ? product.title : null),
+        groupId: product.groupId || null,
+        categoryId: product.categoryId || null
       })
     }
     

@@ -327,8 +327,8 @@
                   <input
                     type="radio"
                     :name="`color-type-${index}`"
-                    :checked="!variant.colorImage"
-                    @change="variant.colorImage = ''"
+                    :checked="variant.colorDisplayMode !== 'image'"
+                    @change="variant.colorDisplayMode = 'color'"
                     class="w-4 h-4 text-brand-dark"
                   />
                   <span class="text-sm text-gray-600">Цвет</span>
@@ -337,16 +337,16 @@
                   <input
                     type="radio"
                     :name="`color-type-${index}`"
-                    :checked="!!variant.colorImage"
-                    @change="triggerColorImageUpload(index)"
+                    :checked="variant.colorDisplayMode === 'image'"
+                    @change="variant.colorDisplayMode = 'image'"
                     class="w-4 h-4 text-brand-dark"
                   />
                   <span class="text-sm text-gray-600">Картинка</span>
                 </label>
               </div>
               
-              <!-- Выбор цвета -->
-              <div v-if="!variant.colorImage" class="flex gap-2">
+              <!-- Выбор цвета (режим "цвет") -->
+              <div v-if="variant.colorDisplayMode !== 'image'" class="flex gap-2">
                 <input
                   v-model="variant.colorCode"
                   type="text"
@@ -361,25 +361,36 @@
                 />
               </div>
               
-              <!-- Картинка цвета -->
+              <!-- Картинка цвета (режим "картинка") -->
               <div v-else class="flex items-center gap-3">
-                <div class="relative w-12 h-12 rounded-full overflow-hidden border-2 border-gray-300 shadow-sm">
-                  <img :src="variant.colorImage" class="w-full h-full object-cover" />
-                </div>
-                <button
-                  type="button"
-                  @click="triggerColorImageUpload(index)"
-                  class="px-3 py-1.5 text-xs font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200"
-                >
-                  Заменить
-                </button>
-                <button
-                  type="button"
-                  @click="variant.colorImage = ''"
-                  class="px-3 py-1.5 text-xs font-medium text-red-600 bg-red-50 rounded-lg hover:bg-red-100"
-                >
-                  Удалить
-                </button>
+                <template v-if="variant.colorImage">
+                  <div class="relative w-12 h-12 rounded-full overflow-hidden border-2 border-gray-300 shadow-sm">
+                    <img :src="variant.colorImage" class="w-full h-full object-cover" />
+                  </div>
+                  <button
+                    type="button"
+                    @click="triggerColorImageUpload(index)"
+                    class="px-3 py-1.5 text-xs font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200"
+                  >
+                    Заменить
+                  </button>
+                  <button
+                    type="button"
+                    @click="variant.colorImage = ''"
+                    class="px-3 py-1.5 text-xs font-medium text-red-600 bg-red-50 rounded-lg hover:bg-red-100"
+                  >
+                    Удалить
+                  </button>
+                </template>
+                <template v-else>
+                  <button
+                    type="button"
+                    @click="triggerColorImageUpload(index)"
+                    class="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 border border-dashed border-gray-300"
+                  >
+                    Загрузить картинку цвета
+                  </button>
+                </template>
               </div>
               
               <!-- Скрытый input для загрузки картинки цвета -->
@@ -660,6 +671,7 @@ interface ProductVariant {
   name: string
   colorCode?: string | null
   colorImage?: string | null
+  colorDisplayMode?: 'color' | 'image'  // Режим отображения: цвет или картинка
   priceRub?: number | null
   stock?: number
   images: string[]
@@ -708,7 +720,13 @@ const form = reactive<Omit<Product, 'id'>>({
   minStock: props.product?.minStock ?? 0,
   useCategoryImage: props.product?.useCategoryImage ?? true,
   hasVariants: props.product?.hasVariants ?? false,
-  variants: props.product?.variants ? props.product.variants.map(v => ({ ...v, images: [...v.images] })) : [],
+  variants: props.product?.variants ? props.product.variants.map(v => ({
+    ...v,
+    colorCode: v.colorCode || null,
+    colorImage: v.colorImage || null,
+    colorDisplayMode: (v.colorDisplayMode as 'color' | 'image') || (v.colorImage ? 'image' : 'color'),
+    images: [...(v.images || [])]
+  })) : [],
   images: [...(props.product?.images || [])],
   links: [...(props.product?.links || [])]
 })
@@ -924,6 +942,8 @@ watch(() => props.product, (p) => {
     ...v,
     colorCode: v.colorCode || null,
     colorImage: v.colorImage || null,
+    // Определяем режим: если есть colorImage - режим 'image', иначе 'color'
+    colorDisplayMode: (v.colorDisplayMode as 'color' | 'image') || (v.colorImage ? 'image' : 'color'),
     images: [...(v.images || [])]
   })) : []
   form.images = [...(p?.images || [])]
@@ -1098,6 +1118,7 @@ function addVariant() {
     name: '',
     colorCode: null,
     colorImage: null,
+    colorDisplayMode: 'color',  // По умолчанию режим "цвет"
     priceRub: null,
     stock: 0,
     images: []
@@ -1237,8 +1258,9 @@ async function onSubmit() {
       payload.hasVariants = true
       payload.variants = form.variants?.map(v => ({
         name: v.name.trim(),
-        colorCode: v.colorCode?.trim() || null,
-        colorImage: v.colorImage || null,
+        colorCode: v.colorDisplayMode === 'image' ? null : (v.colorCode?.trim() || null),  // Очищаем colorCode если режим "картинка"
+        colorImage: v.colorDisplayMode === 'image' ? (v.colorImage || null) : null,  // Очищаем colorImage если режим "цвет"
+        colorDisplayMode: v.colorDisplayMode || 'color',
         priceRub: v.priceRub !== null && v.priceRub !== undefined ? Number(v.priceRub) : null,
         stock: v.stock !== undefined ? Number(v.stock) : 0,
         images: [...v.images]

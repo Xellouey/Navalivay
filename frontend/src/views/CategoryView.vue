@@ -460,6 +460,8 @@ type LiquidGroup = {
   productCount: number;
   badge?: string | null;
   badgeColor?: string | null;
+  metaLabel?: string | null;
+  metaValue?: string | null;
   children: LiquidGroup[];
 };
 
@@ -567,6 +569,8 @@ const liquidStructure = computed(() => {
         productCount: groupProducts.length,
         badge: group.badge ?? null,
         badgeColor: group.badgeColor ?? null,
+        metaLabel: group.metaLabel ?? null,
+        metaValue: group.metaValue ?? null,
         children: [],
       });
     });
@@ -1012,7 +1016,7 @@ watch(
 .main-content-wrapper {
   max-width: 1280px;
   margin: 0 auto;
-  padding: 0 0 100px 0;
+  padding: 0 0 130px 0;
   position: relative;
   z-index: 10;
 }
@@ -1456,7 +1460,7 @@ watch(
 /* Cart Button Styles */
 .cart-wrapper {
   position: fixed;
-  bottom: 0;
+  bottom: 40px; /* Подняли выше, чтобы не перекрывалось свайпом iPhone */
   left: 0;
   right: 0;
   z-index: 50;

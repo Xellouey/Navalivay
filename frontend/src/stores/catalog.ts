@@ -13,6 +13,8 @@ export interface CategoryGroup {
   parentId?: string | null
   badge?: string | null
   badgeColor?: string | null
+  metaLabel?: string | null
+  metaValue?: string | null
 }
 
 export interface Category {
@@ -44,6 +46,7 @@ export interface ProductVariant {
   name: string
   colorCode?: string | null
   colorImage?: string | null
+  colorDisplayMode?: 'color' | 'image'  // Режим отображения: цвет или картинка
   priceRub?: number | null
   stock?: number
   position?: number
@@ -276,7 +279,9 @@ export const useCatalogStore = defineStore('catalog', () => {
               totalProductCount: group.totalProductCount ?? group.productCount ?? 0,
               parentId: group.parentId ?? null,
               badge: group.badge ?? null,
-              badgeColor: group.badgeColor ?? null
+              badgeColor: group.badgeColor ?? null,
+              metaLabel: group.metaLabel ?? group.meta_label ?? null,
+              metaValue: group.metaValue ?? group.meta_value ?? null
             }))
           : []
       }))

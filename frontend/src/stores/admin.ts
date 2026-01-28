@@ -44,6 +44,7 @@ export interface ProductVariant {
   name: string
   colorCode?: string | null
   colorImage?: string | null
+  colorDisplayMode?: 'color' | 'image'
   priceRub?: number | null
   stock?: number
   position?: number
@@ -82,6 +83,8 @@ export interface CategoryGroup {
   order: number
   hideEmpty?: boolean
   parentId?: string | null
+  metaLabel?: string | null
+  metaValue?: string | null
   createdAt?: string
   updatedAt?: string
   productCount?: number
@@ -701,6 +704,8 @@ async function createCategory(category: { name: string; hideEmpty?: boolean; cov
         order: Number(group.order ?? group['order'] ?? 0),
         hideEmpty: Boolean(group.hide_empty),
         parentId: group.parent_group_id ?? null,
+        metaLabel: group.metaLabel ?? group.meta_label ?? null,
+        metaValue: group.metaValue ?? group.meta_value ?? null,
         createdAt: group.createdAt,
         updatedAt: group.updatedAt,
         productCount: group.productCount ?? 0,
@@ -779,6 +784,8 @@ async function createCategory(category: { name: string; hideEmpty?: boolean; cov
         order: Number(response.order ?? response['order'] ?? 0),
         hideEmpty: Boolean(response.hide_empty),
         parentId: response.parent_group_id ?? null,
+        metaLabel: response.metaLabel ?? response.meta_label ?? null,
+        metaValue: response.metaValue ?? response.meta_value ?? null,
         createdAt: response.createdAt,
         updatedAt: response.updatedAt,
         productCount: response.productCount ?? 0
@@ -789,7 +796,7 @@ async function createCategory(category: { name: string; hideEmpty?: boolean; cov
     }
   }
 
-  async function createCategoryGroup(payload: { categoryId: string; name: string; slug?: string; coverImage?: string | null; hideEmpty?: boolean; parentId?: string | null }) {
+  async function createCategoryGroup(payload: { categoryId: string; name: string; slug?: string; coverImage?: string | null; hideEmpty?: boolean; parentId?: string | null; metaLabel?: string | null; metaValue?: string | null }) {
     try {
       isLoading.value = true
       error.value = null
@@ -803,7 +810,9 @@ async function createCategory(category: { name: string; hideEmpty?: boolean; cov
           slug: payload.slug,
           coverImage: payload.coverImage ?? null,
           hide_empty: payload.hideEmpty ?? false,
-          parentId: payload.parentId ?? null
+          parentId: payload.parentId ?? null,
+          metaLabel: payload.metaLabel ?? null,
+          metaValue: payload.metaValue ?? null
         }
       })
 
@@ -816,6 +825,8 @@ async function createCategory(category: { name: string; hideEmpty?: boolean; cov
         order: Number(response.order ?? response['order'] ?? 0),
         hideEmpty: Boolean(response.hide_empty),
         parentId: response.parent_group_id ?? null,
+        metaLabel: response.metaLabel ?? response.meta_label ?? null,
+        metaValue: response.metaValue ?? response.meta_value ?? null,
         createdAt: response.createdAt,
         updatedAt: response.updatedAt,
         productCount: response.productCount ?? 0,
@@ -848,7 +859,9 @@ async function createCategory(category: { name: string; hideEmpty?: boolean; cov
           coverImage: updates.coverImage ?? null,
           hide_empty: updates.hideEmpty,
           order: updates.order,
-          parentId: updates.parentId ?? null
+          parentId: updates.parentId ?? null,
+          metaLabel: updates.metaLabel ?? null,
+          metaValue: updates.metaValue ?? null
         }
       })
 
@@ -862,6 +875,8 @@ async function createCategory(category: { name: string; hideEmpty?: boolean; cov
         order: Number(response.order ?? response['order'] ?? 0),
         hideEmpty: Boolean(response.hide_empty),
         parentId: response.parent_group_id ?? null,
+        metaLabel: response.metaLabel ?? response.meta_label ?? null,
+        metaValue: response.metaValue ?? response.meta_value ?? null,
         createdAt: response.createdAt,
         updatedAt: response.updatedAt,
         productCount: response.productCount ?? 0,
@@ -1110,7 +1125,11 @@ async function createCategory(category: { name: string; hideEmpty?: boolean; cov
       }
       
       if (updates.variants !== undefined) {
-        payload.variants = updates.variants
+        // Передаем варианты с colorDisplayMode
+        payload.variants = updates.variants.map(v => ({
+          ...v,
+          colorDisplayMode: v.colorDisplayMode || 'color'
+        }))
       }
       
       if (updates.useCategoryImage !== undefined) {

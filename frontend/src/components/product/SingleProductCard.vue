@@ -183,11 +183,12 @@ const isAtStockLimit = computed(() => {
   justify-content: center;
   overflow: hidden;
   box-sizing: border-box;
+  padding: 6px;
 }
 
 .single-product-image img {
-  max-width: 90%;
-  max-height: 90%;
+  max-width: 100%;
+  max-height: 100%;
   object-fit: contain;
 }
 
@@ -319,6 +320,12 @@ const isAtStockLimit = computed(() => {
   .single-product-image {
     width: 80px;
     height: 96px;
+    padding: 4px;
+  }
+
+  .single-product-image img {
+    max-width: 100%;
+    max-height: 100%;
   }
 
   .single-product-title {
@@ -356,6 +363,12 @@ const isAtStockLimit = computed(() => {
     width: 72px;
     height: 88px;
     border-radius: 14px;
+    padding: 4px;
+  }
+
+  .single-product-image img {
+    max-width: 100%;
+    max-height: 100%;
   }
 
   .single-product-info {
@@ -412,6 +425,12 @@ const isAtStockLimit = computed(() => {
     width: 64px;
     height: 78px;
     border-radius: 12px;
+    padding: 2px;
+  }
+
+  .single-product-image img {
+    max-width: 100%;
+    max-height: 100%;
   }
 
   .single-product-info {
@@ -468,6 +487,12 @@ const isAtStockLimit = computed(() => {
     width: 56px;
     height: 68px;
     border-radius: 10px;
+    padding: 2px;
+  }
+
+  .single-product-image img {
+    max-width: 100%;
+    max-height: 100%;
   }
 
   .single-product-title {

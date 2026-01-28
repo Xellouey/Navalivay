@@ -2,6 +2,23 @@
   <div class="checkout-page">
     <div class="header-area">
       <div class="checkout-header">
+        <button class="checkout-back-button" @click="handleBack" aria-label="Назад">
+          <svg
+            class="checkout-back-icon"
+            width="7"
+            height="12"
+            viewBox="0 0 7 12"
+            fill="none"
+          >
+            <path
+              d="M6 1L1 6L6 11"
+              stroke="#191919"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+          </svg>
+        </button>
         <h1 class="checkout-title">Оформление заказа</h1>
         <button
           v-if="cartStore.items.length"
@@ -88,6 +105,9 @@
                   </h3>
                   <p class="cart-item-meta" v-if="item.variantName">
                     {{ item.variantName }}
+                  </p>
+                  <p v-if="getItemMetaText(item)" class="cart-item-meta cart-item-meta-info">
+                    {{ getItemMetaText(item) }}
                   </p>
 
                   <!-- <div class="item-badge-new">
@@ -202,6 +222,7 @@
 import { ref, reactive, computed, onMounted, watch } from "vue";
 import { useRouter } from "vue-router";
 import { useCartStore } from "@/stores/cart";
+import { useCatalogStore } from "@/stores/catalog";
 import { useSettingsStore } from "@/stores/settings";
 import MinDeliveryBanner from "@/components/MinDeliveryBanner.vue";
 import DeliveryConditionsBanner from "@/components/DeliveryConditionsBanner.vue";
@@ -209,6 +230,7 @@ import DeliveryConditionsBanner from "@/components/DeliveryConditionsBanner.vue"
 const router = useRouter();
 const cartStore = useCartStore();
 const settingsStore = useSettingsStore();
+const catalogStore = useCatalogStore();
 
 const isItemsExpanded = ref(false);
 const promoCode = ref("");
@@ -262,6 +284,26 @@ const displayedItems = computed(() => {
   return cartStore.items.slice(0, 1);
 });
 
+const groupMetaMap = computed(() => {
+  const map = new Map<string, string>();
+  for (const category of catalogStore.categories) {
+    for (const group of category.groups || []) {
+      const label = (group.metaLabel ?? "").trim();
+      const value = (group.metaValue ?? "").trim();
+      const text = label && value ? `${label} ${value}` : (label || value);
+      if (text) {
+        map.set(group.id, text);
+      }
+    }
+  }
+  return map;
+});
+
+function getItemMetaText(item: (typeof cartStore.items)[0]): string | null {
+  if (!item.groupId) return null;
+  return groupMetaMap.value.get(item.groupId) || null;
+}
+
 function isIceProduct(item: (typeof cartStore.items)[0]): boolean {
   const title = (item.title || "").toLowerCase();
   const variant = (item.variantName || "").toLowerCase();
@@ -305,6 +347,12 @@ watch(
 
 onMounted(async () => {
   await settingsStore.fetchSettings();
+  if (!catalogStore.categories.length) {
+    const hasGroupItems = cartStore.items.some((item) => item.groupId);
+    if (hasGroupItems) {
+      await catalogStore.fetchCategories();
+    }
+  }
   await fetchStockLimits();
   const user = telegramUser.value;
   if (user?.username) {
@@ -549,11 +597,15 @@ async function submitOrder() {
 }
 
 .header-area {
-  background: rgba(255, 255, 255, 0.8);
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  background: #ffffff;
   backdrop-filter: blur(11.5px);
   border-radius: 0 0 24px 24px;
-  padding: 12px 16px 20px;
+  padding: 0;
   margin-bottom: 16px;
+  box-shadow: 0 4px 32px rgba(170, 178, 189, 0.32);
 }
 
 .checkout-header {
@@ -561,7 +613,40 @@ async function submitOrder() {
   align-items: center;
   justify-content: center;
   position: relative;
+  padding: 16px 16px 20px 16px;
+  min-height: 56px;
+}
+
+.checkout-back-button {
+  position: absolute;
+  left: 16px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
   height: 32px;
+  padding: 0;
+  border-radius: 50%;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.checkout-back-button:hover {
+  background: #f5f7fa;
+}
+
+.checkout-back-button:active {
+  background: #e6e9ed;
+}
+
+.checkout-back-icon {
+  flex-shrink: 0;
+  width: 7px;
+  height: 12px;
 }
 
 .checkout-title {
@@ -575,7 +660,9 @@ async function submitOrder() {
 
 .header-trash-btn {
   position: absolute;
-  right: 0;
+  right: 16px;
+  top: 50%;
+  transform: translateY(-50%);
   width: 40px;
   height: 40px;
   display: flex;
@@ -713,6 +800,12 @@ async function submitOrder() {
   line-height: 17px;
   color: #aab2bd;
   margin: 0 0 8px;
+}
+
+.cart-item-meta-info {
+  font-weight: 500;
+  font-size: 16.8px;
+  line-height: 20.2px;
 }
 
 .item-badge-new {
@@ -1058,7 +1151,59 @@ async function submitOrder() {
   text-align: center;
 }
 
-@media (max-width: 400px) {
+@media (max-width: 768px) {
+  .header-area {
+    border-radius: 0 0 20px 20px;
+  }
+
+  .checkout-header {
+    padding: 14px 14px 18px 14px;
+    min-height: 52px;
+  }
+
+  .checkout-back-button {
+    left: 14px;
+    width: 30px;
+    height: 30px;
+  }
+
+  .header-trash-btn {
+    right: 14px;
+  }
+
+  .checkout-title {
+    font-size: 18px;
+    line-height: 22px;
+  }
+}
+
+@media (max-width: 480px) {
+  .header-area {
+    border-radius: 0 0 18px 18px;
+  }
+
+  .checkout-header {
+    padding: 12px 12px 16px 12px;
+    min-height: 48px;
+  }
+
+  .checkout-back-button {
+    left: 12px;
+    width: 28px;
+    height: 28px;
+  }
+
+  .header-trash-btn {
+    right: 12px;
+  }
+
+  .checkout-title {
+    font-size: 16px;
+    line-height: 20px;
+  }
+}
+
+@media (max-width: 360px) {
   .cart-item-image {
     width: 72px;
     height: 88px;
@@ -1076,6 +1221,35 @@ async function submitOrder() {
   .qty-value {
     width: 36px;
     height: 36px;
+  }
+
+  .checkout-back-button {
+    left: 10px;
+    width: 26px;
+    height: 26px;
+  }
+
+  .checkout-back-icon {
+    width: 6px;
+    height: 10px;
+  }
+
+  .header-area {
+    border-radius: 0 0 16px 16px;
+  }
+
+  .checkout-header {
+    padding: 10px 10px 14px 10px;
+    min-height: 44px;
+  }
+
+  .header-trash-btn {
+    right: 10px;
+  }
+
+  .checkout-title {
+    font-size: 15px;
+    line-height: 18px;
   }
 }
 

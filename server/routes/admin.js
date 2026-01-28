@@ -322,24 +322,26 @@ adminRouter.post('/api/admin/products', authMiddleware, (req, res) => {
     // Handle variants if product has them
     if (hasVariants && Array.isArray(variants) && variants.length > 0) {
       console.log(`[admin] Creating ${variants.length} variants for product ${id}`);
-      const variantStmt = db.prepare('INSERT INTO product_variants (id, product_id, name, color_code, color_image, price_rub, stock, position) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
+      const variantStmt = db.prepare('INSERT INTO product_variants (id, product_id, name, color_code, color_image, color_display_mode, price_rub, stock, position) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
       
       for (let idx = 0; idx < variants.length; idx++) {
         const variant = variants[idx];
         const variantId = `v_${Math.random().toString(36).slice(2, 8)}`;
+        const displayMode = variant.colorDisplayMode || 'color';
         
         variantStmt.run(
           variantId,
           id,
           variant.name,
-          variant.colorCode || null,
-          variant.colorImage || null,
+          displayMode === 'image' ? null : (variant.colorCode || null),
+          displayMode === 'image' ? (variant.colorImage || null) : null,
+          displayMode,
           variant.priceRub ? Number(variant.priceRub) : null,
           variant.stock !== undefined ? Number(variant.stock) : 0,
           idx
         );
         
-        console.log(`[admin] Created variant ${variantId}: ${variant.name}`);
+        console.log(`[admin] Created variant ${variantId}: ${variant.name}, displayMode: ${displayMode}`);
         
         // Store variant ID back to variant object for image processing
         variant._id = variantId;
@@ -490,7 +492,7 @@ adminRouter.post('/api/admin/products', authMiddleware, (req, res) => {
     if (product.hasVariants) {
       // Для товаров с вариантами получаем варианты и их изображения
       productVariants = db.prepare(`
-        SELECT id, product_id, name, color_code AS colorCode, color_image AS colorImage, price_rub AS priceRub, stock, position
+        SELECT id, product_id, name, color_code AS colorCode, color_image AS colorImage, color_display_mode AS colorDisplayMode, price_rub AS priceRub, stock, position
         FROM product_variants
         WHERE product_id = ?
         ORDER BY position ASC
@@ -659,7 +661,7 @@ adminRouter.patch('/api/admin/products/:id', authMiddleware, (req, res) => {
       
       const deleteVariantsStmt = db.prepare('DELETE FROM product_variants WHERE product_id = ?');
       const deleteAllImagesStmt = db.prepare('DELETE FROM product_images WHERE productId = ?');
-      const variantStmt = db.prepare('INSERT INTO product_variants (id, product_id, name, color_code, color_image, price_rub, stock, position) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
+      const variantStmt = db.prepare('INSERT INTO product_variants (id, product_id, name, color_code, color_image, color_display_mode, price_rub, stock, position) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
       const imageStmt = db.prepare('INSERT INTO product_images (productId, variant_id, url, position) VALUES (?, ?, ?, ?)');
       
       const txVariants = db.transaction((items) => {
@@ -671,11 +673,14 @@ adminRouter.patch('/api/admin/products/:id', authMiddleware, (req, res) => {
         
         items.forEach((variant, index) => {
           const variantId = variant.id || `${id}-${index}-${Date.now()}`;
+          const displayMode = variant.colorDisplayMode || 'color';
+          
           console.log(`[admin] Inserting variant ${index}:`, {
             variantId,
             name: variant.name,
             colorCode: variant.colorCode,
             colorImage: variant.colorImage,
+            colorDisplayMode: displayMode,
             priceRub: variant.priceRub,
             stock: variant.stock,
             imagesCount: variant.images?.length || 0
@@ -685,8 +690,9 @@ adminRouter.patch('/api/admin/products/:id', authMiddleware, (req, res) => {
             variantId,
             id,
             variant.name || '',
-            variant.colorCode || variant.color || '',
-            variant.colorImage || null,
+            displayMode === 'image' ? null : (variant.colorCode || variant.color || null),
+            displayMode === 'image' ? (variant.colorImage || null) : null,
+            displayMode,
             variant.priceRub !== null && variant.priceRub !== undefined ? Number(variant.priceRub) : null,
             variant.stock !== undefined ? Number(variant.stock) : 0,
             index
@@ -856,7 +862,7 @@ adminRouter.get('/api/admin/products', authMiddleware, (req, res) => {
       });
 
       const variantRows = db.prepare(`
-        SELECT id, product_id, name, color_code AS colorCode, color_image AS colorImage, price_rub AS priceRub, stock, position
+        SELECT id, product_id, name, color_code AS colorCode, color_image AS colorImage, color_display_mode AS colorDisplayMode, price_rub AS priceRub, stock, position
         FROM product_variants
         WHERE product_id IN (${placeholders})
         ORDER BY product_id ASC, position ASC
@@ -934,7 +940,7 @@ adminRouter.get('/api/admin/products/:id', authMiddleware, (req, res) => {
   if (p.hasVariants) {
     // Для товаров с вариантами получаем варианты и их изображения
     const variants = db.prepare(`
-      SELECT id, product_id, name, color_code AS colorCode, color_image AS colorImage, price_rub AS priceRub, stock, position
+      SELECT id, product_id, name, color_code AS colorCode, color_image AS colorImage, color_display_mode AS colorDisplayMode, price_rub AS priceRub, stock, position
       FROM product_variants
       WHERE product_id = ?
       ORDER BY position ASC
@@ -1391,13 +1397,15 @@ adminRouter.get('/api/admin/category-groups', authMiddleware, (req, res) => {
       g.[order],
       g.hide_empty,
       g.parent_group_id,
+      g.meta_label,
+      g.meta_value,
       g.createdAt,
       g.updatedAt,
       COUNT(p.id) AS productCount
     FROM category_groups g
     LEFT JOIN products p ON p.groupId = g.id
     ${whereClause}
-    GROUP BY g.id, g.categoryId, g.slug, g.name, g.[order], g.hide_empty, g.parent_group_id, g.createdAt, g.updatedAt
+    GROUP BY g.id, g.categoryId, g.slug, g.name, g.[order], g.hide_empty, g.parent_group_id, g.meta_label, g.meta_value, g.createdAt, g.updatedAt
     ORDER BY g.categoryId ASC, g.[order] ASC, g.name ASC
   `).all(...params);
 
@@ -1483,6 +1491,8 @@ adminRouter.get('/api/admin/category-groups/:id', authMiddleware, (req, res) => 
       g.[order],
       g.hide_empty,
       g.parent_group_id,
+      g.meta_label,
+      g.meta_value,
       g.createdAt,
       g.updatedAt
     FROM category_groups g
@@ -1503,7 +1513,7 @@ adminRouter.get('/api/admin/category-groups/:id', authMiddleware, (req, res) => 
 });
 
 adminRouter.post('/api/admin/category-groups', authMiddleware, async (req, res) => {
-  const { categoryId, name, slug, coverImage, hide_empty, parentId } = req.body || {};
+  const { categoryId, name, slug, coverImage, hide_empty, parentId, metaLabel, metaValue, meta_label, meta_value } = req.body || {};
 
   if (!categoryId || !name) {
     return res.status(400).json({ error: 'missing_fields' });
@@ -1531,13 +1541,35 @@ adminRouter.post('/api/admin/category-groups', authMiddleware, async (req, res) 
     resolvedParentId = parent.id;
   }
 
+  const rawMetaLabel = metaLabel ?? meta_label ?? null;
+  const rawMetaValue = metaValue ?? meta_value ?? null;
+  const resolvedMetaLabel =
+    typeof rawMetaLabel === 'string' && rawMetaLabel.trim().length > 0
+      ? rawMetaLabel.trim()
+      : null;
+  const resolvedMetaValue =
+    typeof rawMetaValue === 'string' && rawMetaValue.trim().length > 0
+      ? rawMetaValue.trim()
+      : null;
+
   // Конвертируем изображение в WebP
   const coverImageValue = coverImage ? await convertImageToWebP(coverImage) : null;
 
   db.prepare(`
-    INSERT INTO category_groups (id, categoryId, slug, name, cover_image, [order], hide_empty, parent_group_id, createdAt, updatedAt)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, DATETIME('now'), DATETIME('now'))
-  `).run(newId, String(categoryId), finalSlug, name, coverImageValue, nextOrder, hide_empty ? 1 : 0, resolvedParentId);
+    INSERT INTO category_groups (id, categoryId, slug, name, cover_image, [order], hide_empty, meta_label, meta_value, parent_group_id, createdAt, updatedAt)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, DATETIME('now'), DATETIME('now'))
+  `).run(
+    newId,
+    String(categoryId),
+    finalSlug,
+    name,
+    coverImageValue,
+    nextOrder,
+    hide_empty ? 1 : 0,
+    resolvedMetaLabel,
+    resolvedMetaValue,
+    resolvedParentId,
+  );
 
   const result = db.prepare(`
     SELECT 
@@ -1549,13 +1581,15 @@ adminRouter.post('/api/admin/category-groups', authMiddleware, async (req, res) 
       g.[order],
       g.hide_empty,
       g.parent_group_id,
+      g.meta_label,
+      g.meta_value,
       g.createdAt,
       g.updatedAt,
       COUNT(p.id) AS productCount
     FROM category_groups g
     LEFT JOIN products p ON p.groupId = g.id
     WHERE g.id = ?
-    GROUP BY g.id, g.categoryId, g.slug, g.name, g.cover_image, g.[order], g.hide_empty, g.parent_group_id, g.createdAt, g.updatedAt
+    GROUP BY g.id, g.categoryId, g.slug, g.name, g.cover_image, g.[order], g.hide_empty, g.parent_group_id, g.meta_label, g.meta_value, g.createdAt, g.updatedAt
   `).get(newId);
 
   if (!result) {
@@ -1583,7 +1617,7 @@ adminRouter.post('/api/admin/category-groups', authMiddleware, async (req, res) 
 
 adminRouter.put('/api/admin/category-groups/:id', authMiddleware, async (req, res) => {
   const { id } = req.params;
-  const { name, slug, coverImage, hide_empty, order, parentId } = req.body || {};
+  const { name, slug, coverImage, hide_empty, order, parentId, metaLabel, metaValue, meta_label, meta_value } = req.body || {};
 
   const current = db.prepare('SELECT * FROM category_groups WHERE id = ?').get(id);
   if (!current) {
@@ -1603,6 +1637,20 @@ adminRouter.put('/api/admin/category-groups/:id', authMiddleware, async (req, re
   }
   const nextHideEmpty = hide_empty !== undefined ? (hide_empty ? 1 : 0) : current.hide_empty;
   const nextOrder = Number.isFinite(Number(order)) ? Number(order) : current.order;
+  const rawMetaLabel = metaLabel ?? meta_label;
+  const rawMetaValue = metaValue ?? meta_value;
+  const nextMetaLabel =
+    rawMetaLabel !== undefined
+      ? (typeof rawMetaLabel === 'string' && rawMetaLabel.trim().length > 0
+        ? rawMetaLabel.trim()
+        : null)
+      : current.meta_label ?? null;
+  const nextMetaValue =
+    rawMetaValue !== undefined
+      ? (typeof rawMetaValue === 'string' && rawMetaValue.trim().length > 0
+        ? rawMetaValue.trim()
+        : null)
+      : current.meta_value ?? null;
 
   let nextParentId = current.parent_group_id ?? null;
   if (parentId !== undefined) {
@@ -1639,9 +1687,9 @@ adminRouter.put('/api/admin/category-groups/:id', authMiddleware, async (req, re
 
   db.prepare(`
     UPDATE category_groups
-    SET name = ?, slug = ?, cover_image = ?, hide_empty = ?, [order] = ?, parent_group_id = ?, updatedAt = DATETIME('now')
+    SET name = ?, slug = ?, cover_image = ?, hide_empty = ?, [order] = ?, meta_label = ?, meta_value = ?, parent_group_id = ?, updatedAt = DATETIME('now')
     WHERE id = ?
-  `).run(nextName, nextSlug, nextCover, nextHideEmpty, nextOrder, nextParentId, id);
+  `).run(nextName, nextSlug, nextCover, nextHideEmpty, nextOrder, nextMetaLabel, nextMetaValue, nextParentId, id);
 
   const updated = db.prepare(`
     SELECT 
@@ -1653,13 +1701,15 @@ adminRouter.put('/api/admin/category-groups/:id', authMiddleware, async (req, re
       g.[order],
       g.hide_empty,
       g.parent_group_id,
+      g.meta_label,
+      g.meta_value,
       g.createdAt,
       g.updatedAt,
       COUNT(p.id) AS productCount
     FROM category_groups g
     LEFT JOIN products p ON p.groupId = g.id
     WHERE g.id = ?
-    GROUP BY g.id, g.categoryId, g.slug, g.name, g.cover_image, g.[order], g.hide_empty, g.parent_group_id, g.createdAt, g.updatedAt
+    GROUP BY g.id, g.categoryId, g.slug, g.name, g.cover_image, g.[order], g.hide_empty, g.parent_group_id, g.meta_label, g.meta_value, g.createdAt, g.updatedAt
   `).get(id);
 
   if (!updated) {

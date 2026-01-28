@@ -13,6 +13,8 @@
             :alt="'Banner'"
             class="single-banner-image"
             loading="lazy"
+            @error="handleImageError"
+            @load="handleImageLoad"
           />
         </div>
       </template>
@@ -43,6 +45,8 @@
                 :alt="`Banner ${index + 1}`"
                 class="carousel-image-new"
                 loading="lazy"
+                @error="handleImageError"
+                @load="handleImageLoad"
               />
             </div>
           </div>
@@ -297,6 +301,18 @@ function onMouseLeave() {
   }
 }
 
+function handleImageError(event: Event) {
+  const img = event.target as HTMLImageElement;
+  console.error('Banner image failed to load:', img.src);
+  // Hide broken image icon on iOS
+  img.style.display = 'none';
+}
+
+function handleImageLoad(event: Event) {
+  const img = event.target as HTMLImageElement;
+  img.style.display = 'block';
+}
+
 onMounted(() => {
   startAutoPlay();
 });
@@ -320,14 +336,39 @@ onUnmounted(() => {
   cursor: pointer;
   border-radius: 24px;
   overflow: hidden;
+  position: relative;
+  background-color: #f0f0f0; /* Fallback background if image fails to load */
+  /* Fallback for iOS Safari < 15 - use padding-bottom trick */
+  padding-bottom: 50%; /* 2:1 aspect ratio */
+  height: 0;
+}
+
+/* Modern browsers with aspect-ratio support */
+@supports (aspect-ratio: 2 / 1) {
+  .single-banner-wrapper {
+    padding-bottom: 0;
+    height: auto;
+  }
 }
 
 .single-banner-image {
   width: 100%;
-  height: auto;
   display: block;
   object-fit: cover;
-  aspect-ratio: 2 / 1;
+  /* Fallback for older iOS */
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+}
+
+/* Modern browsers with aspect-ratio support */
+@supports (aspect-ratio: 2 / 1) {
+  .single-banner-image {
+    position: static;
+    height: auto;
+    aspect-ratio: 2 / 1;
+  }
 }
 
 /* New carousel container */
@@ -354,14 +395,38 @@ onUnmounted(() => {
   flex: 0 0 100%;
   min-width: 100%;
   position: relative;
+  background-color: #f0f0f0; /* Fallback background if image fails to load */
+  /* Fallback for iOS Safari < 15 - use padding-bottom trick */
+  padding-bottom: 50%; /* 2:1 aspect ratio */
+  height: 0;
+}
+
+/* Modern browsers with aspect-ratio support */
+@supports (aspect-ratio: 2 / 1) {
+  .carousel-slide-new {
+    padding-bottom: 0;
+    height: auto;
+  }
 }
 
 .carousel-image-new {
   width: 100%;
-  height: auto;
   display: block;
   object-fit: cover;
-  aspect-ratio: 2 / 1;
+  /* Fallback for older iOS */
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+}
+
+/* Modern browsers with aspect-ratio support */
+@supports (aspect-ratio: 2 / 1) {
+  .carousel-image-new {
+    position: static;
+    height: auto;
+    aspect-ratio: 2 / 1;
+  }
 }
 
 /* Dot indicators */
