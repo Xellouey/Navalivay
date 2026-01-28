@@ -63,9 +63,12 @@ crmRouter.get('/api/admin/crm/dashboard', authMiddleware, (req, res) => {
     }
 
     const { start, end } = getPeriodRange(period, offset);
-    const dateFilter = `created_at >= '${start.toISOString()}' AND created_at < '${end.toISOString()}'`;
+    // Для статистики заказов используем created_at
+    const createdAtFilter = `created_at >= '${start.toISOString()}' AND created_at < '${end.toISOString()}'`;
+    // Для финансовой статистики используем paid_at (дата оплаты/выдачи)
+    const paidAtFilter = `paid_at >= '${start.toISOString()}' AND paid_at < '${end.toISOString()}'`;
 
-    // Выручка, прибыль, количество продаж (на основе позиций заказов для согласованности)
+    // Выручка, прибыль, количество продаж - по дате ОПЛАТЫ (paid_at)
     const stats = db.prepare(`
       SELECT 
         COALESCE(COUNT(DISTINCT o.id), 0)                   AS total_sales,
@@ -74,10 +77,10 @@ crmRouter.get('/api/admin/crm/dashboard', authMiddleware, (req, res) => {
         COALESCE(COUNT(DISTINCT o.customer_id), 0)          AS unique_customers
       FROM orders o
       LEFT JOIN order_items oi ON oi.order_id = o.id
-      WHERE o.status IN ('completed', 'delivered') AND ${dateFilter}
+      WHERE o.status IN ('completed', 'delivered') AND o.paid_at IS NOT NULL AND ${paidAtFilter}
     `).get();
 
-    // Топ линейки (category groups) — по прибыли и выручке
+    // Топ линейки (category groups) - по дате ОПЛАТЫ (paid_at)
     const topProducts = db.prepare(`
       SELECT 
         COALESCE(g.id, 'no_group') as group_id,
@@ -89,22 +92,23 @@ crmRouter.get('/api/admin/crm/dashboard', authMiddleware, (req, res) => {
       JOIN orders o ON o.id = oi.order_id
       LEFT JOIN products p ON p.id = oi.product_id
       LEFT JOIN category_groups g ON g.id = p.groupId
-      WHERE o.status IN ('completed', 'delivered') AND ${dateFilter}
+      WHERE o.status IN ('completed', 'delivered') AND o.paid_at IS NOT NULL AND ${paidAtFilter}
       GROUP BY group_id, group_name
       ORDER BY total_profit DESC
       LIMIT 5
     `).all();
 
-    // Статистика по статусам заказов
+    // Статистика по статусам заказов - по дате СОЗДАНИЯ
     const ordersByStatus = db.prepare(`
       SELECT 
         status,
         COUNT(*) as count
       FROM orders
-      WHERE ${dateFilter}
+      WHERE ${createdAtFilter}
       GROUP BY status
     `).all();
 
+    // Доставки - по дате ОПЛАТЫ
     const deliveryStats = db.prepare(`
       SELECT 
         COUNT(*) as deliveries,
@@ -112,9 +116,11 @@ crmRouter.get('/api/admin/crm/dashboard', authMiddleware, (req, res) => {
       FROM orders
       WHERE delivery_type = 'delivery'
         AND status IN ('completed', 'delivered')
-        AND ${dateFilter}
+        AND paid_at IS NOT NULL
+        AND ${paidAtFilter}
     `).get();
 
+    // Самовывозы - по дате ОПЛАТЫ
     const pickupStats = db.prepare(`
       SELECT 
         COUNT(*) as pickups,
@@ -122,7 +128,8 @@ crmRouter.get('/api/admin/crm/dashboard', authMiddleware, (req, res) => {
       FROM orders
       WHERE delivery_type = 'pickup'
         AND status IN ('completed', 'delivered')
-        AND ${dateFilter}
+        AND paid_at IS NOT NULL
+        AND ${paidAtFilter}
     `).get();
 
     res.json({
@@ -209,8 +216,9 @@ crmRouter.get('/api/admin/crm/dashboard-timeseries', authMiddleware, (req, res) 
           FROM orders o
           LEFT JOIN order_items oi ON oi.order_id = o.id
           WHERE o.status IN ('completed', 'delivered')
-            AND o.created_at >= ?
-            AND o.created_at < ?
+            AND o.paid_at IS NOT NULL
+            AND o.paid_at >= ?
+            AND o.paid_at < ?
         `).get(monthStart.toISOString(), monthEnd.toISOString());
         
         data.push({
@@ -236,8 +244,9 @@ crmRouter.get('/api/admin/crm/dashboard-timeseries', authMiddleware, (req, res) 
           FROM orders o
           LEFT JOIN order_items oi ON oi.order_id = o.id
           WHERE o.status IN ('completed', 'delivered')
-            AND o.created_at >= ?
-            AND o.created_at < ?
+            AND o.paid_at IS NOT NULL
+            AND o.paid_at >= ?
+            AND o.paid_at < ?
         `).get(dayStart.toISOString(), dayEnd.toISOString());
         
         data.push({

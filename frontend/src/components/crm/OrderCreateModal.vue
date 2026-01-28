@@ -131,64 +131,86 @@
               </div>
 
               <div v-else class="space-y-3">
-                <article
-                  v-for="item in form.items"
-                  :key="item.productId"
-                  class="rounded-xl border border-gray-200 bg-white p-4 shadow-sm"
-                >
-                  <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                    <div class="space-y-1">
-                      <p class="text-base font-semibold text-gray-900">{{ item.title }}</p>
-                      <p class="text-xs text-gray-500">
-                        Остаток: <span :class="item.stock <= item.minStock ? 'text-red-500' : ''">{{ item.stock }}</span>
-                        <span v-if="item.groupName">· {{ item.groupName }}</span>
-                      </p>
+                <TransitionGroup name="item-list" tag="div" class="space-y-3">
+                  <article
+                    v-for="item in visibleItems"
+                    :key="item.productId"
+                    class="rounded-xl border border-gray-200 bg-white p-4 shadow-sm"
+                  >
+                    <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                      <div class="space-y-1">
+                        <p class="text-base font-semibold text-gray-900">{{ item.title }}</p>
+                        <p class="text-xs text-gray-500">
+                          Остаток: <span :class="item.stock <= item.minStock ? 'text-red-500' : ''">{{ item.stock }}</span>
+                          <span v-if="item.groupName">· {{ item.groupName }}</span>
+                        </p>
+                      </div>
+                      <button
+                        class="admin-link-button admin-link-button--danger admin-link-button--compact"
+                        @click="removeItem(item.productId)"
+                      >
+                        Удалить
+                      </button>
                     </div>
-                    <button
-                      class="admin-link-button admin-link-button--danger admin-link-button--compact"
-                      @click="removeItem(item.productId)"
-                    >
-                      Удалить
-                    </button>
-                  </div>
 
-                  <div class="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
-                    <label class="flex flex-col gap-1 text-xs font-medium text-gray-600">
-                      Количество
-                      <input
-                        v-model.number="item.quantity"
-                        type="number"
-                        min="1"
-                        class="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
-                      />
-                    </label>
-                    <label class="flex flex-col gap-1 text-xs font-medium text-gray-600">
-                      Цена, ₽
-                      <input
-                        v-model.number="item.price"
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        class="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
-                      />
-                    </label>
-                    <label class="flex flex-col gap-1 text-xs font-medium text-gray-600">
-                      Скидка на позицию, ₽
-                      <input
-                        v-model.number="item.discount"
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        class="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
-                      />
-                    </label>
-                  </div>
+                    <div class="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
+                      <label class="flex flex-col gap-1 text-xs font-medium text-gray-600">
+                        Количество
+                        <input
+                          v-model.number="item.quantity"
+                          type="number"
+                          min="1"
+                          class="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
+                        />
+                      </label>
+                      <label class="flex flex-col gap-1 text-xs font-medium text-gray-600">
+                        Цена, ₽
+                        <input
+                          v-model.number="item.price"
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          class="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
+                        />
+                      </label>
+                      <label class="flex flex-col gap-1 text-xs font-medium text-gray-600">
+                        Скидка на позицию, ₽
+                        <input
+                          v-model.number="item.discount"
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          class="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
+                        />
+                      </label>
+                    </div>
 
-                  <div class="mt-3 flex items-center justify-between text-sm text-gray-600">
-                    <span>Себестоимость: {{ formatCurrency(item.cost) }}</span>
-                    <span class="font-semibold text-gray-900">Итого: {{ formatCurrency(itemTotal(item)) }}</span>
-                  </div>
-                </article>
+                    <div class="mt-3 flex items-center justify-between text-sm text-gray-600">
+                      <span>Себестоимость: {{ formatCurrency(item.cost) }}</span>
+                      <span class="font-semibold text-gray-900">Итого: {{ formatCurrency(itemTotal(item)) }}</span>
+                    </div>
+                  </article>
+                </TransitionGroup>
+
+                <!-- Expand/Collapse button -->
+                <button
+                  v-if="shouldShowExpandButton"
+                  type="button"
+                  class="flex w-full items-center justify-center gap-2 rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm font-medium text-gray-600 transition-all duration-300 hover:bg-gray-100 hover:border-gray-300"
+                  @click="isItemsExpanded = !isItemsExpanded"
+                >
+                  <svg
+                    class="h-4 w-4 transition-transform duration-300"
+                    :class="{ 'rotate-180': isItemsExpanded }"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                  </svg>
+                  <span v-if="!isItemsExpanded">Еще {{ hiddenItemsCount }} {{ pluralize(hiddenItemsCount, 'позиция', 'позиции', 'позиций') }}</span>
+                  <span v-else>Свернуть</span>
+                </button>
               </div>
             </div>
           </section>
@@ -310,6 +332,28 @@ const searchToken = ref(0)
 const isSubmitting = ref(false)
 const submitError = ref('')
 
+// Expandable items list
+const ITEMS_COLLAPSED_COUNT = 5
+const isItemsExpanded = ref(false)
+
+const visibleItems = computed(() => {
+  if (isItemsExpanded.value || form.items.length <= ITEMS_COLLAPSED_COUNT) {
+    return form.items
+  }
+  return form.items.slice(0, ITEMS_COLLAPSED_COUNT)
+})
+
+const hiddenItemsCount = computed(() => {
+  if (isItemsExpanded.value || form.items.length <= ITEMS_COLLAPSED_COUNT) {
+    return 0
+  }
+  return form.items.length - ITEMS_COLLAPSED_COUNT
+})
+
+const shouldShowExpandButton = computed(() => {
+  return form.items.length > ITEMS_COLLAPSED_COUNT
+})
+
 const form = reactive({
   customerId: '',
   deliveryType: 'pickup' as 'pickup' | 'delivery',
@@ -403,6 +447,7 @@ function resetForm() {
   productSearch.value = ''
   productSuggestions.value = []
   submitError.value = ''
+  isItemsExpanded.value = false
 }
 
 function customerLabel(customer: Customer) {
@@ -511,5 +556,37 @@ function formatCurrency(amount: number) {
     maximumFractionDigits: 2
   }).format(Number.isFinite(amount) ? amount : 0)
 }
+
+function pluralize(count: number, one: string, few: string, many: string): string {
+  const mod10 = count % 10
+  const mod100 = count % 100
+  if (mod10 === 1 && mod100 !== 11) return one
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) return few
+  return many
+}
 </script>
 
+<style scoped>
+/* TransitionGroup animations for items list */
+.item-list-enter-active {
+  transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.item-list-leave-active {
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.item-list-enter-from {
+  opacity: 0;
+  transform: translateY(-12px) scale(0.98);
+}
+
+.item-list-leave-to {
+  opacity: 0;
+  transform: translateY(-8px) scale(0.98);
+}
+
+.item-list-move {
+  transition: transform 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+}
+</style>
