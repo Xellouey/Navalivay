@@ -78,8 +78,10 @@ export interface OrderItem {
   order_id: string;
   product_id: string | null;
   product_title: string;
+  group_name?: string | null;
   base_product_id?: string | null;
   base_product_title?: string | null;
+  variant_name?: string | null;
   quantity: number;
   price_per_unit: number;
   cost_per_unit: number;

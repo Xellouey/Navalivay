@@ -1,5 +1,5 @@
-import express from 'express';
-import { db } from '../db.js';
+import express from "express";
+import { db } from "../db.js";
 
 export const publicRouter = express.Router();
 
@@ -36,27 +36,37 @@ function pushVariantImage(map, productId, variantId, url) {
   }
 }
 
-publicRouter.get('/api/categories', (req, res) => {
+publicRouter.get("/api/categories", (req, res) => {
   // ОПТИМИЗАЦИЯ: не загружаем cover_image в списке - экономит ~8MB трафика
   // Фронтенд загружает обложки отдельно через /api/categories/:id/image
-  const categoriesRaw = db.prepare(`
+  const categoriesRaw = db
+    .prepare(
+      `
     SELECT c.id, c.slug, c.name, c.[order], c.hide_empty, 
            CASE WHEN c.cover_image IS NOT NULL AND c.cover_image != '' THEN 1 ELSE 0 END as hasCoverImage,
            c.display_mode
     FROM categories c
     ORDER BY c.[order] ASC, c.name ASC
-  `).all();
+  `,
+    )
+    .all();
 
   // Для групп тоже не загружаем cover_image
-  const groupsRaw = db.prepare(`
+  const groupsRaw = db
+    .prepare(
+      `
     SELECT g.id, g.categoryId, g.slug, g.name, 
            CASE WHEN g.cover_image IS NOT NULL AND g.cover_image != '' THEN 1 ELSE 0 END as hasCoverImage,
            g.[order], g.hide_empty, g.parent_group_id, g.meta_label, g.meta_value
     FROM category_groups g
     ORDER BY g.categoryId ASC, g.[order] ASC, g.name ASC
-  `).all();
+  `,
+    )
+    .all();
 
-  const categoryCountRows = db.prepare(`
+  const categoryCountRows = db
+    .prepare(
+      `
     SELECT categoryId, COUNT(DISTINCT p.id) as total
     FROM products p
     WHERE (
@@ -71,9 +81,13 @@ publicRouter.get('/api/categories', (req, res) => {
       ))
     )
     GROUP BY categoryId
-  `).all();
+  `,
+    )
+    .all();
 
-  const groupCountRows = db.prepare(`
+  const groupCountRows = db
+    .prepare(
+      `
     SELECT groupId, COUNT(DISTINCT p.id) as total
     FROM products p
     WHERE groupId IS NOT NULL 
@@ -89,17 +103,23 @@ publicRouter.get('/api/categories', (req, res) => {
         ))
       )
     GROUP BY groupId
-  `).all();
+  `,
+    )
+    .all();
 
-  const categoryCounts = new Map(categoryCountRows.map(row => [row.categoryId, row.total]));
-  const groupCounts = new Map(groupCountRows.map(row => [row.groupId, row.total]));
+  const categoryCounts = new Map(
+    categoryCountRows.map((row) => [row.categoryId, row.total]),
+  );
+  const groupCounts = new Map(
+    groupCountRows.map((row) => [row.groupId, row.total]),
+  );
 
-  const nodes = groupsRaw.map(group => ({
+  const nodes = groupsRaw.map((group) => ({
     id: group.id,
     categoryId: group.categoryId,
     slug: group.slug,
     name: group.name,
-    order: group['order'],
+    order: group["order"],
     hasCoverImage: group.hasCoverImage === 1,
     hideEmpty: group.hide_empty === 1,
     parentId: group.parent_group_id || null,
@@ -107,13 +127,13 @@ publicRouter.get('/api/categories', (req, res) => {
     metaValue: group.meta_value || null,
     productCount: groupCounts.get(group.id) || 0,
     totalProductCount: 0,
-    children: []
+    children: [],
   }));
 
-  const nodesById = new Map(nodes.map(node => [node.id, node]));
+  const nodesById = new Map(nodes.map((node) => [node.id, node]));
   const rootsByCategory = new Map();
 
-  nodes.forEach(node => {
+  nodes.forEach((node) => {
     if (node.parentId && nodesById.has(node.parentId)) {
       nodesById.get(node.parentId).children.push(node);
     } else {
@@ -123,41 +143,43 @@ publicRouter.get('/api/categories', (req, res) => {
     }
   });
 
-  const computeTotals = node => {
+  const computeTotals = (node) => {
     node.children.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
     let total = Number(node.productCount ?? 0);
-    node.children.forEach(child => {
+    node.children.forEach((child) => {
       total += computeTotals(child);
     });
     node.totalProductCount = total;
     return total;
   };
 
-  rootsByCategory.forEach(list => {
+  rootsByCategory.forEach((list) => {
     list.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
-    list.forEach(node => computeTotals(node));
+    list.forEach((node) => computeTotals(node));
   });
 
-  const collectVisible = node => {
+  const collectVisible = (node) => {
     if (node.totalProductCount === 0 && node.hideEmpty) {
       return [];
     }
-    const result = [{
-      id: node.id,
-      categoryId: node.categoryId,
-      slug: node.slug,
-      name: node.name,
-      order: node.order,
-      hasCoverImage: node.hasCoverImage,
-      hideEmpty: node.hideEmpty,
-      parentId: node.parentId,
-      metaLabel: node.metaLabel || null,
-      metaValue: node.metaValue || null,
-      productCount: node.productCount,
-      totalProductCount: node.totalProductCount
-    }];
+    const result = [
+      {
+        id: node.id,
+        categoryId: node.categoryId,
+        slug: node.slug,
+        name: node.name,
+        order: node.order,
+        hasCoverImage: node.hasCoverImage,
+        hideEmpty: node.hideEmpty,
+        parentId: node.parentId,
+        metaLabel: node.metaLabel || null,
+        metaValue: node.metaValue || null,
+        productCount: node.productCount,
+        totalProductCount: node.totalProductCount,
+      },
+    ];
 
-    node.children.forEach(child => {
+    node.children.forEach((child) => {
       result.push(...collectVisible(child));
     });
     return result;
@@ -166,7 +188,7 @@ publicRouter.get('/api/categories', (req, res) => {
   const flattenedGroupsByCategory = new Map();
   rootsByCategory.forEach((nodesList, categoryId) => {
     const collected = [];
-    nodesList.forEach(node => {
+    nodesList.forEach((node) => {
       collected.push(...collectVisible(node));
     });
     flattenedGroupsByCategory.set(categoryId, collected);
@@ -176,7 +198,9 @@ publicRouter.get('/api/categories', (req, res) => {
 
   for (const cat of categoriesRaw) {
     const totalProducts = categoryCounts.get(cat.id) || 0;
-    const groups = (flattenedGroupsByCategory.get(cat.id) || []).filter(group => group.totalProductCount > 0);
+    const groups = (flattenedGroupsByCategory.get(cat.id) || []).filter(
+      (group) => group.totalProductCount > 0,
+    );
 
     const hasVisibleProducts = totalProducts > 0 || groups.length > 0;
 
@@ -192,66 +216,81 @@ publicRouter.get('/api/categories', (req, res) => {
       id: cat.id,
       slug: cat.slug,
       name: cat.name,
-      order: cat['order'],
+      order: cat["order"],
       hasCoverImage: cat.hasCoverImage === 1,
       productCount: totalProducts,
       groups,
-      displayMode: cat.display_mode || 'default'
+      displayMode: cat.display_mode || "default",
     });
   }
 
   res.json(categories);
 });
 
-publicRouter.get('/api/banners', (req, res) => {
-  const rows = db.prepare('SELECT id, image, href, active, [order], openInNewTab FROM banners WHERE active = 1 ORDER BY [order] ASC').all();
+publicRouter.get("/api/banners", (req, res) => {
+  const rows = db
+    .prepare(
+      "SELECT id, image, href, active, [order], openInNewTab FROM banners WHERE active = 1 ORDER BY [order] ASC",
+    )
+    .all();
   res.json(rows);
 });
 
 // Endpoint для получения обложки категории отдельно (оптимизация трафика)
-publicRouter.get('/api/categories/:id/image', (req, res) => {
+publicRouter.get("/api/categories/:id/image", (req, res) => {
   const { id } = req.params;
-  const row = db.prepare('SELECT cover_image FROM categories WHERE id = ?').get(id);
+  const row = db
+    .prepare("SELECT cover_image FROM categories WHERE id = ?")
+    .get(id);
   if (!row || !row.cover_image) {
-    return res.status(404).json({ error: 'Image not found' });
+    return res.status(404).json({ error: "Image not found" });
   }
   res.json({ image: row.cover_image });
 });
 
 // Endpoint для получения обложки группы категорий
-publicRouter.get('/api/category-groups/:id/image', (req, res) => {
+publicRouter.get("/api/category-groups/:id/image", (req, res) => {
   const { id } = req.params;
-  const row = db.prepare('SELECT cover_image FROM category_groups WHERE id = ?').get(id);
+  const row = db
+    .prepare("SELECT cover_image FROM category_groups WHERE id = ?")
+    .get(id);
   if (!row || !row.cover_image) {
-    return res.status(404).json({ error: 'Image not found' });
+    return res.status(404).json({ error: "Image not found" });
   }
   res.json({ image: row.cover_image });
 });
 
-publicRouter.get('/api/products', (req, res) => {
+publicRouter.get("/api/products", (req, res) => {
   const { category, group, sort } = req.query;
 
   // Pagination params (defaults aligned with frontend)
   // Увеличен максимальный лимит до 1000 для загрузки всех товаров категории
-  const limit = Math.min(Math.max(parseInt(req.query.limit ?? '50', 10) || 50, 1), 1000);
-  const offset = Math.max(parseInt(req.query.offset ?? '0', 10) || 0, 0);
+  const limit = Math.min(
+    Math.max(parseInt(req.query.limit ?? "50", 10) || 50, 1),
+    1000,
+  );
+  const offset = Math.max(parseInt(req.query.offset ?? "0", 10) || 0, 0);
 
   let whereClauses = [];
   const whereParams = [];
   let categoryFilterId = null;
 
   if (category) {
-    const cat = db.prepare('SELECT id FROM categories WHERE slug = ?').get(String(category));
+    const cat = db
+      .prepare("SELECT id FROM categories WHERE slug = ?")
+      .get(String(category));
     if (!cat) {
       return res.json({ products: [], total: 0, hasMore: false });
     }
     categoryFilterId = cat.id;
-    whereClauses.push('p.categoryId = ?');
+    whereClauses.push("p.categoryId = ?");
     whereParams.push(cat.id);
   }
 
   if (group) {
-    const groupRow = db.prepare('SELECT id, categoryId FROM category_groups WHERE slug = ?').get(String(group));
+    const groupRow = db
+      .prepare("SELECT id, categoryId FROM category_groups WHERE slug = ?")
+      .get(String(group));
     if (!groupRow) {
       return res.json({ products: [], total: 0, hasMore: false });
     }
@@ -261,7 +300,7 @@ publicRouter.get('/api/products', (req, res) => {
     if (!categoryFilterId) {
       categoryFilterId = groupRow.categoryId;
     }
-    whereClauses.push('p.groupId = ?');
+    whereClauses.push("p.groupId = ?");
     whereParams.push(groupRow.id);
   }
 
@@ -277,15 +316,22 @@ publicRouter.get('/api/products', (req, res) => {
     ))
   )`);
 
-  const where = `WHERE ${whereClauses.join(' AND ')}`;
+  const where = `WHERE ${whereClauses.join(" AND ")}`;
 
   // Sorting
-  let orderBy = 'ORDER BY p.priceRub ASC';
-  switch (String(sort || 'price_asc')) {
-    case 'price_desc': orderBy = 'ORDER BY p.priceRub DESC'; break;
-    case 'newest': orderBy = 'ORDER BY p.createdAt DESC'; break;
-    case 'oldest': orderBy = 'ORDER BY p.createdAt ASC'; break;
-    default: orderBy = 'ORDER BY p.priceRub ASC';
+  let orderBy = "ORDER BY p.priceRub ASC";
+  switch (String(sort || "price_asc")) {
+    case "price_desc":
+      orderBy = "ORDER BY p.priceRub DESC";
+      break;
+    case "newest":
+      orderBy = "ORDER BY p.createdAt DESC";
+      break;
+    case "oldest":
+      orderBy = "ORDER BY p.createdAt ASC";
+      break;
+    default:
+      orderBy = "ORDER BY p.priceRub ASC";
   }
 
   // Total count
@@ -325,7 +371,7 @@ publicRouter.get('/api/products', (req, res) => {
     ? db.prepare(sql).all(...whereParams, limit, offset)
     : db.prepare(sql).all(limit, offset);
 
-  const productIds = products.map(p => p.id);
+  const productIds = products.map((p) => p.id);
   const baseImagesByProduct = new Map();
   const variantImagesByProduct = new Map();
   const linksByProduct = new Map();
@@ -334,82 +380,113 @@ publicRouter.get('/api/products', (req, res) => {
 
   if (productIds.length > 0) {
     for (const chunk of chunkArray(productIds)) {
-      const placeholders = chunk.map(() => '?').join(',');
+      const placeholders = chunk.map(() => "?").join(",");
 
-      const imageRows = db.prepare(`
+      const imageRows = db
+        .prepare(
+          `
         SELECT productId, variant_id AS variantId, url, position
         FROM product_images
         WHERE productId IN (${placeholders})
         ORDER BY productId ASC, variant_id ASC, position ASC
-      `).all(...chunk);
-      imageRows.forEach(row => {
+      `,
+        )
+        .all(...chunk);
+      imageRows.forEach((row) => {
         if (row.variantId) {
-          pushVariantImage(variantImagesByProduct, row.productId, row.variantId, row.url);
+          pushVariantImage(
+            variantImagesByProduct,
+            row.productId,
+            row.variantId,
+            row.url,
+          );
         } else {
           pushToMap(baseImagesByProduct, row.productId, row.url);
         }
       });
 
-      const linkRows = db.prepare(`
+      const linkRows = db
+        .prepare(
+          `
         SELECT productId, label, url, position
         FROM product_links
         WHERE productId IN (${placeholders})
         ORDER BY productId ASC, position ASC
-      `).all(...chunk);
-      linkRows.forEach(row => {
-        pushToMap(linksByProduct, row.productId, { label: row.label ?? '', url: row.url });
+      `,
+        )
+        .all(...chunk);
+      linkRows.forEach((row) => {
+        pushToMap(linksByProduct, row.productId, {
+          label: row.label ?? "",
+          url: row.url,
+        });
       });
 
-      const badgeRows = db.prepare(`
+      const badgeRows = db
+        .prepare(
+          `
         SELECT product_id as productId, type, label, color
         FROM product_badges
         WHERE product_id IN (${placeholders})
         ORDER BY product_id ASC, rowid ASC
-      `).all(...chunk);
-      badgeRows.forEach(row => {
+      `,
+        )
+        .all(...chunk);
+      badgeRows.forEach((row) => {
         pushToMap(badgesByProduct, row.productId, {
           type: row.type || null,
           label: row.label || null,
-          color: row.color || null
+          color: row.color || null,
         });
       });
 
-      const variantRows = db.prepare(`
+      const variantRows = db
+        .prepare(
+          `
         SELECT id, product_id, name, color_code AS colorCode, color_image AS colorImage, color_display_mode AS colorDisplayMode, price_rub AS priceRub, stock, position
         FROM product_variants
         WHERE product_id IN (${placeholders})
         ORDER BY product_id ASC, position ASC
-      `).all(...chunk);
-      variantRows.forEach(row => {
+      `,
+        )
+        .all(...chunk);
+      variantRows.forEach((row) => {
         pushToMap(variantsByProduct, row.product_id, row);
       });
     }
   }
 
   const enriched = products.map((p) => {
-    const stockValue = typeof p.stock === 'number' ? p.stock : null;
+    const stockValue = typeof p.stock === "number" ? p.stock : null;
 
     const result = {
       ...p,
       stock: stockValue,
-      costPrice: typeof p.costPrice === 'number' ? p.costPrice : null,
-      minStock: typeof p.minStock === 'number' ? p.minStock : null,
+      costPrice: typeof p.costPrice === "number" ? p.costPrice : null,
+      minStock: typeof p.minStock === "number" ? p.minStock : null,
       badges: badgesByProduct.get(p.id) ?? [],
       isAvailable: stockValue === null ? true : stockValue > 0,
-      links: linksByProduct.get(p.id) ?? []
+      links: linksByProduct.get(p.id) ?? [],
     };
 
     if (p.hasVariants) {
       // Для товаров с вариантами получаем варианты и их изображения
       const variants = variantsByProduct.get(p.id) ?? [];
-      result.variants = variants.map(v => ({
+      result.variants = variants.map((v) => ({
         ...v,
-        images: (variantImagesByProduct.get(p.id)?.get(v.id)) ?? []
+        images: variantImagesByProduct.get(p.id)?.get(v.id) ?? [],
       }));
       // Для обратной совместимости, показываем изображения первого варианта как изображения товара
-      result.images = result.variants.length > 0 && result.variants[0].images && result.variants[0].images.length > 0 ? result.variants[0].images : [];
+      result.images =
+        result.variants.length > 0 &&
+        result.variants[0].images &&
+        result.variants[0].images.length > 0
+          ? result.variants[0].images
+          : [];
       // Обновляем доступность на основе вариантов
-      result.isAvailable = result.variants.some(v => (v.stock === null || v.stock > 0));
+      result.isAvailable = result.variants.some(
+        (v) => v.stock === null || v.stock > 0,
+      );
     } else {
       // Обычный товар без вариантов
       const productImages = baseImagesByProduct.get(p.id) ?? [];
@@ -417,7 +494,8 @@ publicRouter.get('/api/products', (req, res) => {
       // ОПТИМИЗАЦИЯ: если у товара нет своих изображений и useCategoryImage=1,
       // фронтенд сам загрузит обложку категории через кэш
       // Добавляем флаг needsCategoryImage для фронтенда
-      result.needsCategoryImage = p.useCategoryImage && productImages.length === 0;
+      result.needsCategoryImage =
+        p.useCategoryImage && productImages.length === 0;
     }
 
     return result;
@@ -426,10 +504,12 @@ publicRouter.get('/api/products', (req, res) => {
   res.json({ products: enriched, total, hasMore: offset + limit < total });
 });
 
-publicRouter.get('/api/product/:id', (req, res) => {
+publicRouter.get("/api/product/:id", (req, res) => {
   const id = req.params.id;
   // ОПТИМИЗАЦИЯ: не загружаем cover_image категории - фронтенд загрузит отдельно при необходимости
-  const p = db.prepare(`
+  const p = db
+    .prepare(
+      `
     SELECT 
       p.id,
       p.categoryId,
@@ -450,80 +530,115 @@ publicRouter.get('/api/product/:id', (req, res) => {
     FROM products p
     LEFT JOIN category_groups g ON p.groupId = g.id
     WHERE p.id = ?
-  `).get(id);
-  if (!p) return res.status(404).json({ error: 'Not found' });
-  
-  const links = db.prepare('SELECT label, url FROM product_links WHERE productId = ? ORDER BY position ASC').all(id).map(link => ({
-    label: link.label ?? '',
-    url: link.url
-  }));
-  const badges = db.prepare(`
+  `,
+    )
+    .get(id);
+  if (!p) return res.status(404).json({ error: "Not found" });
+
+  const links = db
+    .prepare(
+      "SELECT label, url FROM product_links WHERE productId = ? ORDER BY position ASC",
+    )
+    .all(id)
+    .map((link) => ({
+      label: link.label ?? "",
+      url: link.url,
+    }));
+  const badges = db
+    .prepare(
+      `
     SELECT type, label, color
     FROM product_badges
     WHERE product_id = ?
     ORDER BY rowid ASC
-  `).all(id);
-  const stockValue = typeof p.stock === 'number' ? p.stock : null;
-  
+  `,
+    )
+    .all(id);
+  const stockValue = typeof p.stock === "number" ? p.stock : null;
+
   const result = {
     ...p,
     stock: stockValue,
-    costPrice: typeof p.costPrice === 'number' ? p.costPrice : null,
-    minStock: typeof p.minStock === 'number' ? p.minStock : null,
+    costPrice: typeof p.costPrice === "number" ? p.costPrice : null,
+    minStock: typeof p.minStock === "number" ? p.minStock : null,
     badges: badges.map((badge) => ({
       type: badge.type || null,
       label: badge.label || null,
-      color: badge.color || null
+      color: badge.color || null,
     })),
     isAvailable: stockValue === null ? true : stockValue > 0,
-    links
+    links,
   };
-  
+
   if (p.hasVariants) {
     // Для товаров с вариантами получаем варианты и их изображения
-    const variants = db.prepare(`
+    const variants = db
+      .prepare(
+        `
       SELECT id, product_id, name, color_code AS colorCode, color_image AS colorImage, color_display_mode AS colorDisplayMode, price_rub AS priceRub, stock, position
       FROM product_variants
       WHERE product_id = ?
       ORDER BY position ASC
-    `).all(id);
-    
-    result.variants = variants.map(v => ({
+    `,
+      )
+      .all(id);
+
+    result.variants = variants.map((v) => ({
       ...v,
-      images: db.prepare('SELECT url FROM product_images WHERE productId = ? AND variant_id = ? ORDER BY position ASC')
-        .all(id, v.id).map(r => r.url)
+      images: db
+        .prepare(
+          "SELECT url FROM product_images WHERE productId = ? AND variant_id = ? ORDER BY position ASC",
+        )
+        .all(id, v.id)
+        .map((r) => r.url),
     }));
     // Для обратной совместимости, показываем изображения первого варианта как изображения товара
-    result.images = result.variants.length > 0 && result.variants[0].images && result.variants[0].images.length > 0 ? result.variants[0].images : [];
+    result.images =
+      result.variants.length > 0 &&
+      result.variants[0].images &&
+      result.variants[0].images.length > 0
+        ? result.variants[0].images
+        : [];
     // Обновляем доступность на основе вариантов
-    result.isAvailable = result.variants.some(v => (v.stock === null || v.stock > 0));
+    result.isAvailable = result.variants.some(
+      (v) => v.stock === null || v.stock > 0,
+    );
   } else {
     // Обычный товар без вариантов
-    const productImages = db.prepare('SELECT url FROM product_images WHERE productId = ? AND variant_id IS NULL ORDER BY position ASC')
-      .all(id).map(r => r.url);
+    const productImages = db
+      .prepare(
+        "SELECT url FROM product_images WHERE productId = ? AND variant_id IS NULL ORDER BY position ASC",
+      )
+      .all(id)
+      .map((r) => r.url);
     result.images = productImages;
     // Флаг для фронтенда - нужно загрузить обложку категории
-    result.needsCategoryImage = p.useCategoryImage && productImages.length === 0;
+    result.needsCategoryImage =
+      p.useCategoryImage && productImages.length === 0;
   }
-  
+
   res.json(result);
 });
 
-publicRouter.get('/api/cross-sells', (req, res) => {
+publicRouter.get("/api/cross-sells", (req, res) => {
   const { category, limit } = req.query;
   if (!category) {
     return res.json([]);
   }
 
-  const categoryRow = db.prepare('SELECT id FROM categories WHERE slug = ?').get(String(category));
+  const categoryRow = db
+    .prepare("SELECT id FROM categories WHERE slug = ?")
+    .get(String(category));
   if (!categoryRow) {
     return res.json([]);
   }
 
-  const maxItems = Math.min(Math.max(parseInt(limit ?? '6', 10) || 6, 1), 12);
+  const maxItems = Math.min(Math.max(parseInt(limit ?? "6", 10) || 6, 1), 12);
 
   // ОПТИМИЗАЦИЯ: не загружаем cover_image категории
-  const rows = db.prepare(`
+  const rows = db
+    .prepare(
+      `
     SELECT 
       cs.id,
       cs.[order],
@@ -558,10 +673,16 @@ publicRouter.get('/api/cross-sells', (req, res) => {
       )
     ORDER BY cs.[order] ASC
     LIMIT ?
-  `).all(categoryRow.id, maxItems);
+  `,
+    )
+    .all(categoryRow.id, maxItems);
 
-  const imageStmt = db.prepare('SELECT url FROM product_images WHERE productId = ? AND variant_id IS NULL ORDER BY position ASC');
-  const linkStmt = db.prepare('SELECT label, url FROM product_links WHERE productId = ? ORDER BY position ASC');
+  const imageStmt = db.prepare(
+    "SELECT url FROM product_images WHERE productId = ? AND variant_id IS NULL ORDER BY position ASC",
+  );
+  const linkStmt = db.prepare(
+    "SELECT label, url FROM product_links WHERE productId = ? ORDER BY position ASC",
+  );
   const badgeStmt = db.prepare(`
     SELECT type, label, color
     FROM product_badges
@@ -574,11 +695,13 @@ publicRouter.get('/api/cross-sells', (req, res) => {
     WHERE product_id = ?
     ORDER BY position ASC
   `);
-  const variantImgStmt = db.prepare('SELECT url FROM product_images WHERE productId = ? AND variant_id = ? ORDER BY position ASC');
-  
-  const payload = rows.map(row => {
-    const stockValue = typeof row.stock === 'number' ? row.stock : null;
-    
+  const variantImgStmt = db.prepare(
+    "SELECT url FROM product_images WHERE productId = ? AND variant_id = ? ORDER BY position ASC",
+  );
+
+  const payload = rows.map((row) => {
+    const stockValue = typeof row.stock === "number" ? row.stock : null;
+
     const result = {
       id: row.productId,
       title: row.title,
@@ -586,42 +709,52 @@ publicRouter.get('/api/cross-sells', (req, res) => {
       description: row.description,
       variant: row.variant,
       strength: row.strength,
-      costPrice: typeof row.costPrice === 'number' ? row.costPrice : null,
+      costPrice: typeof row.costPrice === "number" ? row.costPrice : null,
       stock: stockValue,
-      minStock: typeof row.minStock === 'number' ? row.minStock : null,
+      minStock: typeof row.minStock === "number" ? row.minStock : null,
       isAvailable: stockValue === null ? true : stockValue > 0,
       createdAt: row.createdAt,
       categoryId: row.categoryId,
       groupId: row.groupId,
       groupSlug: row.groupSlug,
       groupName: row.groupName,
-      links: linkStmt.all(row.productId).map(link => ({ label: link.label ?? '', url: link.url })),
+      links: linkStmt
+        .all(row.productId)
+        .map((link) => ({ label: link.label ?? "", url: link.url })),
       badges: badgeStmt.all(row.productId).map((badge) => ({
         type: badge.type || null,
         label: badge.label || null,
-        color: badge.color || null
-      }))
+        color: badge.color || null,
+      })),
     };
-    
+
     if (row.hasVariants) {
       // Для товаров с вариантами получаем варианты и их изображения
       const variants = variantStmt.all(row.productId);
-      result.variants = variants.map(v => ({
+      result.variants = variants.map((v) => ({
         ...v,
-        images: variantImgStmt.all(row.productId, v.id).map(r => r.url)
+        images: variantImgStmt.all(row.productId, v.id).map((r) => r.url),
       }));
       // Для обратной совместимости, показываем изображения первого варианта как изображения товара
-      result.images = result.variants.length > 0 && result.variants[0].images && result.variants[0].images.length > 0 ? result.variants[0].images : [];
+      result.images =
+        result.variants.length > 0 &&
+        result.variants[0].images &&
+        result.variants[0].images.length > 0
+          ? result.variants[0].images
+          : [];
       // Обновляем доступность на основе вариантов
-      result.isAvailable = result.variants.some(v => (v.stock === null || v.stock > 0));
+      result.isAvailable = result.variants.some(
+        (v) => v.stock === null || v.stock > 0,
+      );
     } else {
       // Обычный товар без вариантов
-      const productImages = imageStmt.all(row.productId).map(r => r.url);
+      const productImages = imageStmt.all(row.productId).map((r) => r.url);
       result.images = productImages;
       // Флаг для фронтенда
-      result.needsCategoryImage = row.useCategoryImage && productImages.length === 0;
+      result.needsCategoryImage =
+        row.useCategoryImage && productImages.length === 0;
     }
-    
+
     return result;
   });
 
@@ -629,38 +762,55 @@ publicRouter.get('/api/cross-sells', (req, res) => {
 });
 
 // Public settings (only specific settings that are safe to expose)
-publicRouter.get('/api/settings', (req, res) => {
+publicRouter.get("/api/settings", (req, res) => {
   try {
-    const getSettingValue = (key, defaultValue = '') => {
-      const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key);
+    const getSettingValue = (key, defaultValue = "") => {
+      const row = db
+        .prepare("SELECT value FROM settings WHERE key = ?")
+        .get(key);
       return row?.value || defaultValue;
     };
 
     res.json({
-      manager_telegram: getSettingValue('manager_telegram', 'dmitriy_mityuk'),
+      manager_telegram: getSettingValue("manager_telegram", "dmitriy_mityuk"),
       // Минимальная сумма для доставки
-      min_delivery_amount: getSettingValue('min_delivery_amount', '0'),
-      min_delivery_banner_image: getSettingValue('min_delivery_banner_image', ''),
-      min_delivery_banner_button_text: getSettingValue('min_delivery_banner_button_text', 'Понятно'),
-      min_delivery_banner_button_color: getSettingValue('min_delivery_banner_button_color', '#FFD700'),
+      min_delivery_amount: getSettingValue("min_delivery_amount", "0"),
+      min_delivery_banner_image: getSettingValue(
+        "min_delivery_banner_image",
+        "",
+      ),
+      min_delivery_banner_button_text: getSettingValue(
+        "min_delivery_banner_button_text",
+        "Понятно",
+      ),
+      min_delivery_banner_button_color: getSettingValue(
+        "min_delivery_banner_button_color",
+        "#FFD700",
+      ),
       // Баннер условий доставки (fullscreen)
-      delivery_conditions_image: getSettingValue('delivery_conditions_image', ''),
+      delivery_conditions_image: getSettingValue(
+        "delivery_conditions_image",
+        "",
+      ),
       // Редирект в Telegram после заказа
-      order_redirect_telegram: getSettingValue('order_redirect_telegram', ''),
-      order_redirect_text_template: getSettingValue('order_redirect_text_template', 'Мой номер заказа - #{order_number}')
+      order_redirect_telegram: getSettingValue("order_redirect_telegram", ""),
+      order_redirect_text_template: getSettingValue(
+        "order_redirect_text_template",
+        "Мой номер заказа - #{order_number}",
+      ),
     });
   } catch (error) {
-    console.error('[public] Failed to get settings:', error);
+    console.error("[public] Failed to get settings:", error);
     // Возвращаем дефолтные значения в случае ошибки
     res.json({
-      manager_telegram: 'dmitriy_mityuk',
-      min_delivery_amount: '0',
-      min_delivery_banner_image: '',
-      min_delivery_banner_button_text: 'Понятно',
-      min_delivery_banner_button_color: '#FFD700',
-      delivery_conditions_image: '',
-      order_redirect_telegram: '',
-      order_redirect_text_template: 'Мой номер заказа - #{order_number}'
+      manager_telegram: "dmitriy_mityuk",
+      min_delivery_amount: "0",
+      min_delivery_banner_image: "",
+      min_delivery_banner_button_text: "Понятно",
+      min_delivery_banner_button_color: "#FFD700",
+      delivery_conditions_image: "",
+      order_redirect_telegram: "",
+      order_redirect_text_template: "Мой номер заказа - #{order_number}",
     });
   }
 });
@@ -676,7 +826,7 @@ function getNextNumber(table, field) {
 }
 
 // Create order (public endpoint)
-publicRouter.post('/api/orders', (req, res) => {
+publicRouter.post("/api/orders", (req, res) => {
   try {
     const {
       telegram_id,
@@ -684,51 +834,72 @@ publicRouter.post('/api/orders', (req, res) => {
       first_name,
       last_name,
       phone,
-      delivery_type = 'pickup',
+      delivery_type = "pickup",
       delivery_address,
       notes,
-      items
+      items,
     } = req.body;
 
     if (!Array.isArray(items) || items.length === 0) {
-      return res.status(400).json({ error: 'items_required', message: 'Товары обязательны' });
+      return res
+        .status(400)
+        .json({ error: "items_required", message: "Товары обязательны" });
     }
 
     // Validate telegram_username (required)
     if (!telegram_username || !telegram_username.trim()) {
-      return res.status(400).json({ error: 'telegram_username_required', message: 'Укажите Telegram username' });
+      return res
+        .status(400)
+        .json({
+          error: "telegram_username_required",
+          message: "Укажите Telegram username",
+        });
     }
 
     // Validate delivery requirements
-    if (delivery_type === 'delivery') {
+    if (delivery_type === "delivery") {
       if (!phone || !phone.trim()) {
-        return res.status(400).json({ error: 'phone_required', message: 'Укажите телефон для доставки' });
+        return res
+          .status(400)
+          .json({
+            error: "phone_required",
+            message: "Укажите телефон для доставки",
+          });
       }
       if (!delivery_address || !delivery_address.trim()) {
-        return res.status(400).json({ error: 'address_required', message: 'Укажите адрес доставки' });
+        return res
+          .status(400)
+          .json({
+            error: "address_required",
+            message: "Укажите адрес доставки",
+          });
       }
-      
+
       // Check minimum delivery amount
-      const minDeliveryRow = db.prepare('SELECT value FROM settings WHERE key = ?').get('min_delivery_amount');
-      const minDeliveryAmount = parseFloat(minDeliveryRow?.value || '0') || 0;
-      
+      const minDeliveryRow = db
+        .prepare("SELECT value FROM settings WHERE key = ?")
+        .get("min_delivery_amount");
+      const minDeliveryAmount = parseFloat(minDeliveryRow?.value || "0") || 0;
+
       if (minDeliveryAmount > 0) {
         // Pre-calculate total amount to check against minimum
         let preCalcTotal = 0;
         for (const item of items) {
-          const product = db.prepare('SELECT priceRub FROM products WHERE id = ?').get(item.product_id);
+          const product = db
+            .prepare("SELECT priceRub FROM products WHERE id = ?")
+            .get(item.product_id);
           if (product) {
             const pricePerUnit = item.price_per_unit || product.priceRub;
             preCalcTotal += pricePerUnit * item.quantity;
           }
         }
-        
+
         if (preCalcTotal < minDeliveryAmount) {
-          return res.status(400).json({ 
-            error: 'min_delivery_amount_not_met', 
+          return res.status(400).json({
+            error: "min_delivery_amount_not_met",
             message: `Минимальная сумма заказа для доставки: ${minDeliveryAmount} BYN. Сейчас в корзине: ${preCalcTotal.toFixed(2)} BYN`,
             min_amount: minDeliveryAmount,
-            current_amount: preCalcTotal
+            current_amount: preCalcTotal,
           });
         }
       }
@@ -737,13 +908,16 @@ publicRouter.post('/api/orders', (req, res) => {
     const tx = db.transaction(() => {
       // Find or create customer
       let customerId = null;
-      
+
       if (telegram_id) {
-        const existing = db.prepare('SELECT id FROM customers WHERE telegram_id = ?').get(telegram_id);
+        const existing = db
+          .prepare("SELECT id FROM customers WHERE telegram_id = ?")
+          .get(telegram_id);
         if (existing) {
           customerId = existing.id;
           // Update customer info
-          db.prepare(`
+          db.prepare(
+            `
             UPDATE customers
             SET telegram_username = ?,
                 first_name = ?,
@@ -752,42 +926,47 @@ publicRouter.post('/api/orders', (req, res) => {
                 last_visit_at = DATETIME('now'),
                 updated_at = DATETIME('now')
             WHERE id = ?
-          `).run(
+          `,
+          ).run(
             telegram_username || null,
             first_name || null,
             last_name || null,
             phone || null,
-            customerId
+            customerId,
           );
         } else {
           // Create new customer
-          customerId = generateId('cust');
-          db.prepare(`
+          customerId = generateId("cust");
+          db.prepare(
+            `
             INSERT INTO customers (
               id, telegram_id, telegram_username, first_name, last_name, phone,
               first_visit_at, last_visit_at, total_orders, total_spent
             ) VALUES (?, ?, ?, ?, ?, ?, DATETIME('now'), DATETIME('now'), 0, 0)
-          `).run(
+          `,
+          ).run(
             customerId,
             telegram_id,
             telegram_username || null,
             first_name || null,
             last_name || null,
-            phone || null
+            phone || null,
           );
         }
       }
 
       // Generate order
-      const orderId = generateId('order');
-      const orderNumber = getNextNumber('orders', 'order_number');
+      const orderId = generateId("order");
+      const orderNumber = getNextNumber("orders", "order_number");
 
       // Calculate totals
       let totalAmount = 0;
       let totalCost = 0;
 
-      const orderItems = items.map(item => {
-        const product = db.prepare('SELECT * FROM products WHERE id = ?').get(item.product_id);
+      const orderItems = items.map((item) => {
+        const product = db
+          .prepare("SELECT * FROM products WHERE id = ?")
+          .get(item.product_id);
         if (!product) {
           throw new Error(`Товар не найден: ${item.product_id}`);
         }
@@ -795,10 +974,12 @@ publicRouter.post('/api/orders', (req, res) => {
         // Check stock - для товаров с вариантами проверяем stock варианта
         let stockToCheck = product.stock;
         let variantData = null;
-        
+
         if (item.variant_id) {
           // Товар с вариантом - проверяем stock варианта
-          variantData = db.prepare('SELECT * FROM product_variants WHERE id = ?').get(item.variant_id);
+          variantData = db
+            .prepare("SELECT * FROM product_variants WHERE id = ?")
+            .get(item.variant_id);
           if (variantData) {
             stockToCheck = variantData.stock;
           }
@@ -807,13 +988,16 @@ publicRouter.post('/api/orders', (req, res) => {
           // т.к. stock хранится в вариантах
           stockToCheck = null;
         }
-        
+
         if (stockToCheck !== null && stockToCheck < item.quantity) {
-          const itemTitle = item.variant_name ? `${product.title} (${item.variant_name})` : product.title;
+          const itemTitle = item.variant_name
+            ? `${product.title} (${item.variant_name})`
+            : product.title;
           throw new Error(`Недостаточно товара: ${itemTitle}`);
         }
 
-        const pricePerUnit = item.price_per_unit || (variantData?.price_rub) || product.priceRub;
+        const pricePerUnit =
+          item.price_per_unit || variantData?.price_rub || product.priceRub;
         const costPerUnit = product.cost_price || 0;
         const totalPrice = pricePerUnit * item.quantity;
         const totalItemCost = costPerUnit * item.quantity;
@@ -821,12 +1005,22 @@ publicRouter.post('/api/orders', (req, res) => {
         totalAmount += totalPrice;
         totalCost += totalItemCost;
 
+        const groupName = product.group_id
+          ? db
+              .prepare("SELECT name FROM category_groups WHERE id = ?")
+              .get(product.group_id)?.name || null
+          : null;
+
         return {
-          id: generateId('oi'),
+          id: generateId("oi"),
           product_id: item.product_id,
           variant_id: item.variant_id || null,
-          product_title: item.variant_name ? `${product.title} - ${item.variant_name}` : product.title || 'Без названия',
-          base_product_title: item.product_title || product.title || 'Без названия',
+          product_title: item.variant_name
+            ? `${product.title} - ${item.variant_name}`
+            : product.title || "Без названия",
+          group_name: groupName,
+          base_product_title:
+            item.product_title || product.title || "Без названия",
           base_product_id: item.product_id,
           variant_name: item.variant_name || null,
           quantity: item.quantity,
@@ -835,7 +1029,7 @@ publicRouter.post('/api/orders', (req, res) => {
           discount_amount: 0,
           total_price: totalPrice,
           total_cost: totalItemCost,
-          has_variants: product.has_variants
+          has_variants: product.has_variants,
         };
       });
 
@@ -843,12 +1037,14 @@ publicRouter.post('/api/orders', (req, res) => {
       const profit = finalAmount - totalCost;
 
       // Insert order
-      db.prepare(`
+      db.prepare(
+        `
         INSERT INTO orders (
           id, order_number, customer_id, status, delivery_type, delivery_address,
           total_amount, discount_amount, discount_percent, final_amount, profit, notes, phone, telegram_username
         ) VALUES (?, ?, ?, 'new', ?, ?, ?, 0, 0, ?, ?, ?, ?, ?)
-      `).run(
+      `,
+      ).run(
         orderId,
         orderNumber,
         customerId,
@@ -859,15 +1055,15 @@ publicRouter.post('/api/orders', (req, res) => {
         profit,
         notes || null,
         phone || null,
-        telegram_username || null
+        telegram_username || null,
       );
 
       // Insert order items
       const itemStmt = db.prepare(`
         INSERT INTO order_items (
-          id, order_id, product_id, product_title, base_product_title, base_product_id, variant_id, variant_name, quantity,
+          id, order_id, product_id, product_title, group_name, base_product_title, base_product_id, variant_id, variant_name, quantity,
           price_per_unit, cost_per_unit, discount_amount, total_price, total_cost
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
 
       for (const item of orderItems) {
@@ -876,6 +1072,7 @@ publicRouter.post('/api/orders', (req, res) => {
           orderId,
           item.product_id,
           item.product_title,
+          item.group_name,
           item.base_product_title,
           item.base_product_id,
           item.variant_id || null,
@@ -885,7 +1082,7 @@ publicRouter.post('/api/orders', (req, res) => {
           item.cost_per_unit,
           item.discount_amount,
           item.total_price,
-          item.total_cost
+          item.total_cost,
         );
 
         // ВАЖНО: НЕ списываем сток при создании заказа!
@@ -896,14 +1093,16 @@ publicRouter.post('/api/orders', (req, res) => {
 
       // Update customer stats
       if (customerId) {
-        db.prepare(`
+        db.prepare(
+          `
           UPDATE customers
           SET total_orders = total_orders + 1,
               total_spent = total_spent + ?,
               last_order_at = DATETIME('now'),
               updated_at = DATETIME('now')
           WHERE id = ?
-        `).run(finalAmount, customerId);
+        `,
+        ).run(finalAmount, customerId);
       }
 
       return { orderId, orderNumber };
@@ -915,13 +1114,13 @@ publicRouter.post('/api/orders', (req, res) => {
       success: true,
       order_id: result.orderId,
       order_number: result.orderNumber,
-      message: 'Заказ успешно создан'
+      message: "Заказ успешно создан",
     });
   } catch (error) {
-    console.error('[public] Create order error:', error);
+    console.error("[public] Create order error:", error);
     res.status(500).json({
-      error: 'failed',
-      message: error.message || 'Не удалось создать заказ'
+      error: "failed",
+      message: error.message || "Не удалось создать заказ",
     });
   }
 });

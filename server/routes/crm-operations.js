@@ -417,10 +417,10 @@ crmOperationsRouter.post(
 
         // Получаем group_name для отображения линейки
         let groupName = null;
-        if (product.groupId) {
+        if (product.group_id) {
           const group = db
             .prepare("SELECT name FROM category_groups WHERE id = ?")
-            .get(product.groupId);
+            .get(product.group_id);
           if (group) {
             groupName = group.name;
           }
@@ -782,9 +782,9 @@ crmOperationsRouter.patch(
 
           const itemStmt = db.prepare(`
           INSERT INTO order_items (
-            id, order_id, product_id, variant_id, product_title, base_product_id, base_product_title, quantity,
+            id, order_id, product_id, variant_id, product_title, group_name, base_product_id, base_product_title, quantity,
             price_per_unit, cost_per_unit, discount_amount, total_price, total_cost
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `);
 
           for (const item of items) {
@@ -843,12 +843,23 @@ crmOperationsRouter.patch(
             totalAmount += pricePerUnit * quantity;
             totalCost += totalItemCost;
 
+            let groupName = item.group_name || null;
+            if (!groupName && product.group_id) {
+              const group = db
+                .prepare("SELECT name FROM category_groups WHERE id = ?")
+                .get(product.group_id);
+              if (group) {
+                groupName = group.name;
+              }
+            }
+
             itemStmt.run(
               generateId("oi"),
               id,
               item.product_id,
               item.variant_id || null,
               product.title || "Без названия",
+              groupName,
               product.base_product_id || null,
               product.base_product_title || null,
               quantity,
