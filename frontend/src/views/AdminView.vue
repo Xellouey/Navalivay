@@ -767,6 +767,7 @@
 
     <!-- Category Groups Modal -->
     <AdminModal
+      ref="groupModalRef"
       :isOpen="showGroupModal"
       :title="activeGroupCategory ? `Линейки: ${activeGroupCategory.name}` : 'Линейки'"
       size="lg"
@@ -893,23 +894,52 @@
               {{ crossSellSubmitting ? 'Сохранение...' : 'Сохранить' }}
             </button>
           </div>
+        </div>
+
+        <!-- Уже добавленные товары -->
+        <div v-if="selectedCrossSellProducts.length" class="mb-4">
+          <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Добавлены в "Вдруг пригодится?"</p>
+          <div class="space-y-2">
+            <div
+              v-for="product in selectedCrossSellProducts"
+              :key="'selected-' + product.id"
+              class="flex items-center justify-between gap-3 border border-green-200 bg-green-50 rounded-lg px-3 py-2"
+            >
+              <div class="flex items-center gap-3 flex-1 min-w-0">
+                <svg class="w-4 h-4 text-green-600 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                  <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
+                </svg>
+                <p class="text-sm font-semibold text-gray-900 truncate flex-1">{{ product.title || 'Без названия' }}</p>
+              </div>
+              <button
+                type="button"
+                class="p-1 text-red-500 hover:text-red-700 hover:bg-red-50 rounded transition-colors"
+                title="Убрать из cross-sell"
+                @click="crossSellSelection = crossSellSelection.filter(id => id !== product.id)"
+              >
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Разделитель -->
+        <div v-if="selectedCrossSellProducts.length && availableCrossSellProducts.length" class="border-t border-gray-200 my-4"></div>
+
+        <!-- Поиск и добавление новых товаров -->
+        <div>
+          <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Добавить товары</p>
           <input
             v-model="crossSellSearch"
             type="text"
             placeholder="Поиск по названию"
-            class="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-1 focus:ring-brand-dark/40 focus:border-brand-dark/40 text-sm"
+            class="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-1 focus:ring-brand-dark/40 focus:border-brand-dark/40 text-sm mb-3"
           />
-          <div v-if="crossSellFilteredCount > 0" class="flex items-center gap-2 px-3 py-2 bg-blue-50 border border-blue-200 rounded-lg text-sm">
-            <svg class="w-4 h-4 text-blue-600 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-              <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd" />
-            </svg>
-            <span class="text-blue-800">
-              <strong>{{ crossSellFilteredCount }}</strong> {{ crossSellFilteredCount === 1 ? 'товар скрыт' : crossSellFilteredCount < 5 ? 'товара скрыто' : 'товаров скрыто' }} (уже добавлен{{ crossSellFilteredCount === 1 ? '' : 'ы' }} в категорию)
-            </span>
-          </div>
         </div>
 
-        <div v-if="availableCrossSellProducts.length" class="space-y-2">
+        <div v-if="availableCrossSellProducts.length" class="space-y-2 max-h-64 overflow-y-auto">
           <label
             v-for="product in availableCrossSellProducts"
             :key="product.id"
@@ -926,12 +956,11 @@
             </div>
           </label>
         </div>
-        <div v-else-if="crossSellFilteredCount > 0" class="py-8 text-center">
-          <p class="text-sm text-gray-600">Все товары уже добавлены в эту категорию</p>
-          <p class="text-xs text-gray-500 mt-1">Используйте функцию "Вдруг пригодится?" для товаров из других категорий</p>
-        </div>
-        <div v-else class="py-8 text-center text-sm text-gray-500">
+        <div v-else-if="crossSellSearch && !availableCrossSellProducts.length" class="py-4 text-center text-sm text-gray-500">
           Товары не найдены
+        </div>
+        <div v-else-if="!selectedCrossSellProducts.length && !availableCrossSellProducts.length" class="py-8 text-center text-sm text-gray-500">
+          Нет товаров для добавления
         </div>
       </div>
     </AdminModal>
@@ -959,7 +988,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, computed, watch, reactive } from 'vue'
+import { ref, onMounted, computed, watch, reactive, nextTick } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import { ChevronUpIcon, ChevronDownIcon, PencilSquareIcon, TrashIcon, PlusIcon, ArrowTrendingUpIcon, CurrencyDollarIcon, ChartBarIcon, BoltIcon, TruckIcon, ClipboardDocumentCheckIcon, SparklesIcon, LockOpenIcon, Cog6ToothIcon } from '@heroicons/vue/24/outline'
@@ -1067,6 +1096,8 @@ type CategoryGroupWithDepth = CategoryGroup & { depth: number }
 
 const editingGroup = ref<CategoryGroup | null>(null)
 const editableGroups = ref<CategoryGroupWithDepth[]>([])
+const groupModalRef = ref<InstanceType<typeof AdminModal> | null>(null)
+const savedGroupModalScrollTop = ref(0)
 
 const showCrossSellModal = ref(false)
 const crossSellSubmitting = ref(false)
@@ -1431,19 +1462,12 @@ const groupNameById = computed<Record<string, string>>(() => {
 const availableCrossSellProducts = computed<Product[]>(() => {
   if (!activeCrossSellCategory.value) return []
   
-  const categoryId = activeCrossSellCategory.value.id
   const query = crossSellSearch.value.trim().toLowerCase()
-  
-  // Получаем ID товаров, которые уже есть в категории как обычные товары
-  const regularProductIds = new Set(
-    (adminStore.products || [])
-      .filter(p => p.categoryId === categoryId)
-      .map(p => p.id)
-  )
+  const selectedIds = new Set(crossSellSelection.value)
   
   return (adminStore.products || []).filter(product => {
-    // Исключаем товары, которые уже есть в категории
-    if (regularProductIds.has(product.id)) return false
+    // Исключаем уже выбранные товары (они показываются отдельно вверху)
+    if (selectedIds.has(product.id)) return false
     
     const title = (product.title || '').toLowerCase()
     return !query || title.includes(query)
@@ -1451,13 +1475,16 @@ const availableCrossSellProducts = computed<Product[]>(() => {
 })
 
 const crossSellFilteredCount = computed(() => {
-  if (!activeCrossSellCategory.value) return 0
+  // Больше не используется - теперь можно добавлять любые товары
+  return 0
+})
+
+// Товары которые уже добавлены в cross-sell для текущей категории
+const selectedCrossSellProducts = computed<Product[]>(() => {
+  if (!activeCrossSellCategory.value || !crossSellSelection.value.length) return []
   
-  const categoryId = activeCrossSellCategory.value.id
-  const allProducts = adminStore.products || []
-  
-  // Считаем сколько товаров отфильтровано (уже в категории)
-  return allProducts.filter(p => p.categoryId === categoryId).length
+  const selectedIds = new Set(crossSellSelection.value)
+  return (adminStore.products || []).filter(p => selectedIds.has(p.id))
 })
 
 const groupFormOptions = computed(() => {
@@ -2040,8 +2067,22 @@ async function handleCategoryFormSubmit(formData: any) {
   }
 }
 
-function syncEditableGroups(categoryId: string) {
+function syncEditableGroups(categoryId: string, restoreScroll = false) {
+  const scrollContainer = groupModalRef.value?.scrollContainer
+  const scrollPos = restoreScroll && scrollContainer 
+    ? scrollContainer.scrollTop 
+    : 0
+  
   editableGroups.value = flattenGroupTree(buildGroupTreeForCategory(categoryId))
+  
+  if (restoreScroll && scrollPos > 0) {
+    nextTick(() => {
+      const container = groupModalRef.value?.scrollContainer
+      if (container) {
+        container.scrollTop = scrollPos
+      }
+    })
+  }
 }
 
 function getGroupBlockRange(list: CategoryGroupWithDepth[], startIndex: number) {
@@ -2116,6 +2157,11 @@ function openGroupForm(group?: (CategoryGroup & { depth?: number }) | null, cate
     activeGroupCategory.value = targetCategory
     groupFormCategoryId.value = targetCategory.id
   }
+  // Save scroll position before closing modal
+  const scrollContainer = groupModalRef.value?.scrollContainer
+  if (scrollContainer) {
+    savedGroupModalScrollTop.value = scrollContainer.scrollTop
+  }
   showGroupModal.value = false
   editingGroup.value = group || null
   showGroupFormModal.value = true
@@ -2127,6 +2173,13 @@ function closeGroupForm() {
   groupFormCategoryId.value = null
   if (activeGroupCategory.value) {
     showGroupModal.value = true
+    // Restore scroll position after modal reopens
+    nextTick(() => {
+      const scrollContainer = groupModalRef.value?.scrollContainer
+      if (scrollContainer && savedGroupModalScrollTop.value > 0) {
+        scrollContainer.scrollTop = savedGroupModalScrollTop.value
+      }
+    })
   }
 }
 
@@ -2171,10 +2224,17 @@ async function handleGroupFormSubmit(payload: { name: string; slug?: string; cov
       showToast('Линейка создана', 'success')
     }
     await adminStore.fetchCategoryGroups(categoryId)
-    syncEditableGroups(categoryId)
+    syncEditableGroups(categoryId, true)
     showGroupFormModal.value = false
     groupFormCategoryId.value = null
     showGroupModal.value = true
+    // Restore scroll position after modal reopens
+    nextTick(() => {
+      const scrollContainer = groupModalRef.value?.scrollContainer
+      if (scrollContainer && savedGroupModalScrollTop.value > 0) {
+        scrollContainer.scrollTop = savedGroupModalScrollTop.value
+      }
+    })
   } catch (error) {
     console.error('Failed to save group:', error)
     showToast('Не удалось сохранить линейку', 'error')
@@ -2190,7 +2250,7 @@ async function reorderGroups(newOrder: CategoryGroupWithDepth[]) {
     const payload = newOrder.map((group, idx) => ({ id: group.id!, order: idx + 1 }))
     await adminStore.reorderCategoryGroups(payload)
     await adminStore.fetchCategoryGroups(activeGroupCategory.value.id)
-    syncEditableGroups(activeGroupCategory.value.id)
+    syncEditableGroups(activeGroupCategory.value.id, true)
   } catch (error) {
     console.error('Failed to reorder groups:', error)
     showToast('Не удалось изменить порядок линеек', 'error')
@@ -2239,7 +2299,7 @@ async function deleteGroup(group: CategoryGroupWithDepth) {
   try {
     await adminStore.deleteCategoryGroup(group.id)
     await adminStore.fetchCategoryGroups(activeGroupCategory.value.id)
-    syncEditableGroups(activeGroupCategory.value.id)
+    syncEditableGroups(activeGroupCategory.value.id, true)
     showToast('Линейка удалена', 'success')
   } catch (error) {
     console.error('Failed to delete group:', error)
@@ -2253,7 +2313,7 @@ watch(
   () => adminStore.categoryGroups,
   () => {
     if (activeGroupCategory.value) {
-      syncEditableGroups(activeGroupCategory.value.id)
+      syncEditableGroups(activeGroupCategory.value.id, true)
     }
   }
 )

@@ -304,7 +304,17 @@ crmOperationsRouter.post('/api/admin/crm/orders', authMiddleware, (req, res) => 
         throw new Error(`Product not found: ${item.product_id}`);
       }
 
-      if (product.stock < item.quantity) {
+      // Проверяем наличие на складе
+      // Для вариантов - проверяем сток варианта, для обычных товаров - сток продукта
+      if (item.variant_id) {
+        const variant = db.prepare('SELECT stock FROM product_variants WHERE id = ?').get(item.variant_id);
+        if (!variant) {
+          throw new Error(`Variant not found: ${item.variant_id}`);
+        }
+        if (variant.stock < item.quantity) {
+          throw new Error(`Insufficient stock for variant ${item.variant_id}`);
+        }
+      } else if (product.stock < item.quantity) {
         throw new Error(`Insufficient stock for ${product.title}`);
       }
 
@@ -330,10 +340,21 @@ crmOperationsRouter.post('/api/admin/crm/orders', authMiddleware, (req, res) => 
       totalAmount += pricePerUnit * item.quantity;
       totalCost += totalItemCost;
 
+      // Получаем group_name для отображения линейки
+      let groupName = null;
+      if (product.groupId) {
+        const group = db.prepare('SELECT name FROM category_groups WHERE id = ?').get(product.groupId);
+        if (group) {
+          groupName = group.name;
+        }
+      }
+
       return {
         id: generateId('oi'),
         product_id: item.product_id,
+        variant_id: item.variant_id || null,
         product_title: product.title || 'Без названия',
+        group_name: groupName,
         base_product_id: baseProductId,
         base_product_title: baseProductTitle,
         quantity: item.quantity,
@@ -369,22 +390,21 @@ crmOperationsRouter.post('/api/admin/crm/orders', authMiddleware, (req, res) => 
       // Вставляем позиции
       const itemStmt = db.prepare(`
         INSERT INTO order_items (
-          id, order_id, product_id, product_title, base_product_id, base_product_title, quantity,
+          id, order_id, product_id, variant_id, product_title, group_name, base_product_id, base_product_title, quantity,
           price_per_unit, cost_per_unit, discount_amount, total_price, total_cost
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
 
       for (const item of orderItems) {
         itemStmt.run(
-          item.id, orderId, item.product_id, item.product_title, item.base_product_id, item.base_product_title, item.quantity,
+          item.id, orderId, item.product_id, item.variant_id, item.product_title, item.group_name, item.base_product_id, item.base_product_title, item.quantity,
           item.price_per_unit, item.cost_per_unit, item.discount_amount,
           item.total_price, item.total_cost
         );
 
-        // Уменьшаем остаток товара
-        db.prepare(`
-          UPDATE products SET stock = stock - ? WHERE id = ?
-        `).run(item.quantity, item.product_id);
+        // ВАЖНО: НЕ списываем сток при создании заказа!
+        // Сток списывается только при переходе в статус "Собран" (in_progress)
+        // Это защита от абуза - конкуренты могут создавать фейковые заказы
       }
 
       // Обновляем статистику клиента
@@ -503,11 +523,60 @@ crmOperationsRouter.patch('/api/admin/crm/orders/:id', authMiddleware, (req, res
         updateFields.push('status = ?');
         updateValues.push(desiredStatus);
 
+        // СПИСАНИЕ СТОКА: При переходе в "рабочий" статус (in_progress, completed, delivered)
+        // если сток еще не был списан
+        const workingStatuses = ['in_progress', 'completed', 'delivered'];
+        if (workingStatuses.includes(desiredStatus) && !order.stock_deducted) {
+          const orderItems = db.prepare('SELECT * FROM order_items WHERE order_id = ?').all(id);
+          
+          // Сначала проверяем достаточность стока
+          for (const item of orderItems) {
+            if (item.variant_id) {
+              const variant = db.prepare('SELECT stock FROM product_variants WHERE id = ?').get(item.variant_id);
+              if (variant && variant.stock !== null && variant.stock < item.quantity) {
+                throw new Error(`Недостаточно товара на складе: ${item.product_title || item.product_id}`);
+              }
+            } else if (item.product_id) {
+              const product = db.prepare('SELECT stock, title FROM products WHERE id = ?').get(item.product_id);
+              if (product && product.stock !== null && product.stock < item.quantity) {
+                throw new Error(`Недостаточно товара на складе: ${product.title || item.product_id}`);
+              }
+            }
+          }
+          
+          // Теперь списываем сток
+          for (const item of orderItems) {
+            if (item.variant_id) {
+              db.prepare('UPDATE product_variants SET stock = stock - ? WHERE id = ?')
+                .run(item.quantity, item.variant_id);
+            } else if (item.product_id) {
+              db.prepare('UPDATE products SET stock = stock - ? WHERE id = ?')
+                .run(item.quantity, item.product_id);
+            }
+          }
+          updateFields.push('stock_deducted = 1');
+        }
+
         if (desiredStatus === 'cancelled' && order.status !== 'cancelled') {
           updateFields.push('previous_status = ?');
           updateValues.push(order.status);
           updateFields.push("cancelled_at = DATETIME('now')");
           statusChangeNote = 'Заказ отменён';
+
+          // ВОЗВРАТ СТОКА: При отмене заказа, если сток был списан
+          if (order.stock_deducted) {
+            const orderItems = db.prepare('SELECT * FROM order_items WHERE order_id = ?').all(id);
+            for (const item of orderItems) {
+              if (item.variant_id) {
+                db.prepare('UPDATE product_variants SET stock = stock + ? WHERE id = ?')
+                  .run(item.quantity, item.variant_id);
+              } else if (item.product_id) {
+                db.prepare('UPDATE products SET stock = stock + ? WHERE id = ?')
+                  .run(item.quantity, item.product_id);
+              }
+            }
+            updateFields.push('stock_deducted = 0');
+          }
         } else if (desiredStatus !== 'cancelled') {
           updateFields.push('previous_status = NULL');
           updateFields.push('cancelled_at = NULL');
@@ -530,11 +599,17 @@ crmOperationsRouter.patch('/api/admin/crm/orders/:id', authMiddleware, (req, res
       }
 
       if (Array.isArray(items)) {
-        const oldItems = db.prepare('SELECT * FROM order_items WHERE order_id = ?').all(id);
-        for (const oldItem of oldItems) {
-          if (oldItem.product_id) {
-            db.prepare('UPDATE products SET stock = stock + ? WHERE id = ?')
-              .run(oldItem.quantity, oldItem.product_id);
+        // Возвращаем старый сток ТОЛЬКО если он был ранее списан
+        if (order.stock_deducted) {
+          const oldItems = db.prepare('SELECT * FROM order_items WHERE order_id = ?').all(id);
+          for (const oldItem of oldItems) {
+            if (oldItem.variant_id) {
+              db.prepare('UPDATE product_variants SET stock = stock + ? WHERE id = ?')
+                .run(oldItem.quantity, oldItem.variant_id);
+            } else if (oldItem.product_id) {
+              db.prepare('UPDATE products SET stock = stock + ? WHERE id = ?')
+                .run(oldItem.quantity, oldItem.product_id);
+            }
           }
         }
 
@@ -545,9 +620,9 @@ crmOperationsRouter.patch('/api/admin/crm/orders/:id', authMiddleware, (req, res
 
         const itemStmt = db.prepare(`
           INSERT INTO order_items (
-            id, order_id, product_id, product_title, base_product_id, base_product_title, quantity,
+            id, order_id, product_id, variant_id, product_title, base_product_id, base_product_title, quantity,
             price_per_unit, cost_per_unit, discount_amount, total_price, total_cost
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `);
 
         for (const item of items) {
@@ -571,9 +646,23 @@ crmOperationsRouter.patch('/api/admin/crm/orders/:id', authMiddleware, (req, res
           const costPerUnit = Number(product.cost_price || 0);
           const itemDiscount = Number(item.discount_amount || 0);
 
-          const productStock = Number(product.stock || 0);
-          if (productStock < quantity) {
-            throw new Error(`Insufficient stock for ${product.title || product.id}`);
+          // Проверяем сток ТОЛЬКО если заказ уже был собран (stock_deducted = 1)
+          // Если stock_deducted = 0, сток не будет списываться, проверка не нужна
+          if (order.stock_deducted) {
+            if (item.variant_id) {
+              const variant = db.prepare('SELECT stock FROM product_variants WHERE id = ?').get(item.variant_id);
+              if (!variant) {
+                throw new Error(`Variant not found: ${item.variant_id}`);
+              }
+              if (Number(variant.stock || 0) < quantity) {
+                throw new Error(`Insufficient stock for variant ${item.variant_id}`);
+              }
+            } else {
+              const productStock = Number(product.stock || 0);
+              if (productStock < quantity) {
+                throw new Error(`Insufficient stock for ${product.title || product.id}`);
+              }
+            }
           }
 
           const totalPrice = (pricePerUnit * quantity) - itemDiscount;
@@ -586,6 +675,7 @@ crmOperationsRouter.patch('/api/admin/crm/orders/:id', authMiddleware, (req, res
             generateId('oi'),
             id,
             item.product_id,
+            item.variant_id || null,
             product.title || 'Без названия',
             product.base_product_id || null,
             product.base_product_title || null,
@@ -597,8 +687,16 @@ crmOperationsRouter.patch('/api/admin/crm/orders/:id', authMiddleware, (req, res
             totalItemCost
           );
 
-          db.prepare('UPDATE products SET stock = stock - ? WHERE id = ?')
-            .run(quantity, item.product_id);
+          // Списываем сток ТОЛЬКО если заказ уже был собран (stock_deducted = 1)
+          if (order.stock_deducted) {
+            if (item.variant_id) {
+              db.prepare('UPDATE product_variants SET stock = stock - ? WHERE id = ?')
+                .run(quantity, item.variant_id);
+            } else {
+              db.prepare('UPDATE products SET stock = stock - ? WHERE id = ?')
+                .run(quantity, item.product_id);
+            }
+          }
         }
 
         const finalAmount = applyDiscounts(totalAmount, updatedDiscountAmount, updatedDiscountPercent);
@@ -646,7 +744,15 @@ crmOperationsRouter.patch('/api/admin/crm/orders/:id', authMiddleware, (req, res
       'invalid_cost',
       'items_required'
     ]);
-    if (clientErrors.has(error.message)) {
+    
+    // Проверяем клиентские ошибки (которые должны вернуть 400, а не 500)
+    const isClientError = clientErrors.has(error.message) || 
+      error.message.startsWith('Недостаточно товара') ||
+      error.message.startsWith('Insufficient stock') ||
+      error.message.startsWith('Product not found') ||
+      error.message.startsWith('Variant not found');
+    
+    if (isClientError) {
       return res.status(400).json({ error: error.message });
     }
     res.status(500).json({ error: 'failed', message: error.message });

@@ -55,7 +55,7 @@
               </DialogDescription>
               
               <!-- Content Slot - МОБИЛЬНО АДАПТИВНОЕ -->
-              <div class="flex-1 overflow-y-auto overflow-x-hidden mb-2 w-full -mx-1 px-1">
+              <div ref="scrollContainerRef" class="flex-1 overflow-y-auto overflow-x-hidden mb-2 w-full -mx-1 px-1">
                 <slot />
               </div>
               
@@ -101,7 +101,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import {
   Dialog,
   DialogPanel,
@@ -151,6 +151,13 @@ const emit = defineEmits<{
   cancel: []
   confirm: []
 }>()
+
+const scrollContainerRef = ref<HTMLElement | null>(null)
+
+// Expose scroll container for parent components to save/restore scroll position
+defineExpose({
+  scrollContainer: scrollContainerRef
+})
 
 const panelClasses = computed(() => {
   const baseClasses = `

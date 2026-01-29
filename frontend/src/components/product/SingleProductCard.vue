@@ -173,8 +173,8 @@ const isAtStockLimit = computed(() => {
 }
 
 .single-product-image {
-  width: 88px;
-  height: 104px;
+  width: 104px;
+  height: 120px;
   background: #ffffff;
   border: 1px solid #e6e9ed;
   border-radius: 16px;
@@ -183,7 +183,7 @@ const isAtStockLimit = computed(() => {
   justify-content: center;
   overflow: hidden;
   box-sizing: border-box;
-  padding: 6px;
+  padding: 8px;
 }
 
 .single-product-image img {
@@ -318,9 +318,9 @@ const isAtStockLimit = computed(() => {
   }
 
   .single-product-image {
-    width: 80px;
-    height: 96px;
-    padding: 4px;
+    width: 96px;
+    height: 112px;
+    padding: 6px;
   }
 
   .single-product-image img {
@@ -360,10 +360,10 @@ const isAtStockLimit = computed(() => {
   }
 
   .single-product-image {
-    width: 72px;
-    height: 88px;
+    width: 88px;
+    height: 104px;
     border-radius: 14px;
-    padding: 4px;
+    padding: 6px;
   }
 
   .single-product-image img {
@@ -422,10 +422,10 @@ const isAtStockLimit = computed(() => {
   }
 
   .single-product-image {
-    width: 64px;
-    height: 78px;
+    width: 80px;
+    height: 96px;
     border-radius: 12px;
-    padding: 2px;
+    padding: 4px;
   }
 
   .single-product-image img {
@@ -484,10 +484,10 @@ const isAtStockLimit = computed(() => {
   }
 
   .single-product-image {
-    width: 56px;
-    height: 68px;
+    width: 72px;
+    height: 88px;
     border-radius: 10px;
-    padding: 2px;
+    padding: 4px;
   }
 
   .single-product-image img {

@@ -78,6 +78,69 @@
         </div>
       </div>
 
+      <!-- Error/Success banners at the top -->
+      <Transition
+        enter-active-class="transition ease-out duration-200"
+        enter-from-class="opacity-0 -translate-y-2"
+        enter-to-class="opacity-100 translate-y-0"
+        leave-active-class="transition ease-in duration-150"
+        leave-from-class="opacity-100 translate-y-0"
+        leave-to-class="opacity-0 -translate-y-2"
+      >
+        <div
+          v-if="saveError"
+          class="rounded-lg border border-red-200 bg-red-50 p-4 shadow-sm"
+        >
+          <div class="flex items-start gap-3">
+            <svg class="h-5 w-5 flex-shrink-0 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <div class="flex-1">
+              <p class="text-sm font-medium text-red-800">{{ saveError }}</p>
+            </div>
+            <button
+              @click="saveError = ''"
+              class="inline-flex h-6 w-6 items-center justify-center rounded-full text-red-500 transition hover:bg-red-100"
+            >
+              <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+        </div>
+      </Transition>
+
+      <Transition
+        enter-active-class="transition ease-out duration-200"
+        enter-from-class="opacity-0 -translate-y-2"
+        enter-to-class="opacity-100 translate-y-0"
+        leave-active-class="transition ease-in duration-150"
+        leave-from-class="opacity-100 translate-y-0"
+        leave-to-class="opacity-0 -translate-y-2"
+      >
+        <div
+          v-if="saveSuccess"
+          class="rounded-lg border border-green-200 bg-green-50 p-4 shadow-sm"
+        >
+          <div class="flex items-start gap-3">
+            <svg class="h-5 w-5 flex-shrink-0 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <div class="flex-1">
+              <p class="text-sm font-medium text-green-800">{{ saveSuccess }}</p>
+            </div>
+            <button
+              @click="saveSuccess = ''"
+              class="inline-flex h-6 w-6 items-center justify-center rounded-full text-green-500 transition hover:bg-green-100"
+            >
+              <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+        </div>
+      </Transition>
+
       <div v-if="loading || !currentOrder" class="rounded-2xl bg-white p-12 text-center shadow-sm">
         <div class="mx-auto h-12 w-12 animate-spin rounded-full border-4 border-blue-600 border-r-transparent"></div>
         <p class="mt-4 text-sm text-gray-600">Загружаем заказ…</p>
@@ -205,12 +268,12 @@
                 'border-red-300 bg-red-50/40': item.quantity <= 0 || item.discount > item.price * item.quantity
               }"
             >
-              <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                <div>
-                  <p class="text-base font-semibold text-gray-900">
-                    {{ item.baseProductTitle || item.title }}
-                    <span v-if="item.variantName" class="text-sm text-gray-600"> - {{ item.variantName }}</span>
-                  </p>
+                <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <p class="text-base font-semibold text-gray-900">
+                      <span v-if="item.groupName" class="text-blue-600">{{ item.groupName }} - </span>{{ item.baseProductTitle || item.title }}
+                      <span v-if="item.variantName" class="text-sm text-gray-600"> - {{ item.variantName }}</span>
+                    </p>
                   <p class="text-xs text-gray-500">
                     Себестоимость: {{ formatCurrency(item.cost) }}
                     <span v-if="item.stock !== null && item.stock !== undefined" class="ml-2">Остаток: {{ item.stock }}</span>
@@ -329,8 +392,6 @@
                 <p v-if="currentOrder.completed_at">Выдан: {{ formatFullDate(currentOrder.completed_at) }}</p>
                 <p v-if="currentOrder.employee_id" class="text-xs text-gray-500">ID сотрудника: {{ currentOrder.employee_id }}</p>
               </div>
-              <div v-if="saveError" class="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-600">{{ saveError }}</div>
-              <div v-else-if="saveSuccess" class="rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-700">{{ saveSuccess }}</div>
             </div>
           </div>
         </section>
@@ -349,7 +410,9 @@ const props = defineProps<{ id: string }>()
 type FormItem = {
   productId: string
   title: string
-  baseProductTitle?: string
+  groupName?: string | null
+  baseProductTitle?: string | null
+  variantName?: string | null
   quantity: number
   price: number
   discount: number
@@ -522,6 +585,7 @@ function initializeForm(order: Order) {
     .map((item) => ({
       productId: item.product_id as string,
       title: item.product_title,
+      groupName: item.group_name || null,
       baseProductTitle: item.base_product_title || null,
       variantName: item.variant_name || null,
       quantity: Number(item.quantity || 0),
@@ -564,7 +628,9 @@ function addProduct(product: CrmProductSummary) {
   form.items.push({
     productId: product.id,
     title: product.title,
+    groupName: product.groupName || null,
     baseProductTitle: undefined,
+    variantName: undefined,
     quantity: 1,
     price: product.priceRub,
     discount: 0,

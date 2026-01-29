@@ -125,7 +125,9 @@ function createOrderFromBot({ customerId, product, quantity, telegramMessageId, 
       totalCost
     );
 
-    db.prepare('UPDATE products SET stock = ? WHERE id = ?').run(Math.max(latestStock - quantity, 0), product.id);
+    // ВАЖНО: НЕ списываем сток при создании заказа!
+    // Сток списывается только при переходе в статус "Собран" (in_progress)
+    // Это защита от абуза - конкуренты могут создавать фейковые заказы
 
     if (customerId) {
       db.prepare(`

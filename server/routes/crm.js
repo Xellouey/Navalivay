@@ -63,10 +63,16 @@ crmRouter.get('/api/admin/crm/dashboard', authMiddleware, (req, res) => {
     }
 
     const { start, end } = getPeriodRange(period, offset);
+    
+    // Функция для форматирования даты в SQLite-совместимый формат (YYYY-MM-DD HH:MM:SS)
+    function toSqliteDate(date) {
+      return date.toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, '');
+    }
+    
     // Для статистики заказов используем created_at
-    const createdAtFilter = `created_at >= '${start.toISOString()}' AND created_at < '${end.toISOString()}'`;
+    const createdAtFilter = `datetime(created_at) >= '${toSqliteDate(start)}' AND datetime(created_at) < '${toSqliteDate(end)}'`;
     // Для финансовой статистики используем paid_at (дата оплаты/выдачи)
-    const paidAtFilter = `paid_at >= '${start.toISOString()}' AND paid_at < '${end.toISOString()}'`;
+    const paidAtFilter = `datetime(paid_at) >= '${toSqliteDate(start)}' AND datetime(paid_at) < '${toSqliteDate(end)}'`;
 
     // Выручка, прибыль, количество продаж - по дате ОПЛАТЫ (paid_at)
     const stats = db.prepare(`
@@ -199,6 +205,11 @@ crmRouter.get('/api/admin/crm/dashboard-timeseries', authMiddleware, (req, res) 
 
     const { start, end, granularity } = getPeriodRange(period, offset, year);
     const data = [];
+    
+    // Функция для форматирования даты в SQLite-совместимый формат (YYYY-MM-DD HH:MM:SS)
+    function toSqliteDate(date) {
+      return date.toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, '');
+    }
 
     if (granularity === 'month') {
       // По месяцам для года
@@ -217,9 +228,9 @@ crmRouter.get('/api/admin/crm/dashboard-timeseries', authMiddleware, (req, res) 
           LEFT JOIN order_items oi ON oi.order_id = o.id
           WHERE o.status IN ('completed', 'delivered')
             AND o.paid_at IS NOT NULL
-            AND o.paid_at >= ?
-            AND o.paid_at < ?
-        `).get(monthStart.toISOString(), monthEnd.toISOString());
+            AND datetime(o.paid_at) >= ?
+            AND datetime(o.paid_at) < ?
+        `).get(toSqliteDate(monthStart), toSqliteDate(monthEnd));
         
         data.push({
           label: monthNames[i],
@@ -245,9 +256,9 @@ crmRouter.get('/api/admin/crm/dashboard-timeseries', authMiddleware, (req, res) 
           LEFT JOIN order_items oi ON oi.order_id = o.id
           WHERE o.status IN ('completed', 'delivered')
             AND o.paid_at IS NOT NULL
-            AND o.paid_at >= ?
-            AND o.paid_at < ?
-        `).get(dayStart.toISOString(), dayEnd.toISOString());
+            AND datetime(o.paid_at) >= ?
+            AND datetime(o.paid_at) < ?
+        `).get(toSqliteDate(dayStart), toSqliteDate(dayEnd));
         
         data.push({
           label: String(dayStart.getUTCDate()),

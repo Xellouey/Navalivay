@@ -125,6 +125,7 @@
               >
                 <div
                   v-for="variant in product.variants"
+                  v-if="isVariantInStock(variant)"
                   :key="variant.id ?? variant.name"
                   class="liquid-variant-row"
                 >
@@ -654,6 +655,20 @@ function isVariantAtStockLimit(variant: {
     return getVariantQuantity(variant.id) >= stock;
   }
   return false;
+}
+
+// Проверяет, есть ли вариант в наличии (stock > 0)
+function isVariantInStock(variant: {
+  id?: string;
+  stock?: number | null;
+  isAvailable?: boolean;
+}) {
+  if (variant.isAvailable === false) return false;
+  if (typeof variant.stock === "number") {
+    return variant.stock > 0;
+  }
+  // Если stock не указан, считаем что в наличии
+  return true;
 }
 
 function handleVariantAdd(

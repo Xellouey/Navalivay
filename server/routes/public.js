@@ -865,9 +865,9 @@ publicRouter.post('/api/orders', (req, res) => {
       // Insert order items
       const itemStmt = db.prepare(`
         INSERT INTO order_items (
-          id, order_id, product_id, product_title, base_product_title, base_product_id, variant_name, quantity,
+          id, order_id, product_id, product_title, base_product_title, base_product_id, variant_id, variant_name, quantity,
           price_per_unit, cost_per_unit, discount_amount, total_price, total_cost
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
 
       for (const item of orderItems) {
@@ -878,6 +878,7 @@ publicRouter.post('/api/orders', (req, res) => {
           item.product_title,
           item.base_product_title,
           item.base_product_id,
+          item.variant_id || null,
           item.variant_name,
           item.quantity,
           item.price_per_unit,
@@ -887,26 +888,10 @@ publicRouter.post('/api/orders', (req, res) => {
           item.total_cost
         );
 
-        // Update stock - для вариантов обновляем stock варианта, иначе stock продукта
-        if (item.variant_id) {
-          // Обновляем stock варианта
-          const variant = db.prepare('SELECT stock FROM product_variants WHERE id = ?').get(item.variant_id);
-          if (variant && variant.stock !== null) {
-            db.prepare('UPDATE product_variants SET stock = stock - ? WHERE id = ?').run(
-              item.quantity,
-              item.variant_id
-            );
-          }
-        } else if (!item.has_variants) {
-          // Обновляем stock продукта только если у него нет вариантов
-          const productStock = db.prepare('SELECT stock FROM products WHERE id = ?').get(item.product_id);
-          if (productStock && productStock.stock !== null) {
-            db.prepare('UPDATE products SET stock = stock - ? WHERE id = ?').run(
-              item.quantity,
-              item.product_id
-            );
-          }
-        }
+        // ВАЖНО: НЕ списываем сток при создании заказа!
+        // Сток списывается только при переходе в статус "Собран" (in_progress)
+        // Это защита от абуза - конкуренты могут создавать фейковые заказы
+        // и товары будут пропадать из наличия без реальных продаж
       }
 
       // Update customer stats

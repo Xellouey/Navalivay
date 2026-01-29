@@ -579,9 +579,7 @@ function pluralize(count: number, one: string, few: string, many: string): strin
 .item-list-enter-from {
   opacity: 0;
   transform: translateY(-12px) scale(0.98);
-}
-
-.item-list-leave-to {
+}.item-list-leave-to {
   opacity: 0;
   transform: translateY(-8px) scale(0.98);
 }

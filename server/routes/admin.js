@@ -1637,16 +1637,19 @@ adminRouter.put('/api/admin/category-groups/:id', authMiddleware, async (req, re
   }
   const nextHideEmpty = hide_empty !== undefined ? (hide_empty ? 1 : 0) : current.hide_empty;
   const nextOrder = Number.isFinite(Number(order)) ? Number(order) : current.order;
+  // Проверяем, было ли поле явно передано в запросе (включая null для очистки)
+  const metaLabelProvided = 'metaLabel' in req.body || 'meta_label' in req.body;
+  const metaValueProvided = 'metaValue' in req.body || 'meta_value' in req.body;
   const rawMetaLabel = metaLabel ?? meta_label;
   const rawMetaValue = metaValue ?? meta_value;
   const nextMetaLabel =
-    rawMetaLabel !== undefined
+    metaLabelProvided
       ? (typeof rawMetaLabel === 'string' && rawMetaLabel.trim().length > 0
         ? rawMetaLabel.trim()
         : null)
       : current.meta_label ?? null;
   const nextMetaValue =
-    rawMetaValue !== undefined
+    metaValueProvided
       ? (typeof rawMetaValue === 'string' && rawMetaValue.trim().length > 0
         ? rawMetaValue.trim()
         : null)

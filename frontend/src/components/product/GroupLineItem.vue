@@ -68,6 +68,7 @@
           >
             <div
               v-for="variant in product.variants"
+              v-if="isVariantInStock(variant)"
               :key="variant.id ?? variant.name"
               class="group-variant-row"
             >
@@ -216,8 +217,15 @@
         </ul>
 
         <!-- Подлинейки (рекурсивно) -->
+        <!-- #region agent log -->
+        <template v-if="true">{{ logChildrenRender() }}</template>
+        <!-- #endregion -->
         <div v-if="node.children.length" class="group-line-children">
-          <GroupLineItem
+          <!-- #region agent log -->
+          <template v-for="(child, idx) in node.children" :key="'debug-'+child.id">{{ logChildItem(child, idx) }}</template>
+          <!-- #endregion -->
+          <component
+            :is="selfComponent"
             v-for="child in node.children"
             :key="child.id"
             :node="child"
@@ -246,7 +254,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch, nextTick } from "vue";
+import { computed, ref, watch, nextTick, onMounted, resolveComponent, h } from "vue";
 import {
   ChevronDownIcon,
   PlusIcon,
@@ -255,6 +263,20 @@ import {
 import { useCartStore } from "@/stores/cart";
 import type { Product, ProductVariant } from "@/stores/catalog";
 import ColorPreviewModal from "@/components/product/ColorPreviewModal.vue";
+
+// Явно указываем имя компонента для рекурсивного использования
+defineOptions({
+  name: 'GroupLineItem'
+});
+
+// Для рекурсивного использования компонента
+const selfComponent = computed(() => {
+  const resolved = resolveComponent('GroupLineItem');
+  // #region agent log
+  fetch('http://localhost:7242/ingest/beae9f3c-16a9-4a39-a35e-538bbbd80c90',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'GroupLineItem.vue:selfComponent',message:'Resolving self component',data:{nodeId:props.node.id,resolvedType:typeof resolved,resolvedName:(resolved as any)?.name||'unknown',isString:typeof resolved === 'string'},timestamp:Date.now(),hypothesisId:'J'})}).catch(()=>{});
+  // #endregion
+  return resolved;
+});
 
 interface GroupNode {
   id: string;
@@ -296,6 +318,12 @@ const colorPreviewImage = ref<string | null>(null);
 const colorPreviewTitle = ref("");
 
 const isExpanded = computed(() => props.expandedGroups[props.node.id] ?? false);
+
+// #region agent log
+onMounted(() => {
+  fetch('http://localhost:7242/ingest/beae9f3c-16a9-4a39-a35e-538bbbd80c90',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'GroupLineItem.vue:onMounted',message:'Component mounted',data:{nodeId:props.node.id,nodeName:props.node.name,isExpanded:isExpanded.value,childrenLength:props.node.children?.length||0,productsLength:props.node.products?.length||0,expandedGroupsKeys:Object.keys(props.expandedGroups||{}),depth:props.node.depth},timestamp:Date.now(),hypothesisId:'E'})}).catch(()=>{});
+});
+// #endregion
 
 // Общее количество товаров
 const totalProductCount = computed(() => {
@@ -347,6 +375,9 @@ const wrapperStyle = computed(() => {
     return { maxHeight: "0px" };
   }
   const height = Math.max(contentHeight.value, 10000);
+  // #region agent log
+  fetch('http://localhost:7242/ingest/beae9f3c-16a9-4a39-a35e-538bbbd80c90',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'GroupLineItem.vue:wrapperStyle',message:'Computing expanded style',data:{nodeId:props.node.id,isExpanded:isExpanded.value,contentHeight:contentHeight.value,finalHeight:height},timestamp:Date.now(),hypothesisId:'C'})}).catch(()=>{});
+  // #endregion
   return { maxHeight: height + "px" };
 });
 
@@ -362,9 +393,18 @@ const calculateHeight = async () => {
 watch(
   () => isExpanded.value,
   async (newVal) => {
+    // #region agent log
+    fetch('http://localhost:7242/ingest/beae9f3c-16a9-4a39-a35e-538bbbd80c90',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'GroupLineItem.vue:watch:isExpanded',message:'isExpanded changed',data:{nodeId:props.node.id,nodeName:props.node.name,newVal,childrenCount:props.node.children?.length||0,contentHeightBefore:contentHeight.value},timestamp:Date.now(),hypothesisId:'A'})}).catch(()=>{});
+    // #endregion
     if (newVal) {
       await nextTick();
       await calculateHeight();
+      // #region agent log
+      const wrapperEl = bodyWrapper.value;
+      const childrenContainer = wrapperEl?.querySelector('.group-line-children');
+      const childCards = wrapperEl?.querySelectorAll('.group-line-card');
+      fetch('http://localhost:7242/ingest/beae9f3c-16a9-4a39-a35e-538bbbd80c90',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'GroupLineItem.vue:watch:afterCalc',message:'After calculateHeight',data:{nodeId:props.node.id,contentHeightAfter:contentHeight.value,bodyWrapperExists:!!wrapperEl,scrollHeight:wrapperEl?.scrollHeight||0,childrenContainerExists:!!childrenContainer,childCardsCount:childCards?.length||0,wrapperInnerHTML:wrapperEl?.innerHTML?.substring(0,500)||'empty'},timestamp:Date.now(),hypothesisId:'C'})}).catch(()=>{});
+      // #endregion
       setTimeout(() => calculateHeight(), 50);
       setTimeout(() => calculateHeight(), 150);
       setTimeout(() => {
@@ -416,7 +456,22 @@ async function onChildHeightChanged() {
   }, 350);
 }
 
+// #region agent log
+function logChildrenRender(): string {
+  fetch('http://localhost:7242/ingest/beae9f3c-16a9-4a39-a35e-538bbbd80c90',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'GroupLineItem.vue:logChildrenRender',message:'Children section render check',data:{nodeId:props.node.id,nodeName:props.node.name,isExpanded:isExpanded.value,childrenLength:props.node.children?.length||0,childrenData:props.node.children?.map(c=>({id:c.id,name:c.name,productsCount:c.products?.length||0}))||[],productsWithVariantsCount:productsWithVariants.value?.length||0,productsWithoutVariantsCount:productsWithoutVariants.value?.length||0,hasBodyWrapper:!!bodyWrapper.value,contentHeight:contentHeight.value},timestamp:Date.now(),hypothesisId:'D'})}).catch(()=>{});
+  return '';
+}
+
+function logChildItem(child: GroupNode, idx: number): string {
+  fetch('http://localhost:7242/ingest/beae9f3c-16a9-4a39-a35e-538bbbd80c90',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'GroupLineItem.vue:logChildItem',message:'Rendering child item',data:{parentId:props.node.id,parentName:props.node.name,childId:child.id,childName:child.name,childIdx:idx,childProductsCount:child.products?.length||0,childHasVariants:(child.products||[]).some((p:Product)=>p.hasVariants),parentIsExpanded:isExpanded.value},timestamp:Date.now(),hypothesisId:'H'})}).catch(()=>{});
+  return '';
+}
+// #endregion
+
 function toggle() {
+  // #region agent log
+  fetch('http://localhost:7242/ingest/beae9f3c-16a9-4a39-a35e-538bbbd80c90',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'GroupLineItem.vue:toggle',message:'Toggle clicked',data:{nodeId:props.node.id,nodeName:props.node.name,childrenCount:props.node.children?.length||0,productsCount:props.node.products?.length||0,isExpanded:isExpanded.value,productsWithVariantsCount:productsWithVariants.value?.length||0,productsWithoutVariantsCount:productsWithoutVariants.value?.length||0},timestamp:Date.now(),hypothesisId:'A'})}).catch(()=>{});
+  // #endregion
   emit("toggle", props.node.id);
 }
 
@@ -608,6 +663,20 @@ function isVariantAtStockLimit(variant: {
     return getVariantQuantity(variant.id) >= stock;
   }
   return false;
+}
+
+// Проверяет, есть ли вариант в наличии (stock > 0)
+function isVariantInStock(variant: {
+  id?: string;
+  stock?: number | null;
+  isAvailable?: boolean;
+}) {
+  if (variant.isAvailable === false) return false;
+  if (typeof variant.stock === "number") {
+    return variant.stock > 0;
+  }
+  // Если stock не указан, считаем что в наличии
+  return true;
 }
 
 function handleVariantAdd(

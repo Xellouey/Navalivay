@@ -113,6 +113,38 @@
         </span>
       </div>
 
+      <!-- Error banner -->
+      <Transition
+        enter-active-class="transition ease-out duration-200"
+        enter-from-class="opacity-0 -translate-y-2"
+        enter-to-class="opacity-100 translate-y-0"
+        leave-active-class="transition ease-in duration-150"
+        leave-from-class="opacity-100 translate-y-0"
+        leave-to-class="opacity-0 -translate-y-2"
+      >
+        <div
+          v-if="orderError"
+          class="rounded-lg border border-red-200 bg-red-50 p-4 shadow-sm"
+        >
+          <div class="flex items-start gap-3">
+            <svg class="h-5 w-5 flex-shrink-0 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <div class="flex-1">
+              <p class="text-sm font-medium text-red-800">{{ orderError }}</p>
+            </div>
+            <button
+              @click="dismissOrderError"
+              class="inline-flex h-6 w-6 items-center justify-center rounded-full text-red-500 transition hover:bg-red-100"
+            >
+              <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+        </div>
+      </Transition>
+
       <div v-if="loadingOrders" class="flex min-h-[420px] items-center justify-center rounded-xl border border-dashed border-blue-200 bg-white">
         <div class="flex flex-col items-center gap-4">
           <div class="h-12 w-12 animate-spin rounded-full border-4 border-blue-600 border-r-transparent"></div>
@@ -246,10 +278,31 @@
 
                 <ul v-if="order.items?.length" class="mt-3 space-y-1 text-xs text-gray-600">
                   <li v-for="item in previewItems(order)" :key="item.id">
-                    • {{ item.base_product_title || item.product_title }}{{ item.variant_name ? " - " + item.variant_name : "" }} × {{ item.quantity }}
+                    • <span v-if="item.group_name" class="font-semibold text-blue-600">{{ item.group_name }}</span>{{ item.group_name ? ' - ' : '' }}{{ item.base_product_title || item.product_title }}{{ item.variant_name ? " - " + item.variant_name : "" }} × {{ item.quantity }}
                   </li>
-                  <li v-if="(order.items?.length || 0) > previewLimit" class="text-[11px] text-gray-400">
-                    и ещё {{ (order.items?.length || 0) - previewLimit }} позиций
+                  <li v-if="hiddenItemsCount(order) > 0 && !isOrderExpanded(order.id)">
+                    <button
+                      type="button"
+                      class="inline-flex items-center gap-1 text-[11px] text-blue-600 hover:text-blue-800 hover:underline transition-colors"
+                      @click.stop="toggleOrderExpanded(order.id)"
+                    >
+                      <svg class="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                      </svg>
+                      и ещё {{ hiddenItemsCount(order) }} {{ pluralizePositions(hiddenItemsCount(order)) }}
+                    </button>
+                  </li>
+                  <li v-if="isOrderExpanded(order.id) && order.items.length > previewLimit">
+                    <button
+                      type="button"
+                      class="inline-flex items-center gap-1 text-[11px] text-gray-500 hover:text-gray-700 hover:underline transition-colors"
+                      @click.stop="toggleOrderExpanded(order.id)"
+                    >
+                      <svg class="h-3 w-3 rotate-180" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                      </svg>
+                      свернуть
+                    </button>
                   </li>
                 </ul>
 
@@ -577,6 +630,29 @@ let refreshTimer: ReturnType<typeof setInterval> | null = null
 let highlightTimer: ReturnType<typeof setTimeout> | null = null
 
 const previewLimit = 4
+const expandedOrders = ref<Set<string>>(new Set())
+
+// Error handling for order operations
+const orderError = ref<string | null>(null)
+const orderErrorTimeout = ref<ReturnType<typeof setTimeout> | null>(null)
+
+function showOrderError(message: string) {
+  orderError.value = message
+  if (orderErrorTimeout.value) {
+    clearTimeout(orderErrorTimeout.value)
+  }
+  orderErrorTimeout.value = setTimeout(() => {
+    orderError.value = null
+  }, 8000)
+}
+
+function dismissOrderError() {
+  orderError.value = null
+  if (orderErrorTimeout.value) {
+    clearTimeout(orderErrorTimeout.value)
+    orderErrorTimeout.value = null
+  }
+}
 
 const deliveredModalOpen = ref(false)
 const deliveredFilter = ref<DeliveredFilter>('today')
@@ -758,7 +834,35 @@ function formatDate(dateString: string) {
 
 function previewItems(order: Order) {
   if (!order.items) return []
+  if (expandedOrders.value.has(order.id)) {
+    return order.items
+  }
   return order.items.slice(0, previewLimit)
+}
+
+function toggleOrderExpanded(orderId: string) {
+  if (expandedOrders.value.has(orderId)) {
+    expandedOrders.value.delete(orderId)
+  } else {
+    expandedOrders.value.add(orderId)
+  }
+}
+
+function isOrderExpanded(orderId: string) {
+  return expandedOrders.value.has(orderId)
+}
+
+function hiddenItemsCount(order: Order) {
+  if (!order.items) return 0
+  return Math.max(0, order.items.length - previewLimit)
+}
+
+function pluralizePositions(count: number): string {
+  const mod10 = count % 10
+  const mod100 = count % 100
+  if (mod10 === 1 && mod100 !== 11) return 'позиция'
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) return 'позиции'
+  return 'позиций'
 }
 
 function deliveryBadgeClass(order: Order) {
@@ -792,8 +896,13 @@ async function advanceOrder(order: Order) {
     return
   }
 
-  await crmStore.updateOrder(order.id, { status: nextStatus })
-  markOrderSeen(order.id)
+  try {
+    await crmStore.updateOrder(order.id, { status: nextStatus })
+    markOrderSeen(order.id)
+  } catch (error: any) {
+    const errorMessage = error?.message || 'Не удалось изменить статус заказа'
+    showOrderError(`Заказ #${order.order_number}: ${errorMessage}`)
+  }
 }
 
 function viewOrder(id: string) {

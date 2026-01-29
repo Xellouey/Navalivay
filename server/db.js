@@ -31,6 +31,8 @@ import { migrateAddBaseProductToOrderItems } from './migrations/add_base_product
 import { migrateColorDisplayMode } from './migrations/add_color_display_mode.js';
 import { migrateColorImageToVariants } from './migrations/add_color_image_to_variants.js';
 import { migrateCategoryGroupMetaFields } from './migrations/add_group_meta_fields.js';
+import { migrateStockDeductedToOrders } from './migrations/add_stock_deducted_to_orders.js';
+import { migrateVariantIdToOrderItems } from './migrations/add_variant_id_to_order_items.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -161,6 +163,8 @@ export function initDb() {
   migrateAddBaseProductToOrderItems();
   migrateColorDisplayMode();
   migrateColorImageToVariants();
+  migrateStockDeductedToOrders();
+  migrateVariantIdToOrderItems();
 
   seedIfEmpty();
 }

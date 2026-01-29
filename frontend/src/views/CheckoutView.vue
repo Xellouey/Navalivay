@@ -1,5 +1,5 @@
 <template>
-  <div class="checkout-page">
+  <div class="checkout-page" @click="handlePageClick">
     <div class="header-area">
       <div class="checkout-header">
         <button class="checkout-back-button" @click="handleBack" aria-label="Назад">
@@ -164,10 +164,13 @@
 
           <div class="promo-input-row">
             <input
+              ref="promoInputRef"
               v-model="promoCode"
               type="text"
               class="promo-input"
               placeholder="Введите промокод"
+              enterkeyhint="done"
+              @keydown.enter="handlePromoInputDone"
             />
           </div>
 
@@ -235,6 +238,7 @@ const catalogStore = useCatalogStore();
 const isItemsExpanded = ref(false);
 const promoCode = ref("");
 const promoApplied = ref(false);
+const promoInputRef = ref<HTMLInputElement | null>(null);
 
 const form = reactive({
   deliveryType: "pickup" as "pickup" | "delivery",
@@ -312,6 +316,26 @@ function isIceProduct(item: (typeof cartStore.items)[0]): boolean {
 
 function toggleItemsExpanded() {
   isItemsExpanded.value = !isItemsExpanded.value;
+}
+
+function handlePromoInputDone() {
+  // Скрываем клавиатуру на iOS при нажатии Enter/Done
+  promoInputRef.value?.blur();
+}
+
+function blurActiveInput() {
+  // Снимаем фокус с любого активного input (скрывает клавиатуру на iOS)
+  if (document.activeElement instanceof HTMLElement) {
+    document.activeElement.blur();
+  }
+}
+
+function handlePageClick(event: MouseEvent) {
+  // Скрываем клавиатуру при тапе вне input на iOS
+  const target = event.target as HTMLElement;
+  if (target.tagName !== 'INPUT' && target.tagName !== 'TEXTAREA') {
+    blurActiveInput();
+  }
 }
 
 function applyPromoCode() {
@@ -476,6 +500,9 @@ function validateForm(): boolean {
 }
 
 async function submitOrder() {
+  // Скрываем клавиатуру перед отправкой
+  blurActiveInput();
+  
   if (!validateForm()) return;
 
   submitError.value = "";

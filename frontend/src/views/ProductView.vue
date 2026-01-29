@@ -74,11 +74,11 @@
           />
 
           <!-- Variants Selector Mobile -->
-          <div v-if="hasVariants && product.variants" class="px-4 py-4 bg-white border-b border-gray-100">
+          <div v-if="hasVariants && availableVariants.length" class="px-4 py-4 bg-white border-b border-gray-100">
             <h3 class="text-sm font-medium text-gray-700 mb-3">Выберите цвет: {{ selectedVariant?.name }}</h3>
             <div class="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
               <button
-                v-for="variant in product.variants"
+                v-for="variant in availableVariants"
                 :key="variant.id"
                 @click="selectVariant(variant.id!)"
                 class="relative flex-shrink-0 flex flex-col items-center gap-2 p-3 rounded-xl border-2 transition-all"
@@ -261,11 +261,11 @@
                   </div>
 
                   <!-- Variants Selector -->
-                  <div v-if="hasVariants && product.variants" class="mb-6">
+                  <div v-if="hasVariants && availableVariants.length" class="mb-6">
                     <h3 class="text-sm font-medium text-gray-700 mb-3">Выберите цвет: {{ selectedVariant?.name }}</h3>
                     <div class="flex flex-wrap gap-3">
                       <button
-                        v-for="variant in product.variants"
+                        v-for="variant in availableVariants"
                         :key="variant.id"
                         @click="selectVariant(variant.id!)"
                         class="group relative flex flex-col items-center gap-2 p-3 rounded-xl border-2 transition-all"
@@ -499,10 +499,20 @@ const hasVariants = computed(() => {
   return Boolean(product.value?.hasVariants && product.value?.variants && product.value.variants.length > 0)
 })
 
+// Только варианты в наличии (stock > 0)
+const availableVariants = computed(() => {
+  if (!product.value?.variants) return []
+  return product.value.variants.filter(v => {
+    if (v.isAvailable === false) return false
+    if (typeof v.stock === 'number') return v.stock > 0
+    return true // Если stock не указан, считаем что в наличии
+  })
+})
+
 // Текущий выбранный вариант
 const selectedVariant = computed(() => {
-  if (!hasVariants.value || !product.value?.variants) return null
-  return product.value.variants.find(v => v.id === selectedVariantId.value) || product.value.variants[0]
+  if (!hasVariants.value || !availableVariants.value.length) return null
+  return availableVariants.value.find(v => v.id === selectedVariantId.value) || availableVariants.value[0]
 })
 
 // Цена с учетом варианта
@@ -662,9 +672,14 @@ const loadProduct = async (id: string) => {
     if (!catalogStore.currentProduct || catalogStore.currentProduct.id !== id) {
       error.value = 'Товар не найден'
     } else {
-      // Инициализируем первый вариант, если есть варианты
+      // Инициализируем первый доступный вариант (stock > 0), если есть варианты
       if (catalogStore.currentProduct.hasVariants && catalogStore.currentProduct.variants && catalogStore.currentProduct.variants.length > 0) {
-        selectedVariantId.value = catalogStore.currentProduct.variants[0].id || null
+        const firstAvailable = catalogStore.currentProduct.variants.find(v => {
+          if (v.isAvailable === false) return false
+          if (typeof v.stock === 'number') return v.stock > 0
+          return true
+        })
+        selectedVariantId.value = firstAvailable?.id || null
       } else {
         selectedVariantId.value = null
       }
