@@ -99,11 +99,16 @@ const autoPlayTimer = ref<ReturnType<typeof setTimeout>>();
 
 // Touch and Mouse handling
 const touchStartX = ref(0);
+const touchStartY = ref(0);
 const touchEndX = ref(0);
+const touchEndY = ref(0);
+const touchStartTime = ref(0);
+const touchStartSlide = ref(0);
 const isDragging = ref(false);
 const mouseStartX = ref(0);
 const mouseCurrentX = ref(0);
 const isMouseDragging = ref(false);
+const suppressClickUntil = ref(0);
 
 function imageOf(banner: Banner) {
   return (banner as any).image || (banner as any).imageUrl || "";
@@ -130,6 +135,14 @@ function getTransformStyle() {
   return {
     transform: `translateX(calc(-${offsetVw}vw - ${offsetPx}px))`,
   };
+}
+
+function suppressClick(durationMs = 400) {
+  suppressClickUntil.value = Date.now() + durationMs;
+}
+
+function isClickSuppressed() {
+  return Date.now() < suppressClickUntil.value;
 }
 
 function nextSlide() {
@@ -169,6 +182,9 @@ function goToSlide(index: number) {
 }
 
 function handleBannerClick(banner: Banner, event?: Event) {
+  if (isClickSuppressed() || isDragging.value || isMouseDragging.value) {
+    return;
+  }
   // Предотвращаем стандартное поведение браузера
   if (event) {
     event.preventDefault();
@@ -177,7 +193,11 @@ function handleBannerClick(banner: Banner, event?: Event) {
 
   if ((banner as any).href) {
     const href = (banner as any).href as string;
-    const openInNewTab = (banner as any).openInNewTab === 1;
+    const openInNewTabValue = (banner as any).openInNewTab;
+    const openInNewTab =
+      openInNewTabValue === 1 ||
+      openInNewTabValue === true ||
+      openInNewTabValue === "1";
 
     if (href.startsWith("http")) {
       // Для внешних ссылок
@@ -230,33 +250,64 @@ function navigateTo(path: string) {
 // Touch handlers
 function onTouchStart(e: TouchEvent) {
   touchStartX.value = e.touches[0].clientX;
+  touchStartY.value = e.touches[0].clientY;
+  touchEndX.value = touchStartX.value;
+  touchEndY.value = touchStartY.value;
+  touchStartTime.value = Date.now();
+  touchStartSlide.value = currentSlide.value;
   isDragging.value = false;
   stopAutoPlay();
 }
 
 function onTouchMove(e: TouchEvent) {
-  if (!isDragging.value) {
-    isDragging.value = true;
-  }
   touchEndX.value = e.touches[0].clientX;
+  touchEndY.value = e.touches[0].clientY;
+  const deltaX = touchEndX.value - touchStartX.value;
+  const deltaY = touchEndY.value - touchStartY.value;
+
+  if (Math.abs(deltaX) > Math.abs(deltaY)) {
+    if (Math.abs(deltaX) > 6) {
+      isDragging.value = true;
+    }
+    if (e.cancelable) {
+      e.preventDefault();
+    }
+  }
 }
 
-function onTouchEnd() {
-  if (!isDragging.value) {
-    startAutoPlay();
-    return;
+function onTouchEnd(e: TouchEvent) {
+  if (e.changedTouches.length) {
+    touchEndX.value = e.changedTouches[0].clientX;
+    touchEndY.value = e.changedTouches[0].clientY;
   }
 
+  const deltaX = touchEndX.value - touchStartX.value;
+  const deltaY = touchEndY.value - touchStartY.value;
+  const absX = Math.abs(deltaX);
+  const absY = Math.abs(deltaY);
   const threshold = 50;
-  const diff = touchStartX.value - touchEndX.value;
+  const tapThreshold = 10;
+  const tapDuration = 250;
+  const elapsed = Date.now() - touchStartTime.value;
 
-  if (Math.abs(diff) > threshold) {
-    if (diff > 0) {
+  if (absX > threshold && absX > absY) {
+    suppressClick();
+    if (deltaX < 0) {
       nextSlide();
     } else {
       previousSlide();
     }
   } else {
+    const isTap =
+      absX < tapThreshold && absY < tapThreshold && elapsed < tapDuration;
+    if (isTap) {
+      const banner = props.banners[touchStartSlide.value];
+      isDragging.value = false;
+      if (banner) {
+        handleBannerClick(banner);
+      }
+      suppressClick();
+    }
     startAutoPlay();
   }
 
@@ -267,6 +318,7 @@ function onTouchEnd() {
 function onMouseDown(e: MouseEvent) {
   isMouseDragging.value = true;
   mouseStartX.value = e.clientX;
+  mouseCurrentX.value = e.clientX;
   stopAutoPlay();
   e.preventDefault();
 }
@@ -283,6 +335,7 @@ function onMouseUp() {
   const diff = mouseStartX.value - mouseCurrentX.value;
 
   if (Math.abs(diff) > threshold) {
+    suppressClick();
     if (diff > 0) {
       nextSlide();
     } else {
@@ -303,14 +356,14 @@ function onMouseLeave() {
 
 function handleImageError(event: Event) {
   const img = event.target as HTMLImageElement;
-  console.error('Banner image failed to load:', img.src);
+  console.error("Banner image failed to load:", img.src);
   // Hide broken image icon on iOS
-  img.style.display = 'none';
+  img.style.display = "none";
 }
 
 function handleImageLoad(event: Event) {
   const img = event.target as HTMLImageElement;
-  img.style.display = 'block';
+  img.style.display = "block";
 }
 
 onMounted(() => {

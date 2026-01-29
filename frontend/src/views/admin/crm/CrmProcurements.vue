@@ -4,9 +4,15 @@
       <div class="flex flex-wrap items-start justify-between gap-4">
         <div class="max-w-2xl space-y-2">
           <h1 class="text-2xl font-bold text-gray-900 sm:text-3xl">Закупки</h1>
-          <p class="text-sm text-gray-600 sm:text-base">Планируйте поставки, контролируйте себестоимость и пополняйте остатки</p>
+          <p class="text-sm text-gray-600 sm:text-base">
+            Планируйте поставки, контролируйте себестоимость и пополняйте
+            остатки
+          </p>
         </div>
-        <div v-if="profitUnlocked" class="flex w-full flex-wrap gap-3 sm:w-auto sm:justify-end">
+        <div
+          v-if="profitUnlocked"
+          class="flex w-full flex-wrap gap-3 sm:w-auto sm:justify-end"
+        >
           <button
             @click="refreshProcurements"
             class="w-full rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-100 sm:w-auto"
@@ -23,125 +29,170 @@
       </div>
 
       <template v-if="profitUnlocked">
-      <div class="mb-6 grid grid-cols-1 gap-4 md:grid-cols-3">
-        <div class="rounded-xl bg-white p-5 shadow-sm">
-          <div class="text-sm text-gray-500">Черновиков</div>
-          <div class="mt-2 flex items-end justify-between">
-            <div class="text-3xl font-bold text-gray-900">{{ draftCount }}</div>
-            <div class="text-sm text-gray-500">{{ formatCurrency(draftAmount) }}</div>
+        <div class="mb-6 grid grid-cols-1 gap-4 md:grid-cols-3">
+          <div class="rounded-xl bg-white p-5 shadow-sm">
+            <div class="text-sm text-gray-500">Черновиков</div>
+            <div class="mt-2 flex items-end justify-between">
+              <div class="text-3xl font-bold text-gray-900">
+                {{ draftCount }}
+              </div>
+              <div class="text-sm text-gray-500">
+                {{ formatCurrency(draftAmount) }}
+              </div>
+            </div>
+            <p class="mt-3 text-xs text-gray-500">
+              Планируемые списания с кассы
+            </p>
           </div>
-          <p class="mt-3 text-xs text-gray-500">Планируемые списания с кассы</p>
-        </div>
-        <div class="rounded-xl bg-white p-5 shadow-sm">
-          <div class="text-sm text-gray-500">Завершено</div>
-          <div class="mt-2 flex items-end justify-between">
-            <div class="text-3xl font-bold text-gray-900">{{ completedCount }}</div>
-            <div class="text-sm text-gray-500">{{ formatCurrency(completedAmount) }}</div>
+          <div class="rounded-xl bg-white p-5 shadow-sm">
+            <div class="text-sm text-gray-500">Завершено</div>
+            <div class="mt-2 flex items-end justify-between">
+              <div class="text-3xl font-bold text-gray-900">
+                {{ completedCount }}
+              </div>
+              <div class="text-sm text-gray-500">
+                {{ formatCurrency(completedAmount) }}
+              </div>
+            </div>
+            <p class="mt-3 text-xs text-gray-500">
+              Фактические закупки по актуальным ценам
+            </p>
           </div>
-          <p class="mt-3 text-xs text-gray-500">Фактические закупки по актуальным ценам</p>
-        </div>
-        <div class="rounded-xl bg-white p-5 shadow-sm">
-          <div class="text-sm text-gray-500">Средняя стоимость позиции</div>
-          <div class="mt-2 text-3xl font-bold text-gray-900">
-            {{ draftItems.length ? formatCurrency(draftAverageCost) : '—' }}
+          <div class="rounded-xl bg-white p-5 shadow-sm">
+            <div class="text-sm text-gray-500">Средняя стоимость позиции</div>
+            <div class="mt-2 text-3xl font-bold text-gray-900">
+              {{ draftItems.length ? formatCurrency(draftAverageCost) : "—" }}
+            </div>
+            <p class="mt-3 text-xs text-gray-500">
+              По текущему черновику закупки
+            </p>
           </div>
-          <p class="mt-3 text-xs text-gray-500">По текущему черновику закупки</p>
         </div>
-      </div>
 
-      <div v-if="loadingProcurements" class="rounded-xl bg-white py-16 text-center shadow-sm">
-        <div class="mx-auto h-12 w-12 animate-spin rounded-full border-4 border-blue-600 border-r-transparent"></div>
-        <p class="mt-4 text-gray-600">Загрузка закупок…</p>
-      </div>
-
-      <div v-else-if="procurements.length" class="rounded-xl bg-white shadow-sm">
-        <div class="overflow-x-auto">
-          <table class="w-full min-w-[720px] text-left">
-          <thead class="border-b bg-gray-50 text-xs font-medium uppercase text-gray-500">
-            <tr>
-              <th class="px-6 py-3">№</th>
-              <th class="px-6 py-3">Поставщик</th>
-              <th class="px-6 py-3">Сумма</th>
-              <th class="px-6 py-3">Статус</th>
-              <th class="px-6 py-3">Создана</th>
-              <th class="px-6 py-3 text-right">Действия</th>
-            </tr>
-          </thead>
-          <tbody class="divide-y">
-            <tr
-              v-for="procurement in procurements"
-              :key="procurement.id"
-              class="transition hover:bg-gray-50"
-            >
-              <td class="px-6 py-4 text-sm font-semibold text-gray-900">#{{ procurement.procurement_number }}</td>
-              <td class="px-6 py-4 text-sm text-gray-700">
-                <div class="font-medium text-gray-900">{{ procurement.supplier_name || 'Без поставщика' }}</div>
-                <div v-if="procurement.notes" class="text-xs text-gray-500">{{ procurement.notes }}</div>
-              </td>
-              <td class="px-6 py-4 text-sm font-semibold text-gray-900">{{ formatCurrency(procurement.total_amount) }}</td>
-              <td class="px-6 py-4">
-                <span :class="statusBadgeClass(procurement.status)" class="inline-flex rounded-full px-3 py-1 text-xs font-semibold">
-                  {{ statusLabel(procurement.status) }}
-                </span>
-              </td>
-              <td class="px-6 py-4 text-sm text-gray-500">{{ formatDate(procurement.created_at) }}</td>
-              <td class="px-6 py-4 text-right text-sm">
-                <div class="flex justify-end gap-3">
-                  <button
-                    v-if="procurement.status === 'draft'"
-                    @click="finishProcurement(procurement.id)"
-                    class="text-green-600 transition hover:text-green-800"
-                  >
-                    Завершить
-                  </button>
-                  <button
-                    v-if="procurement.status === 'draft'"
-                    @click="startEditProcurement(procurement.id)"
-                    class="admin-link-button admin-link-button--edit"
-                  >
-                    Редактировать
-                  </button>
-                  <button
-                    class="admin-link-button admin-link-button--danger"
-                    @click="deleteProcurementRecord(procurement.id)"
-                  >
-                    Удалить
-                  </button>
-                  <button
-                    @click="openDetails(procurement.id)"
-                    class="admin-link-button admin-link-button--info"
-                  >
-                    Подробнее
-                  </button>
-                </div>
-              </td>
-            </tr>
-          </tbody>
-          </table>
-        </div>
-      </div>
-
-      <div v-else class="rounded-xl bg-white py-16 text-center shadow-sm">
-        <h3 class="text-lg font-semibold text-gray-900">Закупки пока не создавались</h3>
-        <p class="mt-2 text-gray-600">Начните с добавления первой закупки - товары подтянутся в складской баланс автоматически.</p>
-        <button
-          class="mt-6 inline-flex items-center rounded-lg bg-blue-600 px-5 py-2 text-sm font-medium text-white transition hover:bg-blue-700"
-          @click="openCreateModal"
+        <div
+          v-if="loadingProcurements"
+          class="rounded-xl bg-white py-16 text-center shadow-sm"
         >
-          Создать закупку
-        </button>
-      </div>
+          <div
+            class="mx-auto h-12 w-12 animate-spin rounded-full border-4 border-blue-600 border-r-transparent"
+          ></div>
+          <p class="mt-4 text-gray-600">Загрузка закупок…</p>
+        </div>
+
+        <div
+          v-else-if="procurements.length"
+          class="rounded-xl bg-white shadow-sm"
+        >
+          <div class="overflow-x-auto">
+            <table class="w-full min-w-[720px] text-left">
+              <thead
+                class="border-b bg-gray-50 text-xs font-medium uppercase text-gray-500"
+              >
+                <tr>
+                  <th class="px-6 py-3">№</th>
+                  <th class="px-6 py-3">Поставщик</th>
+                  <th class="px-6 py-3">Сумма</th>
+                  <th class="px-6 py-3">Статус</th>
+                  <th class="px-6 py-3">Создана</th>
+                  <th class="px-6 py-3 text-right">Действия</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y">
+                <tr
+                  v-for="procurement in procurements"
+                  :key="procurement.id"
+                  class="transition hover:bg-gray-50"
+                >
+                  <td class="px-6 py-4 text-sm font-semibold text-gray-900">
+                    #{{ procurement.procurement_number }}
+                  </td>
+                  <td class="px-6 py-4 text-sm text-gray-700">
+                    <div class="font-medium text-gray-900">
+                      {{ procurement.supplier_name || "Без поставщика" }}
+                    </div>
+                    <div v-if="procurement.notes" class="text-xs text-gray-500">
+                      {{ procurement.notes }}
+                    </div>
+                  </td>
+                  <td class="px-6 py-4 text-sm font-semibold text-gray-900">
+                    {{ formatCurrency(procurement.total_amount) }}
+                  </td>
+                  <td class="px-6 py-4">
+                    <span
+                      :class="statusBadgeClass(procurement.status)"
+                      class="inline-flex rounded-full px-3 py-1 text-xs font-semibold"
+                    >
+                      {{ statusLabel(procurement.status) }}
+                    </span>
+                  </td>
+                  <td class="px-6 py-4 text-sm text-gray-500">
+                    {{ formatDate(procurement.created_at) }}
+                  </td>
+                  <td class="px-6 py-4 text-right text-sm">
+                    <div class="flex justify-end gap-3">
+                      <button
+                        v-if="procurement.status === 'draft'"
+                        @click="finishProcurement(procurement.id)"
+                        class="text-green-600 transition hover:text-green-800"
+                      >
+                        Завершить
+                      </button>
+                      <button
+                        v-if="procurement.status === 'draft'"
+                        @click="startEditProcurement(procurement.id)"
+                        class="admin-link-button admin-link-button--edit"
+                      >
+                        Редактировать
+                      </button>
+                      <button
+                        class="admin-link-button admin-link-button--danger"
+                        @click="deleteProcurementRecord(procurement.id)"
+                      >
+                        Удалить
+                      </button>
+                      <button
+                        @click="openDetails(procurement.id)"
+                        class="admin-link-button admin-link-button--info"
+                      >
+                        Подробнее
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div v-else class="rounded-xl bg-white py-16 text-center shadow-sm">
+          <h3 class="text-lg font-semibold text-gray-900">
+            Закупки пока не создавались
+          </h3>
+          <p class="mt-2 text-gray-600">
+            Начните с добавления первой закупки - товары подтянутся в складской
+            баланс автоматически.
+          </p>
+          <button
+            class="mt-6 inline-flex items-center rounded-lg bg-blue-600 px-5 py-2 text-sm font-medium text-white transition hover:bg-blue-700"
+            @click="openCreateModal"
+          >
+            Создать закупку
+          </button>
+        </div>
       </template>
 
-      <div v-else class="relative overflow-hidden rounded-3xl border border-dashed border-blue-200 bg-white/80 p-10 text-center shadow-inner">
+      <div
+        v-else
+        class="relative overflow-hidden rounded-3xl border border-dashed border-blue-200 bg-white/80 p-10 text-center shadow-inner"
+      >
         <div class="mx-auto flex max-w-xl flex-col items-center gap-5">
-          <span class="inline-flex h-16 w-16 items-center justify-center rounded-full bg-blue-100 text-blue-600">
+          <span
+            class="inline-flex h-16 w-16 items-center justify-center rounded-full bg-blue-100 text-blue-600"
+          >
             <LockClosedIcon class="h-8 w-8" />
           </span>
           <div class="space-y-2">
-            <p class="text-sm text-gray-600">
-              Оплатите подписку на сервис
-            </p>
+            <p class="text-sm text-gray-600">Оплатите подписку на сервис</p>
           </div>
           <button
             type="button"
@@ -150,7 +201,9 @@
             :disabled="verifyingPassword"
           >
             <LockClosedIcon class="h-5 w-5" />
-            <span>{{ verifyingPassword ? 'Проверяем…' : 'Ввести лицензионный ключ' }}</span>
+            <span>{{
+              verifyingPassword ? "Проверяем…" : "Ввести лицензионный ключ"
+            }}</span>
           </button>
         </div>
       </div>
@@ -168,7 +221,9 @@
     >
       <form class="space-y-4" @submit.prevent="submitPassword">
         <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">Ключ</label>
+          <label class="block text-sm font-medium text-gray-700 mb-1"
+            >Ключ</label
+          >
           <input
             v-model="passwordInput"
             type="password"
@@ -176,7 +231,9 @@
             placeholder="XXX-XXX-XXX"
             :disabled="verifyingPassword"
           />
-          <p v-if="passwordError" class="mt-2 text-sm text-red-600">{{ passwordError }}</p>
+          <p v-if="passwordError" class="mt-2 text-sm text-red-600">
+            {{ passwordError }}
+          </p>
         </div>
         <div class="flex gap-3 pt-2">
           <button
@@ -184,7 +241,7 @@
             class="flex-1 rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-400"
             :disabled="verifyingPassword"
           >
-            {{ verifyingPassword ? 'Проверяем…' : 'Показать' }}
+            {{ verifyingPassword ? "Проверяем…" : "Показать" }}
           </button>
           <button
             type="button"
@@ -211,7 +268,9 @@
       <div class="grid gap-6 md:grid-cols-[1.55fr,1fr]">
         <div class="space-y-6">
           <div class="grid gap-4 rounded-xl border border-gray-200 p-5">
-            <label class="text-sm font-medium text-gray-700" for="supplier">Поставщик</label>
+            <label class="text-sm font-medium text-gray-700" for="supplier"
+              >Поставщик</label
+            >
             <input
               id="supplier"
               v-model="supplierName"
@@ -219,7 +278,9 @@
               class="rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
               placeholder="Например, ООО «ВкусПоставки»"
             />
-            <label class="text-sm font-medium text-gray-700" for="notes">Комментарий</label>
+            <label class="text-sm font-medium text-gray-700" for="notes"
+              >Комментарий</label
+            >
             <textarea
               id="notes"
               v-model="draftNotes"
@@ -232,7 +293,9 @@
           <!-- Товары в зоне риска -->
           <div class="rounded-xl border border-red-100 bg-red-50 p-4">
             <div class="mb-3 flex items-center justify-between">
-              <h4 class="text-sm font-semibold text-red-900">Товары в зоне риска</h4>
+              <h4 class="text-sm font-semibold text-red-900">
+                Товары в зоне риска
+              </h4>
               <button
                 v-if="!lowStockLoading"
                 class="rounded-full border border-red-200 px-2.5 py-0.5 text-xs font-semibold text-red-600 transition hover:bg-red-100"
@@ -242,16 +305,28 @@
                 Обновить
               </button>
             </div>
-            <div v-if="lowStockLoading" class="py-3 text-center text-xs text-red-600">Загрузка…</div>
-            <ul v-else-if="lowStockSuggestions.length" class="space-y-2 text-sm">
+            <div
+              v-if="lowStockLoading"
+              class="py-3 text-center text-xs text-red-600"
+            >
+              Загрузка…
+            </div>
+            <ul
+              v-else-if="lowStockSuggestions.length"
+              class="space-y-2 text-sm"
+            >
               <li
                 v-for="product in lowStockSuggestions"
                 :key="`low-${product.id}`"
                 class="flex items-center justify-between gap-2 rounded-lg border border-red-200 bg-white p-2.5"
               >
                 <div class="min-w-0 flex-1">
-                  <div class="truncate font-medium text-gray-900 text-xs">{{ product.title }}</div>
-                  <div class="text-xs text-red-600">На складе {{ product.stock }} из {{ product.minStock }} шт</div>
+                  <div class="truncate font-medium text-gray-900 text-xs">
+                    {{ product.title }}
+                  </div>
+                  <div class="text-xs text-red-600">
+                    На складе {{ product.stock }} из {{ product.minStock }} шт
+                  </div>
                 </div>
                 <button
                   class="shrink-0 rounded-full border border-blue-200 px-2.5 py-1 text-xs font-semibold text-blue-600 transition hover:bg-blue-50"
@@ -262,15 +337,22 @@
                 </button>
               </li>
             </ul>
-            <div v-else class="py-3 text-center text-xs text-red-600">Дефицитных товаров нет</div>
+            <div v-else class="py-3 text-center text-xs text-red-600">
+              Дефицитных товаров нет
+            </div>
           </div>
 
           <!-- Поиск товаров -->
           <div class="rounded-xl border border-gray-200 p-5">
             <div class="flex flex-wrap items-center justify-between gap-3">
               <div>
-                <h4 class="text-lg font-semibold text-gray-900">Поиск товаров</h4>
-                <p class="text-sm text-gray-500">Добавьте позиции в закупку. Можно искать по названию или вкусу.</p>
+                <h4 class="text-lg font-semibold text-gray-900">
+                  Поиск товаров
+                </h4>
+                <p class="text-sm text-gray-500">
+                  Добавьте позиции в закупку. Можно искать по названию или
+                  вкусу.
+                </p>
               </div>
               <button
                 type="button"
@@ -287,15 +369,35 @@
                 class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
                 placeholder="Введите минимум 2 символа"
               />
-              <p v-if="showSearchHint" class="mt-2 text-xs text-gray-500">Для поиска введите от двух символов</p>
+              <p v-if="showSearchHint" class="mt-2 text-xs text-gray-500">
+                Для поиска введите от двух символов
+              </p>
             </div>
-            <div class="mt-4 max-h-52 overflow-y-auto rounded-lg border border-dashed border-gray-200">
-              <div v-if="isSearchingProducts" class="flex items-center justify-center gap-2 py-6 text-sm text-gray-500">
-                <div class="h-5 w-5 animate-spin rounded-full border-2 border-blue-600 border-r-transparent"></div>
+            <div
+              class="mt-4 max-h-52 overflow-y-auto rounded-lg border border-dashed border-gray-200"
+            >
+              <div
+                v-if="isSearchingProducts"
+                class="flex items-center justify-center gap-2 py-6 text-sm text-gray-500"
+              >
+                <div
+                  class="h-5 w-5 animate-spin rounded-full border-2 border-blue-600 border-r-transparent"
+                ></div>
                 Поиск товаров…
               </div>
-              <div v-else-if="searchError" class="px-4 py-6 text-sm text-red-600">{{ searchError }}</div>
-              <div v-else-if="productResults.length === 0 && productSearch.trim().length >= 2" class="px-4 py-6 text-sm text-gray-500">
+              <div
+                v-else-if="searchError"
+                class="px-4 py-6 text-sm text-red-600"
+              >
+                {{ searchError }}
+              </div>
+              <div
+                v-else-if="
+                  productResults.length === 0 &&
+                  productSearch.trim().length >= 2
+                "
+                class="px-4 py-6 text-sm text-gray-500"
+              >
                 Ничего не нашли. Попробуйте скорректировать запрос.
               </div>
               <ul v-else class="divide-y text-sm">
@@ -305,10 +407,18 @@
                   class="flex items-center justify-between gap-3 px-4 py-3 hover:bg-gray-50"
                 >
                   <div>
-                    <div class="font-medium text-gray-900">{{ product.title }}</div>
-                    <div v-if="product.groupName" class="text-xs font-semibold text-blue-600">{{ product.groupName }}</div>
+                    <div class="font-medium text-gray-900">
+                      {{ product.title }}
+                    </div>
+                    <div
+                      v-if="product.groupName"
+                      class="text-xs font-semibold text-blue-600"
+                    >
+                      {{ product.groupName }}
+                    </div>
                     <div class="text-xs text-gray-500">
-                      Остаток: {{ product.stock }} • Себестоимость: {{ formatCurrency(product.costPrice) }}
+                      Остаток: {{ product.stock }} • Себестоимость:
+                      {{ formatCurrency(product.costPrice) }}
                     </div>
                   </div>
                   <button
@@ -326,66 +436,86 @@
           <div class="rounded-xl border border-gray-200">
             <div class="overflow-x-auto">
               <table class="w-full min-w-[680px] text-sm">
-              <thead class="bg-gray-50 text-xs font-medium uppercase text-gray-500">
-                <tr>
-                  <th class="px-4 py-3 text-left">Товар</th>
-                  <th class="px-4 py-3 text-left">Остаток</th>
-                  <th class="px-4 py-3 text-left">Кол-во</th>
-                  <th class="px-4 py-3 text-left">Себестоимость</th>
-                  <th class="px-4 py-3 text-left">Новая средняя</th>
-                  <th class="px-4 py-3 text-right">Сумма</th>
-                  <th class="px-4 py-3"></th>
-                </tr>
-              </thead>
-              <tbody v-if="draftItems.length" class="divide-y">
-                <tr v-for="item in draftItems" :key="item.product.id">
-                  <td class="px-4 py-3">
-                    <div class="font-medium text-gray-900">{{ item.product.title }}</div>
-                    <div v-if="item.product.groupName" class="text-xs font-semibold text-blue-600">{{ item.product.groupName }}</div>
-                    <div class="text-xs text-gray-500">Текущая себестоимость: {{ formatCurrency(item.product.costPrice) }}</div>
-                  </td>
-                  <td class="px-4 py-3 text-sm text-gray-600">
-                    {{ item.product.stock }} шт
-                  </td>
-                  <td class="px-4 py-3">
-                    <input
-                      v-model.number="item.quantity"
-                      type="number"
-                      min="1"
-                      class="w-20 rounded-lg border border-gray-300 px-2 py-1 text-sm focus:border-blue-500 focus:outline-none"
-                      @change="clampQuantity(item)"
-                    />
-                  </td>
-                  <td class="px-4 py-3">
-                    <input
-                      v-model.number="item.costPerUnit"
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      class="w-24 rounded-lg border border-gray-300 px-2 py-1 text-sm focus:border-blue-500 focus:outline-none"
-                      @change="clampCost(item)"
-                    />
-                  </td>
-                  <td class="px-4 py-3 text-sm text-gray-600">
-                    {{ projectedCostLabel(item) }}
-                  </td>
-                  <td class="px-4 py-3 text-right font-semibold text-gray-900">
-                    {{ formatCurrency(item.quantity * item.costPerUnit) }}
-                  </td>
-                  <td class="px-4 py-3 text-right">
-                    <button class="admin-link-button admin-link-button--danger" @click="removeItem(item.product.id)">
-                      Удалить
-                    </button>
-                  </td>
-                </tr>
-              </tbody>
-              <tbody v-else>
-                <tr>
-                  <td class="px-4 py-6 text-center text-sm text-gray-500" colspan="7">
-                    Добавьте товары, чтобы сформировать закупку
-                  </td>
-                </tr>
-              </tbody>
+                <thead
+                  class="bg-gray-50 text-xs font-medium uppercase text-gray-500"
+                >
+                  <tr>
+                    <th class="px-4 py-3 text-left">Товар</th>
+                    <th class="px-4 py-3 text-left">Остаток</th>
+                    <th class="px-4 py-3 text-left">Кол-во</th>
+                    <th class="px-4 py-3 text-left">Себестоимость</th>
+                    <th class="px-4 py-3 text-left">Новая средняя</th>
+                    <th class="px-4 py-3 text-right">Сумма</th>
+                    <th class="px-4 py-3"></th>
+                  </tr>
+                </thead>
+                <tbody v-if="draftItems.length" class="divide-y">
+                  <tr v-for="item in draftItems" :key="item.product.id">
+                    <td class="px-4 py-3">
+                      <div class="font-medium text-gray-900">
+                        {{ item.product.title }}
+                      </div>
+                      <div
+                        v-if="item.product.groupName"
+                        class="text-xs font-semibold text-blue-600"
+                      >
+                        {{ item.product.groupName }}
+                      </div>
+                      <div class="text-xs text-gray-500">
+                        Текущая себестоимость:
+                        {{ formatCurrency(item.product.costPrice) }}
+                      </div>
+                    </td>
+                    <td class="px-4 py-3 text-sm text-gray-600">
+                      {{ item.product.stock }} шт
+                    </td>
+                    <td class="px-4 py-3">
+                      <input
+                        v-model.number="item.quantity"
+                        type="number"
+                        min="1"
+                        class="w-20 rounded-lg border border-gray-300 px-2 py-1 text-sm focus:border-blue-500 focus:outline-none"
+                        @change="clampQuantity(item)"
+                      />
+                    </td>
+                    <td class="px-4 py-3">
+                      <input
+                        v-model.number="item.costPerUnit"
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        class="w-24 rounded-lg border border-gray-300 px-2 py-1 text-sm focus:border-blue-500 focus:outline-none"
+                        @change="clampCost(item)"
+                      />
+                    </td>
+                    <td class="px-4 py-3 text-sm text-gray-600">
+                      {{ projectedCostLabel(item) }}
+                    </td>
+                    <td
+                      class="px-4 py-3 text-right font-semibold text-gray-900"
+                    >
+                      {{ formatCurrency(item.quantity * item.costPerUnit) }}
+                    </td>
+                    <td class="px-4 py-3 text-right">
+                      <button
+                        class="admin-link-button admin-link-button--danger"
+                        @click="removeItem(item.product.id)"
+                      >
+                        Удалить
+                      </button>
+                    </td>
+                  </tr>
+                </tbody>
+                <tbody v-else>
+                  <tr>
+                    <td
+                      class="px-4 py-6 text-center text-sm text-gray-500"
+                      colspan="7"
+                    >
+                      Добавьте товары, чтобы сформировать закупку
+                    </td>
+                  </tr>
+                </tbody>
               </table>
             </div>
           </div>
@@ -393,7 +523,9 @@
 
         <aside class="space-y-6">
           <div class="rounded-xl border border-blue-100 bg-blue-50 p-5">
-            <h4 class="text-sm font-semibold text-blue-900">Итого по закупке</h4>
+            <h4 class="text-sm font-semibold text-blue-900">
+              Итого по закупке
+            </h4>
             <div class="mt-4 space-y-2 text-sm text-blue-900">
               <div class="flex justify-between">
                 <span>Позиций</span>
@@ -415,7 +547,13 @@
             :disabled="!canSubmitProcurement || creatingProcurement"
             @click="submitProcurement"
           >
-            {{ creatingProcurement ? 'Сохраняем…' : editingProcurementId ? 'Сохранить изменения' : 'Сохранить закупку' }}
+            {{
+              creatingProcurement
+                ? "Сохраняем…"
+                : editingProcurementId
+                  ? "Сохранить изменения"
+                  : "Сохранить закупку"
+            }}
           </button>
         </aside>
       </div>
@@ -423,7 +561,11 @@
 
     <AdminModal
       :isOpen="detailModalOpen"
-      :title="activeProcurement ? `Закупка #${activeProcurement.procurement_number}` : 'Закупка'"
+      :title="
+        activeProcurement
+          ? `Закупка #${activeProcurement.procurement_number}`
+          : 'Закупка'
+      "
       :description="activeProcurement?.supplier_name || 'Без поставщика'"
       size="xl"
       :showActions="false"
@@ -431,9 +573,13 @@
       @close="closeDetails"
       @cancel="closeDetails"
     >
-      <div v-if="detailLoading" class="py-12 text-center text-gray-500">Загружаем детали…</div>
+      <div v-if="detailLoading" class="py-12 text-center text-gray-500">
+        Загружаем детали…
+      </div>
       <div v-else-if="activeProcurement" class="space-y-6">
-        <div class="flex flex-wrap justify-end gap-2 border-b border-gray-100 pb-4">
+        <div
+          class="flex flex-wrap justify-end gap-2 border-b border-gray-100 pb-4"
+        >
           <button
             v-if="activeProcurement.status === 'draft'"
             class="admin-link-button admin-link-button--edit admin-link-button--compact"
@@ -442,7 +588,10 @@
             Редактировать
           </button>
           <button
-            v-if="activeProcurement.expense_transaction_id && activeProcurement.status === 'completed'"
+            v-if="
+              activeProcurement.expense_transaction_id &&
+              activeProcurement.status === 'completed'
+            "
             class="admin-link-button admin-link-button--danger"
             @click="removePaymentFromDetails"
           >
@@ -459,41 +608,73 @@
         <div class="grid gap-4 md:grid-cols-3">
           <div class="rounded-lg border border-gray-200 p-4">
             <div class="text-xs uppercase text-gray-500">Статус</div>
-            <div class="mt-2 text-sm font-semibold text-gray-900">{{ statusLabel(activeProcurement.status) }}</div>
+            <div class="mt-2 text-sm font-semibold text-gray-900">
+              {{ statusLabel(activeProcurement.status) }}
+            </div>
           </div>
           <div class="rounded-lg border border-gray-200 p-4">
             <div class="text-xs uppercase text-gray-500">Создана</div>
-            <div class="mt-2 text-sm font-semibold text-gray-900">{{ formatDate(activeProcurement.created_at) }}</div>
+            <div class="mt-2 text-sm font-semibold text-gray-900">
+              {{ formatDate(activeProcurement.created_at) }}
+            </div>
           </div>
           <div class="rounded-lg border border-gray-200 p-4">
             <div class="text-xs uppercase text-gray-500">Сумма</div>
-            <div class="mt-2 text-sm font-semibold text-gray-900">{{ formatCurrency(activeProcurement.total_amount) }}</div>
+            <div class="mt-2 text-sm font-semibold text-gray-900">
+              {{ formatCurrency(activeProcurement.total_amount) }}
+            </div>
           </div>
         </div>
 
-        <div v-if="activeProcurement.notes" class="rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm text-gray-700">
+        <div
+          v-if="activeProcurement.notes"
+          class="rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm text-gray-700"
+        >
           {{ activeProcurement.notes }}
         </div>
 
         <div class="rounded-lg border border-gray-200">
           <div class="overflow-x-auto">
             <table class="w-full min-w-[560px] text-sm">
-            <thead class="bg-gray-50 text-xs font-medium uppercase text-gray-500">
-              <tr>
-                <th class="px-4 py-3 text-left">Товар</th>
-                <th class="px-4 py-3 text-left">Кол-во</th>
-                <th class="px-4 py-3 text-left">Цена</th>
-                <th class="px-4 py-3 text-right">Сумма</th>
-              </tr>
-            </thead>
-            <tbody class="divide-y">
-              <tr v-for="item in activeProcurement.items || []" :key="item.id">
-                <td class="px-4 py-3 font-medium text-gray-900">{{ item.product_title }}</td>
-                <td class="px-4 py-3 text-sm text-gray-600">{{ item.quantity }} шт</td>
-                <td class="px-4 py-3 text-sm text-gray-600">{{ formatCurrency(item.cost_per_unit) }}</td>
-                <td class="px-4 py-3 text-right text-sm font-semibold text-gray-900">{{ formatCurrency(item.total_cost) }}</td>
-              </tr>
-            </tbody>
+              <thead
+                class="bg-gray-50 text-xs font-medium uppercase text-gray-500"
+              >
+                <tr>
+                  <th class="px-4 py-3 text-left">Товар</th>
+                  <th class="px-4 py-3 text-left">Кол-во</th>
+                  <th class="px-4 py-3 text-left">Цена</th>
+                  <th class="px-4 py-3 text-right">Сумма</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y">
+                <tr
+                  v-for="item in activeProcurement.items || []"
+                  :key="item.id"
+                >
+                  <td class="px-4 py-3">
+                    <div class="font-medium text-gray-900">
+                      {{ item.product_title }}
+                    </div>
+                    <div
+                      v-if="item.group_name"
+                      class="text-xs font-semibold text-blue-600"
+                    >
+                      {{ item.group_name }}
+                    </div>
+                  </td>
+                  <td class="px-4 py-3 text-sm text-gray-600">
+                    {{ item.quantity }} шт
+                  </td>
+                  <td class="px-4 py-3 text-sm text-gray-600">
+                    {{ formatCurrency(item.cost_per_unit) }}
+                  </td>
+                  <td
+                    class="px-4 py-3 text-right text-sm font-semibold text-gray-900"
+                  >
+                    {{ formatCurrency(item.total_cost) }}
+                  </td>
+                </tr>
+              </tbody>
             </table>
           </div>
         </div>
@@ -504,7 +685,11 @@
           :disabled="completingProcurement"
           @click="completeFromDetails"
         >
-          {{ completingProcurement ? 'Завершаем…' : 'Подтвердить и оприходовать товары' }}
+          {{
+            completingProcurement
+              ? "Завершаем…"
+              : "Подтвердить и оприходовать товары"
+          }}
         </button>
       </div>
     </AdminModal>
@@ -519,7 +704,10 @@
       @close="closeQuickProductModal"
       @cancel="closeQuickProductModal"
     >
-      <form class="w-full max-w-2xl space-y-4" @submit.prevent="submitQuickProduct">
+      <form
+        class="w-full max-w-2xl space-y-4"
+        @submit.prevent="submitQuickProduct"
+      >
         <div class="grid gap-4 md:grid-cols-2">
           <label class="flex flex-col gap-2 text-sm font-medium text-gray-700">
             Категория
@@ -529,7 +717,11 @@
               required
             >
               <option value="" disabled>Выберите категорию</option>
-              <option v-for="category in adminCategories" :key="category.id" :value="category.id">
+              <option
+                v-for="category in adminCategories"
+                :key="category.id"
+                :value="category.id"
+              >
                 {{ category.name }}
               </option>
             </select>
@@ -542,7 +734,11 @@
               class="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200 disabled:bg-gray-100"
             >
               <option value="">Без линейки</option>
-              <option v-for="group in quickGroups" :key="group.id" :value="group.id">
+              <option
+                v-for="group in quickGroups"
+                :key="group.id"
+                :value="group.id"
+              >
                 {{ group.name }}
               </option>
             </select>
@@ -624,7 +820,12 @@
         </div>
 
         <!-- Использовать фото категории -->
-        <div class="flex items-start gap-3 rounded-lg border border-gray-200 p-3 hover:bg-gray-50 cursor-pointer" @click="quickProduct.useCategoryImage = !quickProduct.useCategoryImage">
+        <div
+          class="flex items-start gap-3 rounded-lg border border-gray-200 p-3 hover:bg-gray-50 cursor-pointer"
+          @click="
+            quickProduct.useCategoryImage = !quickProduct.useCategoryImage
+          "
+        >
           <input
             type="checkbox"
             :checked="quickProduct.useCategoryImage"
@@ -640,7 +841,10 @@
           </div>
         </div>
 
-        <div v-if="!quickProduct.useCategoryImage" class="space-y-3 rounded-lg border border-gray-200 bg-white/60 p-4">
+        <div
+          v-if="!quickProduct.useCategoryImage"
+          class="space-y-3 rounded-lg border border-gray-200 bg-white/60 p-4"
+        >
           <div class="flex flex-wrap items-center justify-between gap-3">
             <div class="text-sm font-medium text-gray-700">Фото товара</div>
             <div class="flex items-center gap-2">
@@ -658,21 +862,46 @@
                 :disabled="quickProductUploading"
                 @click="triggerQuickProductUpload"
               >
-                <svg v-if="quickProductUploading" class="h-4 w-4 animate-spin" fill="none" viewBox="0 0 24 24">
-                  <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                  <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                <svg
+                  v-if="quickProductUploading"
+                  class="h-4 w-4 animate-spin"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                >
+                  <circle
+                    class="opacity-25"
+                    cx="12"
+                    cy="12"
+                    r="10"
+                    stroke="currentColor"
+                    stroke-width="4"
+                  ></circle>
+                  <path
+                    class="opacity-75"
+                    fill="currentColor"
+                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                  ></path>
                 </svg>
-                <span>{{ quickProductUploading ? 'Загружаем…' : 'Добавить фото' }}</span>
+                <span>{{
+                  quickProductUploading ? "Загружаем…" : "Добавить фото"
+                }}</span>
               </button>
             </div>
           </div>
-          <div v-if="quickProductImages.length" class="grid gap-3 sm:grid-cols-3">
+          <div
+            v-if="quickProductImages.length"
+            class="grid gap-3 sm:grid-cols-3"
+          >
             <div
               v-for="(image, index) in quickProductImages"
               :key="`${image}-${index}`"
               class="relative overflow-hidden rounded-lg border border-gray-200 bg-gray-50"
             >
-              <img :src="image" alt="Фото товара" class="h-32 w-full object-cover" />
+              <img
+                :src="image"
+                alt="Фото товара"
+                class="h-32 w-full object-cover"
+              />
               <button
                 type="button"
                 class="admin-link-button admin-link-button--danger admin-link-button--compact absolute top-2 right-2"
@@ -682,10 +911,15 @@
               </button>
             </div>
           </div>
-          <p v-else class="text-xs text-gray-500">Добавьте изображения товара</p>
+          <p v-else class="text-xs text-gray-500">
+            Добавьте изображения товара
+          </p>
         </div>
 
-        <p v-if="quickProductError" class="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-600">
+        <p
+          v-if="quickProductError"
+          class="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-600"
+        >
           {{ quickProductError }}
         </p>
 
@@ -696,7 +930,7 @@
             :disabled="quickProductSaving || quickProductUploading"
             @click="submitQuickProduct"
           >
-            {{ quickProductSaving ? 'Создаём…' : 'Создать и добавить' }}
+            {{ quickProductSaving ? "Создаём…" : "Создать и добавить" }}
           </button>
           <button
             type="button"
@@ -730,7 +964,10 @@
             required
           />
         </label>
-        <p v-if="quickCategoryError" class="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-600">
+        <p
+          v-if="quickCategoryError"
+          class="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-600"
+        >
           {{ quickCategoryError }}
         </p>
         <div class="flex gap-3 pt-2">
@@ -739,7 +976,7 @@
             class="flex-1 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-300"
             :disabled="creatingQuickCategory"
           >
-            {{ creatingQuickCategory ? 'Создаём…' : 'Создать' }}
+            {{ creatingQuickCategory ? "Создаём…" : "Создать" }}
           </button>
           <button
             type="button"
@@ -755,7 +992,11 @@
     <AdminModal
       :isOpen="showQuickGroupModal"
       :title="quickProduct.categoryId ? 'Новая линейка' : 'Выберите категорию'"
-      :description="quickProduct.categoryId ? 'Линейка будет добавлена в выбранную категорию.' : 'Сначала выберите категорию товара.'"
+      :description="
+        quickProduct.categoryId
+          ? 'Линейка будет добавлена в выбранную категорию.'
+          : 'Сначала выберите категорию товара.'
+      "
       size="sm"
       :showActions="false"
       :persistent="true"
@@ -780,12 +1021,19 @@
             class="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
           >
             <option value="">Без родителя</option>
-            <option v-for="group in quickGroups" :key="group.id" :value="group.id">
+            <option
+              v-for="group in quickGroups"
+              :key="group.id"
+              :value="group.id"
+            >
               {{ group.name }}
             </option>
           </select>
         </label>
-        <p v-if="quickGroupError" class="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-600">
+        <p
+          v-if="quickGroupError"
+          class="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-600"
+        >
           {{ quickGroupError }}
         </p>
         <div class="flex gap-3 pt-2">
@@ -794,7 +1042,7 @@
             class="flex-1 rounded-lg bg-purple-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-purple-700 disabled:cursor-not-allowed disabled:bg-purple-300"
             :disabled="creatingQuickGroup"
           >
-            {{ creatingQuickGroup ? 'Создаём…' : 'Создать' }}
+            {{ creatingQuickGroup ? "Создаём…" : "Создать" }}
           </button>
           <button
             type="button"
@@ -810,607 +1058,674 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, watch, reactive } from 'vue'
-import { storeToRefs } from 'pinia'
-import { useCrmStore, type Procurement, type CrmProductSummary } from '@/stores/crm'
-import { useAdminStore } from '@/stores/admin'
-import AdminModal from '@/components/AdminModal.vue'
-import { LockClosedIcon } from '@heroicons/vue/24/outline'
+import { ref, computed, onMounted, watch, reactive } from "vue";
+import { storeToRefs } from "pinia";
+import {
+  useCrmStore,
+  type Procurement,
+  type CrmProductSummary,
+} from "@/stores/crm";
+import { useAdminStore } from "@/stores/admin";
+import AdminModal from "@/components/AdminModal.vue";
+import { LockClosedIcon } from "@heroicons/vue/24/outline";
 
 interface DraftProcurementItem {
-  product: CrmProductSummary
-  quantity: number
-  costPerUnit: number
+  product: CrmProductSummary;
+  quantity: number;
+  costPerUnit: number;
 }
 
-const crmStore = useCrmStore()
-const adminStore = useAdminStore()
-const { procurements, loadingProcurements, lowStockProducts, profitUnlocked, verifyingProfitAccess } = storeToRefs(crmStore)
+const crmStore = useCrmStore();
+const adminStore = useAdminStore();
+const {
+  procurements,
+  loadingProcurements,
+  lowStockProducts,
+  profitUnlocked,
+  verifyingProfitAccess,
+} = storeToRefs(crmStore);
 
-const showCreateModal = ref(false)
-const editingProcurementId = ref<string | null>(null)
-const supplierName = ref('')
-const draftNotes = ref('')
-const draftItems = ref<DraftProcurementItem[]>([])
-const productSearch = ref('')
-const productResults = ref<CrmProductSummary[]>([])
-const isSearchingProducts = ref(false)
-const searchError = ref('')
-const lowStockLoading = ref(false)
-const creatingProcurement = ref(false)
+const showCreateModal = ref(false);
+const editingProcurementId = ref<string | null>(null);
+const supplierName = ref("");
+const draftNotes = ref("");
+const draftItems = ref<DraftProcurementItem[]>([]);
+const productSearch = ref("");
+const productResults = ref<CrmProductSummary[]>([]);
+const isSearchingProducts = ref(false);
+const searchError = ref("");
+const lowStockLoading = ref(false);
+const creatingProcurement = ref(false);
 
-const showQuickProductModal = ref(false)
-const quickProductSaving = ref(false)
-const quickProductError = ref('')
+const showQuickProductModal = ref(false);
+const quickProductSaving = ref(false);
+const quickProductError = ref("");
 const quickProduct = reactive({
-  categoryId: '',
-  groupId: '',
-  title: '',
+  categoryId: "",
+  groupId: "",
+  title: "",
   priceRub: 0,
   costPrice: 0,
   stock: 0,
   minStock: 0,
-  useCategoryImage: true
-})
-const quickProductImages = ref<string[]>([])
-const quickProductUploading = ref(false)
-const quickProductFileInput = ref<HTMLInputElement | null>(null)
-const showQuickCategoryModal = ref(false)
-const quickCategoryName = ref('')
-const quickCategoryError = ref('')
-const creatingQuickCategory = ref(false)
-const showQuickGroupModal = ref(false)
-const quickGroupName = ref('')
-const quickGroupParentId = ref('')
-const quickGroupError = ref('')
-const creatingQuickGroup = ref(false)
-const loadedQuickGroupCategories = new Set<string>()
+  useCategoryImage: true,
+});
+const quickProductImages = ref<string[]>([]);
+const quickProductUploading = ref(false);
+const quickProductFileInput = ref<HTMLInputElement | null>(null);
+const showQuickCategoryModal = ref(false);
+const quickCategoryName = ref("");
+const quickCategoryError = ref("");
+const creatingQuickCategory = ref(false);
+const showQuickGroupModal = ref(false);
+const quickGroupName = ref("");
+const quickGroupParentId = ref("");
+const quickGroupError = ref("");
+const creatingQuickGroup = ref(false);
+const loadedQuickGroupCategories = new Set<string>();
 
-const detailModalOpen = ref(false)
-const detailLoading = ref(false)
-const activeProcurement = ref<Procurement | null>(null)
-const completingProcurement = ref(false)
+const detailModalOpen = ref(false);
+const detailLoading = ref(false);
+const activeProcurement = ref<Procurement | null>(null);
+const completingProcurement = ref(false);
 
-const showPasswordModal = ref(false)
-const passwordInput = ref('')
-const passwordError = ref('')
-const verifyingPassword = computed(() => verifyingProfitAccess.value)
+const showPasswordModal = ref(false);
+const passwordInput = ref("");
+const passwordError = ref("");
+const verifyingPassword = computed(() => verifyingProfitAccess.value);
 
-const draftCount = computed(() => procurements.value.filter((p) => p.status === 'draft').length)
-const completedCount = computed(() => procurements.value.filter((p) => p.status === 'completed').length)
-const draftAmount = computed(() => procurements.value
-  .filter((p) => p.status === 'draft')
-  .reduce((total, p) => total + (p.total_amount || 0), 0))
-const completedAmount = computed(() => procurements.value
-  .filter((p) => p.status === 'completed')
-  .reduce((total, p) => total + (p.total_amount || 0), 0))
+const draftCount = computed(
+  () => procurements.value.filter((p) => p.status === "draft").length,
+);
+const completedCount = computed(
+  () => procurements.value.filter((p) => p.status === "completed").length,
+);
+const draftAmount = computed(() =>
+  procurements.value
+    .filter((p) => p.status === "draft")
+    .reduce((total, p) => total + (p.total_amount || 0), 0),
+);
+const completedAmount = computed(() =>
+  procurements.value
+    .filter((p) => p.status === "completed")
+    .reduce((total, p) => total + (p.total_amount || 0), 0),
+);
 
-const adminCategories = computed(() => adminStore.categories)
-const adminCategoryGroups = computed(() => adminStore.categoryGroups)
+const adminCategories = computed(() => adminStore.categories);
+const adminCategoryGroups = computed(() => adminStore.categoryGroups);
 const quickGroups = computed(() => {
-  if (!quickProduct.categoryId) return []
-  return adminCategoryGroups.value.filter((group) => group.categoryId === quickProduct.categoryId)
-})
+  if (!quickProduct.categoryId) return [];
+  return adminCategoryGroups.value.filter(
+    (group) => group.categoryId === quickProduct.categoryId,
+  );
+});
 
-const draftTotalQuantity = computed(() => draftItems.value.reduce((sum, item) => sum + item.quantity, 0))
-const draftTotalAmount = computed(() => draftItems.value.reduce((sum, item) => sum + item.quantity * item.costPerUnit, 0))
+const draftTotalQuantity = computed(() =>
+  draftItems.value.reduce((sum, item) => sum + item.quantity, 0),
+);
+const draftTotalAmount = computed(() =>
+  draftItems.value.reduce(
+    (sum, item) => sum + item.quantity * item.costPerUnit,
+    0,
+  ),
+);
 const draftAverageCost = computed(() => {
-  if (!draftItems.value.length) return 0
-  return draftTotalAmount.value / draftTotalQuantity.value || 0
-})
-const hasDraftIssues = computed(() => draftItems.value.some((item) => item.quantity <= 0 || item.costPerUnit <= 0))
-const canSubmitProcurement = computed(() => draftItems.value.length > 0 && !hasDraftIssues.value)
+  if (!draftItems.value.length) return 0;
+  return draftTotalAmount.value / draftTotalQuantity.value || 0;
+});
+const hasDraftIssues = computed(() =>
+  draftItems.value.some((item) => item.quantity <= 0 || item.costPerUnit <= 0),
+);
+const canSubmitProcurement = computed(
+  () => draftItems.value.length > 0 && !hasDraftIssues.value,
+);
 
 const lowStockSuggestions = computed(() => {
-  const selected = new Set(draftItems.value.map((item) => item.product.id))
+  const selected = new Set(draftItems.value.map((item) => item.product.id));
   return lowStockProducts.value
     .map((row: any) => normalizeProduct(row))
     .filter((product) => !selected.has(product.id))
-    .slice(0, 6)
-})
+    .slice(0, 6);
+});
 
 const showSearchHint = computed(() => {
-  const length = productSearch.value.trim().length
-  return length > 0 && length < 2
-})
+  const length = productSearch.value.trim().length;
+  return length > 0 && length < 2;
+});
 
-let searchDebounce: ReturnType<typeof setTimeout> | null = null
+let searchDebounce: ReturnType<typeof setTimeout> | null = null;
 
 onMounted(async () => {
   if (profitUnlocked.value) {
-    await crmStore.fetchProcurements()
+    await crmStore.fetchProcurements();
   }
-  void ensureCategoriesLoaded()
-})
+  void ensureCategoriesLoaded();
+});
 
 watch(profitUnlocked, async (unlocked) => {
   if (unlocked) {
-    await crmStore.fetchProcurements()
+    await crmStore.fetchProcurements();
   } else {
-    showCreateModal.value = false
-    detailModalOpen.value = false
-    showQuickProductModal.value = false
-    showQuickCategoryModal.value = false
-    showQuickGroupModal.value = false
-    showPasswordModal.value = false
+    showCreateModal.value = false;
+    detailModalOpen.value = false;
+    showQuickProductModal.value = false;
+    showQuickCategoryModal.value = false;
+    showQuickGroupModal.value = false;
+    showPasswordModal.value = false;
   }
-})
+});
 
 // Автообновление списка товаров с низким остатком при открытии модального окна
 watch(showCreateModal, async (isOpen) => {
   if (isOpen && profitUnlocked.value) {
     // Обновляем список каждый раз при открытии
-    await refreshLowStock()
+    await refreshLowStock();
   }
-})
+});
 
 watch(productSearch, (query) => {
-  if (!showCreateModal.value) return
-  if (searchDebounce) clearTimeout(searchDebounce)
+  if (!showCreateModal.value) return;
+  if (searchDebounce) clearTimeout(searchDebounce);
   searchDebounce = setTimeout(() => {
-    const trimmed = query.trim()
+    const trimmed = query.trim();
     if (!trimmed) {
-      void loadProducts()
-      return
+      void loadProducts();
+      return;
     }
     if (trimmed.length < 2) {
-      searchError.value = ''
-      productResults.value = []
-      return
+      searchError.value = "";
+      productResults.value = [];
+      return;
     }
-    void loadProducts(trimmed)
-  }, 250)
-})
+    void loadProducts(trimmed);
+  }, 250);
+});
 
 watch(
   () => quickProduct.categoryId,
   async (categoryId) => {
-    quickProduct.groupId = ''
-    quickGroupParentId.value = ''
-    if (!categoryId) return
+    quickProduct.groupId = "";
+    quickGroupParentId.value = "";
+    if (!categoryId) return;
     try {
       if (!loadedQuickGroupCategories.has(categoryId)) {
-        await adminStore.fetchCategoryGroups(categoryId)
-        loadedQuickGroupCategories.add(categoryId)
+        await adminStore.fetchCategoryGroups(categoryId);
+        loadedQuickGroupCategories.add(categoryId);
       }
     } catch (error) {
-      console.error('[CRM] fetch category groups error', error)
-      quickProductError.value = 'Не удалось загрузить линейки для выбранной категории'
+      console.error("[CRM] fetch category groups error", error);
+      quickProductError.value =
+        "Не удалось загрузить линейки для выбранной категории";
     }
-  }
-)
+  },
+);
 
 function normalizeProduct(row: any): CrmProductSummary {
   return {
     id: String(row.id),
     productId: row.product_id ? String(row.product_id) : String(row.id), // Для вариантов - ID базового товара
-    title: row.title ?? row.product_title ?? 'Без названия',
+    title: row.title ?? row.product_title ?? "Без названия",
     priceRub: Number(row.priceRub ?? row.price_rub ?? 0),
     costPrice: Number(row.costPrice ?? row.cost_price ?? 0),
     stock: Number(row.stock ?? 0),
     minStock: Number(row.minStock ?? row.min_stock ?? 0),
-    categoryId: String(row.categoryId ?? row.category_id ?? ''),
+    categoryId: String(row.categoryId ?? row.category_id ?? ""),
     categoryName: row.categoryName ?? row.category_name ?? null,
-    groupId: row.groupId ? String(row.groupId) : row.group_id ? String(row.group_id) : null,
+    groupId: row.groupId
+      ? String(row.groupId)
+      : row.group_id
+        ? String(row.group_id)
+        : null,
     groupName: row.groupName ?? row.group_name ?? null,
     isVariant: row.is_variant === true,
-    variantName: row.variant_name ?? null
-  }
+    variantName: row.variant_name ?? null,
+  };
 }
 
 function convertAdminProductToCrmSummary(product: any): CrmProductSummary {
-  const category = adminCategories.value.find((c) => c.id === product.categoryId)
-  const group = product.groupId ? adminCategoryGroups.value.find((g) => g.id === product.groupId) : null
+  const category = adminCategories.value.find(
+    (c) => c.id === product.categoryId,
+  );
+  const group = product.groupId
+    ? adminCategoryGroups.value.find((g) => g.id === product.groupId)
+    : null;
   return {
     id: String(product.id),
-    title: product.title ?? 'Без названия',
+    title: product.title ?? "Без названия",
     priceRub: Number(product.priceRub ?? 0),
     costPrice: Number(product.costPrice ?? 0),
     stock: Number(product.stock ?? 0),
     minStock: Number(product.minStock ?? 0),
-    categoryId: String(product.categoryId ?? ''),
+    categoryId: String(product.categoryId ?? ""),
     categoryName: category?.name ?? null,
     groupId: product.groupId ? String(product.groupId) : null,
-    groupName: group?.name ?? null
-  }
+    groupName: group?.name ?? null,
+  };
 }
 
 async function loadProducts(search?: string) {
-  isSearchingProducts.value = true
-  searchError.value = ''
+  isSearchingProducts.value = true;
+  searchError.value = "";
   try {
-    productResults.value = await crmStore.searchCrmProducts({ search, limit: 100 })
+    productResults.value = await crmStore.searchCrmProducts({
+      search,
+      limit: 100,
+    });
   } catch (error) {
-    console.error('[CRM] search products error', error)
-    searchError.value = 'Не удалось загрузить список товаров. Попробуйте обновить страницу.'
-    productResults.value = []
+    console.error("[CRM] search products error", error);
+    searchError.value =
+      "Не удалось загрузить список товаров. Попробуйте обновить страницу.";
+    productResults.value = [];
   } finally {
-    isSearchingProducts.value = false
+    isSearchingProducts.value = false;
   }
 }
 
 function openPasswordModal() {
-  passwordInput.value = ''
-  passwordError.value = ''
-  showPasswordModal.value = true
+  passwordInput.value = "";
+  passwordError.value = "";
+  showPasswordModal.value = true;
 }
 
 function closePasswordModal() {
-  showPasswordModal.value = false
-  passwordInput.value = ''
-  passwordError.value = ''
+  showPasswordModal.value = false;
+  passwordInput.value = "";
+  passwordError.value = "";
 }
 
 async function submitPassword() {
   if (!passwordInput.value.trim()) {
-    passwordError.value = 'Введите ключ'
-    return
+    passwordError.value = "Введите ключ";
+    return;
   }
 
-  passwordError.value = ''
+  passwordError.value = "";
   try {
-    await crmStore.verifyProfitPassword(passwordInput.value.trim())
-    closePasswordModal()
-    await crmStore.fetchProcurements()
+    await crmStore.verifyProfitPassword(passwordInput.value.trim());
+    closePasswordModal();
+    await crmStore.fetchProcurements();
   } catch (error) {
-    passwordError.value = 'Неверный ключ'
+    passwordError.value = "Неверный ключ";
   }
 }
 
 async function openCreateModal() {
   if (!profitUnlocked.value) {
-    openPasswordModal()
-    return
+    openPasswordModal();
+    return;
   }
-  
-  editingProcurementId.value = null
-  supplierName.value = ''
-  draftNotes.value = ''
-  draftItems.value = []
-  productSearch.value = ''
-  showCreateModal.value = true
-  quickProductError.value = ''
-  await loadProducts()
+
+  editingProcurementId.value = null;
+  supplierName.value = "";
+  draftNotes.value = "";
+  draftItems.value = [];
+  productSearch.value = "";
+  showCreateModal.value = true;
+  quickProductError.value = "";
+  await loadProducts();
   // Обновление произойдет автоматически через watch(showCreateModal)
 }
 
 function closeCreateModal() {
-  showCreateModal.value = false
-  editingProcurementId.value = null
+  showCreateModal.value = false;
+  editingProcurementId.value = null;
 }
 
 async function refreshLowStock() {
-  lowStockLoading.value = true
+  lowStockLoading.value = true;
   try {
-    await crmStore.fetchLowStockProducts()
+    await crmStore.fetchLowStockProducts();
   } finally {
-    lowStockLoading.value = false
+    lowStockLoading.value = false;
   }
 }
 
 function addProduct(product: CrmProductSummary) {
-  const existing = draftItems.value.find((item) => item.product.id === product.id)
+  const existing = draftItems.value.find(
+    (item) => item.product.id === product.id,
+  );
   if (existing) {
-    existing.quantity += 1
-    return
+    existing.quantity += 1;
+    return;
   }
   draftItems.value.push({
     product,
     quantity: 1,
-    costPerUnit: product.costPrice > 0 ? product.costPrice : product.priceRub
-  })
+    costPerUnit: product.costPrice > 0 ? product.costPrice : product.priceRub,
+  });
 }
 
 async function startEditProcurement(id: string, existing?: Procurement | null) {
   try {
-    let procurement: Procurement | null = existing ?? null
-    if (!procurement && activeProcurement.value && activeProcurement.value.id === id && activeProcurement.value.items) {
-      procurement = activeProcurement.value
+    let procurement: Procurement | null = existing ?? null;
+    if (
+      !procurement &&
+      activeProcurement.value &&
+      activeProcurement.value.id === id &&
+      activeProcurement.value.items
+    ) {
+      procurement = activeProcurement.value;
     }
     if (!procurement) {
-      procurement = await crmStore.fetchProcurement(id)
+      procurement = await crmStore.fetchProcurement(id);
     }
-    if (!procurement) return
+    if (!procurement) return;
 
-    editingProcurementId.value = id
-    supplierName.value = procurement.supplier_name || ''
-    draftNotes.value = procurement.notes || ''
+    editingProcurementId.value = id;
+    supplierName.value = procurement.supplier_name || "";
+    draftNotes.value = procurement.notes || "";
     draftItems.value = (procurement.items || []).map((item) => ({
       product: normalizeProduct({
         id: item.product_id,
         title: item.product_title,
+        group_name: item.group_name ?? null,
         cost_price: item.cost_per_unit,
         priceRub: item.cost_per_unit,
         stock: item.stock ?? 0,
-        min_stock: item.min_stock ?? 0
+        min_stock: item.min_stock ?? 0,
       }),
       quantity: Number(item.quantity || 0),
-      costPerUnit: Number(item.cost_per_unit || 0)
-    }))
+      costPerUnit: Number(item.cost_per_unit || 0),
+    }));
 
-    productSearch.value = ''
-    searchError.value = ''
-    showCreateModal.value = true
-    quickProductError.value = ''
+    productSearch.value = "";
+    searchError.value = "";
+    showCreateModal.value = true;
+    quickProductError.value = "";
     if (!lowStockProducts.value.length) {
-      await refreshLowStock()
+      await refreshLowStock();
     }
-    await loadProducts()
+    await loadProducts();
   } catch (error) {
-    console.error('[CRM] edit procurement load error', error)
-    alert('Не удалось загрузить закупку для редактирования')
+    console.error("[CRM] edit procurement load error", error);
+    alert("Не удалось загрузить закупку для редактирования");
   }
 }
 
 async function ensureCategoriesLoaded() {
   if (!adminCategories.value.length) {
     try {
-      await adminStore.fetchCategories()
+      await adminStore.fetchCategories();
     } catch (error) {
-      console.error('[CRM] fetch categories error', error)
-      quickProductError.value = 'Не удалось загрузить категории'
+      console.error("[CRM] fetch categories error", error);
+      quickProductError.value = "Не удалось загрузить категории";
     }
   }
 }
 
 async function openQuickProductModal() {
-  quickProductError.value = ''
-  quickProduct.categoryId = ''
-  quickProduct.groupId = ''
-  quickProduct.title = ''
-  quickProduct.priceRub = 0
-  quickProduct.costPrice = 0
-  quickProduct.stock = 0
-  quickProduct.minStock = 0
-  quickProduct.useCategoryImage = true
-  quickProductImages.value = []
-  quickGroupParentId.value = ''
-  quickCategoryName.value = ''
-  quickCategoryError.value = ''
-  quickGroupName.value = ''
-  quickGroupError.value = ''
-  await ensureCategoriesLoaded()
-  showQuickProductModal.value = true
+  quickProductError.value = "";
+  quickProduct.categoryId = "";
+  quickProduct.groupId = "";
+  quickProduct.title = "";
+  quickProduct.priceRub = 0;
+  quickProduct.costPrice = 0;
+  quickProduct.stock = 0;
+  quickProduct.minStock = 0;
+  quickProduct.useCategoryImage = true;
+  quickProductImages.value = [];
+  quickGroupParentId.value = "";
+  quickCategoryName.value = "";
+  quickCategoryError.value = "";
+  quickGroupName.value = "";
+  quickGroupError.value = "";
+  await ensureCategoriesLoaded();
+  showQuickProductModal.value = true;
 }
 
 function closeQuickProductModal() {
-  showQuickProductModal.value = false
-  quickProductSaving.value = false
-  quickProductUploading.value = false
-  quickProductImages.value = []
-  quickCategoryError.value = ''
-  quickGroupError.value = ''
-  quickCategoryName.value = ''
-  quickGroupName.value = ''
-  quickGroupParentId.value = ''
+  showQuickProductModal.value = false;
+  quickProductSaving.value = false;
+  quickProductUploading.value = false;
+  quickProductImages.value = [];
+  quickCategoryError.value = "";
+  quickGroupError.value = "";
+  quickCategoryName.value = "";
+  quickGroupName.value = "";
+  quickGroupParentId.value = "";
   if (quickProductFileInput.value) {
-    quickProductFileInput.value.value = ''
+    quickProductFileInput.value.value = "";
   }
 }
 
 function triggerQuickProductUpload() {
-  quickProductFileInput.value?.click()
+  quickProductFileInput.value?.click();
 }
 
 async function onQuickProductFilesSelected(event: Event) {
-  const target = event.target as HTMLInputElement | null
-  if (!target?.files || !target.files.length) return
-  quickProductError.value = ''
-  const files = Array.from(target.files)
+  const target = event.target as HTMLInputElement | null;
+  if (!target?.files || !target.files.length) return;
+  quickProductError.value = "";
+  const files = Array.from(target.files);
   try {
-    quickProductUploading.value = true
-    const uploaded = await adminStore.uploadFiles(files, 'temp')
+    quickProductUploading.value = true;
+    const uploaded = await adminStore.uploadFiles(files, "temp");
     if (uploaded && uploaded.length) {
-      quickProductImages.value = [...quickProductImages.value, ...uploaded]
+      quickProductImages.value = [...quickProductImages.value, ...uploaded];
     }
   } catch (error) {
-    console.error('[CRM] quick product upload error', error)
-    quickProductError.value = 'Не удалось загрузить фото товара'
+    console.error("[CRM] quick product upload error", error);
+    quickProductError.value = "Не удалось загрузить фото товара";
   } finally {
-    quickProductUploading.value = false
+    quickProductUploading.value = false;
     if (quickProductFileInput.value) {
-      quickProductFileInput.value.value = ''
+      quickProductFileInput.value.value = "";
     }
   }
 }
 
 function removeQuickProductImage(index: number) {
-  quickProductImages.value = quickProductImages.value.filter((_, i) => i !== index)
+  quickProductImages.value = quickProductImages.value.filter(
+    (_, i) => i !== index,
+  );
 }
 
 function openQuickCategoryModal() {
-  quickCategoryName.value = ''
-  quickCategoryError.value = ''
-  showQuickCategoryModal.value = true
+  quickCategoryName.value = "";
+  quickCategoryError.value = "";
+  showQuickCategoryModal.value = true;
 }
 
 function closeQuickCategoryModal() {
-  showQuickCategoryModal.value = false
-  quickCategoryError.value = ''
-  quickCategoryName.value = ''
+  showQuickCategoryModal.value = false;
+  quickCategoryError.value = "";
+  quickCategoryName.value = "";
 }
 
 async function submitQuickCategory() {
-  if (creatingQuickCategory.value) return
-  const trimmed = quickCategoryName.value.trim()
+  if (creatingQuickCategory.value) return;
+  const trimmed = quickCategoryName.value.trim();
   if (!trimmed) {
-    quickCategoryError.value = 'Введите название категории'
-    return
+    quickCategoryError.value = "Введите название категории";
+    return;
   }
-  creatingQuickCategory.value = true
-  quickCategoryError.value = ''
+  creatingQuickCategory.value = true;
+  quickCategoryError.value = "";
   try {
-    const created = await adminStore.createCategory({ name: trimmed })
+    const created = await adminStore.createCategory({ name: trimmed });
     if (created) {
-      if (!adminStore.categories.some((category) => category.id === created.id)) {
-        adminStore.categories.push(created)
+      if (
+        !adminStore.categories.some((category) => category.id === created.id)
+      ) {
+        adminStore.categories.push(created);
       }
-      quickProduct.categoryId = created.id
-      quickProduct.groupId = ''
-      loadedQuickGroupCategories.delete(created.id)
-      showQuickCategoryModal.value = false
-      quickCategoryName.value = ''
+      quickProduct.categoryId = created.id;
+      quickProduct.groupId = "";
+      loadedQuickGroupCategories.delete(created.id);
+      showQuickCategoryModal.value = false;
+      quickCategoryName.value = "";
     }
   } catch (error: any) {
-    quickCategoryError.value = error?.data?.message || error?.message || 'Не удалось создать категорию'
+    quickCategoryError.value =
+      error?.data?.message || error?.message || "Не удалось создать категорию";
   } finally {
-    creatingQuickCategory.value = false
+    creatingQuickCategory.value = false;
   }
 }
 
 async function openQuickGroupModal() {
   if (!quickProduct.categoryId) {
-    quickProductError.value = 'Сначала выберите категорию'
-    return
+    quickProductError.value = "Сначала выберите категорию";
+    return;
   }
-  quickProductError.value = ''
-  quickGroupError.value = ''
-  quickGroupName.value = ''
-  quickGroupParentId.value = ''
+  quickProductError.value = "";
+  quickGroupError.value = "";
+  quickGroupName.value = "";
+  quickGroupParentId.value = "";
   try {
     if (!loadedQuickGroupCategories.has(quickProduct.categoryId)) {
-      await adminStore.fetchCategoryGroups(quickProduct.categoryId)
-      loadedQuickGroupCategories.add(quickProduct.categoryId)
+      await adminStore.fetchCategoryGroups(quickProduct.categoryId);
+      loadedQuickGroupCategories.add(quickProduct.categoryId);
     }
   } catch (error) {
-    console.error('[CRM] fetch groups before create error', error)
-    quickGroupError.value = 'Не удалось загрузить линейки для выбранной категории'
+    console.error("[CRM] fetch groups before create error", error);
+    quickGroupError.value =
+      "Не удалось загрузить линейки для выбранной категории";
   }
   if (!quickGroupError.value) {
-    showQuickGroupModal.value = true
+    showQuickGroupModal.value = true;
   }
 }
 
 function closeQuickGroupModal() {
-  showQuickGroupModal.value = false
-  quickGroupError.value = ''
-  quickGroupName.value = ''
-  quickGroupParentId.value = ''
+  showQuickGroupModal.value = false;
+  quickGroupError.value = "";
+  quickGroupName.value = "";
+  quickGroupParentId.value = "";
 }
 
 async function submitQuickGroup() {
-  if (creatingQuickGroup.value) return
+  if (creatingQuickGroup.value) return;
   if (!quickProduct.categoryId) {
-    quickGroupError.value = 'Сначала выберите категорию'
-    return
+    quickGroupError.value = "Сначала выберите категорию";
+    return;
   }
-  const trimmed = quickGroupName.value.trim()
+  const trimmed = quickGroupName.value.trim();
   if (!trimmed) {
-    quickGroupError.value = 'Введите название линейки'
-    return
+    quickGroupError.value = "Введите название линейки";
+    return;
   }
-  creatingQuickGroup.value = true
-  quickGroupError.value = ''
+  creatingQuickGroup.value = true;
+  quickGroupError.value = "";
   try {
     const created = await adminStore.createCategoryGroup({
       categoryId: quickProduct.categoryId,
       name: trimmed,
-      parentId: quickGroupParentId.value || undefined
-    })
+      parentId: quickGroupParentId.value || undefined,
+    });
     if (created) {
-      quickProduct.groupId = created.id
-      showQuickGroupModal.value = false
-      quickGroupName.value = ''
-      quickGroupParentId.value = ''
+      quickProduct.groupId = created.id;
+      showQuickGroupModal.value = false;
+      quickGroupName.value = "";
+      quickGroupParentId.value = "";
     }
   } catch (error: any) {
-    quickGroupError.value = error?.data?.message || error?.message || 'Не удалось создать линейку'
+    quickGroupError.value =
+      error?.data?.message || error?.message || "Не удалось создать линейку";
   } finally {
-    creatingQuickGroup.value = false
+    creatingQuickGroup.value = false;
   }
 }
 
 async function submitQuickProduct() {
-  if (quickProductSaving.value) return
-  quickProductError.value = ''
+  if (quickProductSaving.value) return;
+  quickProductError.value = "";
 
   if (!quickProduct.title.trim()) {
-    quickProductError.value = 'Укажите название товара'
-    return
+    quickProductError.value = "Укажите название товара";
+    return;
   }
   if (!quickProduct.categoryId) {
-    quickProductError.value = 'Выберите категорию'
-    return
+    quickProductError.value = "Выберите категорию";
+    return;
   }
   // Фото обязательно только если НЕ используется фото категории
   if (!quickProduct.useCategoryImage && !quickProductImages.value.length) {
-    quickProductError.value = 'Добавьте хотя бы одно фото товара или включите "Использовать фото категории"'
-    return
+    quickProductError.value =
+      'Добавьте хотя бы одно фото товара или включите "Использовать фото категории"';
+    return;
   }
   if (quickProduct.priceRub <= 0) {
-    quickProductError.value = 'Укажите розничную цену'
-    return
+    quickProductError.value = "Укажите розничную цену";
+    return;
   }
   if (quickProduct.costPrice < 0) {
-    quickProductError.value = 'Себестоимость не может быть отрицательной'
-    return
+    quickProductError.value = "Себестоимость не может быть отрицательной";
+    return;
   }
 
-  quickProductSaving.value = true
+  quickProductSaving.value = true;
   try {
     const created = await adminStore.createProduct({
       categoryId: quickProduct.categoryId,
       groupId: quickProduct.groupId || null,
       title: quickProduct.title.trim(),
       priceRub: Math.round(quickProduct.priceRub),
-      description: '',
-      images: quickProduct.useCategoryImage ? [] : [...quickProductImages.value],
+      description: "",
+      images: quickProduct.useCategoryImage
+        ? []
+        : [...quickProductImages.value],
       links: [],
       strength: null,
       costPrice: Number(quickProduct.costPrice || 0),
       stock: Number(quickProduct.stock || 0),
       minStock: Number(quickProduct.minStock || 0),
-      useCategoryImage: quickProduct.useCategoryImage
-    })
+      useCategoryImage: quickProduct.useCategoryImage,
+    });
 
-    closeQuickProductModal()
-    const summary = convertAdminProductToCrmSummary(created)
-    addProduct(summary)
-    productResults.value = [summary, ...productResults.value]
+    closeQuickProductModal();
+    const summary = convertAdminProductToCrmSummary(created);
+    addProduct(summary);
+    productResults.value = [summary, ...productResults.value];
     // Обновляем список товаров с низким остатком (вдруг новый товар уже в зоне риска)
-    await refreshLowStock()
+    await refreshLowStock();
   } catch (error: any) {
-    console.error('[CRM] quick product create error', error)
-    quickProductError.value = error?.message || 'Не удалось создать товар'
+    console.error("[CRM] quick product create error", error);
+    quickProductError.value = error?.message || "Не удалось создать товар";
   } finally {
-    quickProductSaving.value = false
-    quickProductImages.value = []
+    quickProductSaving.value = false;
+    quickProductImages.value = [];
   }
 }
 
 function removeItem(productId: string) {
-  draftItems.value = draftItems.value.filter((item) => item.product.id !== productId)
+  draftItems.value = draftItems.value.filter(
+    (item) => item.product.id !== productId,
+  );
 }
 
 function clampQuantity(item: DraftProcurementItem) {
   if (!Number.isFinite(item.quantity) || item.quantity <= 0) {
-    item.quantity = 1
+    item.quantity = 1;
   }
 }
 
 function clampCost(item: DraftProcurementItem) {
   if (!Number.isFinite(item.costPerUnit) || item.costPerUnit <= 0) {
-    item.costPerUnit = item.product.costPrice > 0 ? item.product.costPrice : item.product.priceRub
+    item.costPerUnit =
+      item.product.costPrice > 0
+        ? item.product.costPrice
+        : item.product.priceRub;
   }
 }
 
 function projectedCost(item: DraftProcurementItem) {
-  const currentTotal = item.product.stock * item.product.costPrice
-  const upcomingTotal = item.quantity * item.costPerUnit
-  const totalQuantity = item.product.stock + item.quantity
-  if (totalQuantity <= 0) return null
-  return (currentTotal + upcomingTotal) / totalQuantity
+  const currentTotal = item.product.stock * item.product.costPrice;
+  const upcomingTotal = item.quantity * item.costPerUnit;
+  const totalQuantity = item.product.stock + item.quantity;
+  if (totalQuantity <= 0) return null;
+  return (currentTotal + upcomingTotal) / totalQuantity;
 }
 
 function projectedCostLabel(item: DraftProcurementItem) {
-  const value = projectedCost(item)
-  if (value === null || Number.isNaN(value)) return '—'
-  return formatCurrency(value)
+  const value = projectedCost(item);
+  if (value === null || Number.isNaN(value)) return "—";
+  return formatCurrency(value);
 }
 
 async function submitProcurement() {
-  if (!canSubmitProcurement.value || creatingProcurement.value) return
-  creatingProcurement.value = true
+  if (!canSubmitProcurement.value || creatingProcurement.value) return;
+  creatingProcurement.value = true;
   try {
     const payload = {
       supplier_name: supplierName.value.trim() || undefined,
@@ -1418,150 +1733,176 @@ async function submitProcurement() {
       items: draftItems.value.map((item) => ({
         product_id: (item.product as any).productId || item.product.id, // Используем productId для вариантов
         quantity: item.quantity,
-        cost_per_unit: item.costPerUnit
-      }))
-    }
+        cost_per_unit: item.costPerUnit,
+      })),
+    };
 
     if (editingProcurementId.value) {
-      const updated = await crmStore.updateProcurement(editingProcurementId.value, payload)
-      closeCreateModal()
-      await crmStore.fetchProcurements()
-      await openDetails(updated.id)
+      const updated = await crmStore.updateProcurement(
+        editingProcurementId.value,
+        payload,
+      );
+      closeCreateModal();
+      await crmStore.fetchProcurements();
+      await openDetails(updated.id);
     } else {
-      const procurement = await crmStore.createProcurement(payload)
-      closeCreateModal()
-      await crmStore.fetchProcurements()
-      await openDetails(procurement.id)
+      const procurement = await crmStore.createProcurement(payload);
+      closeCreateModal();
+      await crmStore.fetchProcurements();
+      await openDetails(procurement.id);
     }
   } catch (error) {
-    console.error('[CRM] create procurement error', error)
-    alert('Не удалось сохранить закупку. Проверьте данные и повторите попытку.')
+    console.error("[CRM] create procurement error", error);
+    alert(
+      "Не удалось сохранить закупку. Проверьте данные и повторите попытку.",
+    );
   } finally {
-    creatingProcurement.value = false
+    creatingProcurement.value = false;
   }
 }
 
 async function refreshProcurements() {
-  await crmStore.fetchProcurements()
+  await crmStore.fetchProcurements();
 }
 
 async function deleteProcurementRecord(id: string) {
-  if (!confirm('Удалить закупку? Откат остатков и оплат будет выполнен автоматически.')) return
+  if (
+    !confirm(
+      "Удалить закупку? Откат остатков и оплат будет выполнен автоматически.",
+    )
+  )
+    return;
   try {
-    await crmStore.deleteProcurement(id)
-    await crmStore.fetchProcurements()
+    await crmStore.deleteProcurement(id);
+    await crmStore.fetchProcurements();
     if (activeProcurement.value?.id === id) {
-      closeDetails()
+      closeDetails();
     }
   } catch (error) {
-    console.error('[CRM] delete procurement error', error)
-    alert('Не удалось удалить закупку. Проверьте остатки и попробуйте ещё раз.')
+    console.error("[CRM] delete procurement error", error);
+    alert(
+      "Не удалось удалить закупку. Проверьте остатки и попробуйте ещё раз.",
+    );
   }
 }
 
 async function openDetails(id: string) {
-  detailModalOpen.value = true
-  detailLoading.value = true
+  detailModalOpen.value = true;
+  detailLoading.value = true;
   try {
-    activeProcurement.value = await crmStore.fetchProcurement(id)
+    activeProcurement.value = await crmStore.fetchProcurement(id);
   } catch (error) {
-    console.error('[CRM] load procurement details error', error)
-    alert('Не удалось загрузить детали закупки')
-    detailModalOpen.value = false
+    console.error("[CRM] load procurement details error", error);
+    alert("Не удалось загрузить детали закупки");
+    detailModalOpen.value = false;
   } finally {
-    detailLoading.value = false
+    detailLoading.value = false;
   }
 }
 
 function closeDetails() {
-  detailModalOpen.value = false
-  activeProcurement.value = null
+  detailModalOpen.value = false;
+  activeProcurement.value = null;
 }
 
 async function removePaymentFromDetails() {
-  if (!activeProcurement.value || !activeProcurement.value.expense_transaction_id) return
-  if (!confirm('Удалить оплату для этой закупки? Баланс кассы будет восстановлен.')) return
+  if (
+    !activeProcurement.value ||
+    !activeProcurement.value.expense_transaction_id
+  )
+    return;
+  if (
+    !confirm(
+      "Удалить оплату для этой закупки? Баланс кассы будет восстановлен.",
+    )
+  )
+    return;
   try {
-    const updated = await crmStore.removeProcurementPayment(activeProcurement.value.id)
-    activeProcurement.value = updated
-    await crmStore.fetchProcurements()
+    const updated = await crmStore.removeProcurementPayment(
+      activeProcurement.value.id,
+    );
+    activeProcurement.value = updated;
+    await crmStore.fetchProcurements();
   } catch (error) {
-    console.error('[CRM] remove procurement payment error', error)
-    alert('Не удалось удалить оплату')
+    console.error("[CRM] remove procurement payment error", error);
+    alert("Не удалось удалить оплату");
   }
 }
 
 async function editFromDetails() {
-  if (!activeProcurement.value || activeProcurement.value.status !== 'draft') return
-  const procurement = activeProcurement.value
-  closeDetails()
-  await startEditProcurement(procurement.id, procurement)
+  if (!activeProcurement.value || activeProcurement.value.status !== "draft")
+    return;
+  const procurement = activeProcurement.value;
+  closeDetails();
+  await startEditProcurement(procurement.id, procurement);
 }
 
 async function deleteCurrentProcurement() {
-  if (!activeProcurement.value) return
-  await deleteProcurementRecord(activeProcurement.value.id)
+  if (!activeProcurement.value) return;
+  await deleteProcurementRecord(activeProcurement.value.id);
 }
 
 async function completeFromDetails() {
-  if (!activeProcurement.value || completingProcurement.value) return
-  completingProcurement.value = true
+  if (!activeProcurement.value || completingProcurement.value) return;
+  completingProcurement.value = true;
   try {
-    await crmStore.completeProcurement(activeProcurement.value.id)
-    await crmStore.fetchProcurements()
-    activeProcurement.value = await crmStore.fetchProcurement(activeProcurement.value.id)
+    await crmStore.completeProcurement(activeProcurement.value.id);
+    await crmStore.fetchProcurements();
+    activeProcurement.value = await crmStore.fetchProcurement(
+      activeProcurement.value.id,
+    );
     // Обновляем список товаров с низким остатком после завершения закупки
-    await refreshLowStock()
+    await refreshLowStock();
   } catch (error) {
-    console.error('[CRM] complete procurement error', error)
-    alert('Не удалось завершить закупку')
+    console.error("[CRM] complete procurement error", error);
+    alert("Не удалось завершить закупку");
   } finally {
-    completingProcurement.value = false
+    completingProcurement.value = false;
   }
 }
 
 async function finishProcurement(id: string) {
-  if (!confirm('Завершить закупку и оприходовать товары?')) return
+  if (!confirm("Завершить закупку и оприходовать товары?")) return;
   try {
-    await crmStore.completeProcurement(id)
-    await crmStore.fetchProcurements()
+    await crmStore.completeProcurement(id);
+    await crmStore.fetchProcurements();
     // Обновляем список товаров с низким остатком
-    await refreshLowStock()
+    await refreshLowStock();
   } catch (error) {
-    console.error('[CRM] complete procurement error', error)
-    alert('Не удалось завершить закупку')
+    console.error("[CRM] complete procurement error", error);
+    alert("Не удалось завершить закупку");
   }
 }
 
 function formatCurrency(value?: number | null) {
-  if (value === null || value === undefined) return '—'
-  return new Intl.NumberFormat('ru-RU', {
-    style: 'currency',
-    currency: 'RUB',
+  if (value === null || value === undefined) return "—";
+  return new Intl.NumberFormat("ru-RU", {
+    style: "currency",
+    currency: "RUB",
     minimumFractionDigits: value % 1 === 0 ? 0 : 2,
-    maximumFractionDigits: 2
-  }).format(value)
+    maximumFractionDigits: 2,
+  }).format(value);
 }
 
 function formatDate(dateString?: string | null) {
-  if (!dateString) return '—'
-  return new Date(dateString).toLocaleDateString('ru-RU', {
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit'
-  })
+  if (!dateString) return "—";
+  return new Date(dateString).toLocaleDateString("ru-RU", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
-function statusBadgeClass(status: Procurement['status']) {
-  if (status === 'completed') {
-    return 'bg-green-100 text-green-800'
+function statusBadgeClass(status: Procurement["status"]) {
+  if (status === "completed") {
+    return "bg-green-100 text-green-800";
   }
-  return 'bg-yellow-100 text-yellow-800'
+  return "bg-yellow-100 text-yellow-800";
 }
 
-function statusLabel(status: Procurement['status']) {
-  return status === 'completed' ? 'Завершена' : 'Черновик'
+function statusLabel(status: Procurement["status"]) {
+  return status === "completed" ? "Завершена" : "Черновик";
 }
 </script>

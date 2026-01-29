@@ -1,7 +1,7 @@
-import express from 'express';
-import { db } from '../db.js';
-import { authMiddleware } from '../auth.js';
-import { archiveOldDeliveredOrders } from '../cleanup-delivered-orders.js';
+import express from "express";
+import { db } from "../db.js";
+import { authMiddleware } from "../auth.js";
+import { archiveOldDeliveredOrders } from "../cleanup-delivered-orders.js";
 
 export const crmOperationsRouter = express.Router();
 
@@ -22,31 +22,41 @@ function recordStatusChange(orderId, previousStatus, newStatus, note) {
   }
 
   try {
-    db.prepare(`
+    db.prepare(
+      `
       INSERT INTO order_status_history (id, order_id, previous_status, new_status, note)
       VALUES (?, ?, ?, ?, ?)
-    `).run(generateId('osh'), orderId, previousStatus || null, newStatus, note || null);
+    `,
+    ).run(
+      generateId("osh"),
+      orderId,
+      previousStatus || null,
+      newStatus,
+      note || null,
+    );
   } catch (error) {
-    console.warn('[crm] Failed to record status history:', error.message);
+    console.warn("[crm] Failed to record status history:", error.message);
   }
 }
 
 // Helper для расчета средней себестоимости (метод CloudShop)
 function calculateAverageCost(productId, newQuantity, newCostPerUnit) {
-  const product = db.prepare('SELECT stock, cost_price FROM products WHERE id = ?').get(productId);
-  
+  const product = db
+    .prepare("SELECT stock, cost_price FROM products WHERE id = ?")
+    .get(productId);
+
   if (!product) return newCostPerUnit;
-  
+
   const currentStock = product.stock || 0;
   const currentCost = product.cost_price || 0;
-  
+
   if (currentStock === 0) {
     return newCostPerUnit;
   }
-  
-  const totalCost = (currentStock * currentCost) + (newQuantity * newCostPerUnit);
+
+  const totalCost = currentStock * currentCost + newQuantity * newCostPerUnit;
   const totalQuantity = currentStock + newQuantity;
-  
+
   return totalCost / totalQuantity;
 }
 
@@ -67,7 +77,7 @@ function applyDiscounts(totalAmount, discountAmount, discountPercent) {
 // =========================
 // ORDERS (Заказы)
 // =========================
-crmOperationsRouter.get('/api/admin/crm/orders', authMiddleware, (req, res) => {
+crmOperationsRouter.get("/api/admin/crm/orders", authMiddleware, (req, res) => {
   try {
     const { status, page = 1, limit = 20, search } = req.query;
 
@@ -75,27 +85,36 @@ crmOperationsRouter.get('/api/admin/crm/orders', authMiddleware, (req, res) => {
     const params = [];
 
     if (status) {
-      whereClauses.push('o.status = ?');
+      whereClauses.push("o.status = ?");
       params.push(status);
     }
 
     // Показываем только неархивные заказы
-    whereClauses.push('o.archived = 0');
+    whereClauses.push("o.archived = 0");
 
     if (search) {
       const searchTerm = String(search).trim();
       if (searchTerm) {
         // Поиск по номеру заказа, имени клиента или username
-        whereClauses.push('(CAST(o.order_number AS TEXT) LIKE ? OR c.first_name LIKE ? OR c.last_name LIKE ? OR c.telegram_username LIKE ? OR o.telegram_username LIKE ?)');
+        whereClauses.push(
+          "(CAST(o.order_number AS TEXT) LIKE ? OR c.first_name LIKE ? OR c.last_name LIKE ? OR c.telegram_username LIKE ? OR o.telegram_username LIKE ?)",
+        );
         const likePattern = `%${searchTerm}%`;
-        params.push(likePattern, likePattern, likePattern, likePattern, likePattern);
+        params.push(
+          likePattern,
+          likePattern,
+          likePattern,
+          likePattern,
+          likePattern,
+        );
       }
     }
 
-    const whereClause = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
+    const whereClause =
+      whereClauses.length > 0 ? `WHERE ${whereClauses.join(" AND ")}` : "";
 
     const offset = (parseInt(page) - 1) * parseInt(limit);
-    
+
     const countSql = `SELECT COUNT(*) as count FROM orders o LEFT JOIN customers c ON c.id = o.customer_id ${whereClause}`;
     const total = db.prepare(countSql).get(...params).count;
 
@@ -110,7 +129,7 @@ crmOperationsRouter.get('/api/admin/crm/orders', authMiddleware, (req, res) => {
       ORDER BY o.created_at DESC
       LIMIT ? OFFSET ?
     `;
-    
+
     const orders = db
       .prepare(ordersSql)
       .all(...params, parseInt(limit), offset);
@@ -118,10 +137,14 @@ crmOperationsRouter.get('/api/admin/crm/orders', authMiddleware, (req, res) => {
     let ordersWithItems = orders;
     if (orders.length > 0) {
       const orderIds = orders.map((order) => order.id);
-      const placeholders = orderIds.map(() => '?').join(',');
-      const itemsRows = db.prepare(`
+      const placeholders = orderIds.map(() => "?").join(",");
+      const itemsRows = db
+        .prepare(
+          `
         SELECT * FROM order_items WHERE order_id IN (${placeholders})
-      `).all(...orderIds);
+      `,
+        )
+        .all(...orderIds);
 
       const itemsByOrder = itemsRows.reduce((acc, item) => {
         const list = acc.get(item.order_id) || [];
@@ -132,56 +155,73 @@ crmOperationsRouter.get('/api/admin/crm/orders', authMiddleware, (req, res) => {
 
       ordersWithItems = orders.map((order) => ({
         ...order,
-        items: itemsByOrder.get(order.id) || []
+        items: itemsByOrder.get(order.id) || [],
       }));
     }
 
-    res.json({ 
-      orders: ordersWithItems, 
-      pagination: { 
-        page: parseInt(page), 
-        limit: parseInt(limit), 
+    res.json({
+      orders: ordersWithItems,
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
         total,
-        totalPages: Math.ceil(total / parseInt(limit))
-      } 
+        totalPages: Math.ceil(total / parseInt(limit)),
+      },
     });
   } catch (error) {
-    console.error('[crm] Get orders error:', error);
-    res.status(500).json({ error: 'failed', message: error.message });
+    console.error("[crm] Get orders error:", error);
+    res.status(500).json({ error: "failed", message: error.message });
   }
 });
 
 // Архивные заказы
-crmOperationsRouter.get('/api/admin/crm/orders/archived', authMiddleware, (req, res) => {
-  try {
-    const { status, page = 1, limit = 20, search } = req.query;
+crmOperationsRouter.get(
+  "/api/admin/crm/orders/archived",
+  authMiddleware,
+  (req, res) => {
+    try {
+      const { status, page = 1, limit = 20, search } = req.query;
 
-    const whereClauses = ['o.archived = 1'];
-    const params = [];
+      const whereClauses = ["o.archived = 1"];
+      const params = [];
 
-    if (status) {
-      whereClauses.push('o.status = ?');
-      params.push(status);
-    }
-
-    if (search) {
-      const searchTerm = String(search).trim();
-      if (searchTerm) {
-        whereClauses.push('(CAST(o.order_number AS TEXT) LIKE ? OR c.first_name LIKE ? OR c.last_name LIKE ? OR c.telegram_username LIKE ? OR o.telegram_username LIKE ?)');
-        const likePattern = `%${searchTerm}%`;
-        params.push(likePattern, likePattern, likePattern, likePattern, likePattern);
+      if (status) {
+        whereClauses.push("o.status = ?");
+        params.push(status);
       }
-    }
 
-    const whereClause = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
-    const offset = (parseInt(page) - 1) * parseInt(limit);
-    
-    const countSql = `SELECT COUNT(*) as count FROM orders o LEFT JOIN customers c ON c.id = o.customer_id ${whereClause}`;
-    const total = params.length > 0
-      ? db.prepare(countSql).get(...params).count
-      : db.prepare(`SELECT COUNT(*) as count FROM orders o WHERE o.archived = 1`).get().count;
+      if (search) {
+        const searchTerm = String(search).trim();
+        if (searchTerm) {
+          whereClauses.push(
+            "(CAST(o.order_number AS TEXT) LIKE ? OR c.first_name LIKE ? OR c.last_name LIKE ? OR c.telegram_username LIKE ? OR o.telegram_username LIKE ?)",
+          );
+          const likePattern = `%${searchTerm}%`;
+          params.push(
+            likePattern,
+            likePattern,
+            likePattern,
+            likePattern,
+            likePattern,
+          );
+        }
+      }
 
-    const ordersSql = `
+      const whereClause =
+        whereClauses.length > 0 ? `WHERE ${whereClauses.join(" AND ")}` : "";
+      const offset = (parseInt(page) - 1) * parseInt(limit);
+
+      const countSql = `SELECT COUNT(*) as count FROM orders o LEFT JOIN customers c ON c.id = o.customer_id ${whereClause}`;
+      const total =
+        params.length > 0
+          ? db.prepare(countSql).get(...params).count
+          : db
+              .prepare(
+                `SELECT COUNT(*) as count FROM orders o WHERE o.archived = 1`,
+              )
+              .get().count;
+
+      const ordersSql = `
       SELECT 
         o.*,
         COALESCE(o.telegram_username, c.telegram_username) as telegram_username,
@@ -192,10 +232,13 @@ crmOperationsRouter.get('/api/admin/crm/orders/archived', authMiddleware, (req, 
       ORDER BY o.completed_at DESC, o.created_at DESC
       LIMIT ? OFFSET ?
     `;
-    
-    const orders = params.length > 0
-      ? db.prepare(ordersSql).all(...params, parseInt(limit), offset)
-      : db.prepare(`
+
+      const orders =
+        params.length > 0
+          ? db.prepare(ordersSql).all(...params, parseInt(limit), offset)
+          : db
+              .prepare(
+                `
           SELECT 
             o.*,
             COALESCE(o.telegram_username, c.telegram_username) as telegram_username,
@@ -205,49 +248,61 @@ crmOperationsRouter.get('/api/admin/crm/orders/archived', authMiddleware, (req, 
           WHERE o.archived = 1
           ORDER BY o.completed_at DESC, o.created_at DESC
           LIMIT ? OFFSET ?
-        `).all(parseInt(limit), offset);
+        `,
+              )
+              .all(parseInt(limit), offset);
 
-    let ordersWithItems = orders;
-    if (orders.length > 0) {
-      const orderIds = orders.map((order) => order.id);
-      const placeholders = orderIds.map(() => '?').join(',');
-      const itemsRows = db.prepare(`
+      let ordersWithItems = orders;
+      if (orders.length > 0) {
+        const orderIds = orders.map((order) => order.id);
+        const placeholders = orderIds.map(() => "?").join(",");
+        const itemsRows = db
+          .prepare(
+            `
         SELECT * FROM order_items WHERE order_id IN (${placeholders})
-      `).all(...orderIds);
+      `,
+          )
+          .all(...orderIds);
 
-      const itemsByOrder = itemsRows.reduce((acc, item) => {
-        const list = acc.get(item.order_id) || [];
-        list.push(item);
-        acc.set(item.order_id, list);
-        return acc;
-      }, new Map());
+        const itemsByOrder = itemsRows.reduce((acc, item) => {
+          const list = acc.get(item.order_id) || [];
+          list.push(item);
+          acc.set(item.order_id, list);
+          return acc;
+        }, new Map());
 
-      ordersWithItems = orders.map((order) => ({
-        ...order,
-        items: itemsByOrder.get(order.id) || []
-      }));
+        ordersWithItems = orders.map((order) => ({
+          ...order,
+          items: itemsByOrder.get(order.id) || [],
+        }));
+      }
+
+      res.json({
+        orders: ordersWithItems,
+        pagination: {
+          page: parseInt(page),
+          limit: parseInt(limit),
+          total,
+          totalPages: Math.ceil(total / parseInt(limit)),
+        },
+      });
+    } catch (error) {
+      console.error("[crm] Get archived orders error:", error);
+      res.status(500).json({ error: "failed", message: error.message });
     }
+  },
+);
 
-    res.json({ 
-      orders: ordersWithItems, 
-      pagination: { 
-        page: parseInt(page), 
-        limit: parseInt(limit), 
-        total,
-        totalPages: Math.ceil(total / parseInt(limit))
-      } 
-    });
-  } catch (error) {
-    console.error('[crm] Get archived orders error:', error);
-    res.status(500).json({ error: 'failed', message: error.message });
-  }
-});
+crmOperationsRouter.get(
+  "/api/admin/crm/orders/:id",
+  authMiddleware,
+  (req, res) => {
+    try {
+      const { id } = req.params;
 
-crmOperationsRouter.get('/api/admin/crm/orders/:id', authMiddleware, (req, res) => {
-  try {
-    const { id } = req.params;
-    
-    const order = db.prepare(`
+      const order = db
+        .prepare(
+          `
       SELECT 
         o.*,
         COALESCE(o.telegram_username, c.telegram_username) as telegram_username,
@@ -257,552 +312,713 @@ crmOperationsRouter.get('/api/admin/crm/orders/:id', authMiddleware, (req, res) 
       FROM orders o
       LEFT JOIN customers c ON c.id = o.customer_id
       WHERE o.id = ?
-    `).get(id);
+    `,
+        )
+        .get(id);
 
-    if (!order) {
-      return res.status(404).json({ error: 'not_found' });
-    }
+      if (!order) {
+        return res.status(404).json({ error: "not_found" });
+      }
 
-    const items = db.prepare(`
+      const items = db
+        .prepare(
+          `
       SELECT * FROM order_items WHERE order_id = ?
-    `).all(id);
+    `,
+        )
+        .all(id);
 
-    res.json({ ...order, items });
-  } catch (error) {
-    console.error('[crm] Get order error:', error);
-    res.status(500).json({ error: 'failed', message: error.message });
-  }
-});
+      res.json({ ...order, items });
+    } catch (error) {
+      console.error("[crm] Get order error:", error);
+      res.status(500).json({ error: "failed", message: error.message });
+    }
+  },
+);
 
 // Создание заказа (свободная продажа или из корзины)
-crmOperationsRouter.post('/api/admin/crm/orders', authMiddleware, (req, res) => {
-  try {
-    const { 
-      customer_id, 
-      delivery_type = 'pickup',
-      delivery_address,
-      items,
-      discount_amount = 0,
-      discount_percent = 0,
-      notes
-    } = req.body;
+crmOperationsRouter.post(
+  "/api/admin/crm/orders",
+  authMiddleware,
+  (req, res) => {
+    try {
+      const {
+        customer_id,
+        delivery_type = "pickup",
+        delivery_address,
+        items,
+        discount_amount = 0,
+        discount_percent = 0,
+        notes,
+      } = req.body;
 
-    if (!Array.isArray(items) || items.length === 0) {
-      return res.status(400).json({ error: 'items_required' });
-    }
-
-    const orderId = generateId('order');
-    const orderNumber = getNextNumber('orders', 'order_number');
-
-    // Рассчитываем суммы
-    let totalAmount = 0;
-    let totalCost = 0;
-
-    const orderItems = items.map(item => {
-      const product = db.prepare('SELECT * FROM products WHERE id = ?').get(item.product_id);
-      if (!product) {
-        throw new Error(`Product not found: ${item.product_id}`);
+      if (!Array.isArray(items) || items.length === 0) {
+        return res.status(400).json({ error: "items_required" });
       }
 
-      // Проверяем наличие на складе
-      // Для вариантов - проверяем сток варианта, для обычных товаров - сток продукта
-      if (item.variant_id) {
-        const variant = db.prepare('SELECT stock FROM product_variants WHERE id = ?').get(item.variant_id);
-        if (!variant) {
-          throw new Error(`Variant not found: ${item.variant_id}`);
+      const orderId = generateId("order");
+      const orderNumber = getNextNumber("orders", "order_number");
+
+      // Рассчитываем суммы
+      let totalAmount = 0;
+      let totalCost = 0;
+
+      const orderItems = items.map((item) => {
+        const product = db
+          .prepare("SELECT * FROM products WHERE id = ?")
+          .get(item.product_id);
+        if (!product) {
+          throw new Error(`Product not found: ${item.product_id}`);
         }
-        if (variant.stock < item.quantity) {
-          throw new Error(`Insufficient stock for variant ${item.variant_id}`);
+
+        // Проверяем наличие на складе
+        // Для вариантов - проверяем сток варианта, для обычных товаров - сток продукта
+        if (item.variant_id) {
+          const variant = db
+            .prepare("SELECT stock FROM product_variants WHERE id = ?")
+            .get(item.variant_id);
+          if (!variant) {
+            throw new Error(`Variant not found: ${item.variant_id}`);
+          }
+          if (variant.stock < item.quantity) {
+            throw new Error(
+              `Insufficient stock for variant ${item.variant_id}`,
+            );
+          }
+        } else if (product.stock < item.quantity) {
+          throw new Error(`Insufficient stock for ${product.title}`);
         }
-      } else if (product.stock < item.quantity) {
-        throw new Error(`Insufficient stock for ${product.title}`);
+
+        // Получаем базовый продукт, если это вариант
+        let baseProductId = null;
+        let baseProductTitle = null;
+
+        const variant = db
+          .prepare("SELECT product_id FROM product_variants WHERE id = ?")
+          .get(item.product_id);
+        if (variant) {
+          baseProductId = variant.product_id;
+          const baseProduct = db
+            .prepare("SELECT title FROM products WHERE id = ?")
+            .get(baseProductId);
+          if (baseProduct) {
+            baseProductTitle = baseProduct.title;
+          }
+        }
+
+        const pricePerUnit = item.price_per_unit || product.priceRub;
+        const costPerUnit = product.cost_price || 0;
+        const itemDiscount = item.discount_amount || 0;
+        const totalPrice = pricePerUnit * item.quantity - itemDiscount;
+        const totalItemCost = costPerUnit * item.quantity;
+
+        totalAmount += pricePerUnit * item.quantity;
+        totalCost += totalItemCost;
+
+        // Получаем group_name для отображения линейки
+        let groupName = null;
+        if (product.groupId) {
+          const group = db
+            .prepare("SELECT name FROM category_groups WHERE id = ?")
+            .get(product.groupId);
+          if (group) {
+            groupName = group.name;
+          }
+        }
+
+        return {
+          id: generateId("oi"),
+          product_id: item.product_id,
+          variant_id: item.variant_id || null,
+          product_title: product.title || "Без названия",
+          group_name: groupName,
+          base_product_id: baseProductId,
+          base_product_title: baseProductTitle,
+          quantity: item.quantity,
+          price_per_unit: pricePerUnit,
+          cost_per_unit: costPerUnit,
+          discount_amount: itemDiscount,
+          total_price: totalPrice,
+          total_cost: totalItemCost,
+        };
+      });
+
+      // Применяем скидки
+      let finalAmount = totalAmount - discount_amount;
+      if (discount_percent > 0) {
+        finalAmount = finalAmount * (1 - discount_percent / 100);
       }
 
-      // Получаем базовый продукт, если это вариант
-      let baseProductId = null;
-      let baseProductTitle = null;
-      
-      const variant = db.prepare('SELECT product_id FROM product_variants WHERE id = ?').get(item.product_id);
-      if (variant) {
-        baseProductId = variant.product_id;
-        const baseProduct = db.prepare('SELECT title FROM products WHERE id = ?').get(baseProductId);
-        if (baseProduct) {
-          baseProductTitle = baseProduct.title;
-        }
-      }
+      const profit = finalAmount - totalCost;
 
-      const pricePerUnit = item.price_per_unit || product.priceRub;
-      const costPerUnit = product.cost_price || 0;
-      const itemDiscount = item.discount_amount || 0;
-      const totalPrice = (pricePerUnit * item.quantity) - itemDiscount;
-      const totalItemCost = costPerUnit * item.quantity;
-
-      totalAmount += pricePerUnit * item.quantity;
-      totalCost += totalItemCost;
-
-      // Получаем group_name для отображения линейки
-      let groupName = null;
-      if (product.groupId) {
-        const group = db.prepare('SELECT name FROM category_groups WHERE id = ?').get(product.groupId);
-        if (group) {
-          groupName = group.name;
-        }
-      }
-
-      return {
-        id: generateId('oi'),
-        product_id: item.product_id,
-        variant_id: item.variant_id || null,
-        product_title: product.title || 'Без названия',
-        group_name: groupName,
-        base_product_id: baseProductId,
-        base_product_title: baseProductTitle,
-        quantity: item.quantity,
-        price_per_unit: pricePerUnit,
-        cost_per_unit: costPerUnit,
-        discount_amount: itemDiscount,
-        total_price: totalPrice,
-        total_cost: totalItemCost
-      };
-    });
-
-    // Применяем скидки
-    let finalAmount = totalAmount - discount_amount;
-    if (discount_percent > 0) {
-      finalAmount = finalAmount * (1 - discount_percent / 100);
-    }
-
-    const profit = finalAmount - totalCost;
-
-    // Создаем заказ в транзакции
-    const tx = db.transaction(() => {
-      // Вставляем заказ
-      db.prepare(`
+      // Создаем заказ в транзакции
+      const tx = db.transaction(() => {
+        // Вставляем заказ
+        db.prepare(
+          `
         INSERT INTO orders (
           id, order_number, customer_id, status, delivery_type, delivery_address,
           total_amount, discount_amount, discount_percent, final_amount, profit, notes
         ) VALUES (?, ?, ?, 'new', ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(
-        orderId, orderNumber, customer_id || null, delivery_type, delivery_address || null,
-        totalAmount, discount_amount, discount_percent, finalAmount, profit, notes || null
-      );
+      `,
+        ).run(
+          orderId,
+          orderNumber,
+          customer_id || null,
+          delivery_type,
+          delivery_address || null,
+          totalAmount,
+          discount_amount,
+          discount_percent,
+          finalAmount,
+          profit,
+          notes || null,
+        );
 
-      // Вставляем позиции
-      const itemStmt = db.prepare(`
+        // Вставляем позиции
+        const itemStmt = db.prepare(`
         INSERT INTO order_items (
           id, order_id, product_id, variant_id, product_title, group_name, base_product_id, base_product_title, quantity,
           price_per_unit, cost_per_unit, discount_amount, total_price, total_cost
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
 
-      for (const item of orderItems) {
-        itemStmt.run(
-          item.id, orderId, item.product_id, item.variant_id, item.product_title, item.group_name, item.base_product_id, item.base_product_title, item.quantity,
-          item.price_per_unit, item.cost_per_unit, item.discount_amount,
-          item.total_price, item.total_cost
-        );
+        for (const item of orderItems) {
+          itemStmt.run(
+            item.id,
+            orderId,
+            item.product_id,
+            item.variant_id,
+            item.product_title,
+            item.group_name,
+            item.base_product_id,
+            item.base_product_title,
+            item.quantity,
+            item.price_per_unit,
+            item.cost_per_unit,
+            item.discount_amount,
+            item.total_price,
+            item.total_cost,
+          );
 
-        // ВАЖНО: НЕ списываем сток при создании заказа!
-        // Сток списывается только при переходе в статус "Собран" (in_progress)
-        // Это защита от абуза - конкуренты могут создавать фейковые заказы
-      }
+          // ВАЖНО: НЕ списываем сток при создании заказа!
+          // Сток списывается только при переходе в статус "Собран" (in_progress)
+          // Это защита от абуза - конкуренты могут создавать фейковые заказы
+        }
 
-      // Обновляем статистику клиента
-      if (customer_id) {
-        db.prepare(`
+        // Обновляем статистику клиента
+        if (customer_id) {
+          db.prepare(
+            `
           UPDATE customers 
           SET total_orders = total_orders + 1,
               total_spent = total_spent + ?,
               last_order_at = DATETIME('now'),
               updated_at = DATETIME('now')
           WHERE id = ?
-        `).run(finalAmount, customer_id);
-      }
-    });
+        `,
+          ).run(finalAmount, customer_id);
+        }
+      });
 
-    tx();
+      tx();
 
-    const order = db.prepare('SELECT * FROM orders WHERE id = ?').get(orderId);
-    const items_result = db.prepare('SELECT * FROM order_items WHERE order_id = ?').all(orderId);
+      const order = db
+        .prepare("SELECT * FROM orders WHERE id = ?")
+        .get(orderId);
+      const items_result = db
+        .prepare("SELECT * FROM order_items WHERE order_id = ?")
+        .all(orderId);
 
-    recordStatusChange(orderId, null, order.status, 'Создан заказ');
+      recordStatusChange(orderId, null, order.status, "Создан заказ");
 
-    res.json({ ...order, items: items_result });
-  } catch (error) {
-    console.error('[crm] Create order error:', error);
-    res.status(500).json({ error: 'failed', message: error.message });
-  }
-});
+      res.json({ ...order, items: items_result });
+    } catch (error) {
+      console.error("[crm] Create order error:", error);
+      res.status(500).json({ error: "failed", message: error.message });
+    }
+  },
+);
 
 // Обновление заказа (редактирование, статус)
-crmOperationsRouter.patch('/api/admin/crm/orders/:id', authMiddleware, (req, res) => {
-  try {
-    const { id } = req.params;
-    const {
-      status,
-      delivery_address,
-      notes,
-      items,
-      discount_amount,
-      discount_percent,
-      payment_type,
-      payment_account_id,
-      paid_amount,
-      payment_notes,
-      reactivate
-    } = req.body || {};
+crmOperationsRouter.patch(
+  "/api/admin/crm/orders/:id",
+  authMiddleware,
+  (req, res) => {
+    try {
+      const { id } = req.params;
+      const {
+        status,
+        delivery_address,
+        notes,
+        items,
+        discount_amount,
+        discount_percent,
+        payment_type,
+        payment_account_id,
+        paid_amount,
+        payment_notes,
+        reactivate,
+      } = req.body || {};
 
-    if (payment_type !== undefined && payment_type !== null && payment_type !== 'cash') {
-      return res.status(400).json({ error: 'invalid_payment_type' });
-    }
-
-    const allowedStatuses = ['new', 'in_progress', 'completed', 'delivered', 'cancelled'];
-    if (status !== undefined && !allowedStatuses.includes(status)) {
-      return res.status(400).json({ error: 'invalid_status' });
-    }
-
-    const order = db.prepare('SELECT * FROM orders WHERE id = ?').get(id);
-    if (!order) {
-      return res.status(404).json({ error: 'not_found' });
-    }
-
-    const shouldUpdateDiscount = discount_amount !== undefined || discount_percent !== undefined;
-    const updatedDiscountAmount = discount_amount !== undefined ? Number(discount_amount) : Number(order.discount_amount || 0);
-    const updatedDiscountPercent = discount_percent !== undefined ? Number(discount_percent) : Number(order.discount_percent || 0);
-
-    let desiredStatus = order.status;
-    if (reactivate && order.status === 'cancelled') {
-      desiredStatus = order.previous_status || 'in_progress';
-    }
-    if (status !== undefined) {
-      desiredStatus = status;
-    }
-
-    let statusChangeNote = null;
-
-    const tx = db.transaction(() => {
-      const updateFields = [];
-      const updateValues = [];
-
-      if (delivery_address !== undefined) {
-        updateFields.push('delivery_address = ?');
-        updateValues.push(delivery_address || null);
+      if (
+        payment_type !== undefined &&
+        payment_type !== null &&
+        payment_type !== "cash"
+      ) {
+        return res.status(400).json({ error: "invalid_payment_type" });
       }
-      if (notes !== undefined) {
-        updateFields.push('notes = ?');
-        updateValues.push(notes || null);
+
+      const allowedStatuses = [
+        "new",
+        "in_progress",
+        "completed",
+        "delivered",
+        "cancelled",
+      ];
+      if (status !== undefined && !allowedStatuses.includes(status)) {
+        return res.status(400).json({ error: "invalid_status" });
       }
-      if (payment_type !== undefined) {
-        updateFields.push('payment_type = ?');
-        updateValues.push(payment_type || null);
+
+      const order = db.prepare("SELECT * FROM orders WHERE id = ?").get(id);
+      if (!order) {
+        return res.status(404).json({ error: "not_found" });
       }
-      if (payment_account_id !== undefined) {
-        updateFields.push('payment_account_id = ?');
-        updateValues.push(payment_account_id || null);
+
+      const shouldUpdateDiscount =
+        discount_amount !== undefined || discount_percent !== undefined;
+      const updatedDiscountAmount =
+        discount_amount !== undefined
+          ? Number(discount_amount)
+          : Number(order.discount_amount || 0);
+      const updatedDiscountPercent =
+        discount_percent !== undefined
+          ? Number(discount_percent)
+          : Number(order.discount_percent || 0);
+
+      let desiredStatus = order.status;
+      if (reactivate && order.status === "cancelled") {
+        desiredStatus = order.previous_status || "in_progress";
       }
-      if (payment_notes !== undefined) {
-        updateFields.push('payment_notes = ?');
-        updateValues.push(payment_notes || null);
+      if (status !== undefined) {
+        desiredStatus = status;
       }
-      if (paid_amount !== undefined) {
-        const parsedPaid = Number(paid_amount) || 0;
-        if (parsedPaid < 0) {
-          throw new Error('invalid_paid_amount');
+
+      let statusChangeNote = null;
+
+      const tx = db.transaction(() => {
+        const updateFields = [];
+        const updateValues = [];
+
+        if (delivery_address !== undefined) {
+          updateFields.push("delivery_address = ?");
+          updateValues.push(delivery_address || null);
         }
-        if (parsedPaid === 0) {
-          updateFields.push('paid_amount = NULL');
-          updateFields.push('paid_at = NULL');
-        } else {
-          updateFields.push('paid_amount = ?');
-          updateValues.push(parsedPaid);
-          updateFields.push("paid_at = DATETIME('now')");
+        if (notes !== undefined) {
+          updateFields.push("notes = ?");
+          updateValues.push(notes || null);
         }
-      }
-
-      if (reactivate || status !== undefined) {
-        updateFields.push('status = ?');
-        updateValues.push(desiredStatus);
-
-        // СПИСАНИЕ СТОКА: При переходе в "рабочий" статус (in_progress, completed, delivered)
-        // если сток еще не был списан
-        const workingStatuses = ['in_progress', 'completed', 'delivered'];
-        if (workingStatuses.includes(desiredStatus) && !order.stock_deducted) {
-          const orderItems = db.prepare('SELECT * FROM order_items WHERE order_id = ?').all(id);
-          
-          // Сначала проверяем достаточность стока
-          for (const item of orderItems) {
-            if (item.variant_id) {
-              const variant = db.prepare('SELECT stock FROM product_variants WHERE id = ?').get(item.variant_id);
-              if (variant && variant.stock !== null && variant.stock < item.quantity) {
-                throw new Error(`Недостаточно товара на складе: ${item.product_title || item.product_id}`);
-              }
-            } else if (item.product_id) {
-              const product = db.prepare('SELECT stock, title FROM products WHERE id = ?').get(item.product_id);
-              if (product && product.stock !== null && product.stock < item.quantity) {
-                throw new Error(`Недостаточно товара на складе: ${product.title || item.product_id}`);
-              }
-            }
+        if (payment_type !== undefined) {
+          updateFields.push("payment_type = ?");
+          updateValues.push(payment_type || null);
+        }
+        if (payment_account_id !== undefined) {
+          updateFields.push("payment_account_id = ?");
+          updateValues.push(payment_account_id || null);
+        }
+        if (payment_notes !== undefined) {
+          updateFields.push("payment_notes = ?");
+          updateValues.push(payment_notes || null);
+        }
+        if (paid_amount !== undefined) {
+          const parsedPaid = Number(paid_amount) || 0;
+          if (parsedPaid < 0) {
+            throw new Error("invalid_paid_amount");
           }
-          
-          // Теперь списываем сток
-          for (const item of orderItems) {
-            if (item.variant_id) {
-              db.prepare('UPDATE product_variants SET stock = stock - ? WHERE id = ?')
-                .run(item.quantity, item.variant_id);
-            } else if (item.product_id) {
-              db.prepare('UPDATE products SET stock = stock - ? WHERE id = ?')
-                .run(item.quantity, item.product_id);
-            }
+          if (parsedPaid === 0) {
+            updateFields.push("paid_amount = NULL");
+            updateFields.push("paid_at = NULL");
+          } else {
+            updateFields.push("paid_amount = ?");
+            updateValues.push(parsedPaid);
+            updateFields.push("paid_at = DATETIME('now')");
           }
-          updateFields.push('stock_deducted = 1');
         }
 
-        if (desiredStatus === 'cancelled' && order.status !== 'cancelled') {
-          updateFields.push('previous_status = ?');
-          updateValues.push(order.status);
-          updateFields.push("cancelled_at = DATETIME('now')");
-          statusChangeNote = 'Заказ отменён';
+        if (reactivate || status !== undefined) {
+          updateFields.push("status = ?");
+          updateValues.push(desiredStatus);
 
-          // ВОЗВРАТ СТОКА: При отмене заказа, если сток был списан
-          if (order.stock_deducted) {
-            const orderItems = db.prepare('SELECT * FROM order_items WHERE order_id = ?').all(id);
+          // СПИСАНИЕ СТОКА: При переходе в "рабочий" статус (in_progress, completed, delivered)
+          // если сток еще не был списан
+          const workingStatuses = ["in_progress", "completed", "delivered"];
+          if (
+            workingStatuses.includes(desiredStatus) &&
+            !order.stock_deducted
+          ) {
+            const orderItems = db
+              .prepare("SELECT * FROM order_items WHERE order_id = ?")
+              .all(id);
+
+            // Сначала проверяем достаточность стока
             for (const item of orderItems) {
               if (item.variant_id) {
-                db.prepare('UPDATE product_variants SET stock = stock + ? WHERE id = ?')
-                  .run(item.quantity, item.variant_id);
+                const variant = db
+                  .prepare("SELECT stock FROM product_variants WHERE id = ?")
+                  .get(item.variant_id);
+                if (
+                  variant &&
+                  variant.stock !== null &&
+                  variant.stock < item.quantity
+                ) {
+                  throw new Error(
+                    `Недостаточно товара на складе: ${item.product_title || item.product_id}`,
+                  );
+                }
               } else if (item.product_id) {
-                db.prepare('UPDATE products SET stock = stock + ? WHERE id = ?')
-                  .run(item.quantity, item.product_id);
+                const product = db
+                  .prepare("SELECT stock, title FROM products WHERE id = ?")
+                  .get(item.product_id);
+                if (
+                  product &&
+                  product.stock !== null &&
+                  product.stock < item.quantity
+                ) {
+                  throw new Error(
+                    `Недостаточно товара на складе: ${product.title || item.product_id}`,
+                  );
+                }
               }
             }
-            updateFields.push('stock_deducted = 0');
+
+            // Теперь списываем сток
+            for (const item of orderItems) {
+              if (item.variant_id) {
+                db.prepare(
+                  "UPDATE product_variants SET stock = stock - ? WHERE id = ?",
+                ).run(item.quantity, item.variant_id);
+              } else if (item.product_id) {
+                db.prepare(
+                  "UPDATE products SET stock = stock - ? WHERE id = ?",
+                ).run(item.quantity, item.product_id);
+              }
+            }
+            updateFields.push("stock_deducted = 1");
           }
-        } else if (desiredStatus !== 'cancelled') {
-          updateFields.push('previous_status = NULL');
-          updateFields.push('cancelled_at = NULL');
-          if (order.status === 'cancelled') {
-            statusChangeNote = 'Заказ восстановлен';
-          }
-        }
 
-        if (['completed', 'delivered'].includes(desiredStatus)) {
-          updateFields.push("completed_at = DATETIME('now')");
-        } else if (order.status === 'completed' || order.status === 'delivered') {
-          updateFields.push('completed_at = NULL');
-        }
-      }
+          if (desiredStatus === "cancelled" && order.status !== "cancelled") {
+            updateFields.push("previous_status = ?");
+            updateValues.push(order.status);
+            updateFields.push("cancelled_at = DATETIME('now')");
+            statusChangeNote = "Заказ отменён";
 
-      if (updateFields.length > 0) {
-        updateFields.push("updated_at = DATETIME('now')");
-        updateValues.push(id);
-        db.prepare(`UPDATE orders SET ${updateFields.join(', ')} WHERE id = ?`).run(...updateValues);
-      }
-
-      if (Array.isArray(items)) {
-        // Возвращаем старый сток ТОЛЬКО если он был ранее списан
-        if (order.stock_deducted) {
-          const oldItems = db.prepare('SELECT * FROM order_items WHERE order_id = ?').all(id);
-          for (const oldItem of oldItems) {
-            if (oldItem.variant_id) {
-              db.prepare('UPDATE product_variants SET stock = stock + ? WHERE id = ?')
-                .run(oldItem.quantity, oldItem.variant_id);
-            } else if (oldItem.product_id) {
-              db.prepare('UPDATE products SET stock = stock + ? WHERE id = ?')
-                .run(oldItem.quantity, oldItem.product_id);
+            // ВОЗВРАТ СТОКА: При отмене заказа, если сток был списан
+            if (order.stock_deducted) {
+              const orderItems = db
+                .prepare("SELECT * FROM order_items WHERE order_id = ?")
+                .all(id);
+              for (const item of orderItems) {
+                if (item.variant_id) {
+                  db.prepare(
+                    "UPDATE product_variants SET stock = stock + ? WHERE id = ?",
+                  ).run(item.quantity, item.variant_id);
+                } else if (item.product_id) {
+                  db.prepare(
+                    "UPDATE products SET stock = stock + ? WHERE id = ?",
+                  ).run(item.quantity, item.product_id);
+                }
+              }
+              updateFields.push("stock_deducted = 0");
+            }
+          } else if (desiredStatus !== "cancelled") {
+            updateFields.push("previous_status = NULL");
+            updateFields.push("cancelled_at = NULL");
+            if (order.status === "cancelled") {
+              statusChangeNote = "Заказ восстановлен";
             }
           }
+
+          if (["completed", "delivered"].includes(desiredStatus)) {
+            updateFields.push("completed_at = DATETIME('now')");
+          } else if (
+            order.status === "completed" ||
+            order.status === "delivered"
+          ) {
+            updateFields.push("completed_at = NULL");
+          }
         }
 
-        db.prepare('DELETE FROM order_items WHERE order_id = ?').run(id);
+        if (updateFields.length > 0) {
+          updateFields.push("updated_at = DATETIME('now')");
+          updateValues.push(id);
+          db.prepare(
+            `UPDATE orders SET ${updateFields.join(", ")} WHERE id = ?`,
+          ).run(...updateValues);
+        }
 
-        let totalAmount = 0;
-        let totalCost = 0;
+        if (Array.isArray(items)) {
+          // Возвращаем старый сток ТОЛЬКО если он был ранее списан
+          if (order.stock_deducted) {
+            const oldItems = db
+              .prepare("SELECT * FROM order_items WHERE order_id = ?")
+              .all(id);
+            for (const oldItem of oldItems) {
+              if (oldItem.variant_id) {
+                db.prepare(
+                  "UPDATE product_variants SET stock = stock + ? WHERE id = ?",
+                ).run(oldItem.quantity, oldItem.variant_id);
+              } else if (oldItem.product_id) {
+                db.prepare(
+                  "UPDATE products SET stock = stock + ? WHERE id = ?",
+                ).run(oldItem.quantity, oldItem.product_id);
+              }
+            }
+          }
 
-        const itemStmt = db.prepare(`
+          db.prepare("DELETE FROM order_items WHERE order_id = ?").run(id);
+
+          let totalAmount = 0;
+          let totalCost = 0;
+
+          const itemStmt = db.prepare(`
           INSERT INTO order_items (
             id, order_id, product_id, variant_id, product_title, base_product_id, base_product_title, quantity,
             price_per_unit, cost_per_unit, discount_amount, total_price, total_cost
           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `);
 
-        for (const item of items) {
-          if (!item || !item.product_id) {
-            throw new Error('invalid_item');
-          }
+          for (const item of items) {
+            if (!item || !item.product_id) {
+              throw new Error("invalid_item");
+            }
 
-          const product = db.prepare('SELECT * FROM products WHERE id = ?').get(item.product_id);
-          if (!product) {
-            throw new Error(`Product not found: ${item.product_id}`);
-          }
+            const product = db
+              .prepare("SELECT * FROM products WHERE id = ?")
+              .get(item.product_id);
+            if (!product) {
+              throw new Error(`Product not found: ${item.product_id}`);
+            }
 
-          const quantity = Number(item.quantity || 0);
-          if (!Number.isFinite(quantity) || quantity <= 0) {
-            throw new Error('invalid_item_quantity');
-          }
+            const quantity = Number(item.quantity || 0);
+            if (!Number.isFinite(quantity) || quantity <= 0) {
+              throw new Error("invalid_item_quantity");
+            }
 
-          const pricePerUnit = Number(
-            item.price_per_unit !== undefined ? item.price_per_unit : product.priceRub
-          );
-          const costPerUnit = Number(product.cost_price || 0);
-          const itemDiscount = Number(item.discount_amount || 0);
+            const pricePerUnit = Number(
+              item.price_per_unit !== undefined
+                ? item.price_per_unit
+                : product.priceRub,
+            );
+            const costPerUnit = Number(product.cost_price || 0);
+            const itemDiscount = Number(item.discount_amount || 0);
 
-          // Проверяем сток ТОЛЬКО если заказ уже был собран (stock_deducted = 1)
-          // Если stock_deducted = 0, сток не будет списываться, проверка не нужна
-          if (order.stock_deducted) {
-            if (item.variant_id) {
-              const variant = db.prepare('SELECT stock FROM product_variants WHERE id = ?').get(item.variant_id);
-              if (!variant) {
-                throw new Error(`Variant not found: ${item.variant_id}`);
+            // Проверяем сток ТОЛЬКО если заказ уже был собран (stock_deducted = 1)
+            // Если stock_deducted = 0, сток не будет списываться, проверка не нужна
+            if (order.stock_deducted) {
+              if (item.variant_id) {
+                const variant = db
+                  .prepare("SELECT stock FROM product_variants WHERE id = ?")
+                  .get(item.variant_id);
+                if (!variant) {
+                  throw new Error(`Variant not found: ${item.variant_id}`);
+                }
+                if (Number(variant.stock || 0) < quantity) {
+                  throw new Error(
+                    `Insufficient stock for variant ${item.variant_id}`,
+                  );
+                }
+              } else {
+                const productStock = Number(product.stock || 0);
+                if (productStock < quantity) {
+                  throw new Error(
+                    `Insufficient stock for ${product.title || product.id}`,
+                  );
+                }
               }
-              if (Number(variant.stock || 0) < quantity) {
-                throw new Error(`Insufficient stock for variant ${item.variant_id}`);
-              }
-            } else {
-              const productStock = Number(product.stock || 0);
-              if (productStock < quantity) {
-                throw new Error(`Insufficient stock for ${product.title || product.id}`);
+            }
+
+            const totalPrice = pricePerUnit * quantity - itemDiscount;
+            const totalItemCost = costPerUnit * quantity;
+
+            totalAmount += pricePerUnit * quantity;
+            totalCost += totalItemCost;
+
+            itemStmt.run(
+              generateId("oi"),
+              id,
+              item.product_id,
+              item.variant_id || null,
+              product.title || "Без названия",
+              product.base_product_id || null,
+              product.base_product_title || null,
+              quantity,
+              pricePerUnit,
+              costPerUnit,
+              itemDiscount,
+              totalPrice,
+              totalItemCost,
+            );
+
+            // Списываем сток ТОЛЬКО если заказ уже был собран (stock_deducted = 1)
+            if (order.stock_deducted) {
+              if (item.variant_id) {
+                db.prepare(
+                  "UPDATE product_variants SET stock = stock - ? WHERE id = ?",
+                ).run(quantity, item.variant_id);
+              } else {
+                db.prepare(
+                  "UPDATE products SET stock = stock - ? WHERE id = ?",
+                ).run(quantity, item.product_id);
               }
             }
           }
 
-          const totalPrice = (pricePerUnit * quantity) - itemDiscount;
-          const totalItemCost = costPerUnit * quantity;
-
-          totalAmount += pricePerUnit * quantity;
-          totalCost += totalItemCost;
-
-          itemStmt.run(
-            generateId('oi'),
-            id,
-            item.product_id,
-            item.variant_id || null,
-            product.title || 'Без названия',
-            product.base_product_id || null,
-            product.base_product_title || null,
-            quantity,
-            pricePerUnit,
-            costPerUnit,
-            itemDiscount,
-            totalPrice,
-            totalItemCost
+          const finalAmount = applyDiscounts(
+            totalAmount,
+            updatedDiscountAmount,
+            updatedDiscountPercent,
           );
+          const profit = finalAmount - totalCost;
 
-          // Списываем сток ТОЛЬКО если заказ уже был собран (stock_deducted = 1)
-          if (order.stock_deducted) {
-            if (item.variant_id) {
-              db.prepare('UPDATE product_variants SET stock = stock - ? WHERE id = ?')
-                .run(quantity, item.variant_id);
-            } else {
-              db.prepare('UPDATE products SET stock = stock - ? WHERE id = ?')
-                .run(quantity, item.product_id);
-            }
-          }
-        }
-
-        const finalAmount = applyDiscounts(totalAmount, updatedDiscountAmount, updatedDiscountPercent);
-        const profit = finalAmount - totalCost;
-
-        db.prepare(`
+          db.prepare(
+            `
           UPDATE orders
           SET total_amount = ?, final_amount = ?, profit = ?,
               discount_amount = ?, discount_percent = ?, updated_at = DATETIME('now')
           WHERE id = ?
-        `).run(totalAmount, finalAmount, profit, updatedDiscountAmount, updatedDiscountPercent, id);
-      } else if (shouldUpdateDiscount) {
-        const totalAmount = Number(order.total_amount || 0);
-        const costBase = Number(order.final_amount || 0) - Number(order.profit || 0);
-        const finalAmount = applyDiscounts(totalAmount, updatedDiscountAmount, updatedDiscountPercent);
-        const profit = finalAmount - costBase;
+        `,
+          ).run(
+            totalAmount,
+            finalAmount,
+            profit,
+            updatedDiscountAmount,
+            updatedDiscountPercent,
+            id,
+          );
+        } else if (shouldUpdateDiscount) {
+          const totalAmount = Number(order.total_amount || 0);
+          const costBase =
+            Number(order.final_amount || 0) - Number(order.profit || 0);
+          const finalAmount = applyDiscounts(
+            totalAmount,
+            updatedDiscountAmount,
+            updatedDiscountPercent,
+          );
+          const profit = finalAmount - costBase;
 
-        db.prepare(`
+          db.prepare(
+            `
           UPDATE orders
           SET discount_amount = ?, discount_percent = ?, final_amount = ?, profit = ?, updated_at = DATETIME('now')
           WHERE id = ?
-        `).run(updatedDiscountAmount, updatedDiscountPercent, finalAmount, profit, id);
+        `,
+          ).run(
+            updatedDiscountAmount,
+            updatedDiscountPercent,
+            finalAmount,
+            profit,
+            id,
+          );
+        }
+      });
+
+      tx();
+
+      const updated = db.prepare("SELECT * FROM orders WHERE id = ?").get(id);
+      const updatedItems = db
+        .prepare("SELECT * FROM order_items WHERE order_id = ?")
+        .all(id);
+
+      if (updated.status !== order.status) {
+        recordStatusChange(
+          id,
+          order.status,
+          updated.status,
+          statusChangeNote || "Изменение статуса",
+        );
       }
-    });
 
-    tx();
+      res.json({ ...updated, items: updatedItems });
+    } catch (error) {
+      console.error("[crm] Update order error:", error);
+      const clientErrors = new Set([
+        "invalid_payment_type",
+        "invalid_status",
+        "invalid_paid_amount",
+        "invalid_item",
+        "invalid_item_quantity",
+        "invalid_quantity",
+        "invalid_cost",
+        "items_required",
+      ]);
 
-    const updated = db.prepare('SELECT * FROM orders WHERE id = ?').get(id);
-    const updatedItems = db.prepare('SELECT * FROM order_items WHERE order_id = ?').all(id);
+      // Проверяем клиентские ошибки (которые должны вернуть 400, а не 500)
+      const isClientError =
+        clientErrors.has(error.message) ||
+        error.message.startsWith("Недостаточно товара") ||
+        error.message.startsWith("Insufficient stock") ||
+        error.message.startsWith("Product not found") ||
+        error.message.startsWith("Variant not found");
 
-    if (updated.status !== order.status) {
-      recordStatusChange(id, order.status, updated.status, statusChangeNote || 'Изменение статуса');
+      if (isClientError) {
+        return res.status(400).json({ error: error.message });
+      }
+      res.status(500).json({ error: "failed", message: error.message });
     }
-
-    res.json({ ...updated, items: updatedItems });
-  } catch (error) {
-    console.error('[crm] Update order error:', error);
-    const clientErrors = new Set([
-      'invalid_payment_type',
-      'invalid_status',
-      'invalid_paid_amount',
-      'invalid_item',
-      'invalid_item_quantity',
-      'invalid_quantity',
-      'invalid_cost',
-      'items_required'
-    ]);
-    
-    // Проверяем клиентские ошибки (которые должны вернуть 400, а не 500)
-    const isClientError = clientErrors.has(error.message) || 
-      error.message.startsWith('Недостаточно товара') ||
-      error.message.startsWith('Insufficient stock') ||
-      error.message.startsWith('Product not found') ||
-      error.message.startsWith('Variant not found');
-    
-    if (isClientError) {
-      return res.status(400).json({ error: error.message });
-    }
-    res.status(500).json({ error: 'failed', message: error.message });
-  }
-});
+  },
+);
 
 // Выдача заказа с фиксацией оплаты
-crmOperationsRouter.post('/api/admin/crm/orders/:id/issue', authMiddleware, (req, res) => {
-  try {
-    const { id } = req.params;
-    const { payment_type, payment_account_id, amount, payment_notes } = req.body;
+crmOperationsRouter.post(
+  "/api/admin/crm/orders/:id/issue",
+  authMiddleware,
+  (req, res) => {
+    try {
+      const { id } = req.params;
+      const { payment_type, payment_account_id, amount, payment_notes } =
+        req.body;
 
-    if (!payment_type || payment_type !== 'cash') {
-      return res.status(400).json({ error: 'invalid_payment_type' });
-    }
+      if (!payment_type || payment_type !== "cash") {
+        return res.status(400).json({ error: "invalid_payment_type" });
+      }
 
-    if (!payment_account_id) {
-      return res.status(400).json({ error: 'payment_account_required' });
-    }
+      if (!payment_account_id) {
+        return res.status(400).json({ error: "payment_account_required" });
+      }
 
-    const parsedAmount = Number(amount);
-    if (!parsedAmount || parsedAmount <= 0) {
-      return res.status(400).json({ error: 'invalid_amount' });
-    }
+      const parsedAmount = Number(amount);
+      if (!parsedAmount || parsedAmount <= 0) {
+        return res.status(400).json({ error: "invalid_amount" });
+      }
 
-    const order = db.prepare('SELECT * FROM orders WHERE id = ?').get(id);
-    if (!order) {
-      return res.status(404).json({ error: 'not_found' });
-    }
+      const order = db.prepare("SELECT * FROM orders WHERE id = ?").get(id);
+      if (!order) {
+        return res.status(404).json({ error: "not_found" });
+      }
 
-    if (order.status !== 'in_progress' && order.status !== 'completed') {
-      return res.status(400).json({ error: 'invalid_status_state' });
-    }
+      if (order.status !== "in_progress" && order.status !== "completed") {
+        return res.status(400).json({ error: "invalid_status_state" });
+      }
 
-    if (order.paid_amount && Number(order.paid_amount) > 0) {
-      return res.status(400).json({ error: 'already_paid' });
-    }
+      if (order.paid_amount && Number(order.paid_amount) > 0) {
+        return res.status(400).json({ error: "already_paid" });
+      }
 
-    const account = db.prepare('SELECT * FROM cash_accounts WHERE id = ?').get(payment_account_id);
-    if (!account) {
-      return res.status(404).json({ error: 'account_not_found' });
-    }
+      const account = db
+        .prepare("SELECT * FROM cash_accounts WHERE id = ?")
+        .get(payment_account_id);
+      if (!account) {
+        return res.status(404).json({ error: "account_not_found" });
+      }
 
-    const description = `Оплата заказа #${order.order_number} (наличные)`;
-    const transactionId = generateId('trans');
-    const previousStatus = order.status;
+      const description = `Оплата заказа #${order.order_number} (наличные)`;
+      const transactionId = generateId("trans");
+      const previousStatus = order.status;
 
-    const tx = db.transaction(() => {
-      const completedAt = new Date().toISOString();
-      db.prepare(`
+      const tx = db.transaction(() => {
+        const completedAt = new Date().toISOString();
+        db.prepare(
+          `
         UPDATE orders
         SET status = 'delivered',
             previous_status = ?,
@@ -814,20 +1030,34 @@ crmOperationsRouter.post('/api/admin/crm/orders/:id/issue', authMiddleware, (req
             completed_at = ?,
             updated_at = DATETIME('now')
         WHERE id = ?
-      `).run(previousStatus, payment_type, payment_account_id, parsedAmount, payment_notes || null, completedAt, id);
+      `,
+        ).run(
+          previousStatus,
+          payment_type,
+          payment_account_id,
+          parsedAmount,
+          payment_notes || null,
+          completedAt,
+          id,
+        );
 
-      db.prepare(`
+        db.prepare(
+          `
         INSERT INTO cash_transactions (id, account_id, type, amount, description, order_id)
         VALUES (?, ?, 'income', ?, ?, ?)
-      `).run(transactionId, payment_account_id, parsedAmount, description, id);
+      `,
+        ).run(transactionId, payment_account_id, parsedAmount, description, id);
 
-      db.prepare('UPDATE cash_accounts SET balance = balance + ? WHERE id = ?')
-        .run(parsedAmount, payment_account_id);
-    });
+        db.prepare(
+          "UPDATE cash_accounts SET balance = balance + ? WHERE id = ?",
+        ).run(parsedAmount, payment_account_id);
+      });
 
-    tx();
+      tx();
 
-    const updatedOrder = db.prepare(`
+      const updatedOrder = db
+        .prepare(
+          `
       SELECT 
         o.*,
         c.telegram_username,
@@ -835,64 +1065,86 @@ crmOperationsRouter.post('/api/admin/crm/orders/:id/issue', authMiddleware, (req
       FROM orders o
       LEFT JOIN customers c ON c.id = o.customer_id
       WHERE o.id = ?
-    `).get(id);
+    `,
+        )
+        .get(id);
 
-    const transaction = db.prepare(`
+      const transaction = db
+        .prepare(
+          `
       SELECT 
         ct.*,
         ca.name as account_name
       FROM cash_transactions ct
       JOIN cash_accounts ca ON ca.id = ct.account_id
       WHERE ct.id = ?
-    `).get(transactionId);
+    `,
+        )
+        .get(transactionId);
 
-    recordStatusChange(id, previousStatus, updatedOrder.status, 'Выдача заказа');
+      recordStatusChange(
+        id,
+        previousStatus,
+        updatedOrder.status,
+        "Выдача заказа",
+      );
 
-    res.json({ order: updatedOrder, transaction });
-  } catch (error) {
-    console.error('[crm] Issue order error:', error);
-    res.status(500).json({ error: 'failed', message: error.message });
-  }
-});
+      res.json({ order: updatedOrder, transaction });
+    } catch (error) {
+      console.error("[crm] Issue order error:", error);
+      res.status(500).json({ error: "failed", message: error.message });
+    }
+  },
+);
 
 // Удаление оплаты заказа
-crmOperationsRouter.delete('/api/admin/crm/orders/:id/payment', authMiddleware, (req, res) => {
-  try {
-    const { id } = req.params;
+crmOperationsRouter.delete(
+  "/api/admin/crm/orders/:id/payment",
+  authMiddleware,
+  (req, res) => {
+    try {
+      const { id } = req.params;
 
-    const order = db.prepare('SELECT * FROM orders WHERE id = ?').get(id);
-    if (!order) {
-      return res.status(404).json({ error: 'not_found' });
-    }
-
-    if (!order.paid_amount || Number(order.paid_amount) <= 0) {
-      return res.status(400).json({ error: 'payment_not_found' });
-    }
-
-    const transactions = db.prepare('SELECT * FROM cash_transactions WHERE order_id = ?').all(id);
-
-    if (!transactions.length) {
-      return res.status(400).json({ error: 'transaction_not_found' });
-    }
-
-    const restoredStatus = order.previous_status || 'in_progress';
-
-    const tx = db.transaction(() => {
-      for (const transaction of transactions) {
-        db.prepare('DELETE FROM cash_transactions WHERE id = ?').run(transaction.id);
-
-        if (transaction.account_id && transaction.amount) {
-          if (transaction.type === 'income') {
-            db.prepare('UPDATE cash_accounts SET balance = balance - ? WHERE id = ?')
-              .run(transaction.amount, transaction.account_id);
-          } else if (transaction.type === 'expense') {
-            db.prepare('UPDATE cash_accounts SET balance = balance + ? WHERE id = ?')
-              .run(transaction.amount, transaction.account_id);
-          }
-        }
+      const order = db.prepare("SELECT * FROM orders WHERE id = ?").get(id);
+      if (!order) {
+        return res.status(404).json({ error: "not_found" });
       }
 
-      db.prepare(`
+      if (!order.paid_amount || Number(order.paid_amount) <= 0) {
+        return res.status(400).json({ error: "payment_not_found" });
+      }
+
+      const transactions = db
+        .prepare("SELECT * FROM cash_transactions WHERE order_id = ?")
+        .all(id);
+
+      if (!transactions.length) {
+        return res.status(400).json({ error: "transaction_not_found" });
+      }
+
+      const restoredStatus = order.previous_status || "in_progress";
+
+      const tx = db.transaction(() => {
+        for (const transaction of transactions) {
+          db.prepare("DELETE FROM cash_transactions WHERE id = ?").run(
+            transaction.id,
+          );
+
+          if (transaction.account_id && transaction.amount) {
+            if (transaction.type === "income") {
+              db.prepare(
+                "UPDATE cash_accounts SET balance = balance - ? WHERE id = ?",
+              ).run(transaction.amount, transaction.account_id);
+            } else if (transaction.type === "expense") {
+              db.prepare(
+                "UPDATE cash_accounts SET balance = balance + ? WHERE id = ?",
+              ).run(transaction.amount, transaction.account_id);
+            }
+          }
+        }
+
+        db.prepare(
+          `
         UPDATE orders
         SET status = ?,
             payment_type = NULL,
@@ -904,433 +1156,611 @@ crmOperationsRouter.delete('/api/admin/crm/orders/:id/payment', authMiddleware, 
             completed_at = NULL,
             updated_at = DATETIME('now')
         WHERE id = ?
-      `).run(restoredStatus, id);
-    });
+      `,
+        ).run(restoredStatus, id);
+      });
 
-    tx();
+      tx();
 
-    const updatedOrder = db.prepare('SELECT * FROM orders WHERE id = ?').get(id);
-    const updatedItems = db.prepare('SELECT * FROM order_items WHERE order_id = ?').all(id);
+      const updatedOrder = db
+        .prepare("SELECT * FROM orders WHERE id = ?")
+        .get(id);
+      const updatedItems = db
+        .prepare("SELECT * FROM order_items WHERE order_id = ?")
+        .all(id);
 
-    recordStatusChange(id, order.status, updatedOrder.status, 'Оплата отменена');
+      recordStatusChange(
+        id,
+        order.status,
+        updatedOrder.status,
+        "Оплата отменена",
+      );
 
-    res.json({ ...updatedOrder, items: updatedItems });
-  } catch (error) {
-    console.error('[crm] Remove order payment error:', error);
-    res.status(500).json({ error: 'failed', message: error.message });
-  }
-});
+      res.json({ ...updatedOrder, items: updatedItems });
+    } catch (error) {
+      console.error("[crm] Remove order payment error:", error);
+      res.status(500).json({ error: "failed", message: error.message });
+    }
+  },
+);
 
 // =========================
 // PROCUREMENTS (Закупки)
 // =========================
-crmOperationsRouter.get('/api/admin/crm/procurements', authMiddleware, (req, res) => {
-  try {
-    const procurements = db.prepare(`
+crmOperationsRouter.get(
+  "/api/admin/crm/procurements",
+  authMiddleware,
+  (req, res) => {
+    try {
+      const procurements = db
+        .prepare(
+          `
       SELECT p.*, e.first_name || ' ' || e.last_name as employee_name
       FROM procurements p
       LEFT JOIN employees e ON e.id = p.employee_id
       ORDER BY p.created_at DESC
-    `).all();
+    `,
+        )
+        .all();
 
-    res.json(procurements);
-  } catch (error) {
-    console.error('[crm] Get procurements error:', error);
-    res.status(500).json({ error: 'failed', message: error.message });
-  }
-});
-
-crmOperationsRouter.get('/api/admin/crm/procurements/:id', authMiddleware, (req, res) => {
-  try {
-    const { id } = req.params;
-    
-    const procurement = db.prepare('SELECT * FROM procurements WHERE id = ?').get(id);
-    if (!procurement) {
-      return res.status(404).json({ error: 'not_found' });
+      res.json(procurements);
+    } catch (error) {
+      console.error("[crm] Get procurements error:", error);
+      res.status(500).json({ error: "failed", message: error.message });
     }
+  },
+);
 
-    const items = db.prepare(`
-      SELECT pi.*, p.title as product_title, p.stock, p.min_stock
+crmOperationsRouter.get(
+  "/api/admin/crm/procurements/:id",
+  authMiddleware,
+  (req, res) => {
+    try {
+      const { id } = req.params;
+
+      const procurement = db
+        .prepare("SELECT * FROM procurements WHERE id = ?")
+        .get(id);
+      if (!procurement) {
+        return res.status(404).json({ error: "not_found" });
+      }
+
+      const items = db
+        .prepare(
+          `
+      SELECT pi.*, p.title as product_title, p.stock, p.min_stock, cg.name as group_name
       FROM procurement_items pi
       JOIN products p ON p.id = pi.product_id
+      LEFT JOIN category_groups cg ON cg.id = p.group_id
       WHERE pi.procurement_id = ?
-    `).all(id);
+    `,
+        )
+        .all(id);
 
-    res.json({ ...procurement, items });
-  } catch (error) {
-    console.error('[crm] Get procurement error:', error);
-    res.status(500).json({ error: 'failed', message: error.message });
-  }
-});
+      res.json({ ...procurement, items });
+    } catch (error) {
+      console.error("[crm] Get procurement error:", error);
+      res.status(500).json({ error: "failed", message: error.message });
+    }
+  },
+);
 
 // Создание закупки
-crmOperationsRouter.post('/api/admin/crm/procurements', authMiddleware, (req, res) => {
-  try {
-    const { supplier_name, items, notes } = req.body;
+crmOperationsRouter.post(
+  "/api/admin/crm/procurements",
+  authMiddleware,
+  (req, res) => {
+    try {
+      const { supplier_name, items, notes } = req.body;
 
-    if (!Array.isArray(items) || items.length === 0) {
-      return res.status(400).json({ error: 'items_required' });
-    }
+      if (!Array.isArray(items) || items.length === 0) {
+        return res.status(400).json({ error: "items_required" });
+      }
 
-    const procurementId = generateId('proc');
-    const procurementNumber = getNextNumber('procurements', 'procurement_number');
+      const procurementId = generateId("proc");
+      const procurementNumber = getNextNumber(
+        "procurements",
+        "procurement_number",
+      );
 
-    let totalAmount = 0;
+      let totalAmount = 0;
 
-    const tx = db.transaction(() => {
-      // Создаем закупку
-      db.prepare(`
+      const tx = db.transaction(() => {
+        // Создаем закупку
+        db.prepare(
+          `
         INSERT INTO procurements (id, procurement_number, supplier_name, total_amount, status, notes)
         VALUES (?, ?, ?, 0, 'draft', ?)
-      `).run(procurementId, procurementNumber, supplier_name || null, notes || null);
-
-      // Добавляем позиции
-      for (const item of items) {
-        const product = db.prepare('SELECT * FROM products WHERE id = ?').get(item.product_id);
-        if (!product) {
-          throw new Error(`Product not found: ${item.product_id}`);
-        }
-
-        const totalCost = item.quantity * item.cost_per_unit;
-        totalAmount += totalCost;
-
-        db.prepare(`
-          INSERT INTO procurement_items (id, procurement_id, product_id, quantity, cost_per_unit, total_cost)
-          VALUES (?, ?, ?, ?, ?, ?)
-        `).run(generateId('pi'), procurementId, item.product_id, item.quantity, item.cost_per_unit, totalCost);
-      }
-
-      // Обновляем общую сумму
-      db.prepare('UPDATE procurements SET total_amount = ? WHERE id = ?').run(totalAmount, procurementId);
-    });
-
-    tx();
-
-    const procurement = db.prepare('SELECT * FROM procurements WHERE id = ?').get(procurementId);
-    const procurementItems = db.prepare(`
-      SELECT pi.*, p.title as product_title
-      FROM procurement_items pi
-      JOIN products p ON p.id = pi.product_id
-      WHERE pi.procurement_id = ?
-    `).all(procurementId);
-
-    res.json({ ...procurement, items: procurementItems });
-  } catch (error) {
-    console.error('[crm] Create procurement error:', error);
-    res.status(500).json({ error: 'failed', message: error.message });
-  }
-});
-
-// Обновление черновика закупки
-crmOperationsRouter.patch('/api/admin/crm/procurements/:id', authMiddleware, (req, res) => {
-  try {
-    const { id } = req.params;
-    const { supplier_name, notes, items } = req.body || {};
-
-    const procurement = db.prepare('SELECT * FROM procurements WHERE id = ?').get(id);
-    if (!procurement) {
-      return res.status(404).json({ error: 'not_found' });
-    }
-
-    if (procurement.status !== 'draft') {
-      return res.status(400).json({ error: 'edit_not_allowed' });
-    }
-
-    const tx = db.transaction(() => {
-      if (supplier_name !== undefined || notes !== undefined) {
-        db.prepare(`
-          UPDATE procurements
-          SET supplier_name = ?, notes = ?
-          WHERE id = ?
-        `).run(
-          supplier_name !== undefined ? supplier_name || null : procurement.supplier_name,
-          notes !== undefined ? notes || null : procurement.notes,
-          id
+      `,
+        ).run(
+          procurementId,
+          procurementNumber,
+          supplier_name || null,
+          notes || null,
         );
-      }
 
-      if (Array.isArray(items)) {
-        if (items.length === 0) {
-          throw new Error('items_required');
-        }
-
-        db.prepare('DELETE FROM procurement_items WHERE procurement_id = ?').run(id);
-
-        let totalAmount = 0;
-        const itemStmt = db.prepare(`
-          INSERT INTO procurement_items (id, procurement_id, product_id, quantity, cost_per_unit, total_cost)
-          VALUES (?, ?, ?, ?, ?, ?)
-        `);
-
+        // Добавляем позиции
         for (const item of items) {
-          if (!item || !item.product_id) {
-            throw new Error('invalid_item');
-          }
-
-          const product = db.prepare('SELECT * FROM products WHERE id = ?').get(item.product_id);
+          const product = db
+            .prepare("SELECT * FROM products WHERE id = ?")
+            .get(item.product_id);
           if (!product) {
             throw new Error(`Product not found: ${item.product_id}`);
           }
 
-          const quantity = Number(item.quantity || 0);
-          const costPerUnit = Number(item.cost_per_unit || 0);
-
-          if (!Number.isFinite(quantity) || quantity <= 0) {
-            throw new Error('invalid_quantity');
-          }
-
-          if (!Number.isFinite(costPerUnit) || costPerUnit < 0) {
-            throw new Error('invalid_cost');
-          }
-
-          const totalCost = costPerUnit * quantity;
+          const totalCost = item.quantity * item.cost_per_unit;
           totalAmount += totalCost;
 
-          itemStmt.run(generateId('pi'), id, item.product_id, quantity, costPerUnit, totalCost);
+          db.prepare(
+            `
+          INSERT INTO procurement_items (id, procurement_id, product_id, quantity, cost_per_unit, total_cost)
+          VALUES (?, ?, ?, ?, ?, ?)
+        `,
+          ).run(
+            generateId("pi"),
+            procurementId,
+            item.product_id,
+            item.quantity,
+            item.cost_per_unit,
+            totalCost,
+          );
         }
 
-        db.prepare('UPDATE procurements SET total_amount = ? WHERE id = ?')
-          .run(totalAmount, id);
-      }
-    });
+        // Обновляем общую сумму
+        db.prepare("UPDATE procurements SET total_amount = ? WHERE id = ?").run(
+          totalAmount,
+          procurementId,
+        );
+      });
 
-    tx();
+      tx();
 
-    const updated = db.prepare('SELECT * FROM procurements WHERE id = ?').get(id);
-    const updatedItems = db.prepare(`
-      SELECT pi.*, p.title as product_title, p.stock, p.min_stock
+      const procurement = db
+        .prepare("SELECT * FROM procurements WHERE id = ?")
+        .get(procurementId);
+      const procurementItems = db
+        .prepare(
+          `
+      SELECT pi.*, p.title as product_title, cg.name as group_name
       FROM procurement_items pi
       JOIN products p ON p.id = pi.product_id
+      LEFT JOIN category_groups cg ON cg.id = p.group_id
       WHERE pi.procurement_id = ?
-    `).all(id);
+    `,
+        )
+        .all(procurementId);
 
-    res.json({ ...updated, items: updatedItems });
-  } catch (error) {
-    console.error('[crm] Update procurement error:', error);
-    const clientErrors = new Set([
-      'items_required',
-      'invalid_item',
-      'invalid_quantity',
-      'invalid_cost',
-      'edit_not_allowed'
-    ]);
-    if (clientErrors.has(error.message)) {
-      return res.status(400).json({ error: error.message });
+      res.json({ ...procurement, items: procurementItems });
+    } catch (error) {
+      console.error("[crm] Create procurement error:", error);
+      res.status(500).json({ error: "failed", message: error.message });
     }
-    res.status(500).json({ error: 'failed', message: error.message });
-  }
-});
+  },
+);
 
-// Удаление закупки
-crmOperationsRouter.delete('/api/admin/crm/procurements/:id', authMiddleware, (req, res) => {
-  try {
-    const { id } = req.params;
+// Обновление черновика закупки
+crmOperationsRouter.patch(
+  "/api/admin/crm/procurements/:id",
+  authMiddleware,
+  (req, res) => {
+    try {
+      const { id } = req.params;
+      const { supplier_name, notes, items } = req.body || {};
 
-    const procurement = db.prepare('SELECT * FROM procurements WHERE id = ?').get(id);
-    if (!procurement) {
-      return res.status(404).json({ error: 'not_found' });
-    }
+      const procurement = db
+        .prepare("SELECT * FROM procurements WHERE id = ?")
+        .get(id);
+      if (!procurement) {
+        return res.status(404).json({ error: "not_found" });
+      }
 
-    const items = db.prepare('SELECT * FROM procurement_items WHERE procurement_id = ?').all(id);
+      if (procurement.status !== "draft") {
+        return res.status(400).json({ error: "edit_not_allowed" });
+      }
 
-    const tx = db.transaction(() => {
-      if (procurement.status === 'completed') {
-        for (const item of items) {
-          const product = db.prepare('SELECT * FROM products WHERE id = ?').get(item.product_id);
-          if (!product) {
-            continue;
-          }
-
-          const currentStock = Number(product.stock || 0);
-          const quantity = Number(item.quantity || 0);
-          const costPerUnit = Number(item.cost_per_unit || 0);
-
-          if (currentStock < quantity) {
-            throw new Error(`insufficient_stock_to_rollback:${product.id}`);
-          }
-
-          const previousStock = currentStock - quantity;
-          let previousCost = 0;
-          if (previousStock > 0) {
-            const currentCost = Number(product.cost_price || 0);
-            previousCost = ((currentCost * currentStock) - (quantity * costPerUnit)) / previousStock;
-            if (previousCost < 0) {
-              previousCost = 0;
-            }
-          }
-
-          db.prepare(`UPDATE products SET stock = stock - ?, cost_price = ? WHERE id = ?`)
-            .run(quantity, previousStock > 0 ? previousCost : 0, item.product_id);
+      const tx = db.transaction(() => {
+        if (supplier_name !== undefined || notes !== undefined) {
+          db.prepare(
+            `
+          UPDATE procurements
+          SET supplier_name = ?, notes = ?
+          WHERE id = ?
+        `,
+          ).run(
+            supplier_name !== undefined
+              ? supplier_name || null
+              : procurement.supplier_name,
+            notes !== undefined ? notes || null : procurement.notes,
+            id,
+          );
         }
 
-        if (procurement.expense_transaction_id) {
-          const transaction = db.prepare('SELECT * FROM cash_transactions WHERE id = ?').get(procurement.expense_transaction_id);
-          if (transaction) {
-            db.prepare('DELETE FROM cash_transactions WHERE id = ?').run(transaction.id);
-            if (transaction.account_id && transaction.amount) {
-              if (transaction.type === 'expense') {
-                db.prepare('UPDATE cash_accounts SET balance = balance + ? WHERE id = ?')
-                  .run(transaction.amount, transaction.account_id);
-              } else if (transaction.type === 'income') {
-                db.prepare('UPDATE cash_accounts SET balance = balance - ? WHERE id = ?')
-                  .run(transaction.amount, transaction.account_id);
+        if (Array.isArray(items)) {
+          if (items.length === 0) {
+            throw new Error("items_required");
+          }
+
+          db.prepare(
+            "DELETE FROM procurement_items WHERE procurement_id = ?",
+          ).run(id);
+
+          let totalAmount = 0;
+          const itemStmt = db.prepare(`
+          INSERT INTO procurement_items (id, procurement_id, product_id, quantity, cost_per_unit, total_cost)
+          VALUES (?, ?, ?, ?, ?, ?)
+        `);
+
+          for (const item of items) {
+            if (!item || !item.product_id) {
+              throw new Error("invalid_item");
+            }
+
+            const product = db
+              .prepare("SELECT * FROM products WHERE id = ?")
+              .get(item.product_id);
+            if (!product) {
+              throw new Error(`Product not found: ${item.product_id}`);
+            }
+
+            const quantity = Number(item.quantity || 0);
+            const costPerUnit = Number(item.cost_per_unit || 0);
+
+            if (!Number.isFinite(quantity) || quantity <= 0) {
+              throw new Error("invalid_quantity");
+            }
+
+            if (!Number.isFinite(costPerUnit) || costPerUnit < 0) {
+              throw new Error("invalid_cost");
+            }
+
+            const totalCost = costPerUnit * quantity;
+            totalAmount += totalCost;
+
+            itemStmt.run(
+              generateId("pi"),
+              id,
+              item.product_id,
+              quantity,
+              costPerUnit,
+              totalCost,
+            );
+          }
+
+          db.prepare(
+            "UPDATE procurements SET total_amount = ? WHERE id = ?",
+          ).run(totalAmount, id);
+        }
+      });
+
+      tx();
+
+      const updated = db
+        .prepare("SELECT * FROM procurements WHERE id = ?")
+        .get(id);
+      const updatedItems = db
+        .prepare(
+          `
+      SELECT pi.*, p.title as product_title, p.stock, p.min_stock, cg.name as group_name
+      FROM procurement_items pi
+      JOIN products p ON p.id = pi.product_id
+      LEFT JOIN category_groups cg ON cg.id = p.group_id
+      WHERE pi.procurement_id = ?
+    `,
+        )
+        .all(id);
+
+      res.json({ ...updated, items: updatedItems });
+    } catch (error) {
+      console.error("[crm] Update procurement error:", error);
+      const clientErrors = new Set([
+        "items_required",
+        "invalid_item",
+        "invalid_quantity",
+        "invalid_cost",
+        "edit_not_allowed",
+      ]);
+      if (clientErrors.has(error.message)) {
+        return res.status(400).json({ error: error.message });
+      }
+      res.status(500).json({ error: "failed", message: error.message });
+    }
+  },
+);
+
+// Удаление закупки
+crmOperationsRouter.delete(
+  "/api/admin/crm/procurements/:id",
+  authMiddleware,
+  (req, res) => {
+    try {
+      const { id } = req.params;
+
+      const procurement = db
+        .prepare("SELECT * FROM procurements WHERE id = ?")
+        .get(id);
+      if (!procurement) {
+        return res.status(404).json({ error: "not_found" });
+      }
+
+      const items = db
+        .prepare("SELECT * FROM procurement_items WHERE procurement_id = ?")
+        .all(id);
+
+      const tx = db.transaction(() => {
+        if (procurement.status === "completed") {
+          for (const item of items) {
+            const product = db
+              .prepare("SELECT * FROM products WHERE id = ?")
+              .get(item.product_id);
+            if (!product) {
+              continue;
+            }
+
+            const currentStock = Number(product.stock || 0);
+            const quantity = Number(item.quantity || 0);
+            const costPerUnit = Number(item.cost_per_unit || 0);
+
+            if (currentStock < quantity) {
+              throw new Error(`insufficient_stock_to_rollback:${product.id}`);
+            }
+
+            const previousStock = currentStock - quantity;
+            let previousCost = 0;
+            if (previousStock > 0) {
+              const currentCost = Number(product.cost_price || 0);
+              previousCost =
+                (currentCost * currentStock - quantity * costPerUnit) /
+                previousStock;
+              if (previousCost < 0) {
+                previousCost = 0;
+              }
+            }
+
+            db.prepare(
+              `UPDATE products SET stock = stock - ?, cost_price = ? WHERE id = ?`,
+            ).run(
+              quantity,
+              previousStock > 0 ? previousCost : 0,
+              item.product_id,
+            );
+          }
+
+          if (procurement.expense_transaction_id) {
+            const transaction = db
+              .prepare("SELECT * FROM cash_transactions WHERE id = ?")
+              .get(procurement.expense_transaction_id);
+            if (transaction) {
+              db.prepare("DELETE FROM cash_transactions WHERE id = ?").run(
+                transaction.id,
+              );
+              if (transaction.account_id && transaction.amount) {
+                if (transaction.type === "expense") {
+                  db.prepare(
+                    "UPDATE cash_accounts SET balance = balance + ? WHERE id = ?",
+                  ).run(transaction.amount, transaction.account_id);
+                } else if (transaction.type === "income") {
+                  db.prepare(
+                    "UPDATE cash_accounts SET balance = balance - ? WHERE id = ?",
+                  ).run(transaction.amount, transaction.account_id);
+                }
               }
             }
           }
         }
+
+        db.prepare(
+          "DELETE FROM procurement_items WHERE procurement_id = ?",
+        ).run(id);
+        db.prepare("DELETE FROM procurements WHERE id = ?").run(id);
+      });
+
+      tx();
+
+      res.json({ ok: true });
+    } catch (error) {
+      console.error("[crm] Delete procurement error:", error);
+      if (
+        error.message &&
+        error.message.startsWith("insufficient_stock_to_rollback")
+      ) {
+        return res.status(400).json({ error: error.message });
       }
-
-      db.prepare('DELETE FROM procurement_items WHERE procurement_id = ?').run(id);
-      db.prepare('DELETE FROM procurements WHERE id = ?').run(id);
-    });
-
-    tx();
-
-    res.json({ ok: true });
-  } catch (error) {
-    console.error('[crm] Delete procurement error:', error);
-    if (error.message && error.message.startsWith('insufficient_stock_to_rollback')) {
-      return res.status(400).json({ error: error.message });
+      res.status(500).json({ error: "failed", message: error.message });
     }
-    res.status(500).json({ error: 'failed', message: error.message });
-  }
-});
+  },
+);
 
 // Удаление оплаты по закупке
-crmOperationsRouter.delete('/api/admin/crm/procurements/:id/payment', authMiddleware, (req, res) => {
-  try {
-    const { id } = req.params;
+crmOperationsRouter.delete(
+  "/api/admin/crm/procurements/:id/payment",
+  authMiddleware,
+  (req, res) => {
+    try {
+      const { id } = req.params;
 
-    const procurement = db.prepare('SELECT * FROM procurements WHERE id = ?').get(id);
-    if (!procurement) {
-      return res.status(404).json({ error: 'not_found' });
-    }
-
-    if (!procurement.expense_transaction_id) {
-      return res.status(400).json({ error: 'payment_not_found' });
-    }
-
-    const transaction = db.prepare('SELECT * FROM cash_transactions WHERE id = ?').get(procurement.expense_transaction_id);
-
-    const tx = db.transaction(() => {
-      if (transaction) {
-        db.prepare('DELETE FROM cash_transactions WHERE id = ?').run(transaction.id);
-        if (transaction.account_id && transaction.amount) {
-          if (transaction.type === 'expense') {
-            db.prepare('UPDATE cash_accounts SET balance = balance + ? WHERE id = ?')
-              .run(transaction.amount, transaction.account_id);
-          } else if (transaction.type === 'income') {
-            db.prepare('UPDATE cash_accounts SET balance = balance - ? WHERE id = ?')
-              .run(transaction.amount, transaction.account_id);
-          }
-        }
+      const procurement = db
+        .prepare("SELECT * FROM procurements WHERE id = ?")
+        .get(id);
+      if (!procurement) {
+        return res.status(404).json({ error: "not_found" });
       }
 
-      db.prepare('UPDATE procurements SET expense_transaction_id = NULL WHERE id = ?')
-        .run(id);
-    });
+      if (!procurement.expense_transaction_id) {
+        return res.status(400).json({ error: "payment_not_found" });
+      }
 
-    tx();
+      const transaction = db
+        .prepare("SELECT * FROM cash_transactions WHERE id = ?")
+        .get(procurement.expense_transaction_id);
 
-    const updated = db.prepare('SELECT * FROM procurements WHERE id = ?').get(id);
-    res.json(updated);
-  } catch (error) {
-    console.error('[crm] Remove procurement payment error:', error);
-    res.status(500).json({ error: 'failed', message: error.message });
-  }
-});
+      const tx = db.transaction(() => {
+        if (transaction) {
+          db.prepare("DELETE FROM cash_transactions WHERE id = ?").run(
+            transaction.id,
+          );
+          if (transaction.account_id && transaction.amount) {
+            if (transaction.type === "expense") {
+              db.prepare(
+                "UPDATE cash_accounts SET balance = balance + ? WHERE id = ?",
+              ).run(transaction.amount, transaction.account_id);
+            } else if (transaction.type === "income") {
+              db.prepare(
+                "UPDATE cash_accounts SET balance = balance - ? WHERE id = ?",
+              ).run(transaction.amount, transaction.account_id);
+            }
+          }
+        }
+
+        db.prepare(
+          "UPDATE procurements SET expense_transaction_id = NULL WHERE id = ?",
+        ).run(id);
+      });
+
+      tx();
+
+      const updated = db
+        .prepare("SELECT * FROM procurements WHERE id = ?")
+        .get(id);
+      res.json(updated);
+    } catch (error) {
+      console.error("[crm] Remove procurement payment error:", error);
+      res.status(500).json({ error: "failed", message: error.message });
+    }
+  },
+);
 
 // Подтверждение закупки (увеличение остатков)
-crmOperationsRouter.post('/api/admin/crm/procurements/:id/complete', authMiddleware, (req, res) => {
-  try {
-    const { id } = req.params;
+crmOperationsRouter.post(
+  "/api/admin/crm/procurements/:id/complete",
+  authMiddleware,
+  (req, res) => {
+    try {
+      const { id } = req.params;
 
-    const procurement = db.prepare('SELECT * FROM procurements WHERE id = ?').get(id);
-    if (!procurement) {
-      return res.status(404).json({ error: 'not_found' });
-    }
+      const procurement = db
+        .prepare("SELECT * FROM procurements WHERE id = ?")
+        .get(id);
+      if (!procurement) {
+        return res.status(404).json({ error: "not_found" });
+      }
 
-    if (procurement.status === 'completed') {
-      return res.status(400).json({ error: 'already_completed' });
-    }
+      if (procurement.status === "completed") {
+        return res.status(400).json({ error: "already_completed" });
+      }
 
-    const items = db.prepare('SELECT * FROM procurement_items WHERE procurement_id = ?').all(id);
+      const items = db
+        .prepare("SELECT * FROM procurement_items WHERE procurement_id = ?")
+        .all(id);
 
-    const tx = db.transaction(() => {
-      for (const item of items) {
-        // Рассчитываем новую среднюю себестоимость
-        const avgCost = calculateAverageCost(item.product_id, item.quantity, item.cost_per_unit);
+      const tx = db.transaction(() => {
+        for (const item of items) {
+          // Рассчитываем новую среднюю себестоимость
+          const avgCost = calculateAverageCost(
+            item.product_id,
+            item.quantity,
+            item.cost_per_unit,
+          );
 
-        // Обновляем товар
-        db.prepare(`
+          // Обновляем товар
+          db.prepare(
+            `
           UPDATE products 
           SET stock = stock + ?,
               cost_price = ?
           WHERE id = ?
-        `).run(item.quantity, avgCost, item.product_id);
-      }
+        `,
+          ).run(item.quantity, avgCost, item.product_id);
+        }
 
-      // Обновляем статус закупки
-      db.prepare(`
+        // Обновляем статус закупки
+        db.prepare(
+          `
         UPDATE procurements 
         SET status = 'completed', completed_at = DATETIME('now')
         WHERE id = ?
-      `).run(id);
+      `,
+        ).run(id);
 
-      // Списываем деньги из кассы
-      const defaultAccount = db.prepare('SELECT id FROM cash_accounts WHERE is_default = 1 LIMIT 1').get();
-      if (defaultAccount) {
-        const transId = generateId('trans');
-        db.prepare(`
+        // Списываем деньги из кассы
+        const defaultAccount = db
+          .prepare("SELECT id FROM cash_accounts WHERE is_default = 1 LIMIT 1")
+          .get();
+        if (defaultAccount) {
+          const transId = generateId("trans");
+          db.prepare(
+            `
           INSERT INTO cash_transactions (id, account_id, type, amount, description)
           VALUES (?, ?, 'expense', ?, ?)
-        `).run(transId, defaultAccount.id, procurement.total_amount, `Закупка #${procurement.procurement_number}`);
+        `,
+          ).run(
+            transId,
+            defaultAccount.id,
+            procurement.total_amount,
+            `Закупка #${procurement.procurement_number}`,
+          );
 
-        db.prepare('UPDATE cash_accounts SET balance = balance - ? WHERE id = ?')
-          .run(procurement.total_amount, defaultAccount.id);
+          db.prepare(
+            "UPDATE cash_accounts SET balance = balance - ? WHERE id = ?",
+          ).run(procurement.total_amount, defaultAccount.id);
 
-        db.prepare(`
+          db.prepare(
+            `
           UPDATE procurements
           SET expense_transaction_id = ?
           WHERE id = ?
-        `).run(transId, id);
-      }
-    });
+        `,
+          ).run(transId, id);
+        }
+      });
 
-    tx();
+      tx();
 
-    const updated = db.prepare('SELECT * FROM procurements WHERE id = ?').get(id);
-    res.json(updated);
-  } catch (error) {
-    console.error('[crm] Complete procurement error:', error);
-    res.status(500).json({ error: 'failed', message: error.message });
-  }
-});
+      const updated = db
+        .prepare("SELECT * FROM procurements WHERE id = ?")
+        .get(id);
+      res.json(updated);
+    } catch (error) {
+      console.error("[crm] Complete procurement error:", error);
+      res.status(500).json({ error: "failed", message: error.message });
+    }
+  },
+);
 
 // =========================
 // ARCHIVING (Архивация старых заказов)
 // =========================
-crmOperationsRouter.post('/api/admin/crm/archive-delivered-orders', authMiddleware, (req, res) => {
-  try {
-    console.log('[crm] Manual archiving triggered');
-    const result = archiveOldDeliveredOrders();
-    res.json({
-      ok: true,
-      ...result
-    });
-  } catch (error) {
-    console.error('[crm] Manual archiving error:', error);
-    res.status(500).json({ error: 'failed', message: error.message });
-  }
-});
+crmOperationsRouter.post(
+  "/api/admin/crm/archive-delivered-orders",
+  authMiddleware,
+  (req, res) => {
+    try {
+      console.log("[crm] Manual archiving triggered");
+      const result = archiveOldDeliveredOrders();
+      res.json({
+        ok: true,
+        ...result,
+      });
+    } catch (error) {
+      console.error("[crm] Manual archiving error:", error);
+      res.status(500).json({ error: "failed", message: error.message });
+    }
+  },
+);
 
 // Debug endpoint для проверки delivered заказов
-crmOperationsRouter.get('/api/admin/crm/debug-delivered-orders', authMiddleware, (req, res) => {
-  try {
-    const now = new Date();
-    const startOfToday = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+crmOperationsRouter.get(
+  "/api/admin/crm/debug-delivered-orders",
+  authMiddleware,
+  (req, res) => {
+    try {
+      const now = new Date();
+      const startOfToday = new Date(
+        Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()),
+      );
 
-    const orders = db.prepare(`
+      const orders = db
+        .prepare(
+          `
       SELECT
         id,
         order_number,
@@ -1346,59 +1776,72 @@ crmOperationsRouter.get('/api/admin/crm/debug-delivered-orders', authMiddleware,
       WHERE status = 'delivered'
       ORDER BY completed_at DESC
       LIMIT 20
-    `).all(startOfToday.toISOString());
+    `,
+        )
+        .all(startOfToday.toISOString());
 
-    res.json({
-      currentTime: now.toISOString(),
-      startOfToday: startOfToday.toISOString(),
-      orders
-    });
-  } catch (error) {
-    console.error('[crm] Debug endpoint error:', error);
-    res.status(500).json({ error: 'failed', message: error.message });
-  }
-});
+      res.json({
+        currentTime: now.toISOString(),
+        startOfToday: startOfToday.toISOString(),
+        orders,
+      });
+    } catch (error) {
+      console.error("[crm] Debug endpoint error:", error);
+      res.status(500).json({ error: "failed", message: error.message });
+    }
+  },
+);
 
 // Исправление completed_at для delivered заказов где он NULL
-crmOperationsRouter.post('/api/admin/crm/fix-delivered-completed-at', authMiddleware, (req, res) => {
-  try {
-    console.log('[crm] Fixing delivered orders without completed_at');
-    
-    const ordersToFix = db.prepare(`
+crmOperationsRouter.post(
+  "/api/admin/crm/fix-delivered-completed-at",
+  authMiddleware,
+  (req, res) => {
+    try {
+      console.log("[crm] Fixing delivered orders without completed_at");
+
+      const ordersToFix = db
+        .prepare(
+          `
       SELECT id, order_number, created_at, completed_at, paid_at
       FROM orders 
       WHERE status = 'delivered' AND completed_at IS NULL
-    `).all();
-    
-    if (ordersToFix.length === 0) {
-      return res.json({ ok: true, fixed: 0, message: 'No orders to fix' });
-    }
-    
-    const tx = db.transaction(() => {
-      for (const order of ordersToFix) {
-        const completedDate = order.paid_at || order.created_at;
-        let isoDate;
-        
-        if (completedDate && completedDate.includes('T')) {
-          isoDate = completedDate;
-        } else if (completedDate) {
-          isoDate = new Date(completedDate + ' UTC').toISOString();
-        } else {
-          isoDate = new Date().toISOString();
-        }
-        
-        db.prepare('UPDATE orders SET completed_at = ? WHERE id = ?')
-          .run(isoDate, order.id);
+    `,
+        )
+        .all();
+
+      if (ordersToFix.length === 0) {
+        return res.json({ ok: true, fixed: 0, message: "No orders to fix" });
       }
-    });
-    
-    tx();
-    
-    res.json({ ok: true, fixed: ordersToFix.length });
-  } catch (error) {
-    console.error('[crm] Fix completed_at error:', error);
-    res.status(500).json({ error: 'failed', message: error.message });
-  }
-});
+
+      const tx = db.transaction(() => {
+        for (const order of ordersToFix) {
+          const completedDate = order.paid_at || order.created_at;
+          let isoDate;
+
+          if (completedDate && completedDate.includes("T")) {
+            isoDate = completedDate;
+          } else if (completedDate) {
+            isoDate = new Date(completedDate + " UTC").toISOString();
+          } else {
+            isoDate = new Date().toISOString();
+          }
+
+          db.prepare("UPDATE orders SET completed_at = ? WHERE id = ?").run(
+            isoDate,
+            order.id,
+          );
+        }
+      });
+
+      tx();
+
+      res.json({ ok: true, fixed: ordersToFix.length });
+    } catch (error) {
+      console.error("[crm] Fix completed_at error:", error);
+      res.status(500).json({ error: "failed", message: error.message });
+    }
+  },
+);
 
 // Продолжение следует...
