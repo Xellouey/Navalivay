@@ -2,13 +2,9 @@
   <div class="group-line-content">
     <!-- Товары с вариантами (устройства) - сразу показываем варианты -->
     <div v-if="productsWithVariants.length" class="group-variants-list-direct">
-      <div
-        v-for="product in productsWithVariants"
-        :key="product.id"
-      >
+      <div v-for="product in productsWithVariants" :key="product.id">
         <div
-          v-for="variant in product.variants"
-          v-if="isVariantInStock(variant)"
+          v-for="variant in getInStockVariants(product)"
           :key="variant.id ?? variant.name"
           class="group-variant-row"
         >
@@ -205,25 +201,44 @@ const colorPreviewOpen = ref(false);
 const colorPreviewImage = ref<string | null>(null);
 const colorPreviewTitle = ref("");
 
+function getSafeVariants(product: Product): ProductVariant[] {
+  if (!Array.isArray(product.variants)) return [];
+  return product.variants.filter(
+    (variant): variant is ProductVariant => Boolean(variant),
+  );
+}
+
+function getInStockVariants(product: Product): ProductVariant[] {
+  return getSafeVariants(product).filter((variant) =>
+    isVariantInStock(variant),
+  );
+}
+
 // Разделяем товары на с вариантами и без
 const productsWithVariants = computed(() =>
   props.node.products.filter(
-    (p) => p.hasVariants && p.variants && p.variants.length > 0,
+    (p): p is Product =>
+      Boolean(p && p.hasVariants && getSafeVariants(p).length),
   ),
 );
 
 const productsWithoutVariants = computed(() =>
-  props.node.products.filter((p) => !p.hasVariants),
+  props.node.products.filter(
+    (p): p is Product => Boolean(p && !p.hasVariants),
+  ),
 );
 
 // Цена первого товара для сравнения цен
 const firstProductPrice = computed(() => {
-  const firstProduct = props.node.products[0];
+  const firstProduct = props.node.products.find((p) => Boolean(p));
   if (!firstProduct) return null;
   
   // Если товар с вариантами, берем цену первого варианта
-  if (firstProduct.hasVariants && firstProduct.variants?.length) {
-    return firstProduct.variants[0].priceRub ?? null;
+  if (firstProduct.hasVariants) {
+    const variants = getSafeVariants(firstProduct);
+    if (variants.length) {
+      return variants[0].priceRub ?? null;
+    }
   }
   
   // Иначе берем цену самого товара
@@ -282,7 +297,8 @@ function getQuantity(productId: string): number {
   return item ? item.quantity : 0;
 }
 
-function canAdd(product: Product): boolean {
+function canAdd(product?: Product | null): boolean {
+  if (!product) return false;
   if (product.isAvailable === false) return false;
   if (typeof product.stock === "number") {
     const stock = Math.max(product.stock, 0);
@@ -292,7 +308,8 @@ function canAdd(product: Product): boolean {
   return true;
 }
 
-function isAtStockLimit(product: Product): boolean {
+function isAtStockLimit(product?: Product | null): boolean {
+  if (!product) return true;
   if (product.isAvailable === false) return true;
   if (typeof product.stock === "number") {
     const stock = Math.max(product.stock, 0);
@@ -302,7 +319,8 @@ function isAtStockLimit(product: Product): boolean {
   return false;
 }
 
-function handleAdd(product: Product) {
+function handleAdd(product?: Product | null) {
+  if (!product) return;
   if (!canAdd(product)) {
     if (
       product.isAvailable === false ||
@@ -317,7 +335,8 @@ function handleAdd(product: Product) {
   cartStore.addItem(product, 1);
 }
 
-function handleIncrement(product: Product) {
+function handleIncrement(product?: Product | null) {
+  if (!product) return;
   if (!canAdd(product)) {
     if (
       product.isAvailable === false ||
@@ -337,7 +356,8 @@ function handleIncrement(product: Product) {
   }
 }
 
-function decrementQuantity(product: Product) {
+function decrementQuantity(product?: Product | null) {
+  if (!product) return;
   const currentQty = getQuantity(product.id);
   if (currentQty > 1) {
     cartStore.updateQuantity(product.id, currentQty - 1);
@@ -347,17 +367,18 @@ function decrementQuantity(product: Product) {
 }
 
 // Функции для работы с вариантами
-function getVariantQuantity(variantId: string): number {
+function getVariantQuantity(variantId?: string): number {
+  if (!variantId) return 0;
   const item = cartStore.items.find((item) => item.variantId === variantId);
   return item ? item.quantity : 0;
 }
 
-function canAddVariant(variant: {
+function canAddVariant(variant?: {
   id?: string;
   stock?: number | null;
   isAvailable?: boolean;
-}) {
-  if (!variant.id) return false;
+} | null) {
+  if (!variant || !variant.id) return false;
   if (variant.isAvailable === false) return false;
   if (typeof variant.stock === "number") {
     const stock = Math.max(variant.stock, 0);
@@ -367,12 +388,12 @@ function canAddVariant(variant: {
   return true;
 }
 
-function isVariantAtStockLimit(variant: {
+function isVariantAtStockLimit(variant?: {
   id?: string;
   stock?: number | null;
   isAvailable?: boolean;
-}) {
-  if (!variant.id) return true;
+} | null) {
+  if (!variant || !variant.id) return true;
   if (variant.isAvailable === false) return true;
   if (typeof variant.stock === "number") {
     const stock = Math.max(variant.stock, 0);
@@ -383,11 +404,12 @@ function isVariantAtStockLimit(variant: {
 }
 
 // Проверяет, есть ли вариант в наличии (stock > 0)
-function isVariantInStock(variant: {
+function isVariantInStock(variant?: {
   id?: string;
   stock?: number | null;
   isAvailable?: boolean;
-}) {
+} | null) {
+  if (!variant) return false;
   if (variant.isAvailable === false) return false;
   if (typeof variant.stock === "number") {
     return variant.stock > 0;
@@ -397,10 +419,10 @@ function isVariantInStock(variant: {
 }
 
 function handleVariantAdd(
-  product: Product,
-  variant: { id?: string; stock?: number | null; isAvailable?: boolean },
+  product?: Product | null,
+  variant?: { id?: string; stock?: number | null; isAvailable?: boolean } | null,
 ) {
-  if (!variant.id) return;
+  if (!product || !variant?.id) return;
   if (!canAddVariant(variant)) {
     if (
       variant.isAvailable === false ||
@@ -416,10 +438,10 @@ function handleVariantAdd(
 }
 
 function handleVariantIncrement(
-  product: Product,
-  variant: { id?: string; stock?: number | null; isAvailable?: boolean },
+  product?: Product | null,
+  variant?: { id?: string; stock?: number | null; isAvailable?: boolean } | null,
 ) {
-  if (!variant.id) return;
+  if (!product || !variant?.id) return;
   if (!canAddVariant(variant)) {
     if (
       variant.isAvailable === false ||
@@ -439,8 +461,11 @@ function handleVariantIncrement(
   }
 }
 
-function decrementVariantQuantity(product: Product, variant: { id?: string }) {
-  if (!variant.id) return;
+function decrementVariantQuantity(
+  product?: Product | null,
+  variant?: { id?: string } | null,
+) {
+  if (!product || !variant?.id) return;
   const currentQty = getVariantQuantity(variant.id);
   if (currentQty > 1) {
     cartStore.updateQuantity(product.id, currentQty - 1, variant.id);

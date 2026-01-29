@@ -42,6 +42,11 @@ export default defineConfig(({ mode }) => {
         }
       }
     },
+    test: {
+      environment: 'happy-dom',
+      globals: true,
+      include: ['src/**/*.spec.ts']
+    },
     server: {
       host: '0.0.0.0', // Разрешить доступ из локальной сети
       port: 5173,

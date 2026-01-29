@@ -153,16 +153,17 @@
         <!-- Products Grid -->
         <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
           <!-- Loading skeletons -->
-          <div
-            v-if="catalogStore.isLoading && !catalogStore.products.length"
-            v-for="n in 8"
-            :key="`skeleton-${n}`"
-            class="animate-pulse"
-          >
-            <div class="aspect-square bg-gray-200 border-3 border-gray-300 mb-3" />
-            <div class="h-4 bg-gray-200 mb-2" />
-            <div class="h-5 bg-gray-200 w-3/4" />
-          </div>
+          <template v-if="catalogStore.isLoading && !catalogStore.products.length">
+            <div
+              v-for="n in 8"
+              :key="`skeleton-${n}`"
+              class="animate-pulse"
+            >
+              <div class="aspect-square bg-gray-200 border-3 border-gray-300 mb-3" />
+              <div class="h-4 bg-gray-200 mb-2" />
+              <div class="h-5 bg-gray-200 w-3/4" />
+            </div>
+          </template>
 
           <!-- Product Cards - Brutal Style -->
           <div

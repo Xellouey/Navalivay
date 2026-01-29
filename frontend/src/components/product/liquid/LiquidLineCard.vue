@@ -124,8 +124,7 @@
                 class="liquid-variants-list"
               >
                 <div
-                  v-for="variant in product.variants"
-                  v-if="isVariantInStock(variant)"
+                  v-for="variant in getInStockVariants(product)"
                   :key="variant.id ?? variant.name"
                   class="liquid-variant-row"
                 >
@@ -277,7 +276,7 @@ import {
   MinusIcon,
 } from "@heroicons/vue/24/outline";
 import { useCartStore } from "@/stores/cart";
-import type { Product } from "@/stores/catalog";
+import type { Product, ProductVariant } from "@/stores/catalog";
 import ColorPreviewModal from "@/components/product/ColorPreviewModal.vue";
 
 interface SubgroupInfo {
@@ -614,6 +613,19 @@ function getProductImage(product: Product): string | null {
 }
 
 // Функции для работы с вариантами
+function getSafeVariants(product: Product): ProductVariant[] {
+  if (!Array.isArray(product.variants)) return [];
+  return product.variants.filter(
+    (variant): variant is ProductVariant => Boolean(variant),
+  );
+}
+
+function getInStockVariants(product: Product): ProductVariant[] {
+  return getSafeVariants(product).filter((variant) =>
+    isVariantInStock(variant),
+  );
+}
+
 function getVariantQuantity(variantId: string): number {
   const item = cartStore.items.find((item) => item.variantId === variantId);
   return item ? item.quantity : 0;

@@ -178,18 +178,21 @@
         </div>
 
         <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
-          <div
+          <template
             v-if="
               catalogStore.isLoading && !catalogStore.filteredProducts.length
             "
-            v-for="n in 8"
-            :key="`skeleton-${n}`"
-            class="animate-pulse"
           >
-            <div class="aspect-square bg-gray-200 rounded-lg mb-3" />
-            <div class="h-4 bg-gray-200 mb-2 rounded" />
-            <div class="h-5 bg-gray-200 w-3/4 rounded" />
-          </div>
+            <div
+              v-for="n in 8"
+              :key="`skeleton-${n}`"
+              class="animate-pulse"
+            >
+              <div class="aspect-square bg-gray-200 rounded-lg mb-3" />
+              <div class="h-4 bg-gray-200 mb-2 rounded" />
+              <div class="h-5 bg-gray-200 w-3/4 rounded" />
+            </div>
+          </template>
 
           <div
             v-for="product in catalogStore.filteredProducts"
@@ -473,16 +476,10 @@ function isGroupExpanded(groupId: string): boolean {
 }
 
 function toggleGroupExpansion(groupId: string) {
-  // #region agent log
-  fetch('http://localhost:7242/ingest/beae9f3c-16a9-4a39-a35e-538bbbd80c90',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'CategoryView.vue:toggleGroupExpansion',message:'Toggle called',data:{groupId,wasExpanded:isGroupExpanded(groupId)},timestamp:Date.now(),hypothesisId:'A'})}).catch(()=>{});
-  // #endregion
   groupExpansionState.value = {
     ...groupExpansionState.value,
     [groupId]: !isGroupExpanded(groupId),
   };
-  // #region agent log
-  fetch('http://localhost:7242/ingest/beae9f3c-16a9-4a39-a35e-538bbbd80c90',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'CategoryView.vue:toggleGroupExpansion:after',message:'State changed',data:{groupId,nowExpanded:isGroupExpanded(groupId),state:JSON.stringify(groupExpansionState.value)},timestamp:Date.now(),hypothesisId:'A'})}).catch(()=>{});
-  // #endregion
 }
 
 // Строим иерархическое дерево линеек с товарами
@@ -498,10 +495,6 @@ const groupCards = computed<GroupCardNode[]>(() => {
     (p) => p.categoryId === selectedCategory.value!.id,
   );
   const nodes = new Map<string, GroupCardNode>();
-
-  // #region agent log
-  fetch('http://localhost:7242/ingest/beae9f3c-16a9-4a39-a35e-538bbbd80c90',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'CategoryView.vue:groupCards',message:'Building tree',data:{groupsCount:groups.length,categoryProductsCount:categoryProducts.length,allProductsCount:catalogStore.allProducts.length,productsCount:catalogStore.products.length,groupsData:groups.map(g=>({id:g.id,name:g.name,parentId:g.parentId}))},timestamp:Date.now(),hypothesisId:'B'})}).catch(()=>{});
-  // #endregion
 
   // Создаём узлы для всех групп
   groups.forEach((group) => {
@@ -531,11 +524,6 @@ const groupCards = computed<GroupCardNode[]>(() => {
       roots.push(node);
     }
   });
-
-  // #region agent log
-  const rootsDebug = roots.map(r => ({id:r.id,name:r.name,childrenCount:r.children.length,productsCount:r.products.length,children:r.children.map(c=>({id:c.id,name:c.name,productsCount:c.products.length}))}));
-  fetch('http://localhost:7242/ingest/beae9f3c-16a9-4a39-a35e-538bbbd80c90',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'CategoryView.vue:groupCards:afterHierarchy',message:'After building hierarchy',data:{rootsCount:roots.length,roots:rootsDebug},timestamp:Date.now(),hypothesisId:'B'})}).catch(()=>{});
-  // #endregion
 
   // Сортируем детей рекурсивно
   const sortChildren = (node: GroupCardNode) => {
