@@ -343,6 +343,10 @@
                   <dd class="font-semibold text-gray-900">{{ formatCurrency(itemsSubtotal) }}</dd>
                 </div>
                 <div class="flex items-center justify-between">
+                  <dt>Сумма позиций (со скидками)</dt>
+                  <dd class="font-semibold text-gray-900">{{ formatCurrency(itemsDiscountedSubtotal) }}</dd>
+                </div>
+                <div class="flex items-center justify-between">
                   <dt>Скидка ₽</dt>
                   <dd>
                     <input
@@ -469,11 +473,15 @@ const itemsSubtotal = computed(() => {
   return form.items.reduce((sum, item) => sum + Math.max(item.price, 0) * Math.max(item.quantity, 0), 0)
 })
 
+const itemsDiscountedSubtotal = computed(() => {
+  return form.items.reduce((sum, item) => sum + itemSubtotal(item), 0)
+})
+
 const itemsCost = computed(() => {
   return form.items.reduce((sum, item) => sum + Math.max(item.cost, 0) * Math.max(item.quantity, 0), 0)
 })
 
-const finalAmount = computed(() => applyDiscounts(itemsSubtotal.value, form.discountAmount, form.discountPercent))
+const finalAmount = computed(() => applyDiscounts(itemsDiscountedSubtotal.value, form.discountAmount, form.discountPercent))
 const expectedProfit = computed(() => Math.max(finalAmount.value - itemsCost.value, 0))
 
 const hasChanges = computed(() => {
@@ -666,7 +674,7 @@ function normalizeDiscounts() {
   if (!Number.isFinite(form.discountAmount) || form.discountAmount < 0) form.discountAmount = 0
   if (!Number.isFinite(form.discountPercent) || form.discountPercent < 0) form.discountPercent = 0
   if (form.discountPercent > 100) form.discountPercent = 100
-  const maxDiscount = itemsSubtotal.value
+  const maxDiscount = itemsDiscountedSubtotal.value
   if (form.discountAmount > maxDiscount) form.discountAmount = maxDiscount
 }
 
@@ -697,7 +705,7 @@ async function saveChanges() {
     status: editableStatus.value,
     delivery_address: form.deliveryAddress.trim() || undefined,
     notes: form.notes.trim() || undefined,
-    discount_amount: Math.min(discountAmount, itemsSubtotal.value),
+    discount_amount: Math.min(discountAmount, itemsDiscountedSubtotal.value),
     discount_percent: discountPercent,
     items: sanitizedItems
   }

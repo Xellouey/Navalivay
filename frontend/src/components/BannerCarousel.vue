@@ -305,6 +305,7 @@ function finalizeSwipe(
 
 // Pointer handlers
 function onPointerDown(e: PointerEvent) {
+  if (!supportsPointerEvents.value) return;
   if (e.pointerType === "mouse" && e.button !== 0) return;
   isPointerDown.value = true;
   pointerStartX.value = e.clientX;
@@ -327,6 +328,7 @@ function onPointerDown(e: PointerEvent) {
 }
 
 function onPointerMove(e: PointerEvent) {
+  if (!supportsPointerEvents.value) return;
   if (!isPointerDown.value) return;
   pointerEndX.value = e.clientX;
   pointerEndY.value = e.clientY;
@@ -344,6 +346,7 @@ function onPointerMove(e: PointerEvent) {
 }
 
 function onPointerUp(e: PointerEvent) {
+  if (!supportsPointerEvents.value) return;
   if (!isPointerDown.value) return;
   pointerEndX.value = e.clientX;
   pointerEndY.value = e.clientY;
@@ -364,6 +367,7 @@ function onPointerUp(e: PointerEvent) {
 }
 
 function onPointerCancel(e: PointerEvent) {
+  if (!supportsPointerEvents.value) return;
   isPointerDown.value = false;
   isDragging.value = false;
   startAutoPlay();
@@ -484,8 +488,13 @@ function handleImageLoad(event: Event) {
 }
 
 onMounted(() => {
+  const tgPlatform = window.Telegram?.WebApp?.platform;
+  const isTelegramIOS =
+    typeof tgPlatform === "string" && tgPlatform.toLowerCase() === "ios";
   supportsPointerEvents.value =
-    typeof window !== "undefined" && "PointerEvent" in window;
+    typeof window !== "undefined" &&
+    "PointerEvent" in window &&
+    !isTelegramIOS;
   startAutoPlay();
 });
 

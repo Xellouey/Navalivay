@@ -362,6 +362,7 @@ crmOperationsRouter.post(
       // Рассчитываем суммы
       let totalAmount = 0;
       let totalCost = 0;
+      let itemsSubtotal = 0;
 
       const orderItems = items.map((item) => {
         const product = db
@@ -413,6 +414,7 @@ crmOperationsRouter.post(
         const totalItemCost = costPerUnit * item.quantity;
 
         totalAmount += pricePerUnit * item.quantity;
+        itemsSubtotal += totalPrice;
         totalCost += totalItemCost;
 
         // Получаем group_name для отображения линейки
@@ -444,11 +446,11 @@ crmOperationsRouter.post(
       });
 
       // Применяем скидки
-      let finalAmount = totalAmount - discount_amount;
-      if (discount_percent > 0) {
-        finalAmount = finalAmount * (1 - discount_percent / 100);
-      }
-
+      const finalAmount = applyDiscounts(
+        itemsSubtotal,
+        discount_amount,
+        discount_percent,
+      );
       const profit = finalAmount - totalCost;
 
       // Создаем заказ в транзакции
@@ -779,6 +781,7 @@ crmOperationsRouter.patch(
 
           let totalAmount = 0;
           let totalCost = 0;
+          let itemsSubtotal = 0;
 
           const itemStmt = db.prepare(`
           INSERT INTO order_items (
@@ -841,6 +844,7 @@ crmOperationsRouter.patch(
             const totalItemCost = costPerUnit * quantity;
 
             totalAmount += pricePerUnit * quantity;
+            itemsSubtotal += totalPrice;
             totalCost += totalItemCost;
 
             let groupName = item.group_name || null;
@@ -885,7 +889,7 @@ crmOperationsRouter.patch(
           }
 
           const finalAmount = applyDiscounts(
-            totalAmount,
+            itemsSubtotal,
             updatedDiscountAmount,
             updatedDiscountPercent,
           );
@@ -907,15 +911,25 @@ crmOperationsRouter.patch(
             id,
           );
         } else if (shouldUpdateDiscount) {
-          const totalAmount = Number(order.total_amount || 0);
-          const costBase =
-            Number(order.final_amount || 0) - Number(order.profit || 0);
+          const totals = db
+            .prepare(
+              `
+              SELECT 
+                COALESCE(SUM(total_price), 0) as items_subtotal,
+                COALESCE(SUM(total_cost), 0) as total_cost
+              FROM order_items
+              WHERE order_id = ?
+            `,
+            )
+            .get(id);
+          const itemsSubtotal = Number(totals?.items_subtotal || 0);
+          const totalCost = Number(totals?.total_cost || 0);
           const finalAmount = applyDiscounts(
-            totalAmount,
+            itemsSubtotal,
             updatedDiscountAmount,
             updatedDiscountPercent,
           );
-          const profit = finalAmount - costBase;
+          const profit = finalAmount - totalCost;
 
           db.prepare(
             `

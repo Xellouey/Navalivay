@@ -77,28 +77,51 @@ crmRouter.get('/api/admin/crm/dashboard', authMiddleware, (req, res) => {
     // Выручка, прибыль, количество продаж - по дате ОПЛАТЫ (paid_at)
     const stats = db.prepare(`
       SELECT 
-        COALESCE(COUNT(DISTINCT o.id), 0)                   AS total_sales,
-        COALESCE(SUM(oi.total_price), 0)                    AS revenue,
-        COALESCE(SUM(oi.total_price - oi.total_cost), 0)    AS profit,
-        COALESCE(COUNT(DISTINCT o.customer_id), 0)          AS unique_customers
+        COALESCE(COUNT(o.id), 0)                              AS total_sales,
+        COALESCE(SUM(COALESCE(o.final_amount, o.total_amount)), 0) AS revenue,
+        COALESCE(SUM(COALESCE(o.profit, 0)), 0)               AS profit,
+        COALESCE(COUNT(DISTINCT o.customer_id), 0)            AS unique_customers
       FROM orders o
-      LEFT JOIN order_items oi ON oi.order_id = o.id
-      WHERE o.status IN ('completed', 'delivered') AND o.paid_at IS NOT NULL AND ${paidAtFilter}
+      WHERE o.status IN ('completed', 'delivered')
+        AND o.paid_at IS NOT NULL
+        AND ${paidAtFilter}
     `).get();
 
     // Топ линейки (category groups) - по дате ОПЛАТЫ (paid_at)
     const topProducts = db.prepare(`
+      WITH order_totals AS (
+        SELECT order_id, SUM(total_price) AS items_subtotal
+        FROM order_items
+        GROUP BY order_id
+      ),
+      item_totals AS (
+        SELECT
+          oi.quantity AS quantity,
+          oi.total_price AS total_price,
+          oi.total_cost AS total_cost,
+          COALESCE(g.id, 'no_group') AS group_id,
+          COALESCE(g.name, 'Без линейки') AS group_name,
+          CASE
+            WHEN COALESCE(ot.items_subtotal, 0) > 0
+            THEN (COALESCE(ot.items_subtotal, 0) - COALESCE(o.final_amount, ot.items_subtotal)) / COALESCE(ot.items_subtotal, 0)
+            ELSE 0
+          END AS order_discount_ratio
+        FROM order_items oi
+        JOIN orders o ON o.id = oi.order_id
+        JOIN order_totals ot ON ot.order_id = o.id
+        LEFT JOIN products p ON p.id = oi.product_id
+        LEFT JOIN category_groups g ON g.id = p.groupId
+        WHERE o.status IN ('completed', 'delivered')
+          AND o.paid_at IS NOT NULL
+          AND ${paidAtFilter}
+      )
       SELECT 
-        COALESCE(g.id, 'no_group') as group_id,
-        COALESCE(g.name, 'Без линейки') as group_name,
-        SUM(oi.quantity) as total_quantity,
-        SUM(oi.total_price) as total_revenue,
-        SUM(oi.total_price - oi.total_cost) as total_profit
-      FROM order_items oi
-      JOIN orders o ON o.id = oi.order_id
-      LEFT JOIN products p ON p.id = oi.product_id
-      LEFT JOIN category_groups g ON g.id = p.groupId
-      WHERE o.status IN ('completed', 'delivered') AND o.paid_at IS NOT NULL AND ${paidAtFilter}
+        group_id,
+        group_name,
+        SUM(quantity) as total_quantity,
+        SUM(total_price - (total_price * order_discount_ratio)) as total_revenue,
+        SUM((total_price - (total_price * order_discount_ratio)) - total_cost) as total_profit
+      FROM item_totals
       GROUP BY group_id, group_name
       ORDER BY total_profit DESC
       LIMIT 5
@@ -221,11 +244,10 @@ crmRouter.get('/api/admin/crm/dashboard-timeseries', authMiddleware, (req, res) 
         
         const stats = db.prepare(`
           SELECT 
-            COALESCE(COUNT(DISTINCT o.id), 0)                 AS orders,
-            COALESCE(SUM(oi.total_price), 0)                  AS revenue,
-            COALESCE(SUM(oi.total_price - oi.total_cost), 0)  AS profit
+            COALESCE(COUNT(o.id), 0)                              AS orders,
+            COALESCE(SUM(COALESCE(o.final_amount, o.total_amount)), 0) AS revenue,
+            COALESCE(SUM(COALESCE(o.profit, 0)), 0)               AS profit
           FROM orders o
-          LEFT JOIN order_items oi ON oi.order_id = o.id
           WHERE o.status IN ('completed', 'delivered')
             AND o.paid_at IS NOT NULL
             AND datetime(o.paid_at) >= ?
@@ -249,11 +271,10 @@ crmRouter.get('/api/admin/crm/dashboard-timeseries', authMiddleware, (req, res) 
         
         const stats = db.prepare(`
           SELECT 
-            COALESCE(COUNT(DISTINCT o.id), 0)                 AS orders,
-            COALESCE(SUM(oi.total_price), 0)                  AS revenue,
-            COALESCE(SUM(oi.total_price - oi.total_cost), 0)  AS profit
+            COALESCE(COUNT(o.id), 0)                              AS orders,
+            COALESCE(SUM(COALESCE(o.final_amount, o.total_amount)), 0) AS revenue,
+            COALESCE(SUM(COALESCE(o.profit, 0)), 0)               AS profit
           FROM orders o
-          LEFT JOIN order_items oi ON oi.order_id = o.id
           WHERE o.status IN ('completed', 'delivered')
             AND o.paid_at IS NOT NULL
             AND datetime(o.paid_at) >= ?
