@@ -44,9 +44,10 @@ crmFinanceRouter.get('/api/admin/crm/write-offs/:id', authMiddleware, (req, res)
     }
 
     const items = db.prepare(`
-      SELECT wi.*, p.title as product_title, p.stock
+      SELECT wi.*, p.title as product_title, p.stock, g.name as group_name
       FROM writeoff_items wi
       JOIN products p ON p.id = wi.product_id
+      LEFT JOIN category_groups g ON g.id = p.groupId
       WHERE wi.writeoff_id = ?
     `).all(id);
 
@@ -109,9 +110,10 @@ crmFinanceRouter.post('/api/admin/crm/write-offs', authMiddleware, (req, res) =>
 
     const writeOff = db.prepare('SELECT * FROM write_offs WHERE id = ?').get(writeOffId);
     const writeOffItems = db.prepare(`
-      SELECT wi.*, p.title as product_title
+      SELECT wi.*, p.title as product_title, g.name as group_name
       FROM writeoff_items wi
       JOIN products p ON p.id = wi.product_id
+      LEFT JOIN category_groups g ON g.id = p.groupId
       WHERE wi.writeoff_id = ?
     `).all(writeOffId);
 
@@ -196,9 +198,10 @@ crmFinanceRouter.patch('/api/admin/crm/write-offs/:id', authMiddleware, (req, re
 
     const updated = db.prepare('SELECT * FROM write_offs WHERE id = ?').get(id);
     const updatedItems = db.prepare(`
-      SELECT wi.*, p.title as product_title, p.stock
+      SELECT wi.*, p.title as product_title, p.stock, g.name as group_name
       FROM writeoff_items wi
       JOIN products p ON p.id = wi.product_id
+      LEFT JOIN category_groups g ON g.id = p.groupId
       WHERE wi.writeoff_id = ?
     `).all(id);
 

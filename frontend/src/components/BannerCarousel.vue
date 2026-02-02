@@ -13,6 +13,7 @@
             :alt="'Banner'"
             class="single-banner-image"
             loading="lazy"
+            draggable="false"
             @error="handleImageError"
             @load="handleImageLoad"
           />
@@ -25,9 +26,14 @@
           <div
             class="carousel-track-new"
             :style="getTransformStyleNew()"
+            @pointerdown="onPointerDown"
+            @pointermove="onPointerMove"
+            @pointerup="onPointerUp"
+            @pointercancel="onPointerCancel"
             @touchstart="onTouchStart"
             @touchmove="onTouchMove"
             @touchend="onTouchEnd"
+            @touchcancel="onTouchCancel"
             @mousedown="onMouseDown"
             @mousemove="onMouseMove"
             @mouseup="onMouseUp"
@@ -45,6 +51,7 @@
                 :alt="`Banner ${index + 1}`"
                 class="carousel-image-new"
                 loading="lazy"
+                draggable="false"
                 @error="handleImageError"
                 @load="handleImageLoad"
               />
@@ -98,6 +105,7 @@ const currentSlide = ref(0);
 const autoPlayTimer = ref<ReturnType<typeof setTimeout>>();
 
 // Touch and Mouse handling
+const supportsPointerEvents = ref(false);
 const touchStartX = ref(0);
 const touchStartY = ref(0);
 const touchEndX = ref(0);
@@ -105,6 +113,13 @@ const touchEndY = ref(0);
 const touchStartTime = ref(0);
 const touchStartSlide = ref(0);
 const isDragging = ref(false);
+const pointerStartX = ref(0);
+const pointerStartY = ref(0);
+const pointerEndX = ref(0);
+const pointerEndY = ref(0);
+const pointerStartTime = ref(0);
+const pointerStartSlide = ref(0);
+const isPointerDown = ref(false);
 const mouseStartX = ref(0);
 const mouseCurrentX = ref(0);
 const isMouseDragging = ref(false);
@@ -182,7 +197,12 @@ function goToSlide(index: number) {
 }
 
 function handleBannerClick(banner: Banner, event?: Event) {
-  if (isClickSuppressed() || isDragging.value || isMouseDragging.value) {
+  if (
+    isClickSuppressed() ||
+    isDragging.value ||
+    isMouseDragging.value ||
+    isPointerDown.value
+  ) {
     return;
   }
   // Предотвращаем стандартное поведение браузера
@@ -247,8 +267,120 @@ function navigateTo(path: string) {
   }
 }
 
+function finalizeSwipe(
+  deltaX: number,
+  deltaY: number,
+  elapsed: number,
+  startSlide: number
+) {
+  const absX = Math.abs(deltaX);
+  const absY = Math.abs(deltaY);
+  const threshold = 50;
+  const tapThreshold = 10;
+  const tapDuration = 250;
+
+  if (absX > threshold && absX > absY) {
+    suppressClick();
+    if (deltaX < 0) {
+      nextSlide();
+    } else {
+      previousSlide();
+    }
+  } else {
+    const isTap =
+      absX < tapThreshold && absY < tapThreshold && elapsed < tapDuration;
+    if (isTap) {
+      const banner = props.banners[startSlide];
+      isDragging.value = false;
+      if (banner) {
+        handleBannerClick(banner);
+      }
+      suppressClick();
+    }
+    startAutoPlay();
+  }
+
+  isDragging.value = false;
+}
+
+// Pointer handlers
+function onPointerDown(e: PointerEvent) {
+  if (e.pointerType === "mouse" && e.button !== 0) return;
+  isPointerDown.value = true;
+  pointerStartX.value = e.clientX;
+  pointerStartY.value = e.clientY;
+  pointerEndX.value = e.clientX;
+  pointerEndY.value = e.clientY;
+  pointerStartTime.value = Date.now();
+  pointerStartSlide.value = currentSlide.value;
+  isDragging.value = false;
+  stopAutoPlay();
+
+  const target = e.currentTarget as HTMLElement | null;
+  if (target?.setPointerCapture) {
+    try {
+      target.setPointerCapture(e.pointerId);
+    } catch (error) {
+      // Ignore capture errors
+    }
+  }
+}
+
+function onPointerMove(e: PointerEvent) {
+  if (!isPointerDown.value) return;
+  pointerEndX.value = e.clientX;
+  pointerEndY.value = e.clientY;
+  const deltaX = pointerEndX.value - pointerStartX.value;
+  const deltaY = pointerEndY.value - pointerStartY.value;
+
+  if (Math.abs(deltaX) > Math.abs(deltaY)) {
+    if (Math.abs(deltaX) > 6) {
+      isDragging.value = true;
+    }
+    if (e.cancelable) {
+      e.preventDefault();
+    }
+  }
+}
+
+function onPointerUp(e: PointerEvent) {
+  if (!isPointerDown.value) return;
+  pointerEndX.value = e.clientX;
+  pointerEndY.value = e.clientY;
+  const deltaX = pointerEndX.value - pointerStartX.value;
+  const deltaY = pointerEndY.value - pointerStartY.value;
+  const elapsed = Date.now() - pointerStartTime.value;
+  finalizeSwipe(deltaX, deltaY, elapsed, pointerStartSlide.value);
+  isPointerDown.value = false;
+
+  const target = e.currentTarget as HTMLElement | null;
+  if (target?.releasePointerCapture) {
+    try {
+      target.releasePointerCapture(e.pointerId);
+    } catch (error) {
+      // Ignore release errors
+    }
+  }
+}
+
+function onPointerCancel(e: PointerEvent) {
+  isPointerDown.value = false;
+  isDragging.value = false;
+  startAutoPlay();
+
+  const target = e.currentTarget as HTMLElement | null;
+  if (target?.releasePointerCapture) {
+    try {
+      target.releasePointerCapture(e.pointerId);
+    } catch (error) {
+      // Ignore release errors
+    }
+  }
+}
+
 // Touch handlers
 function onTouchStart(e: TouchEvent) {
+  if (supportsPointerEvents.value) return;
   touchStartX.value = e.touches[0].clientX;
   touchStartY.value = e.touches[0].clientY;
   touchEndX.value = touchStartX.value;
@@ -260,6 +392,7 @@ function onTouchStart(e: TouchEvent) {
 }
 
 function onTouchMove(e: TouchEvent) {
+  if (supportsPointerEvents.value) return;
   touchEndX.value = e.touches[0].clientX;
   touchEndY.value = e.touches[0].clientY;
   const deltaX = touchEndX.value - touchStartX.value;
@@ -276,6 +409,7 @@ function onTouchMove(e: TouchEvent) {
 }
 
 function onTouchEnd(e: TouchEvent) {
+  if (supportsPointerEvents.value) return;
   if (e.changedTouches.length) {
     touchEndX.value = e.changedTouches[0].clientX;
     touchEndY.value = e.changedTouches[0].clientY;
@@ -283,39 +417,19 @@ function onTouchEnd(e: TouchEvent) {
 
   const deltaX = touchEndX.value - touchStartX.value;
   const deltaY = touchEndY.value - touchStartY.value;
-  const absX = Math.abs(deltaX);
-  const absY = Math.abs(deltaY);
-  const threshold = 50;
-  const tapThreshold = 10;
-  const tapDuration = 250;
   const elapsed = Date.now() - touchStartTime.value;
+  finalizeSwipe(deltaX, deltaY, elapsed, touchStartSlide.value);
+}
 
-  if (absX > threshold && absX > absY) {
-    suppressClick();
-    if (deltaX < 0) {
-      nextSlide();
-    } else {
-      previousSlide();
-    }
-  } else {
-    const isTap =
-      absX < tapThreshold && absY < tapThreshold && elapsed < tapDuration;
-    if (isTap) {
-      const banner = props.banners[touchStartSlide.value];
-      isDragging.value = false;
-      if (banner) {
-        handleBannerClick(banner);
-      }
-      suppressClick();
-    }
-    startAutoPlay();
-  }
-
+function onTouchCancel() {
+  if (supportsPointerEvents.value) return;
   isDragging.value = false;
+  startAutoPlay();
 }
 
 // Mouse drag handlers
 function onMouseDown(e: MouseEvent) {
+  if (supportsPointerEvents.value) return;
   isMouseDragging.value = true;
   mouseStartX.value = e.clientX;
   mouseCurrentX.value = e.clientX;
@@ -324,11 +438,13 @@ function onMouseDown(e: MouseEvent) {
 }
 
 function onMouseMove(e: MouseEvent) {
+  if (supportsPointerEvents.value) return;
   if (!isMouseDragging.value) return;
   mouseCurrentX.value = e.clientX;
 }
 
 function onMouseUp() {
+  if (supportsPointerEvents.value) return;
   if (!isMouseDragging.value) return;
 
   const threshold = 50;
@@ -349,6 +465,7 @@ function onMouseUp() {
 }
 
 function onMouseLeave() {
+  if (supportsPointerEvents.value) return;
   if (isMouseDragging.value) {
     onMouseUp();
   }
@@ -367,6 +484,8 @@ function handleImageLoad(event: Event) {
 }
 
 onMounted(() => {
+  supportsPointerEvents.value =
+    typeof window !== "undefined" && "PointerEvent" in window;
   startAutoPlay();
 });
 
@@ -408,6 +527,9 @@ onUnmounted(() => {
   width: 100%;
   display: block;
   object-fit: cover;
+  -webkit-user-drag: none;
+  user-select: none;
+  pointer-events: none;
   /* Fallback for older iOS */
   position: absolute;
   top: 0;
@@ -435,7 +557,7 @@ onUnmounted(() => {
 .carousel-track-new {
   display: flex;
   transition: transform 0.4s ease-out;
-  touch-action: pan-x;
+  touch-action: pan-y pinch-zoom;
   cursor: grab;
   user-select: none;
 }
@@ -466,6 +588,9 @@ onUnmounted(() => {
   width: 100%;
   display: block;
   object-fit: cover;
+  -webkit-user-drag: none;
+  user-select: none;
+  pointer-events: none;
   /* Fallback for older iOS */
   position: absolute;
   top: 0;
@@ -525,7 +650,7 @@ onUnmounted(() => {
   display: flex;
   gap: 12px;
   transition: transform 0.5s ease-out;
-  touch-action: pan-x;
+  touch-action: pan-y pinch-zoom;
   cursor: grab;
   user-select: none;
   align-items: center;

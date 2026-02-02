@@ -757,15 +757,30 @@ adminRouter.get('/api/admin/products', authMiddleware, (req, res) => {
   const params = []
   if (category) { where += (where ? ' AND ' : 'WHERE ') + 'p.categoryId = ?'; params.push(String(category)) }
   if (group) { where += (where ? ' AND ' : 'WHERE ') + 'p.groupId = ?'; params.push(String(group)) }
-  if (search) {
+  if (search && typeof search === 'string') {
     // SQLite's LOWER() не работает с кириллицей, поэтому ищем по всем вариантам регистра
     // Также ищем по названию группы (линейки) для удобства поиска
     const trimmed = search.trim();
-    const lowerPat = `%${trimmed.toLowerCase()}%`;
-    const upperPat = `%${trimmed.toUpperCase()}%`;
-    const titlePat = `%${trimmed.charAt(0).toUpperCase() + trimmed.slice(1).toLowerCase()}%`;
-    where += (where ? ' AND ' : 'WHERE ') + '(p.title LIKE ? OR p.title LIKE ? OR p.title LIKE ? OR p.description LIKE ? OR p.description LIKE ? OR p.description LIKE ? OR g.name LIKE ? OR g.name LIKE ? OR g.name LIKE ?)'
-    params.push(lowerPat, upperPat, titlePat, lowerPat, upperPat, titlePat, lowerPat, upperPat, titlePat)
+    const words = Array.from(
+      new Set(
+        trimmed
+          .split(/\s+/)
+          .map(word => word.trim().toLowerCase())
+          .filter(word => word.length > 0)
+      )
+    );
+
+    if (words.length > 0) {
+      const wordConditions = words.map(word => {
+        const lowerPat = `%${word}%`;
+        const upperPat = `%${word.toUpperCase()}%`;
+        const titlePat = `%${word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()}%`;
+        params.push(lowerPat, upperPat, titlePat, lowerPat, upperPat, titlePat, lowerPat, upperPat, titlePat);
+        return '(p.title LIKE ? OR p.title LIKE ? OR p.title LIKE ? OR p.description LIKE ? OR p.description LIKE ? OR p.description LIKE ? OR g.name LIKE ? OR g.name LIKE ? OR g.name LIKE ?)';
+      });
+
+      where += (where ? ' AND ' : 'WHERE ') + `(${wordConditions.join(' AND ')})`;
+    }
   }
 
   const total = (params.length

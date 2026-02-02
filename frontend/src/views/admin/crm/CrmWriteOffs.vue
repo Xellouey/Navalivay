@@ -153,6 +153,9 @@
                   >
                     <div>
                       <div class="font-medium text-gray-900">{{ product.title }}</div>
+                      <div v-if="product.groupName" class="text-xs font-semibold text-red-600">
+                        {{ product.groupName }}
+                      </div>
                       <div class="text-xs text-gray-500">На складе: {{ product.stock }} шт • Себестоимость: {{ formatCurrency(product.costPrice) }}</div>
                     </div>
                     <button
@@ -188,6 +191,9 @@
                   >
                     <td class="px-4 py-3">
                       <div class="font-medium text-gray-900">{{ item.product.title }}</div>
+                      <div v-if="item.product.groupName" class="text-xs font-semibold text-red-600">
+                        {{ item.product.groupName }}
+                      </div>
                       <div class="text-xs текст-gray-500">Мин. остаток: {{ item.product.minStock }} шт</div>
                     </td>
                     <td class="px-4 py-3 text-sm text-gray-600">{{ item.product.stock }} шт</td>
@@ -314,7 +320,12 @@
               </thead>
               <tbody class="divide-y">
                 <tr v-for="item in activeWriteOff.items || []" :key="item.id">
-                  <td class="px-4 py-3 font-medium text-gray-900">{{ item.product_title }}</td>
+                  <td class="px-4 py-3">
+                    <div class="font-medium text-gray-900">{{ item.product_title }}</div>
+                    <div v-if="item.group_name" class="text-xs font-semibold text-red-600">
+                      {{ item.group_name }}
+                    </div>
+                  </td>
                   <td class="px-4 py-3 text-sm text-gray-600">{{ item.quantity }} шт</td>
                   <td class="px-4 py-3 text-sm text-gray-600">{{ formatCurrency(item.cost_per_unit) }}</td>
                   <td class="px-4 py-3 text-right text-sm font-semibold text-gray-900">{{ formatCurrency(item.total_cost) }}</td>
@@ -559,7 +570,7 @@ function startEditFromDetails() {
         categoryId: '',
         categoryName: null,
         groupId: null,
-        groupName: null
+        groupName: item.group_name ?? null
       },
       quantity: Number(item.quantity ?? 0)
     }

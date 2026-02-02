@@ -570,21 +570,15 @@ function pluralize(count: number, one: string, few: string, many: string): strin
 /* TransitionGroup animations for items list */
 .item-list-enter-active {
   transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.item-list-leave-active {
+}.item-list-leave-active {
   transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.item-list-enter-from {
+}.item-list-enter-from {
   opacity: 0;
   transform: translateY(-12px) scale(0.98);
 }.item-list-leave-to {
   opacity: 0;
   transform: translateY(-8px) scale(0.98);
-}
-
-.item-list-move {
+}.item-list-move {
   transition: transform 0.35s cubic-bezier(0.4, 0, 0.2, 1);
 }
 </style>

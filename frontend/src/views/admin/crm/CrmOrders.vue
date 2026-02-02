@@ -632,7 +632,7 @@
           </div>
           <div class="grid gap-3 sm:grid-cols-2">
             <article
-              v-for="order in column.orders"
+              v-for="order in cancelledOrders"
               :key="order.id"
               class="cursor-grab rounded-lg border border-gray-200 bg-white p-4 shadow-sm transition hover:shadow-md active:cursor-grabbing"
               :class="[

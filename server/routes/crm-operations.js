@@ -1242,7 +1242,7 @@ crmOperationsRouter.get(
       SELECT pi.*, p.title as product_title, p.stock, p.min_stock, cg.name as group_name
       FROM procurement_items pi
       JOIN products p ON p.id = pi.product_id
-      LEFT JOIN category_groups cg ON cg.id = p.group_id
+      LEFT JOIN category_groups cg ON cg.id = p.groupId
       WHERE pi.procurement_id = ?
     `,
         )
@@ -1335,7 +1335,7 @@ crmOperationsRouter.post(
       SELECT pi.*, p.title as product_title, cg.name as group_name
       FROM procurement_items pi
       JOIN products p ON p.id = pi.product_id
-      LEFT JOIN category_groups cg ON cg.id = p.group_id
+      LEFT JOIN category_groups cg ON cg.id = p.groupId
       WHERE pi.procurement_id = ?
     `,
         )
@@ -1454,7 +1454,7 @@ crmOperationsRouter.patch(
       SELECT pi.*, p.title as product_title, p.stock, p.min_stock, cg.name as group_name
       FROM procurement_items pi
       JOIN products p ON p.id = pi.product_id
-      LEFT JOIN category_groups cg ON cg.id = p.group_id
+      LEFT JOIN category_groups cg ON cg.id = p.groupId
       WHERE pi.procurement_id = ?
     `,
         )

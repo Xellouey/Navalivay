@@ -152,7 +152,7 @@ const isAtStockLimit = computed(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: 10px;
 }
 
 .single-product-card:last-of-type {
@@ -162,7 +162,7 @@ const isAtStockLimit = computed(() => {
 .single-product-main {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
   flex: 1;
   min-width: 0;
 }
@@ -173,8 +173,8 @@ const isAtStockLimit = computed(() => {
 }
 
 .single-product-image {
-  width: 104px;
-  height: 120px;
+  width: 88px;
+  height: 104px;
   background: #ffffff;
   border: 1px solid #e6e9ed;
   border-radius: 16px;
@@ -183,7 +183,7 @@ const isAtStockLimit = computed(() => {
   justify-content: center;
   overflow: hidden;
   box-sizing: border-box;
-  padding: 8px;
+  padding: 6px;
 }
 
 .single-product-image img {
@@ -200,7 +200,7 @@ const isAtStockLimit = computed(() => {
 .single-product-info {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 6px;
   min-width: 0;
   flex: 1;
 }
@@ -223,9 +223,9 @@ const isAtStockLimit = computed(() => {
     BlinkMacSystemFont,
     sans-serif;
   font-style: normal;
-  font-weight: 400;
-  font-size: 14px;
-  line-height: 17px;
+  font-weight: 500;
+  font-size: 14.4px;
+  line-height: 17.3px;
   color: #aab2bd;
 }
 
@@ -234,8 +234,8 @@ const isAtStockLimit = computed(() => {
   font-family: "Montserrat", sans-serif;
   font-style: normal;
   font-weight: 700;
-  font-size: 20px;
-  line-height: 24px;
+  font-size: 16px;
+  line-height: 20px;
   color: #191919;
 }
 
@@ -314,12 +314,12 @@ const isAtStockLimit = computed(() => {
 /* Адаптивные стили */
 @media (max-width: 1024px) {
   .single-product-card {
-    padding: 14px;
+    padding: 16px;
   }
 
   .single-product-image {
-    width: 96px;
-    height: 112px;
+    width: 88px;
+    height: 104px;
     padding: 6px;
   }
 
@@ -329,11 +329,11 @@ const isAtStockLimit = computed(() => {
   }
 
   .single-product-title {
-    font-size: 15px;
+    font-size: 16px;
   }
 
   .single-product-price {
-    font-size: 18px;
+    font-size: 16px;
   }
 
   .single-qty-btn {
@@ -350,9 +350,9 @@ const isAtStockLimit = computed(() => {
 
 @media (max-width: 768px) {
   .single-product-card {
-    padding: 12px;
-    border-radius: 18px;
-    margin-bottom: 6px;
+    padding: 16px;
+    border-radius: 20px;
+    margin-bottom: 8px;
   }
 
   .single-product-main {
@@ -362,7 +362,7 @@ const isAtStockLimit = computed(() => {
   .single-product-image {
     width: 88px;
     height: 104px;
-    border-radius: 14px;
+    border-radius: 16px;
     padding: 6px;
   }
 
@@ -372,16 +372,16 @@ const isAtStockLimit = computed(() => {
   }
 
   .single-product-info {
-    gap: 3px;
+    gap: 6px;
   }
 
   .single-product-title {
-    font-size: 14px;
-    line-height: 18px;
+    font-size: 16px;
+    line-height: 20px;
   }
 
   .single-product-description {
-    font-size: 13px;
+    font-size: 14.4px;
   }
 
   .single-product-price {
@@ -413,19 +413,19 @@ const isAtStockLimit = computed(() => {
 
 @media (max-width: 480px) {
   .single-product-card {
-    padding: 10px;
-    border-radius: 16px;
+    padding: 16px;
+    border-radius: 20px;
   }
 
   .single-product-main {
-    gap: 8px;
+    gap: 10px;
   }
 
   .single-product-image {
-    width: 80px;
-    height: 96px;
-    border-radius: 12px;
-    padding: 4px;
+    width: 88px;
+    height: 104px;
+    border-radius: 16px;
+    padding: 6px;
   }
 
   .single-product-image img {
@@ -434,25 +434,25 @@ const isAtStockLimit = computed(() => {
   }
 
   .single-product-info {
-    gap: 2px;
+    gap: 6px;
   }
 
   .single-product-title {
-    font-size: 13px;
-    line-height: 16px;
+    font-size: 16px;
+    line-height: 20px;
   }
 
   .single-product-description {
-    font-size: 12px;
+    font-size: 14.4px;
   }
 
   .single-product-price {
-    font-size: 14px;
-    line-height: 18px;
+    font-size: 16px;
+    line-height: 20px;
   }
 
   .single-product-actions {
-    gap: 5px;
+    gap: 8px;
   }
 
   .single-qty-btn {
@@ -475,18 +475,18 @@ const isAtStockLimit = computed(() => {
 
 @media (max-width: 360px) {
   .single-product-card {
-    padding: 8px;
-    border-radius: 14px;
+    padding: 14px;
+    border-radius: 18px;
   }
 
   .single-product-main {
-    gap: 6px;
+    gap: 10px;
   }
 
   .single-product-image {
-    width: 72px;
-    height: 88px;
-    border-radius: 10px;
+    width: 80px;
+    height: 96px;
+    border-radius: 14px;
     padding: 4px;
   }
 
@@ -496,21 +496,21 @@ const isAtStockLimit = computed(() => {
   }
 
   .single-product-title {
-    font-size: 12px;
-    line-height: 15px;
+    font-size: 15px;
+    line-height: 19px;
   }
 
   .single-product-description {
-    font-size: 11px;
+    font-size: 14.4px;
   }
 
   .single-product-price {
-    font-size: 13px;
-    line-height: 16px;
+    font-size: 15px;
+    line-height: 19px;
   }
 
   .single-product-actions {
-    gap: 4px;
+    gap: 6px;
   }
 
   .single-qty-btn {

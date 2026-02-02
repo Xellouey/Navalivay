@@ -1663,20 +1663,41 @@ function normalizeString(value: unknown) {
   return String(value ?? '').trim().toLowerCase()
 }
 
+function normalizeSearchWords(value: unknown) {
+  const normalized = normalizeString(value)
+  if (!normalized) return []
+  const words = normalized.split(/\s+/).filter(word => word.length > 0)
+  const unique: string[] = []
+  const seen = new Set<string>()
+  for (const word of words) {
+    if (seen.has(word)) continue
+    seen.add(word)
+    unique.push(word)
+  }
+  return unique
+}
+
 function numericValue(value: unknown) {
   const num = Number(value ?? 0)
   return Number.isFinite(num) ? num : 0
 }
 
 const filteredProducts = computed(() => {
-  const s = search.value.toLowerCase()
+  const words = normalizeSearchWords(search.value)
   const cid = category.value
   const gid = group.value
   return (props.products || []).filter(p => {
     // Skip null/undefined products
     if (!p || !p.id) return false
-    // Поиск по названию товара И по названию группы (линейки)
-    const bySearch = !s || (p.title || '').toLowerCase().includes(s) || (p.groupName || '').toLowerCase().includes(s)
+    const title = normalizeString(p.title)
+    const groupName = normalizeString(p.groupName)
+    const description = normalizeString(p.description)
+    // Поиск по всем словам в названии, описании и названии группы (линейки)
+    const bySearch = words.length === 0 || words.every(word =>
+      title.includes(word) ||
+      groupName.includes(word) ||
+      description.includes(word)
+    )
     const byCat = !cid || p.categoryId === cid
     const byGroup = !gid || p.groupId === gid
     return bySearch && byCat && byGroup

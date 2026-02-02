@@ -134,6 +134,7 @@ export interface WriteOffItem {
   writeoff_id: string;
   product_id: string;
   product_title: string;
+  group_name?: string | null;
   quantity: number;
   cost_per_unit: number;
   total_cost: number;
