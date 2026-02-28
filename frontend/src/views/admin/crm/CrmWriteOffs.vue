@@ -153,7 +153,7 @@
                   >
                     <div>
                       <div class="font-medium text-gray-900">{{ product.title }}</div>
-                      <div v-if="product.groupName" class="text-xs font-semibold text-red-600">
+                      <div v-if="product.groupName" class="text-xs font-semibold text-blue-600">
                         {{ product.groupName }}
                       </div>
                       <div class="text-xs text-gray-500">На складе: {{ product.stock }} шт • Себестоимость: {{ formatCurrency(product.costPrice) }}</div>
@@ -191,7 +191,7 @@
                   >
                     <td class="px-4 py-3">
                       <div class="font-medium text-gray-900">{{ item.product.title }}</div>
-                      <div v-if="item.product.groupName" class="text-xs font-semibold text-red-600">
+                      <div v-if="item.product.groupName" class="text-xs font-semibold text-blue-600">
                         {{ item.product.groupName }}
                       </div>
                       <div class="text-xs текст-gray-500">Мин. остаток: {{ item.product.minStock }} шт</div>
@@ -322,7 +322,7 @@
                 <tr v-for="item in activeWriteOff.items || []" :key="item.id">
                   <td class="px-4 py-3">
                     <div class="font-medium text-gray-900">{{ item.product_title }}</div>
-                    <div v-if="item.group_name" class="text-xs font-semibold text-red-600">
+                    <div v-if="item.group_name" class="text-xs font-semibold text-blue-600">
                       {{ item.group_name }}
                     </div>
                   </td>

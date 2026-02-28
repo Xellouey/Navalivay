@@ -27,7 +27,7 @@
             <span v-else>Обновляем...</span>
           </button>
           <button
-            @click="autoRefreshEnabled = !autoRefreshEnabled"
+            @click="crmStore.setAutoRefreshEnabled(!autoRefreshEnabled)"
             class="inline-flex items-center gap-2 rounded-lg border px-4 py-2 text-sm font-medium transition-colors"
             :class="
               autoRefreshEnabled
@@ -51,7 +51,7 @@
             {{ autoRefreshEnabled ? "Авто включено" : "Включить авто" }}
           </button>
           <button
-            @click="notificationsEnabled = !notificationsEnabled"
+            @click="crmStore.setNotificationsEnabled(!notificationsEnabled)"
             :disabled="!notificationsSupported || notificationPermissionDenied"
             class="inline-flex items-center gap-2 rounded-lg border px-4 py-2 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60"
             :class="
@@ -59,6 +59,7 @@
                 ? 'border-sky-200 bg-sky-50 text-sky-700'
                 : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-100'
             "
+            :title="`Permission: ${notificationPermissionStatus}`"
           >
             <svg
               class="h-4 w-4"
@@ -74,9 +75,10 @@
               />
             </svg>
             {{ notificationsEnabled ? "Уведомления" : "Уведомления выкл" }}
+            <span v-if="notificationPermissionStatus !== 'granted'" class="ml-1 text-xs text-red-500">({{ notificationPermissionStatus }})</span>
           </button>
           <button
-            @click="soundEnabled = !soundEnabled"
+            @click="crmStore.setSoundEnabled(!soundEnabled)"
             class="inline-flex items-center gap-2 rounded-lg border px-4 py-2 text-sm font-medium transition-colors"
             :class="
               soundEnabled
@@ -98,6 +100,22 @@
               />
             </svg>
             {{ soundEnabled ? "Звук" : "Звук выкл" }}
+          </button>
+          <!-- Debug: Request permission button -->
+          <button
+            v-if="notificationPermissionStatus === 'default'"
+            @click="requestNotificationPermission"
+            class="inline-flex items-center gap-2 rounded-lg border border-orange-200 bg-orange-50 px-4 py-2 text-sm font-medium text-orange-700 transition-colors hover:bg-orange-100"
+          >
+            🔔 Разрешить уведомления
+          </button>
+          <!-- Debug: Test notification button -->
+          <button
+            @click="testNotification"
+            class="inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-100"
+            title="Тест уведомления и звука"
+          >
+            🧪 Тест
           </button>
           <button
             @click="$router.push('/admin/crm/message-templates')"
@@ -341,12 +359,19 @@
                 </div>
                 <div class="flex items-center gap-2">
                   <span
+                    v-if="column.key !== 'delivered' || profitUnlocked"
                     :class="[
                       'rounded-full px-2 py-1 text-xs font-semibold',
                       column.badgeClass,
                     ]"
                   >
                     {{ column.orders.length }}
+                  </span>
+                  <span
+                    v-else
+                    class="rounded-full bg-gray-100 px-2 py-1 text-xs font-semibold text-gray-400"
+                  >
+                    <LockClosedIcon class="h-3.5 w-3.5" />
                   </span>
                   <span
                     v-if="column.key === 'new' && unseenOrdersCount > 0"
@@ -369,15 +394,40 @@
               @dragleave.prevent="onDragLeave(column.key)"
               @drop.prevent="onDrop(column.key)"
             >
+              <!-- Плейсхолдер для колонки "Доставлено" до ввода пароля -->
+              <div
+                v-if="column.key === 'delivered' && !profitUnlocked"
+                class="flex flex-col items-center justify-center rounded-lg border border-dashed border-gray-200 bg-gray-50/50 px-4 py-12 text-center"
+              >
+                <div class="mb-3 rounded-full bg-gray-100 p-3">
+                  <LockClosedIcon class="h-6 w-6 text-gray-400" />
+                </div>
+                <p class="mb-1 text-sm font-medium text-gray-600">
+                  Доступ ограничен
+                </p>
+                <p class="mb-4 text-xs text-gray-400">
+                  Введите пароль для просмотра выданных заказов
+                </p>
+                <button
+                  type="button"
+                  class="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-70"
+                  :disabled="verifyingPassword"
+                  @click="openPasswordModal()"
+                >
+                  <LockClosedIcon class="h-4 w-4" />
+                  <span>{{ verifyingPassword ? "Проверяем…" : "Открыть доступ" }}</span>
+                </button>
+              </div>
+
               <p
-                v-if="column.orders.length === 0"
+                v-else-if="column.orders.length === 0"
                 class="rounded-lg border border-dashed border-gray-200 px-3 py-8 text-center text-sm text-gray-400"
               >
                 Нет заказов в этом статусе
               </p>
 
               <article
-                v-for="order in column.orders"
+                v-for="order in (column.key === 'delivered' && !profitUnlocked) ? [] : column.orders"
                 :key="order.id"
                 class="cursor-grab rounded-lg border border-gray-200 bg-white p-4 shadow-sm transition hover:shadow-md active:cursor-grabbing"
                 :class="[
@@ -957,6 +1007,35 @@
       @close="showCreateModal = false"
       @created="handleOrderCreated"
     />
+    
+    <!-- In-app Toast Notification (Safari fallback) -->
+    <Teleport to="body">
+      <Transition name="toast-slide">
+        <div
+          v-if="crmStore.inAppToast.show"
+          class="fixed top-4 right-4 z-[9999] flex items-center gap-3 rounded-xl bg-gradient-to-r from-emerald-500 to-green-600 px-5 py-4 text-white shadow-2xl"
+          style="min-width: 280px;"
+        >
+          <div class="flex h-10 w-10 items-center justify-center rounded-full bg-white/20">
+            <svg class="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6 6 0 10-12 0v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+            </svg>
+          </div>
+          <div class="flex-1">
+            <div class="font-bold text-lg">{{ crmStore.inAppToast.message }}</div>
+            <div class="text-sm text-white/80">Проверьте колонку «Новые»</div>
+          </div>
+          <button
+            @click="crmStore.hideInAppToast()"
+            class="flex h-8 w-8 items-center justify-center rounded-full bg-white/20 hover:bg-white/30 transition-colors"
+          >
+            <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+      </Transition>
+    </Teleport>
   </div>
 </template>
 
@@ -995,13 +1074,20 @@ const activeDropColumn = ref<string | null>(null);
 const searchQuery = ref("");
 let searchDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 
-const autoRefreshEnabled = ref(true);
-const notificationsEnabled = ref(true);
-const soundEnabled = ref(true);
+// Use store for notification settings (global)
+const { 
+  notificationsEnabled, 
+  soundEnabled, 
+  autoRefreshEnabled,
+  unseenOrderIds: storeUnseenOrderIds,
+  newOrdersCount
+} = storeToRefs(crmStore);
+
 const lastUpdateAt = ref<Date | null>(null);
 const isRefreshing = ref(false);
 const newOrderHighlight = ref(false);
-const unseenOrderIds = ref<Set<string>>(new Set());
+// Local unseenOrderIds synced with store
+const unseenOrderIds = computed(() => storeUnseenOrderIds.value);
 
 const notificationsSupported =
   typeof window !== "undefined" && "Notification" in window;
@@ -1211,6 +1297,89 @@ const notificationPermissionDenied = computed(() => {
     return false;
   return Notification.permission === "denied";
 });
+
+const notificationPermissionStatus = computed(() => {
+  if (!notificationsSupported || typeof Notification === "undefined")
+    return "not supported";
+  return Notification.permission;
+});
+
+// Debug functions for testing notifications
+async function requestNotificationPermission() {
+  if (typeof Notification !== "undefined" && Notification.permission === "default") {
+    try {
+      const result = await Notification.requestPermission();
+      // Log to server
+      fetch('/api/debug-log', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          location: 'CrmOrders.vue:requestNotificationPermission',
+          message: 'Permission requested',
+          data: { result },
+          timestamp: Date.now()
+        })
+      }).catch(() => {});
+      alert(`Результат запроса разрешения: ${result}`);
+    } catch (e) {
+      alert(`Ошибка запроса разрешения: ${e}`);
+    }
+  }
+}
+
+function testNotification() {
+  const permStatus = typeof Notification !== "undefined" ? Notification.permission : "N/A";
+  
+  // Log to server
+  fetch('/api/debug-log', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      location: 'CrmOrders.vue:testNotification',
+      message: 'Test notification triggered',
+      data: { 
+        permissionStatus: permStatus,
+        notificationsEnabled: notificationsEnabled.value,
+        soundEnabled: soundEnabled.value
+      },
+      timestamp: Date.now()
+    })
+  }).catch(() => {});
+
+  // Test sound
+  try {
+    const ctx = new AudioContext();
+    const oscillator = ctx.createOscillator();
+    const gain = ctx.createGain();
+    oscillator.type = "triangle";
+    oscillator.frequency.value = 880;
+    oscillator.connect(gain);
+    gain.connect(ctx.destination);
+    const now = ctx.currentTime;
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.exponentialRampToValueAtTime(0.25, now + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.5);
+    oscillator.start(now);
+    oscillator.stop(now + 0.5);
+    setTimeout(() => ctx.close().catch(() => null), 1000);
+  } catch (e) {
+    alert(`Ошибка звука: ${e}`);
+  }
+
+  // Test notification
+  if (typeof Notification !== "undefined" && Notification.permission === "granted") {
+    try {
+      new Notification("Тест уведомления", {
+        body: "Если вы видите это - уведомления работают!",
+        icon: "/favicon.ico"
+      });
+    } catch (e) {
+      alert(`Ошибка уведомления: ${e}`);
+    }
+  } else {
+    alert(`Уведомления недоступны. Статус: ${permStatus}`);
+  }
+}
 
 const nextStatusMap: Record<
   Order["status"],
@@ -1519,12 +1688,16 @@ onMounted(async () => {
     await crmStore.fetchCashAccounts();
   }
   scheduleAutoRefresh();
-  if (!notificationsSupported || notificationPermissionDenied.value) {
-    notificationsEnabled.value = false;
-  }
-  if (notificationsEnabled.value) {
-    void ensureNotificationPermission();
-  }
+  // Don't auto-mark as seen - user should interact with orders to mark them seen
+  
+  // Unlock AudioContext on first user interaction (required for Safari)
+  const unlockOnInteraction = () => {
+    crmStore.unlockAudioContext();
+    document.removeEventListener('click', unlockOnInteraction);
+    document.removeEventListener('touchstart', unlockOnInteraction);
+  };
+  document.addEventListener('click', unlockOnInteraction, { once: true });
+  document.addEventListener('touchstart', unlockOnInteraction, { once: true });
 });
 
 onUnmounted(() => {
@@ -1554,107 +1727,11 @@ function scheduleAutoRefresh() {
 }
 
 function markOrderSeen(orderId: string) {
-  if (!unseenOrderIds.value.has(orderId)) return;
-  const updated = new Set(unseenOrderIds.value);
-  updated.delete(orderId);
-  unseenOrderIds.value = updated;
+  crmStore.markOrderAsSeen(orderId);
 }
 
-function handleNewOrders(orderList: Order[]) {
-  let added = false;
-  orderList.forEach((order) => {
-    if (order.status === "new" && !unseenOrderIds.value.has(order.id)) {
-      unseenOrderIds.value.add(order.id);
-      added = true;
-    }
-  });
-  if (added) {
-    unseenOrderIds.value = new Set(unseenOrderIds.value);
-  }
-
-  if (highlightTimer) {
-    clearTimeout(highlightTimer);
-  }
-  newOrderHighlight.value = true;
-  highlightTimer = setTimeout(() => {
-    newOrderHighlight.value = false;
-  }, 4000);
-
-  if (notificationsEnabled.value) {
-    triggerBrowserNotification(orderList.length);
-  }
-
-  if (soundEnabled.value) {
-    playNotificationSound();
-  }
-}
-
-function triggerBrowserNotification(count: number) {
-  if (typeof window === "undefined" || !("Notification" in window)) return;
-  if (Notification.permission !== "granted") return;
-
-  const title = count === 1 ? "Новый заказ" : `Новых заказов: ${count}`;
-  const body =
-    count === 1
-      ? "Появился новый заказ в колонке «Новые»."
-      : "На доске появились новые заказы. Проверьте колонку «Новые».";
-
-  try {
-    new Notification(title, {
-      body,
-      icon: "/favicon.ico",
-    });
-  } catch (error) {
-    console.warn("[CRM] Browser notification failed:", error);
-  }
-}
-
-function playNotificationSound() {
-  if (typeof window === "undefined") return;
-  try {
-    const ctx = new AudioContext();
-    const oscillator = ctx.createOscillator();
-    const gain = ctx.createGain();
-
-    oscillator.type = "triangle";
-    oscillator.frequency.value = 880;
-    oscillator.connect(gain);
-    gain.connect(ctx.destination);
-
-    const now = ctx.currentTime;
-    gain.gain.setValueAtTime(0.0001, now);
-    gain.gain.exponentialRampToValueAtTime(0.25, now + 0.02);
-    gain.gain.exponentialRampToValueAtTime(0.0001, now + 1);
-
-    oscillator.start(now);
-    oscillator.stop(now + 1);
-
-    setTimeout(() => ctx.close().catch(() => null), 1500);
-  } catch (error) {
-    console.warn("[CRM] Notification sound failed:", error);
-  }
-}
-
-async function ensureNotificationPermission() {
-  if (!notificationsSupported || typeof Notification === "undefined") {
-    notificationsEnabled.value = false;
-    return;
-  }
-
-  if (Notification.permission === "default") {
-    try {
-      const permission = await Notification.requestPermission();
-      if (permission !== "granted") {
-        notificationsEnabled.value = false;
-      }
-    } catch (error) {
-      console.warn("[CRM] Notification permission request failed:", error);
-      notificationsEnabled.value = false;
-    }
-  } else if (Notification.permission === "denied") {
-    notificationsEnabled.value = false;
-  }
-}
+// handleNewOrders, triggerBrowserNotification, playNotificationSound, ensureNotificationPermission
+// moved to crm.ts store for global notifications
 
 watch(profitUnlocked, (unlocked) => {
   if (!unlocked) {
@@ -1667,13 +1744,6 @@ watch(profitUnlocked, (unlocked) => {
 
 watch(autoRefreshEnabled, () => {
   scheduleAutoRefresh();
-});
-
-watch(notificationsEnabled, (enabled) => {
-  if (!notificationsSupported) return;
-  if (enabled) {
-    void ensureNotificationPermission();
-  }
 });
 
 watch(
@@ -1726,3 +1796,35 @@ function orderStatusLabel(
   }
 }
 </script>
+
+<style scoped>
+/* Toast notification animation */
+.toast-slide-enter-active {
+  animation: toast-in 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.toast-slide-leave-active {
+  animation: toast-out 0.3s cubic-bezier(0.4, 0, 1, 1);
+}
+
+@keyframes toast-in {
+  0% {
+    opacity: 0;
+    transform: translateX(100%) scale(0.8);
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+  }
+}
+
+@keyframes toast-out {
+  0% {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translateX(100%) scale(0.8);
+  }
+}
+</style>

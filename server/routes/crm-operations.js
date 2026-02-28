@@ -1,9 +1,15 @@
 import express from "express";
+import fs from "fs";
 import { db } from "../db.js";
 import { authMiddleware } from "../auth.js";
 import { archiveOldDeliveredOrders } from "../cleanup-delivered-orders.js";
 
 export const crmOperationsRouter = express.Router();
+
+// #region agent log
+const DEBUG_LOG_PATH = '/var/www/NAVALIVAY/.cursor/debug-036109.log';
+function debugLog(data) { try { fs.appendFileSync(DEBUG_LOG_PATH, JSON.stringify({...data, serverTime: Date.now()}) + '\n'); } catch(e) {} }
+// #endregion
 
 // Helper для генерации ID
 function generateId(prefix) {
@@ -158,6 +164,12 @@ crmOperationsRouter.get("/api/admin/crm/orders", authMiddleware, (req, res) => {
         items: itemsByOrder.get(order.id) || [],
       }));
     }
+
+    // #region agent log - логируем polling запросы для status=new
+    if (status === 'new') {
+      debugLog({location:'crm-operations.js:getOrders',message:'Polling for new orders',data:{status,ordersCount:ordersWithItems.length,orderIds:ordersWithItems.map(o=>o.id),orderNumbers:ordersWithItems.map(o=>o.order_number)},hypothesisId:'H4'});
+    }
+    // #endregion
 
     res.json({
       orders: ordersWithItems,
@@ -419,10 +431,10 @@ crmOperationsRouter.post(
 
         // Получаем group_name для отображения линейки
         let groupName = null;
-        if (product.group_id) {
+        if (product.groupId) {
           const group = db
             .prepare("SELECT name FROM category_groups WHERE id = ?")
-            .get(product.group_id);
+            .get(product.groupId);
           if (group) {
             groupName = group.name;
           }
@@ -848,10 +860,10 @@ crmOperationsRouter.patch(
             totalCost += totalItemCost;
 
             let groupName = item.group_name || null;
-            if (!groupName && product.group_id) {
+            if (!groupName && product.groupId) {
               const group = db
                 .prepare("SELECT name FROM category_groups WHERE id = ?")
-                .get(product.group_id);
+                .get(product.groupId);
               if (group) {
                 groupName = group.name;
               }
@@ -1253,10 +1265,12 @@ crmOperationsRouter.get(
       const items = db
         .prepare(
           `
-      SELECT pi.*, p.title as product_title, p.stock, p.min_stock, cg.name as group_name
+      SELECT pi.*, p.title as product_title, p.stock, p.min_stock, cg.name as group_name,
+             pv.name as variant_name, pv.stock as variant_stock
       FROM procurement_items pi
       JOIN products p ON p.id = pi.product_id
       LEFT JOIN category_groups cg ON cg.id = p.groupId
+      LEFT JOIN product_variants pv ON pv.id = pi.variant_id
       WHERE pi.procurement_id = ?
     `,
         )
@@ -1306,11 +1320,25 @@ crmOperationsRouter.post(
 
         // Добавляем позиции
         for (const item of items) {
+          // Проверяем, это вариант или обычный товар
+          let productId = item.product_id;
+          let variantId = item.variant_id || null;
+          
+          // Если передан variant_id, получаем product_id из варианта
+          if (variantId) {
+            const variant = db
+              .prepare("SELECT product_id FROM product_variants WHERE id = ?")
+              .get(variantId);
+            if (variant) {
+              productId = variant.product_id;
+            }
+          }
+          
           const product = db
             .prepare("SELECT * FROM products WHERE id = ?")
-            .get(item.product_id);
+            .get(productId);
           if (!product) {
-            throw new Error(`Product not found: ${item.product_id}`);
+            throw new Error(`Product not found: ${productId}`);
           }
 
           const totalCost = item.quantity * item.cost_per_unit;
@@ -1318,13 +1346,14 @@ crmOperationsRouter.post(
 
           db.prepare(
             `
-          INSERT INTO procurement_items (id, procurement_id, product_id, quantity, cost_per_unit, total_cost)
-          VALUES (?, ?, ?, ?, ?, ?)
+          INSERT INTO procurement_items (id, procurement_id, product_id, variant_id, quantity, cost_per_unit, total_cost)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
         `,
           ).run(
             generateId("pi"),
             procurementId,
-            item.product_id,
+            productId,
+            variantId,
             item.quantity,
             item.cost_per_unit,
             totalCost,
@@ -1346,10 +1375,12 @@ crmOperationsRouter.post(
       const procurementItems = db
         .prepare(
           `
-      SELECT pi.*, p.title as product_title, cg.name as group_name
+      SELECT pi.*, p.title as product_title, cg.name as group_name,
+             pv.name as variant_name
       FROM procurement_items pi
       JOIN products p ON p.id = pi.product_id
       LEFT JOIN category_groups cg ON cg.id = p.groupId
+      LEFT JOIN product_variants pv ON pv.id = pi.variant_id
       WHERE pi.procurement_id = ?
     `,
         )
@@ -1411,8 +1442,8 @@ crmOperationsRouter.patch(
 
           let totalAmount = 0;
           const itemStmt = db.prepare(`
-          INSERT INTO procurement_items (id, procurement_id, product_id, quantity, cost_per_unit, total_cost)
-          VALUES (?, ?, ?, ?, ?, ?)
+          INSERT INTO procurement_items (id, procurement_id, product_id, variant_id, quantity, cost_per_unit, total_cost)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
         `);
 
           for (const item of items) {
@@ -1420,11 +1451,25 @@ crmOperationsRouter.patch(
               throw new Error("invalid_item");
             }
 
+            // Проверяем, это вариант или обычный товар
+            let productId = item.product_id;
+            let variantId = item.variant_id || null;
+            
+            // Если передан variant_id, получаем product_id из варианта
+            if (variantId) {
+              const variant = db
+                .prepare("SELECT product_id FROM product_variants WHERE id = ?")
+                .get(variantId);
+              if (variant) {
+                productId = variant.product_id;
+              }
+            }
+
             const product = db
               .prepare("SELECT * FROM products WHERE id = ?")
-              .get(item.product_id);
+              .get(productId);
             if (!product) {
-              throw new Error(`Product not found: ${item.product_id}`);
+              throw new Error(`Product not found: ${productId}`);
             }
 
             const quantity = Number(item.quantity || 0);
@@ -1444,7 +1489,8 @@ crmOperationsRouter.patch(
             itemStmt.run(
               generateId("pi"),
               id,
-              item.product_id,
+              productId,
+              variantId,
               quantity,
               costPerUnit,
               totalCost,
@@ -1465,10 +1511,12 @@ crmOperationsRouter.patch(
       const updatedItems = db
         .prepare(
           `
-      SELECT pi.*, p.title as product_title, p.stock, p.min_stock, cg.name as group_name
+      SELECT pi.*, p.title as product_title, p.stock, p.min_stock, cg.name as group_name,
+             pv.name as variant_name, pv.stock as variant_stock
       FROM procurement_items pi
       JOIN products p ON p.id = pi.product_id
       LEFT JOIN category_groups cg ON cg.id = p.groupId
+      LEFT JOIN product_variants pv ON pv.id = pi.variant_id
       WHERE pi.procurement_id = ?
     `,
         )
@@ -1679,22 +1727,38 @@ crmOperationsRouter.post(
 
       const tx = db.transaction(() => {
         for (const item of items) {
-          // Рассчитываем новую среднюю себестоимость
-          const avgCost = calculateAverageCost(
-            item.product_id,
-            item.quantity,
-            item.cost_per_unit,
-          );
-
-          // Обновляем товар
-          db.prepare(
-            `
-          UPDATE products 
-          SET stock = stock + ?,
-              cost_price = ?
-          WHERE id = ?
-        `,
-          ).run(item.quantity, avgCost, item.product_id);
+          // Проверяем, это вариант или обычный товар
+          if (item.variant_id) {
+            // Это вариант - обновляем stock в product_variants
+            db.prepare(
+              `UPDATE product_variants SET stock = stock + ? WHERE id = ?`
+            ).run(item.quantity, item.variant_id);
+            
+            // Также обновляем cost_price базового товара
+            const avgCost = calculateAverageCost(
+              item.product_id,
+              item.quantity,
+              item.cost_per_unit,
+            );
+            db.prepare(
+              `UPDATE products SET cost_price = ? WHERE id = ?`
+            ).run(avgCost, item.product_id);
+          } else {
+            // Обычный товар - обновляем stock в products
+            const avgCost = calculateAverageCost(
+              item.product_id,
+              item.quantity,
+              item.cost_per_unit,
+            );
+            db.prepare(
+              `
+            UPDATE products 
+            SET stock = stock + ?,
+                cost_price = ?
+            WHERE id = ?
+          `,
+            ).run(item.quantity, avgCost, item.product_id);
+          }
         }
 
         // Обновляем статус закупки

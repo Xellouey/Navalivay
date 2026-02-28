@@ -44,8 +44,15 @@
                     : 'sidebar-button--default'"
                   @click="navigate"
                 >
-                  <span class="sidebar-button__icon">
+                  <span class="sidebar-button__icon relative">
                     <component :is="link.icon" class="w-5 h-5" />
+                    <!-- Badge for new orders -->
+                    <span
+                      v-if="link.id === 'orders' && newOrdersCount > 0"
+                      class="absolute -top-1.5 -right-1.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white shadow-lg"
+                    >
+                      {{ newOrdersCount > 99 ? '99+' : newOrdersCount }}
+                    </span>
                   </span>
                   <div class="flex flex-col items-start gap-0.5">
                     <span class="text-sm font-semibold leading-tight text-slate-900">{{ link.name }}</span>
@@ -77,6 +84,8 @@
 import { computed } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
 import { LockClosedIcon } from '@heroicons/vue/24/outline'
+import { useCrmStore } from '@/stores/crm'
+import { storeToRefs } from 'pinia'
 
 interface Tab { id: string; name: string; icon: any; description?: string }
 interface SidebarLink { id: string; name: string; description: string; icon: any; to: string }
@@ -89,6 +98,9 @@ const props = defineProps<{
 }>()
 
 defineEmits<{ (e: 'update:modelValue', v: string): void; (e: 'lock'): void }>()
+
+const crmStore = useCrmStore()
+const { newOrdersCount } = storeToRefs(crmStore)
 
 const crmLinks = computed(() => props.crmLinks ?? [])
 const route = useRoute()

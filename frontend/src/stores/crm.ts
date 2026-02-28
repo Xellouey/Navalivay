@@ -285,6 +285,290 @@ export const useCrmStore = defineStore("crm", () => {
     }
   }
 
+  // ========== Global Order Notifications ==========
+  const newOrdersCount = ref(0);
+  const unseenOrderIds = ref<Set<string>>(new Set());
+  const lastKnownOrderIds = ref<Set<string>>(new Set());
+  // In-app toast notification (fallback for Safari)
+  const inAppToast = ref<{ show: boolean; message: string; count: number }>({
+    show: false,
+    message: "",
+    count: 0,
+  });
+  const notificationsEnabled = ref(
+    typeof localStorage !== "undefined"
+      ? localStorage.getItem("crm_notifications_enabled") !== "false"
+      : true
+  );
+  const soundEnabled = ref(
+    typeof localStorage !== "undefined"
+      ? localStorage.getItem("crm_sound_enabled") !== "false"
+      : true
+  );
+  const autoRefreshEnabled = ref(true);
+  let pollingTimer: ReturnType<typeof setInterval> | null = null;
+  let pollingInitialized = false;
+  const POLLING_INTERVAL_MS = 15000;
+
+  function setNotificationsEnabled(enabled: boolean) {
+    notificationsEnabled.value = enabled;
+    if (typeof localStorage !== "undefined") {
+      localStorage.setItem("crm_notifications_enabled", enabled ? "true" : "false");
+    }
+    if (enabled) {
+      ensureNotificationPermission();
+    }
+  }
+
+  function setSoundEnabled(enabled: boolean) {
+    soundEnabled.value = enabled;
+    if (typeof localStorage !== "undefined") {
+      localStorage.setItem("crm_sound_enabled", enabled ? "true" : "false");
+    }
+    // Unlock AudioContext on user interaction (required for Safari)
+    if (enabled) {
+      unlockAudioContext();
+    }
+  }
+
+  function setAutoRefreshEnabled(enabled: boolean) {
+    autoRefreshEnabled.value = enabled;
+    if (enabled) {
+      startPolling();
+    } else {
+      stopPolling();
+    }
+  }
+
+  // Pre-created audio context for Safari (needs user gesture to unlock)
+  let audioContextUnlocked = false;
+  let cachedAudioContext: AudioContext | null = null;
+  
+  function unlockAudioContext() {
+    if (audioContextUnlocked) return;
+    try {
+      cachedAudioContext = new AudioContext();
+      // Create a silent buffer to unlock
+      const buffer = cachedAudioContext.createBuffer(1, 1, 22050);
+      const source = cachedAudioContext.createBufferSource();
+      source.buffer = buffer;
+      source.connect(cachedAudioContext.destination);
+      source.start(0);
+      audioContextUnlocked = true;
+      // #region agent log
+      fetch('/api/debug-log',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'crm.ts:unlockAudioContext',message:'AudioContext unlocked',data:{},timestamp:Date.now()})}).catch(()=>{});
+      // #endregion
+    } catch (e) {
+      // ignore
+    }
+  }
+
+  function playNotificationSound() {
+    // #region agent log
+    fetch('/api/debug-log',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'crm.ts:playNotificationSound',message:'playNotificationSound called',data:{windowDefined:typeof window !== "undefined", audioContextUnlocked},timestamp:Date.now(),hypothesisId:'H5'})}).catch(()=>{});
+    // #endregion
+    if (typeof window === "undefined") return;
+    try {
+      // Try to use cached context or create new one
+      const ctx = cachedAudioContext && cachedAudioContext.state !== 'closed' 
+        ? cachedAudioContext 
+        : new AudioContext();
+      
+      // Resume if suspended (Safari)
+      if (ctx.state === 'suspended') {
+        ctx.resume().catch(() => {});
+      }
+      
+      const oscillator = ctx.createOscillator();
+      const gain = ctx.createGain();
+
+      oscillator.type = "triangle";
+      oscillator.frequency.value = 880;
+      oscillator.connect(gain);
+      gain.connect(ctx.destination);
+
+      const now = ctx.currentTime;
+      gain.gain.setValueAtTime(0.0001, now);
+      gain.gain.exponentialRampToValueAtTime(0.25, now + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + 1);
+
+      oscillator.start(now);
+      oscillator.stop(now + 1);
+
+      // Don't close cached context
+      if (ctx !== cachedAudioContext) {
+        setTimeout(() => ctx.close().catch(() => null), 1500);
+      }
+      // #region agent log
+      fetch('/api/debug-log',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'crm.ts:playNotificationSound:success',message:'Sound played successfully',data:{contextState: ctx.state},timestamp:Date.now(),hypothesisId:'H5'})}).catch(()=>{});
+      // #endregion
+    } catch (error) {
+      // #region agent log
+      fetch('/api/debug-log',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'crm.ts:playNotificationSound:error',message:'Sound failed',data:{error:String(error)},timestamp:Date.now(),hypothesisId:'H5'})}).catch(()=>{});
+      // #endregion
+      console.warn("[CRM] Notification sound failed:", error);
+    }
+  }
+
+  function triggerBrowserNotification(count: number) {
+    // #region agent log
+    const notificationSupported = typeof window !== "undefined" && "Notification" in window;
+    const notificationPermission = notificationSupported ? Notification.permission : 'N/A';
+    fetch('/api/debug-log',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'crm.ts:triggerBrowserNotification',message:'triggerBrowserNotification called',data:{count,notificationSupported,notificationPermission},timestamp:Date.now(),hypothesisId:'H5'})}).catch(()=>{});
+    // #endregion
+    
+    // Always show in-app toast (works in Safari and all browsers)
+    const toastMessage = count === 1 ? "Новый заказ!" : `Новых заказов: ${count}`;
+    inAppToast.value = { show: true, message: toastMessage, count };
+    // Auto-hide after 10 seconds
+    setTimeout(() => {
+      if (inAppToast.value.count === count) {
+        inAppToast.value = { show: false, message: "", count: 0 };
+      }
+    }, 10000);
+    
+    // Also try browser notification (may not work in Safari)
+    if (typeof window === "undefined" || !("Notification" in window)) return;
+    if (Notification.permission !== "granted") return;
+
+    const title = count === 1 ? "Новый заказ" : `Новых заказов: ${count}`;
+    const body =
+      count === 1
+        ? "Появился новый заказ в колонке «Новые»."
+        : "На доске появились новые заказы. Проверьте колонку «Новые».";
+
+    try {
+      new Notification(title, {
+        body,
+        icon: "/favicon.ico",
+      });
+      // #region agent log
+      fetch('/api/debug-log',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'crm.ts:triggerBrowserNotification:success',message:'Notification created successfully',data:{title,body},timestamp:Date.now(),hypothesisId:'H5'})}).catch(()=>{});
+      // #endregion
+    } catch (error) {
+      // #region agent log
+      fetch('/api/debug-log',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'crm.ts:triggerBrowserNotification:error',message:'Notification creation failed',data:{error:String(error)},timestamp:Date.now(),hypothesisId:'H5'})}).catch(()=>{});
+      // #endregion
+      console.warn("[CRM] Browser notification failed:", error);
+    }
+  }
+  
+  function hideInAppToast() {
+    inAppToast.value = { show: false, message: "", count: 0 };
+  }
+
+  async function ensureNotificationPermission() {
+    if (typeof window === "undefined" || !("Notification" in window)) {
+      return;
+    }
+
+    if (Notification.permission === "default") {
+      try {
+        await Notification.requestPermission();
+      } catch (error) {
+        console.warn("[CRM] Notification permission request failed:", error);
+      }
+    }
+  }
+
+  async function checkForNewOrders() {
+    // #region agent log
+    fetch('/api/debug-log',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'crm.ts:checkForNewOrders:start',message:'checkForNewOrders called',data:{pollingInitialized,lastKnownCount:lastKnownOrderIds.value.size,notificationsEnabled:notificationsEnabled.value,soundEnabled:soundEnabled.value},timestamp:Date.now(),hypothesisId:'H2'})}).catch(()=>{});
+    // #endregion
+    try {
+      const data = await fetchAPI<{ orders: Order[] }>(
+        `${API_BASE}/orders?status=new&limit=100`
+      );
+      const currentNewOrders = data.orders || [];
+      const currentIds = new Set(currentNewOrders.map((o) => o.id));
+
+      // #region agent log
+      fetch('/api/debug-log',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'crm.ts:checkForNewOrders:afterFetch',message:'API returned orders',data:{ordersCount:currentNewOrders.length,orderIds:Array.from(currentIds),lastKnownIds:Array.from(lastKnownOrderIds.value)},timestamp:Date.now(),hypothesisId:'H2,H4'})}).catch(()=>{});
+      // #endregion
+
+      // Find truly new orders (not seen before)
+      const newIds: string[] = [];
+      currentIds.forEach((id) => {
+        if (!lastKnownOrderIds.value.has(id)) {
+          newIds.push(id);
+          unseenOrderIds.value.add(id);
+        }
+      });
+
+      // #region agent log
+      fetch('/api/debug-log',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'crm.ts:checkForNewOrders:newIdsFound',message:'New IDs calculated',data:{newIdsCount:newIds.length,newIds,pollingInitialized,willTriggerNotification:pollingInitialized && newIds.length > 0},timestamp:Date.now(),hypothesisId:'H3,H4'})}).catch(()=>{});
+      // #endregion
+
+      // Update last known IDs
+      lastKnownOrderIds.value = currentIds;
+
+      // Clean up unseen IDs that are no longer in "new" status
+      const cleanedUnseen = new Set<string>();
+      unseenOrderIds.value.forEach((id) => {
+        if (currentIds.has(id)) {
+          cleanedUnseen.add(id);
+        }
+      });
+      unseenOrderIds.value = cleanedUnseen;
+      newOrdersCount.value = unseenOrderIds.value.size;
+
+      // Trigger notifications for new orders (only if not first load)
+      if (pollingInitialized && newIds.length > 0) {
+        // #region agent log
+        fetch('/api/debug-log',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'crm.ts:checkForNewOrders:triggeringNotifications',message:'About to trigger notifications',data:{newIdsCount:newIds.length,notificationsEnabled:notificationsEnabled.value,soundEnabled:soundEnabled.value},timestamp:Date.now(),hypothesisId:'H3'})}).catch(()=>{});
+        // #endregion
+        if (notificationsEnabled.value) {
+          triggerBrowserNotification(newIds.length);
+        }
+        if (soundEnabled.value) {
+          playNotificationSound();
+        }
+      }
+
+      pollingInitialized = true;
+    } catch (error) {
+      // #region agent log
+      fetch('/api/debug-log',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'crm.ts:checkForNewOrders:error',message:'checkForNewOrders failed',data:{error:String(error)},timestamp:Date.now(),hypothesisId:'H2'})}).catch(()=>{});
+      // #endregion
+      console.error("[CRM] Check for new orders failed:", error);
+    }
+  }
+
+  function startPolling() {
+    // #region agent log
+    fetch('/api/debug-log',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'crm.ts:startPolling',message:'startPolling called',data:{hasTimer:!!pollingTimer,pollingInitialized},timestamp:Date.now(),hypothesisId:'H1'})}).catch(()=>{});
+    // #endregion
+    if (pollingTimer) return;
+    checkForNewOrders(); // Initial check
+    pollingTimer = setInterval(checkForNewOrders, POLLING_INTERVAL_MS);
+  }
+
+  function stopPolling() {
+    if (pollingTimer) {
+      clearInterval(pollingTimer);
+      pollingTimer = null;
+    }
+  }
+
+  function markOrderAsSeen(orderId: string) {
+    if (unseenOrderIds.value.has(orderId)) {
+      unseenOrderIds.value.delete(orderId);
+      unseenOrderIds.value = new Set(unseenOrderIds.value);
+      newOrdersCount.value = unseenOrderIds.value.size;
+    }
+  }
+
+  function markAllOrdersAsSeen() {
+    unseenOrderIds.value.clear();
+    unseenOrderIds.value = new Set();
+    newOrdersCount.value = 0;
+  }
+
+  function isOrderUnseen(orderId: string): boolean {
+    return unseenOrderIds.value.has(orderId);
+  }
+  // ========== End Global Order Notifications ==========
+
   // Dashboard
   const dashboardStats = ref<DashboardStats | null>(null);
   const loadingDashboard = ref(false);
@@ -1106,6 +1390,27 @@ export const useCrmStore = defineStore("crm", () => {
     isProfitUnlocked,
     verifyingProfitAccess,
     lockProfitAccess,
+
+    // Global Order Notifications
+    newOrdersCount,
+    unseenOrderIds,
+    notificationsEnabled,
+    soundEnabled,
+    autoRefreshEnabled,
+    setNotificationsEnabled,
+    setSoundEnabled,
+    setAutoRefreshEnabled,
+    startPolling,
+    stopPolling,
+    checkForNewOrders,
+    markOrderAsSeen,
+    markAllOrdersAsSeen,
+    isOrderUnseen,
+    // In-app toast (Safari fallback)
+    inAppToast,
+    hideInAppToast,
+    // Audio unlock for Safari
+    unlockAudioContext,
 
     // Dashboard
     dashboardStats,

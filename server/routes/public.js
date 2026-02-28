@@ -1,7 +1,13 @@
 import express from "express";
+import fs from "fs";
 import { db } from "../db.js";
 
 export const publicRouter = express.Router();
+
+// #region agent log
+const DEBUG_LOG_PATH = '/var/www/NAVALIVAY/.cursor/debug-036109.log';
+function debugLog(data) { try { fs.appendFileSync(DEBUG_LOG_PATH, JSON.stringify({...data, serverTime: Date.now()}) + '\n'); } catch(e) {} }
+// #endregion
 
 const MAX_SQL_VARS = 900;
 
@@ -1005,10 +1011,10 @@ publicRouter.post("/api/orders", (req, res) => {
         totalAmount += totalPrice;
         totalCost += totalItemCost;
 
-        const groupName = product.group_id
+        const groupName = product.groupId
           ? db
               .prepare("SELECT name FROM category_groups WHERE id = ?")
-              .get(product.group_id)?.name || null
+              .get(product.groupId)?.name || null
           : null;
 
         return {
@@ -1109,6 +1115,10 @@ publicRouter.post("/api/orders", (req, res) => {
     });
 
     const result = tx();
+
+    // #region agent log
+    debugLog({location:'public.js:createOrder',message:'Order created',data:{orderId:result.orderId,orderNumber:result.orderNumber},hypothesisId:'H4'});
+    // #endregion
 
     res.json({
       success: true,

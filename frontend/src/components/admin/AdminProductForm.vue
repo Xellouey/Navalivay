@@ -1258,8 +1258,8 @@ async function onSubmit() {
       payload.hasVariants = true
       payload.variants = form.variants?.map(v => ({
         name: v.name.trim(),
-        colorCode: v.colorDisplayMode === 'image' ? null : (v.colorCode?.trim() || null),  // Очищаем colorCode если режим "картинка"
-        colorImage: v.colorDisplayMode === 'image' ? (v.colorImage || null) : null,  // Очищаем colorImage если режим "цвет"
+        colorCode: v.colorDisplayMode === 'image' ? null : (v.colorCode?.trim() || null),
+        colorImage: v.colorDisplayMode === 'image' ? (v.colorImage || null) : null,
         colorDisplayMode: v.colorDisplayMode || 'color',
         priceRub: v.priceRub !== null && v.priceRub !== undefined ? Number(v.priceRub) : null,
         stock: v.stock !== undefined ? Number(v.stock) : 0,

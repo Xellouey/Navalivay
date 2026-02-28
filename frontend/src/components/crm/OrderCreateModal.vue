@@ -97,10 +97,12 @@
                     class="flex items-center justify-between rounded-lg border border-gray-200 bg-white px-3 py-2"
                   >
                     <div class="flex flex-col">
-                      <span class="font-medium text-gray-900">{{ suggestion.title }}</span>
+                      <div>
+                        <span v-if="suggestion.groupName" class="text-xs font-semibold text-blue-600">{{ suggestion.groupName }} - </span>
+                        <span class="font-medium text-gray-900">{{ suggestion.title }}</span>
+                      </div>
                       <span class="text-xs text-gray-500">
                         Остаток: {{ suggestion.stock }}
-                        <span v-if="suggestion.groupName">· {{ suggestion.groupName }}</span>
                       </span>
                     </div>
                     <div class="flex items-center gap-3">
@@ -139,10 +141,11 @@
                   >
                     <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                       <div class="space-y-1">
-                        <p class="text-base font-semibold text-gray-900">{{ item.title }}</p>
+                        <p class="text-base font-semibold text-gray-900">
+                          <span v-if="item.groupName" class="text-blue-600">{{ item.groupName }} - </span>{{ item.title }}
+                        </p>
                         <p class="text-xs text-gray-500">
                           Остаток: <span :class="item.stock <= item.minStock ? 'text-red-500' : ''">{{ item.stock }}</span>
-                          <span v-if="item.groupName">· {{ item.groupName }}</span>
                         </p>
                       </div>
                       <button

@@ -100,8 +100,11 @@
                 </div>
 
                 <div class="cart-item-info">
+                  <p v-if="item.groupName" class="cart-item-group">
+                    {{ item.groupName }}
+                  </p>
                   <h3 class="cart-item-title">
-                    {{ item.productTitle || item.title }}
+                    {{ item.title }}
                   </h3>
                   <p class="cart-item-meta" v-if="item.variantName">
                     {{ item.variantName }}
@@ -809,6 +812,15 @@ async function submitOrder() {
 .cart-item-info {
   flex: 1;
   min-width: 0;
+}
+
+.cart-item-group {
+  font-family: "Montserrat", sans-serif;
+  font-weight: 600;
+  font-size: 12px;
+  line-height: 16px;
+  color: #2563eb;
+  margin: 0 0 2px;
 }
 
 .cart-item-title {

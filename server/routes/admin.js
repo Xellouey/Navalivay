@@ -554,7 +554,7 @@ adminRouter.post('/api/admin/products', authMiddleware, (req, res) => {
   }
 });
 
-adminRouter.patch('/api/admin/products/:id', authMiddleware, (req, res) => {
+adminRouter.patch('/api/admin/products/:id', authMiddleware, async (req, res) => {
   const id = req.params.id;
   const cur = db.prepare('SELECT * FROM products WHERE id = ?').get(id);
   if (!cur) return res.status(404).json({ error: 'not_found' });
@@ -665,11 +665,13 @@ adminRouter.patch('/api/admin/products/:id', authMiddleware, (req, res) => {
       const imageStmt = db.prepare('INSERT INTO product_images (productId, variant_id, url, position) VALUES (?, ?, ?, ?)');
       
       const txVariants = db.transaction((items) => {
-        // ВАЖНО: Сначала удаляем ВСЕ изображения товара, затем варианты
+        // ВАЖНО: Сначала обнуляем variant_id в procurement_items (FK без ON DELETE)
+        db.prepare('UPDATE procurement_items SET variant_id = NULL WHERE variant_id IN (SELECT id FROM product_variants WHERE product_id = ?)').run(id);
+        // Затем удаляем ВСЕ изображения товара, затем варианты
         deleteAllImagesStmt.run(id);
         deleteVariantsStmt.run(id);
         
-        let globalImagePosition = 0; // Глобальный счётчик для position всех изображений товара
+        let globalImagePosition = 0;
         
         items.forEach((variant, index) => {
           const variantId = variant.id || `${id}-${index}-${Date.now()}`;
@@ -701,11 +703,10 @@ adminRouter.patch('/api/admin/products/:id', authMiddleware, (req, res) => {
           // Обработка изображений вариантов
           if (Array.isArray(variant.images) && variant.images.length > 0) {
             variant.images.forEach((img) => {
-              // img может быть строкой URL или объектом с полем url
               const imageUrl = typeof img === 'string' ? img : img.url;
               console.log(`[admin] Inserting variant image at position ${globalImagePosition}:`, imageUrl);
               imageStmt.run(id, variantId, imageUrl, globalImagePosition);
-              globalImagePosition++; // Инкрементируем глобальный счётчик
+              globalImagePosition++;
             });
           }
         });
@@ -715,6 +716,7 @@ adminRouter.patch('/api/admin/products/:id', authMiddleware, (req, res) => {
     } else if (!normalizedHasVariants) {
       console.log('[admin] Removing variants (hasVariants = false)');
       // Если больше нет вариантов, удаляем все связанные данные
+      db.prepare('UPDATE procurement_items SET variant_id = NULL WHERE variant_id IN (SELECT id FROM product_variants WHERE product_id = ?)').run(id);
       db.prepare('DELETE FROM product_variants WHERE product_id = ?').run(id);
       db.prepare('DELETE FROM product_images WHERE variant_id IS NOT NULL AND productId = ?').run(id);
     }

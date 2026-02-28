@@ -988,7 +988,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, computed, watch, reactive, nextTick } from 'vue'
+import { ref, onMounted, onUnmounted, computed, watch, reactive, nextTick } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import { ChevronUpIcon, ChevronDownIcon, PencilSquareIcon, TrashIcon, PlusIcon, ArrowTrendingUpIcon, CurrencyDollarIcon, ChartBarIcon, BoltIcon, TruckIcon, ClipboardDocumentCheckIcon, SparklesIcon, LockOpenIcon, Cog6ToothIcon } from '@heroicons/vue/24/outline'
@@ -1872,31 +1872,36 @@ async function handleDeleteProduct(product: any) {
   }
 }
 async function handleProductFormSubmit(formData: any) {
-  if (editingProduct.value) {
-    // Редактирование существующего товара
-    await adminStore.updateProduct(editingProduct.value.id, formData)
-    if (Array.isArray(formData.images)) {
-      // @ts-ignore - метод присутствует и в mock, и в реальном сторе
-      await adminStore.reorderProductImages(editingProduct.value.id, formData.images)
+  try {
+    if (editingProduct.value) {
+      // Редактирование существующего товара
+      await adminStore.updateProduct(editingProduct.value.id, formData)
+      if (Array.isArray(formData.images)) {
+        // @ts-ignore - метод присутствует и в mock, и в реальном сторе
+        await adminStore.reorderProductImages(editingProduct.value.id, formData.images)
+      }
+    } else {
+      // Создание нового товара
+      await adminStore.createProduct(formData)
     }
-  } else {
-    // Создание нового товара
-    await adminStore.createProduct(formData)
-  }
-  showProductModal.value = false
-  
-  // Обновляем список товаров с учётом текущих фильтров
-  await adminStore.fetchProducts({ 
-    page: adminStore.productsPagination?.page || 1, 
-    limit: adminStore.productsPagination?.limit || 10,
-    category: productsFilters.value.category || undefined,
-    search: productsFilters.value.search || undefined,
-    group: productsFilters.value.group || undefined
-  })
-  
-  // Обновляем счётчики в линейках если товар был назначен в линейку
-  if (formData.categoryId) {
-    await adminStore.fetchCategoryGroups(formData.categoryId)
+    showProductModal.value = false
+    
+    // Обновляем список товаров с учётом текущих фильтров
+    await adminStore.fetchProducts({ 
+      page: adminStore.productsPagination?.page || 1, 
+      limit: adminStore.productsPagination?.limit || 10,
+      category: productsFilters.value.category || undefined,
+      search: productsFilters.value.search || undefined,
+      group: productsFilters.value.group || undefined
+    })
+    
+    // Обновляем счётчики в линейках если товар был назначен в линейку
+    if (formData.categoryId) {
+      await adminStore.fetchCategoryGroups(formData.categoryId)
+    }
+  } catch (err: any) {
+    console.error('[AdminView] Error in handleProductFormSubmit:', err)
+    alert(`Ошибка сохранения: ${err?.message || 'Неизвестная ошибка'}`)
   }
 }
 
@@ -2439,11 +2444,24 @@ onMounted(async () => {
   resetLoadedState()
   // @ts-ignore - checkAuth method exists in adminStore
   await adminStore.checkAuth()
+  // #region agent log
+  fetch('/api/debug-log',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'AdminView.vue:onMounted',message:'After checkAuth',data:{isAuthenticated:adminStore.isAuthenticated},timestamp:Date.now(),hypothesisId:'H1'})}).catch(()=>{});
+  // #endregion
   if (adminStore.isAuthenticated) {
     // Загружаем данные для текущей вкладки
     await ensureTabData(activeTab.value)
     updateManagerForm()
+    // Запускаем глобальный polling новых заказов
+    // #region agent log
+    fetch('/api/debug-log',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'AdminView.vue:onMounted:beforeStartPolling',message:'About to call startPolling',data:{},timestamp:Date.now(),hypothesisId:'H1'})}).catch(()=>{});
+    // #endregion
+    crmStore.startPolling()
   }
+})
+
+onUnmounted(() => {
+  // Останавливаем polling при выходе из админки
+  crmStore.stopPolling()
 })
 
 watch(() => adminStore.isAuthenticated, async (loggedIn, wasLoggedIn) => {

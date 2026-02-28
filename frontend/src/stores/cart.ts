@@ -7,6 +7,7 @@ export interface CartItem {
   productId: string
   title: string
   productTitle?: string | null
+  groupName?: string | null
   priceRub: number
   quantity: number
   image?: string | null
@@ -47,6 +48,12 @@ export const useCartStore = defineStore('cart', () => {
             const titleParts = item.title.split(' - ')
             migrated.productTitle = titleParts.length > 1 ? titleParts[0] : item.title
             migrated.variantName = titleParts.length > 1 ? titleParts.slice(1).join(' - ') : null
+          }
+          
+          // Fix duplicate variantName (if variantName equals title or productTitle, clear it)
+          if (migrated.variantName && !migrated.variantId) {
+            // No variantId means this is not a real variant - clear variantName
+            migrated.variantName = null
           }
           
           // Update image from group/category if needed
@@ -100,7 +107,7 @@ export const useCartStore = defineStore('cart', () => {
       existing.quantity += quantity
     } else {
       let title = product.title
-      let productTitle = product.groupName || product.title
+      let productTitle = product.title
       let priceRub = product.priceRub
       let image = product.images?.[0] || null
       let variantName: string | null = null
@@ -138,11 +145,12 @@ export const useCartStore = defineStore('cart', () => {
         productId: product.id,
         productTitle,
         title,
+        groupName: product.groupName || null,
         priceRub,
         quantity,
         image,
         variantId: variantId || null,
-        variantName: variantName || (product.groupName ? product.title : null),
+        variantName: variantName || null,
         groupId: product.groupId || null,
         categoryId: product.categoryId || null
       })

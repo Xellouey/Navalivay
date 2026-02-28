@@ -454,6 +454,9 @@
                     <td class="px-4 py-3">
                       <div class="font-medium text-gray-900">
                         {{ item.product.title }}
+                        <span v-if="item.product.variantName" class="text-gray-500 font-normal">
+                          — {{ item.product.variantName }}
+                        </span>
                       </div>
                       <div
                         v-if="item.product.groupName"
@@ -654,6 +657,9 @@
                   <td class="px-4 py-3">
                     <div class="font-medium text-gray-900">
                       {{ item.product_title }}
+                      <span v-if="item.variant_name" class="text-gray-500 font-normal">
+                        — {{ item.variant_name }}
+                      </span>
                     </div>
                     <div
                       v-if="item.group_name"
@@ -1416,13 +1422,16 @@ async function startEditProcurement(id: string, existing?: Procurement | null) {
     draftNotes.value = procurement.notes || "";
     draftItems.value = (procurement.items || []).map((item) => ({
       product: normalizeProduct({
-        id: item.product_id,
+        id: item.variant_id || item.product_id, // Для вариантов используем variant_id как id
+        product_id: item.variant_id ? item.product_id : undefined, // productId только для вариантов
         title: item.product_title,
         group_name: item.group_name ?? null,
         cost_price: item.cost_per_unit,
         priceRub: item.cost_per_unit,
-        stock: item.stock ?? 0,
+        stock: item.variant_stock ?? item.stock ?? 0,
         min_stock: item.min_stock ?? 0,
+        is_variant: !!item.variant_id,
+        variant_name: item.variant_name ?? null,
       }),
       quantity: Number(item.quantity || 0),
       costPerUnit: Number(item.cost_per_unit || 0),
@@ -1732,6 +1741,7 @@ async function submitProcurement() {
       notes: draftNotes.value.trim() || undefined,
       items: draftItems.value.map((item) => ({
         product_id: (item.product as any).productId || item.product.id, // Используем productId для вариантов
+        variant_id: item.product.isVariant ? item.product.id : undefined, // ID варианта для товаров с вариантами
         quantity: item.quantity,
         cost_per_unit: item.costPerUnit,
       })),

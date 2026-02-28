@@ -1,178 +1,144 @@
 <template>
   <section v-if="banners.length" class="relative w-full banner-section">
-    <!-- Banner content - only when banners exist -->
-    <div v-if="banners.length">
-      <!-- Single banner: только картинка -->
-      <template v-if="banners.length === 1">
-        <div
-          class="single-banner-wrapper"
-          @click="(event) => handleBannerClick(banners[0], event)"
-        >
-          <img
-            :src="imageOf(banners[0])"
-            :alt="'Banner'"
-            class="single-banner-image"
-            loading="lazy"
-            draggable="false"
-            @error="handleImageError"
-            @load="handleImageLoad"
-          />
-        </div>
-      </template>
+    <!-- Single banner -->
+    <template v-if="banners.length === 1">
+      <div
+        class="single-banner-wrapper"
+        @click="handleBannerClick(banners[0])"
+      >
+        <img
+          :src="imageOf(banners[0])"
+          alt="Banner"
+          class="single-banner-image"
+          loading="lazy"
+          draggable="false"
+        />
+      </div>
+    </template>
 
-      <!-- Multiple banners: carousel -->
-      <template v-else>
-        <div class="carousel-container-new">
+    <!-- Multiple banners: carousel -->
+    <template v-else>
+      <div class="carousel-container-new" ref="carouselRef">
+        <div
+          class="carousel-track-new"
+          :style="{ transform: `translateX(-${currentSlide * 100}%)` }"
+          @touchstart.passive="onTouchStart"
+          @touchmove.passive="onTouchMove"
+          @touchend="onTouchEnd"
+        >
           <div
-            class="carousel-track-new"
-            :style="getTransformStyleNew()"
-            @pointerdown="onPointerDown"
-            @pointermove="onPointerMove"
-            @pointerup="onPointerUp"
-            @pointercancel="onPointerCancel"
-            @touchstart="onTouchStart"
-            @touchmove="onTouchMove"
-            @touchend="onTouchEnd"
-            @touchcancel="onTouchCancel"
-            @mousedown="onMouseDown"
-            @mousemove="onMouseMove"
-            @mouseup="onMouseUp"
-            @mouseleave="onMouseLeave"
+            v-for="(banner, index) in banners"
+            :key="banner.id"
+            class="carousel-slide-new"
+            :class="{ active: index === currentSlide }"
           >
-            <div
-              v-for="(banner, index) in banners"
-              :key="banner.id"
-              class="carousel-slide-new"
-              :class="{ active: index === currentSlide }"
-              @click="(event) => handleBannerClick(banner, event)"
-            >
-              <img
-                :src="imageOf(banner)"
-                :alt="`Banner ${index + 1}`"
-                class="carousel-image-new"
-                loading="lazy"
-                draggable="false"
-                @error="handleImageError"
-                @load="handleImageLoad"
-              />
+            <img
+              :src="imageOf(banner)"
+              :alt="`Banner ${index + 1}`"
+              class="carousel-image-new"
+              loading="lazy"
+              draggable="false"
+            />
+          </div>
+        </div>
+
+        <!-- Left/Right tap zones -->
+        <div class="tap-zone tap-zone-left" @click="onTapLeft"></div>
+        <div class="tap-zone tap-zone-right" @click="onTapRight"></div>
+
+        <!-- Onboarding overlay -->
+        <Transition name="fade">
+          <div 
+            v-if="showOnboarding" 
+            class="banner-onboarding"
+            @click="dismissOnboarding"
+          >
+            <div class="onboarding-hint onboarding-hint-left">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="15 18 9 12 15 6"></polyline>
+              </svg>
+            </div>
+            <div class="onboarding-center">
+              <span class="onboarding-text">Нажмите по краям для переключения</span>
+            </div>
+            <div class="onboarding-hint onboarding-hint-right">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="9 18 15 12 9 6"></polyline>
+              </svg>
             </div>
           </div>
+        </Transition>
+      </div>
 
-          <!-- Peek of next slide -->
-          <div
-            v-if="banners.length > 1 && currentSlide < banners.length - 1"
-            class="carousel-peek-next"
-          ></div>
-        </div>
-
-        <!-- Dot indicators -->
-        <div class="carousel-dots">
-          <button
-            v-for="(banner, index) in banners"
-            :key="`dot-${banner.id}`"
-            class="carousel-dot"
-            :class="{ active: index === currentSlide }"
-            @click="goToSlide(index)"
-            :aria-label="`Go to slide ${index + 1}`"
-          ></button>
-        </div>
-      </template>
-    </div>
+      <!-- Dot indicators -->
+      <div class="carousel-dots">
+        <button
+          v-for="(banner, index) in banners"
+          :key="`dot-${banner.id}`"
+          class="carousel-dot"
+          :class="{ active: index === currentSlide }"
+          @click="goToSlide(index)"
+          :aria-label="`Go to slide ${index + 1}`"
+        ></button>
+      </div>
+    </template>
   </section>
 </template>
 
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from "vue";
 import { useRouter } from "vue-router";
-// Removed chevron icons - using dot indicators instead
 import type { Banner } from "@/stores/catalog";
 
 interface Props {
   banners: Banner[];
-  isLoading?: boolean;
   autoPlay?: boolean;
   autoPlayInterval?: number;
 }
 
 const props = withDefaults(defineProps<Props>(), {
-  isLoading: false,
   autoPlay: true,
   autoPlayInterval: 5000,
 });
 
 const router = useRouter();
+const carouselRef = ref<HTMLElement | null>(null);
 const currentSlide = ref(0);
-const autoPlayTimer = ref<ReturnType<typeof setTimeout>>();
+const autoPlayTimer = ref<ReturnType<typeof setInterval>>();
 
-// Touch and Mouse handling
-const supportsPointerEvents = ref(false);
+// Touch tracking
 const touchStartX = ref(0);
 const touchStartY = ref(0);
-const touchEndX = ref(0);
-const touchEndY = ref(0);
 const touchStartTime = ref(0);
-const touchStartSlide = ref(0);
-const isDragging = ref(false);
-const pointerStartX = ref(0);
-const pointerStartY = ref(0);
-const pointerEndX = ref(0);
-const pointerEndY = ref(0);
-const pointerStartTime = ref(0);
-const pointerStartSlide = ref(0);
-const isPointerDown = ref(false);
-const mouseStartX = ref(0);
-const mouseCurrentX = ref(0);
-const isMouseDragging = ref(false);
-const suppressClickUntil = ref(0);
+const isSwiping = ref(false);
+
+// Onboarding
+const ONBOARDING_KEY = 'navalivay_banner_onboarding_seen';
+const showOnboarding = ref(false);
 
 function imageOf(banner: Banner) {
   return (banner as any).image || (banner as any).imageUrl || "";
 }
 
-function getTransformStyleNew() {
-  // Each slide is calc(100% - 16px) with 8px padding on sides
-  const offset = currentSlide.value * 100;
-  return {
-    transform: `translateX(-${offset}%)`,
-  };
-}
-
-function getTransformStyle() {
-  // Using viewport units: each slide is 85vw + 12px gap
-  // First slide has 7.5vw margin-left to center it
-  const slideWidthVw = 85;
-  const gapPx = 12;
-
-  // Calculate total offset in vw and px
-  const offsetVw = currentSlide.value * slideWidthVw;
-  const offsetPx = currentSlide.value * gapPx;
-
-  return {
-    transform: `translateX(calc(-${offsetVw}vw - ${offsetPx}px))`,
-  };
-}
-
-function suppressClick(durationMs = 400) {
-  suppressClickUntil.value = Date.now() + durationMs;
-}
-
-function isClickSuppressed() {
-  return Date.now() < suppressClickUntil.value;
-}
-
+// Navigation
 function nextSlide() {
   currentSlide.value = (currentSlide.value + 1) % props.banners.length;
   resetAutoPlay();
 }
 
-function previousSlide() {
-  currentSlide.value =
-    currentSlide.value === 0
-      ? props.banners.length - 1
-      : currentSlide.value - 1;
+function prevSlide() {
+  currentSlide.value = currentSlide.value === 0 
+    ? props.banners.length - 1 
+    : currentSlide.value - 1;
   resetAutoPlay();
 }
 
+function goToSlide(index: number) {
+  currentSlide.value = index;
+  resetAutoPlay();
+}
+
+// AutoPlay
 function startAutoPlay() {
   if (props.autoPlay && props.banners.length > 1) {
     autoPlayTimer.value = setInterval(nextSlide, props.autoPlayInterval);
@@ -191,311 +157,113 @@ function resetAutoPlay() {
   startAutoPlay();
 }
 
-function goToSlide(index: number) {
-  currentSlide.value = index;
-  resetAutoPlay();
-}
-
-function handleBannerClick(banner: Banner, event?: Event) {
-  if (
-    isClickSuppressed() ||
-    isDragging.value ||
-    isMouseDragging.value ||
-    isPointerDown.value
-  ) {
-    return;
-  }
-  // Предотвращаем стандартное поведение браузера
-  if (event) {
-    event.preventDefault();
-    event.stopPropagation();
-  }
-
-  if ((banner as any).href) {
-    const href = (banner as any).href as string;
-    const openInNewTabValue = (banner as any).openInNewTab;
-    const openInNewTab =
-      openInNewTabValue === 1 ||
-      openInNewTabValue === true ||
-      openInNewTabValue === "1";
-
-    if (href.startsWith("http")) {
-      // Для внешних ссылок
-      if (window.Telegram?.WebApp?.openLink) {
-        // В Telegram WebApp открываем через API
-        window.Telegram.WebApp.openLink(href);
-      } else {
-        // В обычном браузере - проверяем флаг
-        if (openInNewTab) {
-          const result = window.open(href, "_blank", "noopener,noreferrer");
-          if (!result) {
-            // Fallback: try without features
-            const fallback = window.open(href, "_blank");
-            // Если и fallback не сработал - ничего не делаем
-            // Пользователь должен разрешить popup'ы
-          }
-        } else {
-          window.location.href = href;
-        }
-      }
-    } else {
-      // Для внутренних ссылок проверяем флаг openInNewTab
-      if (openInNewTab) {
-        // Открываем внутреннюю ссылку в новой вкладке
-        const fullUrl = window.location.origin + href;
-        const result = window.open(fullUrl, "_blank", "noopener,noreferrer");
-        if (!result) {
-          // Fallback: try without features
-          const fallback = window.open(fullUrl, "_blank");
-          // Если и fallback не сработал - ничего не делаем
-        }
-      } else {
-        // Используем обычную навигацию Vue Router
-        navigateTo(href);
-      }
-    }
-  }
-}
-
-function navigateTo(path: string) {
-  try {
-    router.push(path);
-  } catch (error) {
-    console.error("Navigation error:", error);
-    // Fallback - используем обычную навигацию
-    window.location.href = path;
-  }
-}
-
-function finalizeSwipe(
-  deltaX: number,
-  deltaY: number,
-  elapsed: number,
-  startSlide: number
-) {
-  const absX = Math.abs(deltaX);
-  const absY = Math.abs(deltaY);
-  const threshold = 50;
-  const tapThreshold = 10;
-  const tapDuration = 250;
-
-  if (absX > threshold && absX > absY) {
-    suppressClick();
-    if (deltaX < 0) {
-      nextSlide();
-    } else {
-      previousSlide();
-    }
-  } else {
-    const isTap =
-      absX < tapThreshold && absY < tapThreshold && elapsed < tapDuration;
-    if (isTap) {
-      const banner = props.banners[startSlide];
-      isDragging.value = false;
-      if (banner) {
-        handleBannerClick(banner);
-      }
-      suppressClick();
-    }
-    startAutoPlay();
-  }
-
-  isDragging.value = false;
-}
-
-// Pointer handlers
-function onPointerDown(e: PointerEvent) {
-  if (!supportsPointerEvents.value) return;
-  if (e.pointerType === "mouse" && e.button !== 0) return;
-  isPointerDown.value = true;
-  pointerStartX.value = e.clientX;
-  pointerStartY.value = e.clientY;
-  pointerEndX.value = e.clientX;
-  pointerEndY.value = e.clientY;
-  pointerStartTime.value = Date.now();
-  pointerStartSlide.value = currentSlide.value;
-  isDragging.value = false;
-  stopAutoPlay();
-
-  const target = e.currentTarget as HTMLElement | null;
-  if (target?.setPointerCapture) {
-    try {
-      target.setPointerCapture(e.pointerId);
-    } catch (error) {
-      // Ignore capture errors
-    }
-  }
-}
-
-function onPointerMove(e: PointerEvent) {
-  if (!supportsPointerEvents.value) return;
-  if (!isPointerDown.value) return;
-  pointerEndX.value = e.clientX;
-  pointerEndY.value = e.clientY;
-  const deltaX = pointerEndX.value - pointerStartX.value;
-  const deltaY = pointerEndY.value - pointerStartY.value;
-
-  if (Math.abs(deltaX) > Math.abs(deltaY)) {
-    if (Math.abs(deltaX) > 6) {
-      isDragging.value = true;
-    }
-    if (e.cancelable) {
-      e.preventDefault();
-    }
-  }
-}
-
-function onPointerUp(e: PointerEvent) {
-  if (!supportsPointerEvents.value) return;
-  if (!isPointerDown.value) return;
-  pointerEndX.value = e.clientX;
-  pointerEndY.value = e.clientY;
-  const deltaX = pointerEndX.value - pointerStartX.value;
-  const deltaY = pointerEndY.value - pointerStartY.value;
-  const elapsed = Date.now() - pointerStartTime.value;
-  finalizeSwipe(deltaX, deltaY, elapsed, pointerStartSlide.value);
-  isPointerDown.value = false;
-
-  const target = e.currentTarget as HTMLElement | null;
-  if (target?.releasePointerCapture) {
-    try {
-      target.releasePointerCapture(e.pointerId);
-    } catch (error) {
-      // Ignore release errors
-    }
-  }
-}
-
-function onPointerCancel(e: PointerEvent) {
-  if (!supportsPointerEvents.value) return;
-  isPointerDown.value = false;
-  isDragging.value = false;
-  startAutoPlay();
-
-  const target = e.currentTarget as HTMLElement | null;
-  if (target?.releasePointerCapture) {
-    try {
-      target.releasePointerCapture(e.pointerId);
-    } catch (error) {
-      // Ignore release errors
-    }
-  }
-}
-
-// Touch handlers
+// Touch handlers - simple swipe detection
 function onTouchStart(e: TouchEvent) {
-  if (supportsPointerEvents.value) return;
   touchStartX.value = e.touches[0].clientX;
   touchStartY.value = e.touches[0].clientY;
-  touchEndX.value = touchStartX.value;
-  touchEndY.value = touchStartY.value;
   touchStartTime.value = Date.now();
-  touchStartSlide.value = currentSlide.value;
-  isDragging.value = false;
+  isSwiping.value = false;
   stopAutoPlay();
 }
 
 function onTouchMove(e: TouchEvent) {
-  if (supportsPointerEvents.value) return;
-  touchEndX.value = e.touches[0].clientX;
-  touchEndY.value = e.touches[0].clientY;
-  const deltaX = touchEndX.value - touchStartX.value;
-  const deltaY = touchEndY.value - touchStartY.value;
-
-  if (Math.abs(deltaX) > Math.abs(deltaY)) {
-    if (Math.abs(deltaX) > 6) {
-      isDragging.value = true;
-    }
-    if (e.cancelable) {
-      e.preventDefault();
-    }
+  const deltaX = e.touches[0].clientX - touchStartX.value;
+  const deltaY = e.touches[0].clientY - touchStartY.value;
+  
+  // If horizontal movement is greater, mark as swiping
+  if (Math.abs(deltaX) > Math.abs(deltaY) && Math.abs(deltaX) > 10) {
+    isSwiping.value = true;
   }
 }
 
 function onTouchEnd(e: TouchEvent) {
-  if (supportsPointerEvents.value) return;
-  if (e.changedTouches.length) {
-    touchEndX.value = e.changedTouches[0].clientX;
-    touchEndY.value = e.changedTouches[0].clientY;
-  }
-
-  const deltaX = touchEndX.value - touchStartX.value;
-  const deltaY = touchEndY.value - touchStartY.value;
+  const touchEndX = e.changedTouches[0].clientX;
+  const deltaX = touchEndX - touchStartX.value;
   const elapsed = Date.now() - touchStartTime.value;
-  finalizeSwipe(deltaX, deltaY, elapsed, touchStartSlide.value);
-}
-
-function onTouchCancel() {
-  if (supportsPointerEvents.value) return;
-  isDragging.value = false;
-  startAutoPlay();
-}
-
-// Mouse drag handlers
-function onMouseDown(e: MouseEvent) {
-  if (supportsPointerEvents.value) return;
-  isMouseDragging.value = true;
-  mouseStartX.value = e.clientX;
-  mouseCurrentX.value = e.clientX;
-  stopAutoPlay();
-  e.preventDefault();
-}
-
-function onMouseMove(e: MouseEvent) {
-  if (supportsPointerEvents.value) return;
-  if (!isMouseDragging.value) return;
-  mouseCurrentX.value = e.clientX;
-}
-
-function onMouseUp() {
-  if (supportsPointerEvents.value) return;
-  if (!isMouseDragging.value) return;
-
+  
+  // Swipe threshold: 50px or fast swipe (velocity)
   const threshold = 50;
-  const diff = mouseStartX.value - mouseCurrentX.value;
-
-  if (Math.abs(diff) > threshold) {
-    suppressClick();
-    if (diff > 0) {
+  const velocity = Math.abs(deltaX) / elapsed;
+  
+  if (Math.abs(deltaX) > threshold || (velocity > 0.5 && Math.abs(deltaX) > 20)) {
+    if (deltaX < 0) {
       nextSlide();
     } else {
-      previousSlide();
+      prevSlide();
     }
   } else {
     startAutoPlay();
   }
-
-  isMouseDragging.value = false;
+  
+  isSwiping.value = false;
 }
 
-function onMouseLeave() {
-  if (supportsPointerEvents.value) return;
-  if (isMouseDragging.value) {
-    onMouseUp();
+// Tap zone handlers
+function onTapLeft() {
+  if (isSwiping.value) return;
+  prevSlide();
+  dismissOnboarding();
+}
+
+function onTapRight() {
+  if (isSwiping.value) return;
+  nextSlide();
+  dismissOnboarding();
+}
+
+// Banner click (for single banner or center tap)
+function handleBannerClick(banner: Banner) {
+  const href = (banner as any).href;
+  if (!href) return;
+  
+  const openInNewTab = (banner as any).openInNewTab === 1 || 
+                       (banner as any).openInNewTab === true || 
+                       (banner as any).openInNewTab === "1";
+
+  if (href.startsWith("http")) {
+    if (window.Telegram?.WebApp?.openLink) {
+      window.Telegram.WebApp.openLink(href);
+    } else if (openInNewTab) {
+      window.open(href, "_blank", "noopener,noreferrer");
+    } else {
+      window.location.href = href;
+    }
+  } else {
+    if (openInNewTab) {
+      window.open(window.location.origin + href, "_blank", "noopener,noreferrer");
+    } else {
+      router.push(href);
+    }
   }
 }
 
-function handleImageError(event: Event) {
-  const img = event.target as HTMLImageElement;
-  console.error("Banner image failed to load:", img.src);
-  // Hide broken image icon on iOS
-  img.style.display = "none";
+// Onboarding
+function checkOnboarding() {
+  if (props.banners.length <= 1) return;
+  try {
+    if (!localStorage.getItem(ONBOARDING_KEY)) {
+      setTimeout(() => {
+        showOnboarding.value = true;
+        // Stop autoplay while onboarding is shown
+        stopAutoPlay();
+      }, 1000);
+    }
+  } catch (e) {}
 }
 
-function handleImageLoad(event: Event) {
-  const img = event.target as HTMLImageElement;
-  img.style.display = "block";
+function dismissOnboarding() {
+  if (!showOnboarding.value) return;
+  showOnboarding.value = false;
+  try {
+    localStorage.setItem(ONBOARDING_KEY, '1');
+  } catch (e) {}
+  // Resume autoplay after onboarding dismissed
+  startAutoPlay();
 }
 
 onMounted(() => {
-  const tgPlatform = window.Telegram?.WebApp?.platform;
-  const isTelegramIOS =
-    typeof tgPlatform === "string" && tgPlatform.toLowerCase() === "ios";
-  supportsPointerEvents.value =
-    typeof window !== "undefined" &&
-    "PointerEvent" in window &&
-    !isTelegramIOS;
   startAutoPlay();
+  checkOnboarding();
 });
 
 onUnmounted(() => {
@@ -518,13 +286,11 @@ onUnmounted(() => {
   border-radius: 24px;
   overflow: hidden;
   position: relative;
-  background-color: #f0f0f0; /* Fallback background if image fails to load */
-  /* Fallback for iOS Safari < 15 - use padding-bottom trick */
-  padding-bottom: 50%; /* 2:1 aspect ratio */
+  background-color: #f0f0f0;
+  padding-bottom: 50%; /* 2:1 aspect ratio fallback */
   height: 0;
 }
 
-/* Modern browsers with aspect-ratio support */
 @supports (aspect-ratio: 2 / 1) {
   .single-banner-wrapper {
     padding-bottom: 0;
@@ -539,14 +305,12 @@ onUnmounted(() => {
   -webkit-user-drag: none;
   user-select: none;
   pointer-events: none;
-  /* Fallback for older iOS */
   position: absolute;
   top: 0;
   left: 0;
   height: 100%;
 }
 
-/* Modern browsers with aspect-ratio support */
 @supports (aspect-ratio: 2 / 1) {
   .single-banner-image {
     position: static;
@@ -555,7 +319,7 @@ onUnmounted(() => {
   }
 }
 
-/* New carousel container */
+/* Carousel container */
 .carousel-container-new {
   position: relative;
   width: 100%;
@@ -567,25 +331,18 @@ onUnmounted(() => {
   display: flex;
   transition: transform 0.4s ease-out;
   touch-action: pan-y pinch-zoom;
-  cursor: grab;
   user-select: none;
-}
-
-.carousel-track-new:active {
-  cursor: grabbing;
 }
 
 .carousel-slide-new {
   flex: 0 0 100%;
   min-width: 100%;
   position: relative;
-  background-color: #f0f0f0; /* Fallback background if image fails to load */
-  /* Fallback for iOS Safari < 15 - use padding-bottom trick */
-  padding-bottom: 50%; /* 2:1 aspect ratio */
+  background-color: #f0f0f0;
+  padding-bottom: 50%; /* 2:1 aspect ratio fallback */
   height: 0;
 }
 
-/* Modern browsers with aspect-ratio support */
 @supports (aspect-ratio: 2 / 1) {
   .carousel-slide-new {
     padding-bottom: 0;
@@ -600,20 +357,42 @@ onUnmounted(() => {
   -webkit-user-drag: none;
   user-select: none;
   pointer-events: none;
-  /* Fallback for older iOS */
   position: absolute;
   top: 0;
   left: 0;
   height: 100%;
 }
 
-/* Modern browsers with aspect-ratio support */
 @supports (aspect-ratio: 2 / 1) {
   .carousel-image-new {
     position: static;
     height: auto;
     aspect-ratio: 2 / 1;
   }
+}
+
+/* Tap zones - invisible clickable areas on sides */
+.tap-zone {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 25%;
+  z-index: 5;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.tap-zone-left {
+  left: 0;
+}
+
+.tap-zone-right {
+  right: 0;
+}
+
+/* Subtle feedback on tap */
+.tap-zone:active {
+  background: rgba(255, 255, 255, 0.1);
 }
 
 /* Dot indicators */
@@ -647,185 +426,79 @@ onUnmounted(() => {
   background: #8a919a;
 }
 
-/* Legacy peek effect styles (kept for compatibility) */
-.carousel-container-peek {
-  position: relative;
-  width: 100%;
-  overflow: visible;
-  padding: 20px 0;
-}
-
-.carousel-track-peek {
+/* Onboarding overlay */
+.banner-onboarding {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.75);
   display: flex;
-  gap: 12px;
-  transition: transform 0.5s ease-out;
-  touch-action: pan-y pinch-zoom;
-  cursor: grab;
-  user-select: none;
   align-items: center;
-}
-
-.carousel-track-peek:active {
-  cursor: grabbing;
-}
-
-.carousel-slide-peek {
-  flex: 0 0 85vw;
-  min-width: 85vw;
-  max-width: 85vw;
-  cursor: pointer;
-  position: relative;
-  transition: all 0.3s ease;
-  border-radius: 16px;
-  overflow: hidden;
-}
-
-.carousel-slide-peek:first-child {
-  margin-left: 7.5vw;
-}
-
-.carousel-slide-peek::after {
-  content: "";
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  background: rgba(0, 0, 0, 0.3);
-  opacity: 1;
-  transition: opacity 0.5s ease;
-  pointer-events: none;
-}
-
-.carousel-slide-peek.active::after {
-  opacity: 0;
-}
-
-/* 12:5 Aspect ratio wrapper */
-.banner-aspect-wrapper {
-  position: relative;
-  width: 100%;
-  padding-bottom: 41.67%; /* 5/12 = 0.4167 */
-  overflow: hidden;
-  background: #f0f0f0;
-}
-
-.carousel-image-peek {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-/* Navigation Arrows - Brutal Style */
-.carousel-arrow {
-  position: absolute;
-  top: 50%;
-  transform: translateY(-50%);
+  justify-content: space-between;
   z-index: 10;
-  background: transparent;
-  border: none;
+  cursor: pointer;
+  border-radius: 24px;
+  padding: 0 12px;
+}
+
+.onboarding-hint {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.2);
   display: flex;
   align-items: center;
   justify-content: center;
-  cursor: pointer;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  color: var(--navalivay-red);
-  outline: none;
-  filter: drop-shadow(0 3px 8px rgba(0, 0, 0, 0.3))
-    drop-shadow(0 0 10px rgba(211, 47, 47, 0.3));
-  padding: 8px;
+  color: white;
+  animation: pulse-hint 1.5s ease-in-out infinite;
 }
 
-.carousel-arrow svg {
-  width: 56px;
-  height: 56px;
-  transition: transform 0.3s ease;
+.onboarding-hint-left {
+  animation-delay: 0s;
 }
 
-/* Animate first (faded) arrow on hover */
-.carousel-arrow svg polyline:first-of-type {
+.onboarding-hint-right {
+  animation-delay: 0.75s;
+}
+
+@keyframes pulse-hint {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 0.8;
+  }
+  50% {
+    transform: scale(1.15);
+    opacity: 1;
+  }
+}
+
+.onboarding-center {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 8px;
+}
+
+.onboarding-text {
+  color: white;
+  font-size: 14px;
+  font-weight: 500;
+  text-align: center;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+  line-height: 1.3;
+}
+
+/* Fade transition */
+.fade-enter-active,
+.fade-leave-active {
   transition: opacity 0.3s ease;
 }
 
-.carousel-arrow:hover svg polyline:first-of-type {
-  opacity: 0.7 !important;
-  animation: arrowPulse 1.5s ease-in-out infinite;
-}
-
-@keyframes arrowPulse {
-  0%,
-  100% {
-    opacity: 0.3;
-  }
-  50% {
-    opacity: 0.7;
-  }
-}
-
-.carousel-arrow:hover {
-  color: var(--navalivay-red-light);
-  transform: translateY(-50%) scale(1.1);
-  filter: drop-shadow(0 4px 12px rgba(0, 0, 0, 0.4))
-    drop-shadow(0 0 20px rgba(211, 47, 47, 0.6));
-}
-
-.carousel-arrow:hover svg {
-  transform: scale(1.05);
-}
-
-.carousel-arrow-prev:hover svg {
-  transform: scale(1.05) translateX(-3px);
-}
-
-.carousel-arrow-next:hover svg {
-  transform: scale(1.05) translateX(3px);
-}
-
-.carousel-arrow:active {
-  transform: translateY(-50%) scale(0.95);
-  filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.3))
-    drop-shadow(0 0 15px rgba(211, 47, 47, 0.5));
-}
-
-.carousel-arrow-prev {
-  left: 8px;
-}
-
-.carousel-arrow-next {
-  right: 8px;
-}
-
-/* Mobile adaptations for arrows */
-@media (max-width: 768px) {
-  .carousel-arrow svg {
-    width: 40px;
-    height: 40px;
-  }
-
-  .carousel-arrow-prev {
-    left: 6px;
-  }
-
-  .carousel-arrow-next {
-    right: 6px;
-  }
-}
-
-@media (max-width: 480px) {
-  .carousel-arrow svg {
-    width: 36px;
-    height: 36px;
-  }
-
-  .carousel-arrow-prev {
-    left: 4px;
-  }
-
-  .carousel-arrow-next {
-    right: 4px;
-  }
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
 }
 </style>
