@@ -22,6 +22,38 @@
         </div>
       </div>
 
+      <!-- Success banner -->
+      <Transition
+        enter-active-class="transition ease-out duration-200"
+        enter-from-class="opacity-0 -translate-y-2"
+        enter-to-class="opacity-100 translate-y-0"
+        leave-active-class="transition ease-in duration-150"
+        leave-from-class="opacity-100 translate-y-0"
+        leave-to-class="opacity-0 -translate-y-2"
+      >
+        <div
+          v-if="writeOffSuccess"
+          class="rounded-lg border border-green-200 bg-green-50 p-4 shadow-sm"
+        >
+          <div class="flex items-start gap-3">
+            <svg class="h-5 w-5 flex-shrink-0 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <div class="flex-1">
+              <p class="text-sm font-medium text-green-800">{{ writeOffSuccess }}</p>
+            </div>
+            <button
+              @click="writeOffSuccess = ''"
+              class="inline-flex h-6 w-6 items-center justify-center rounded-full text-green-500 transition hover:bg-green-100"
+            >
+              <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+        </div>
+      </Transition>
+
       <div class="mb-6 grid grid-cols-1 gap-4 md:grid-cols-3">
         <div class="rounded-xl bg-white p-5 shadow-sm">
           <div class="text-sm text-gray-500">Всего списаний</div>
@@ -364,6 +396,8 @@ const productResults = ref<CrmProductSummary[]>([])
 const isSearchingProducts = ref(false)
 const searchError = ref('')
 const creatingWriteOff = ref(false)
+const writeOffSuccess = ref('')
+let writeOffSuccessTimer: ReturnType<typeof setTimeout> | null = null
 
 const detailModalOpen = ref(false)
 const detailLoading = ref(false)
@@ -507,12 +541,22 @@ async function submitWriteOff() {
 
     if (editingWriteOffId.value) {
       const targetId = editingWriteOffId.value
-      await crmStore.updateWriteOff(targetId, payload)
+      const updated = await crmStore.updateWriteOff(targetId, payload)
+      writeOffSuccess.value = `Списание #${updated.writeoff_number} успешно обновлено. Остатки пересчитаны.`
+      if (writeOffSuccessTimer) clearTimeout(writeOffSuccessTimer)
+      writeOffSuccessTimer = setTimeout(() => {
+        writeOffSuccess.value = ''
+      }, 5000)
       closeCreateModal()
       await crmStore.fetchWriteOffs()
       await openDetails(targetId)
     } else {
       const writeOff = await crmStore.createWriteOff(payload)
+      writeOffSuccess.value = `Списание #${writeOff.writeoff_number} успешно создано. Остатки пересчитаны.`
+      if (writeOffSuccessTimer) clearTimeout(writeOffSuccessTimer)
+      writeOffSuccessTimer = setTimeout(() => {
+        writeOffSuccess.value = ''
+      }, 5000)
       closeCreateModal()
       await crmStore.fetchWriteOffs()
       await openDetails(writeOff.id)

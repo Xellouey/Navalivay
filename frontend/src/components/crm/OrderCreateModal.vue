@@ -277,7 +277,62 @@
             </label>
 
             <div class="space-y-3">
-              <p v-if="submitError" class="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-600">{{ submitError }}</p>
+              <Transition
+                enter-active-class="transition ease-out duration-200"
+                enter-from-class="opacity-0 -translate-y-2"
+                enter-to-class="opacity-100 translate-y-0"
+                leave-active-class="transition ease-in duration-150"
+                leave-from-class="opacity-100 translate-y-0"
+                leave-to-class="opacity-0 -translate-y-2"
+              >
+                <div
+                  v-if="submitSuccess"
+                  class="rounded-lg border border-green-200 bg-green-50 p-3 shadow-sm"
+                >
+                  <div class="flex items-start gap-2">
+                    <svg class="h-5 w-5 flex-shrink-0 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    <p class="flex-1 text-sm font-medium text-green-800">{{ submitSuccess }}</p>
+                    <button
+                      @click="submitSuccess = ''"
+                      class="inline-flex h-5 w-5 items-center justify-center rounded-full text-green-500 transition hover:bg-green-100"
+                    >
+                      <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+              </Transition>
+              <Transition
+                enter-active-class="transition ease-out duration-200"
+                enter-from-class="opacity-0 -translate-y-2"
+                enter-to-class="opacity-100 translate-y-0"
+                leave-active-class="transition ease-in duration-150"
+                leave-from-class="opacity-100 translate-y-0"
+                leave-to-class="opacity-0 -translate-y-2"
+              >
+                <div
+                  v-if="submitError"
+                  class="rounded-lg border border-red-200 bg-red-50 p-3 shadow-sm"
+                >
+                  <div class="flex items-start gap-2">
+                    <svg class="h-5 w-5 flex-shrink-0 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    <p class="flex-1 text-sm font-medium text-red-800">{{ submitError }}</p>
+                    <button
+                      @click="submitError = ''"
+                      class="inline-flex h-5 w-5 items-center justify-center rounded-full text-red-500 transition hover:bg-red-100"
+                    >
+                      <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+              </Transition>
               <button
                 class="flex w-full items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-300"
                 :disabled="isSubmitting || !canSubmit"
@@ -334,6 +389,8 @@ const searchToken = ref(0)
 
 const isSubmitting = ref(false)
 const submitError = ref('')
+const submitSuccess = ref('')
+let successTimer: ReturnType<typeof setTimeout> | null = null
 
 // Expandable items list
 const ITEMS_COLLAPSED_COUNT = 5
@@ -423,7 +480,7 @@ watch(productSearch, (value) => {
   isSearching.value = true
 
   crmStore
-    .searchCrmProducts({ search: query, limit: 12 })
+    .searchCrmProducts({ search: query, limit: 100 })
     .then((results) => {
       if (currentToken !== searchToken.value) return
       productSuggestions.value = results
@@ -497,6 +554,8 @@ async function handleSubmit() {
   if (!canSubmit.value || isSubmitting.value) return
 
   submitError.value = ''
+  submitSuccess.value = ''
+  if (successTimer) clearTimeout(successTimer)
   isSubmitting.value = true
 
   try {
@@ -517,10 +576,15 @@ async function handleSubmit() {
 
     const order = await crmStore.createOrder(payload)
 
-    emit('created', order)
-    resetForm()
-  } catch (error) {
-    submitError.value = error instanceof Error ? error.message : 'Не удалось создать заказ'
+    submitSuccess.value = `Заказ #${order.order_number} успешно создан. Остатки и суммы пересчитаны.`
+    if (successTimer) clearTimeout(successTimer)
+    successTimer = setTimeout(() => {
+      submitSuccess.value = ''
+      emit('created', order)
+      resetForm()
+    }, 3000)
+  } catch (error: any) {
+    submitError.value = formatErrorMessage(error?.message || error?.error || 'Не удалось создать заказ')
   } finally {
     isSubmitting.value = false
   }
@@ -566,6 +630,55 @@ function pluralize(count: number, one: string, few: string, many: string): strin
   if (mod10 === 1 && mod100 !== 11) return one
   if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) return few
   return many
+}
+
+function formatErrorMessage(errorMessage: string): string {
+  if (!errorMessage) return 'Произошла ошибка при сохранении'
+  
+  // Преобразуем технические сообщения в понятные для менеджеров
+  const errorLower = errorMessage.toLowerCase()
+  
+  // Ошибки недостаточного остатка
+  if (errorLower.includes('insufficient stock') || errorLower.includes('недостаточно товара')) {
+    // Извлекаем название товара из сообщения
+    const productMatch = errorMessage.match(/for\s+(.+)$/i) || errorMessage.match(/для\s+(.+)$/i)
+    const productName = productMatch ? productMatch[1].trim() : 'товара'
+    
+    if (errorLower.includes('variant')) {
+      return `Недостаточно остатка на складе для варианта "${productName}". Проверьте остатки товара и уменьшите количество или удалите позицию из заказа.`
+    }
+    return `Недостаточно остатка на складе для товара "${productName}". Проверьте остатки товара и уменьшите количество или удалите позицию из заказа.`
+  }
+  
+  // Ошибки не найденного товара/варианта
+  if (errorLower.includes('not found') || errorLower.includes('не найден')) {
+    if (errorLower.includes('variant')) {
+      return 'Вариант товара не найден. Возможно, товар был удален или изменен. Обновите страницу и попробуйте снова.'
+    }
+    if (errorLower.includes('product')) {
+      return 'Товар не найден. Возможно, товар был удален или изменен. Обновите страницу и попробуйте снова.'
+    }
+    return 'Элемент не найден. Обновите страницу и попробуйте снова.'
+  }
+  
+  // Ошибки неверных данных
+  if (errorLower.includes('invalid') || errorLower.includes('неверн')) {
+    if (errorLower.includes('quantity') || errorLower.includes('количеств')) {
+      return 'Неверное количество товара. Укажите количество больше нуля.'
+    }
+    if (errorLower.includes('item')) {
+      return 'Неверные данные позиции заказа. Проверьте все поля и попробуйте снова.'
+    }
+    return 'Неверные данные. Проверьте все поля и попробуйте снова.'
+  }
+  
+  // Ошибки минимальной суммы доставки
+  if (errorLower.includes('min_delivery_amount') || errorLower.includes('минимальной суммы')) {
+    return 'Сумма заказа меньше минимальной для доставки. Увеличьте количество товаров или измените тип отдачи на самовывоз.'
+  }
+  
+  // Возвращаем оригинальное сообщение, если не удалось распознать
+  return errorMessage
 }
 </script>
 

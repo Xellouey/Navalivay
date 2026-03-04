@@ -1,15 +1,9 @@
 import express from "express";
-import fs from "fs";
 import { db } from "../db.js";
 import { authMiddleware } from "../auth.js";
 import { archiveOldDeliveredOrders } from "../cleanup-delivered-orders.js";
 
 export const crmOperationsRouter = express.Router();
-
-// #region agent log
-const DEBUG_LOG_PATH = '/var/www/NAVALIVAY/.cursor/debug-036109.log';
-function debugLog(data) { try { fs.appendFileSync(DEBUG_LOG_PATH, JSON.stringify({...data, serverTime: Date.now()}) + '\n'); } catch(e) {} }
-// #endregion
 
 // Helper для генерации ID
 function generateId(prefix) {
@@ -164,12 +158,6 @@ crmOperationsRouter.get("/api/admin/crm/orders", authMiddleware, (req, res) => {
         items: itemsByOrder.get(order.id) || [],
       }));
     }
-
-    // #region agent log - логируем polling запросы для status=new
-    if (status === 'new') {
-      debugLog({location:'crm-operations.js:getOrders',message:'Polling for new orders',data:{status,ordersCount:ordersWithItems.length,orderIds:ordersWithItems.map(o=>o.id),orderNumbers:ordersWithItems.map(o=>o.order_number)},hypothesisId:'H4'});
-    }
-    // #endregion
 
     res.json({
       orders: ordersWithItems,
@@ -771,12 +759,55 @@ crmOperationsRouter.patch(
         }
 
         if (Array.isArray(items)) {
-          // Возвращаем старый сток ТОЛЬКО если он был ранее списан
-          if (order.stock_deducted) {
-            const oldItems = db
-              .prepare("SELECT * FROM order_items WHERE order_id = ?")
-              .all(id);
+          // Проверяем, изменились ли позиции (product_id, variant_id, quantity)
+          // Если позиции не изменились, не нужно возвращать и списывать сток заново
+          const oldItems = db
+            .prepare("SELECT product_id, variant_id, quantity FROM order_items WHERE order_id = ? ORDER BY product_id, variant_id")
+            .all(id);
+          
+          const newItemsSorted = [...items]
+            .map((item) => ({
+              product_id: item.product_id,
+              variant_id: item.variant_id || null,
+              quantity: Number(item.quantity || 0),
+            }))
+            .sort((a, b) => {
+              if (a.product_id !== b.product_id) return a.product_id.localeCompare(b.product_id);
+              return (a.variant_id || '').localeCompare(b.variant_id || '');
+            });
+          
+          const oldItemsSorted = oldItems
+            .map((item) => ({
+              product_id: item.product_id,
+              variant_id: item.variant_id || null,
+              quantity: Number(item.quantity || 0),
+            }))
+            .sort((a, b) => {
+              if (a.product_id !== b.product_id) return a.product_id.localeCompare(b.product_id);
+              return (a.variant_id || '').localeCompare(b.variant_id || '');
+            });
+          
+          const itemsChanged =
+            newItemsSorted.length !== oldItemsSorted.length ||
+            newItemsSorted.some((newItem, idx) => {
+              const oldItem = oldItemsSorted[idx];
+              return (
+                !oldItem ||
+                newItem.product_id !== oldItem.product_id ||
+                newItem.variant_id !== oldItem.variant_id ||
+                newItem.quantity !== oldItem.quantity
+              );
+            });
+          
+          // Возвращаем старый сток ТОЛЬКО если позиции изменились И сток был ранее списан
+          // Сохраняем информацию о старых позициях для правильной проверки стока
+          const oldItemsMap = new Map();
+          if (order.stock_deducted && itemsChanged) {
             for (const oldItem of oldItems) {
+              // Сохраняем количество для каждого варианта/товара
+              const key = oldItem.variant_id || oldItem.product_id;
+              oldItemsMap.set(key, oldItem.quantity);
+              
               if (oldItem.variant_id) {
                 db.prepare(
                   "UPDATE product_variants SET stock = stock + ? WHERE id = ?",
@@ -797,9 +828,9 @@ crmOperationsRouter.patch(
 
           const itemStmt = db.prepare(`
           INSERT INTO order_items (
-            id, order_id, product_id, variant_id, product_title, group_name, base_product_id, base_product_title, quantity,
+            id, order_id, product_id, variant_id, product_title, group_name, base_product_id, base_product_title, variant_name, quantity,
             price_per_unit, cost_per_unit, discount_amount, total_price, total_cost
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `);
 
           for (const item of items) {
@@ -827,9 +858,10 @@ crmOperationsRouter.patch(
             const costPerUnit = Number(product.cost_price || 0);
             const itemDiscount = Number(item.discount_amount || 0);
 
-            // Проверяем сток ТОЛЬКО если заказ уже был собран (stock_deducted = 1)
+            // Проверяем сток ТОЛЬКО если заказ уже был собран (stock_deducted = 1) И позиции изменились
             // Если stock_deducted = 0, сток не будет списываться, проверка не нужна
-            if (order.stock_deducted) {
+            // Если позиции не изменились, сток уже списан, проверка не нужна
+            if (order.stock_deducted && itemsChanged) {
               if (item.variant_id) {
                 const variant = db
                   .prepare("SELECT stock FROM product_variants WHERE id = ?")
@@ -837,14 +869,19 @@ crmOperationsRouter.patch(
                 if (!variant) {
                   throw new Error(`Variant not found: ${item.variant_id}`);
                 }
-                if (Number(variant.stock || 0) < quantity) {
+                // Учитываем уже возвращенный сток из этого заказа
+                const oldQuantity = oldItemsMap.get(item.variant_id) || 0;
+                const availableStock = Number(variant.stock || 0) + oldQuantity;
+                if (availableStock < quantity) {
                   throw new Error(
                     `Insufficient stock for variant ${item.variant_id}`,
                   );
                 }
               } else {
-                const productStock = Number(product.stock || 0);
-                if (productStock < quantity) {
+                // Учитываем уже возвращенный сток из этого заказа
+                const oldQuantity = oldItemsMap.get(item.product_id) || 0;
+                const availableStock = Number(product.stock || 0) + oldQuantity;
+                if (availableStock < quantity) {
                   throw new Error(
                     `Insufficient stock for ${product.title || product.id}`,
                   );
@@ -869,6 +906,17 @@ crmOperationsRouter.patch(
               }
             }
 
+            // Получаем variant_name из запроса или из БД, если variant_id есть
+            let variantName = item.variant_name || null;
+            if (item.variant_id && !variantName) {
+              const variant = db
+                .prepare("SELECT name FROM product_variants WHERE id = ?")
+                .get(item.variant_id);
+              if (variant) {
+                variantName = variant.name;
+              }
+            }
+
             itemStmt.run(
               generateId("oi"),
               id,
@@ -878,6 +926,7 @@ crmOperationsRouter.patch(
               groupName,
               product.base_product_id || null,
               product.base_product_title || null,
+              variantName,
               quantity,
               pricePerUnit,
               costPerUnit,
@@ -886,8 +935,9 @@ crmOperationsRouter.patch(
               totalItemCost,
             );
 
-            // Списываем сток ТОЛЬКО если заказ уже был собран (stock_deducted = 1)
-            if (order.stock_deducted) {
+            // Списываем сток ТОЛЬКО если заказ уже был собран (stock_deducted = 1) И позиции изменились
+            // Если позиции не изменились, сток уже списан, не нужно списывать заново
+            if (order.stock_deducted && itemsChanged) {
               if (item.variant_id) {
                 db.prepare(
                   "UPDATE product_variants SET stock = stock - ? WHERE id = ?",

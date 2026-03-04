@@ -412,7 +412,15 @@ import { useCrmStore, type CrmProductSummary, type Order } from '@/stores/crm'
 const props = defineProps<{ id: string }>()
 
 type FormItem = {
+  // Внутренний ключ строки (для v-for, удаления и т.п.)
+  // Для обычных товаров: ID товара
+  // Для вариантов: `${baseProductId}:${variantId}`
   productId: string
+  // Базовый ID товара из таблицы products (всегда существует)
+  baseProductId: string
+  // ID варианта товара (цвет и т.п.), если есть
+  variantId?: string | null
+
   title: string
   groupName?: string | null
   baseProductTitle?: string | null
@@ -591,7 +599,13 @@ function initializeForm(order: Order) {
   form.items = (order.items || [])
     .filter((item) => !!item.product_id)
     .map((item) => ({
-      productId: item.product_id as string,
+      // Для существующих заказов используем variant_id как часть ключа,
+      // чтобы разные варианты одного товара были отдельными строками
+      productId: item.variant_id
+        ? `${item.product_id}:${item.variant_id}`
+        : (item.product_id as string),
+      baseProductId: item.product_id as string,
+      variantId: (item.variant_id as string | null) || null,
       title: item.product_title,
       groupName: item.group_name || null,
       baseProductTitle: item.base_product_title || null,
@@ -612,7 +626,7 @@ async function loadProducts(query: string) {
   isSearchingProducts.value = true
   searchError.value = ''
   try {
-    const results = await crmStore.searchCrmProducts({ search: query, limit: 12 })
+    const results = await crmStore.searchCrmProducts({ search: query, limit: 100 })
     productResults.value = results
   } catch (error) {
     console.error('[CRM] product search error', error)
@@ -624,7 +638,12 @@ async function loadProducts(query: string) {
 }
 
 function addProduct(product: CrmProductSummary) {
-  const existing = form.items.find((item) => item.productId === product.id)
+  // Для вариантов базовый товар и вариант должны отличаться
+  const baseProductId = product.productId || product.id
+  const variantId = product.isVariant ? product.id : null
+  const rowKey = variantId ? `${baseProductId}:${variantId}` : baseProductId
+
+  const existing = form.items.find((item) => item.productId === rowKey)
   if (existing) {
     existing.quantity = Math.max(existing.quantity + 1, 1)
     existing.price = Number.isFinite(existing.price) ? existing.price : product.priceRub
@@ -634,11 +653,13 @@ function addProduct(product: CrmProductSummary) {
     return
   }
   form.items.push({
-    productId: product.id,
+    productId: rowKey,
+    baseProductId,
+    variantId,
     title: product.title,
     groupName: product.groupName || null,
-    baseProductTitle: undefined,
-    variantName: undefined,
+    baseProductTitle: product.isVariant ? undefined : product.title,
+    variantName: product.variantName || (product.isVariant ? product.title : null),
     quantity: 1,
     price: product.priceRub,
     discount: 0,
@@ -690,12 +711,18 @@ async function saveChanges() {
     let discount = Math.max(0, Number(item.discount) || 0)
     const maxDiscount = price * quantity
     if (discount > maxDiscount) discount = maxDiscount
-    return {
-      product_id: item.productId,
+    const result: any = {
+      product_id: item.baseProductId || item.productId,
       quantity,
       price_per_unit: price,
       discount_amount: discount
     }
+    // variant_id и variant_name нужны только для товаров с вариантами
+    if (item.variantId) {
+      result.variant_id = item.variantId
+      result.variant_name = item.variantName || null
+    }
+    return result
   })
 
   const discountAmount = Math.max(0, Number(form.discountAmount) || 0)
@@ -714,14 +741,14 @@ async function saveChanges() {
     const updated = await crmStore.updateOrder(currentOrder.value.id, payload)
     currentOrder.value = updated
     initializeForm(updated)
-    saveSuccess.value = 'Изменения сохранены'
+    saveSuccess.value = 'Изменения сохранены. Остатки и суммы пересчитаны.'
     if (successTimer) clearTimeout(successTimer)
     successTimer = setTimeout(() => {
       saveSuccess.value = ''
     }, 4000)
   } catch (error: any) {
     console.error('[CRM] update order error', error)
-    saveError.value = error?.message || 'Не удалось сохранить изменения'
+    saveError.value = formatErrorMessage(error?.message || error?.error || 'Не удалось сохранить изменения')
   } finally {
     isSaving.value = false
   }
@@ -743,7 +770,7 @@ async function removePayment() {
     }, 4000)
   } catch (error: any) {
     console.error('[CRM] delete payment error', error)
-    saveError.value = error?.message || 'Не удалось удалить оплату'
+    saveError.value = formatErrorMessage(error?.message || error?.error || 'Не удалось удалить оплату')
   } finally {
     deletingPayment.value = false
   }
@@ -765,7 +792,7 @@ async function reactivateOrder() {
     }, 4000)
   } catch (error: any) {
     console.error('[CRM] reactivate order error', error)
-    saveError.value = error?.message || 'Не удалось возобновить заказ'
+    saveError.value = formatErrorMessage(error?.message || error?.error || 'Не удалось возобновить заказ')
   } finally {
     reactivating.value = false
   }
@@ -827,6 +854,55 @@ function formatFullDate(dateString?: string | null) {
     hour: '2-digit',
     minute: '2-digit'
   })
+}
+
+function formatErrorMessage(errorMessage: string): string {
+  if (!errorMessage) return 'Произошла ошибка при сохранении'
+  
+  // Преобразуем технические сообщения в понятные для менеджеров
+  const errorLower = errorMessage.toLowerCase()
+  
+  // Ошибки недостаточного остатка
+  if (errorLower.includes('insufficient stock') || errorLower.includes('недостаточно товара')) {
+    // Извлекаем название товара из сообщения
+    const productMatch = errorMessage.match(/for\s+(.+)$/i) || errorMessage.match(/для\s+(.+)$/i)
+    const productName = productMatch ? productMatch[1].trim() : 'товара'
+    
+    if (errorLower.includes('variant')) {
+      return `Недостаточно остатка на складе для варианта "${productName}". Проверьте остатки товара и уменьшите количество или удалите позицию из заказа.`
+    }
+    return `Недостаточно остатка на складе для товара "${productName}". Проверьте остатки товара и уменьшите количество или удалите позицию из заказа.`
+  }
+  
+  // Ошибки не найденного товара/варианта
+  if (errorLower.includes('not found') || errorLower.includes('не найден')) {
+    if (errorLower.includes('variant')) {
+      return 'Вариант товара не найден. Возможно, товар был удален или изменен. Обновите страницу и попробуйте снова.'
+    }
+    if (errorLower.includes('product')) {
+      return 'Товар не найден. Возможно, товар был удален или изменен. Обновите страницу и попробуйте снова.'
+    }
+    return 'Элемент не найден. Обновите страницу и попробуйте снова.'
+  }
+  
+  // Ошибки неверных данных
+  if (errorLower.includes('invalid') || errorLower.includes('неверн')) {
+    if (errorLower.includes('quantity') || errorLower.includes('количеств')) {
+      return 'Неверное количество товара. Укажите количество больше нуля.'
+    }
+    if (errorLower.includes('item')) {
+      return 'Неверные данные позиции заказа. Проверьте все поля и попробуйте снова.'
+    }
+    return 'Неверные данные. Проверьте все поля и попробуйте снова.'
+  }
+  
+  // Ошибки минимальной суммы доставки
+  if (errorLower.includes('min_delivery_amount') || errorLower.includes('минимальной суммы')) {
+    return 'Сумма заказа меньше минимальной для доставки. Увеличьте количество товаров или измените тип отдачи на самовывоз.'
+  }
+  
+  // Возвращаем оригинальное сообщение, если не удалось распознать
+  return errorMessage
 }
 
 async function contactClient() {

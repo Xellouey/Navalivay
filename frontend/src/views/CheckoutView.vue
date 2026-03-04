@@ -194,10 +194,33 @@
           >
         </div>
 
+        <!-- Форма для ввода данных пользователя (показывается, если нет username в Telegram или мы вне Mini App) -->
+        <div v-if="!telegramUser || !telegramUser?.username" class="user-info-card">
+          <p class="user-info-label">Ваши данные</p>
+          <div class="user-info-input-row">
+            <input
+              v-model.trim="form.telegramUsername"
+              type="text"
+              class="user-info-input"
+              placeholder="@username"
+              @input="errors.telegramUsername = ''"
+            />
+          </div>
+          <p v-if="errors.telegramUsername" class="user-info-error">{{ errors.telegramUsername }}</p>
+        </div>
+
+        <div v-if="errors.phone" class="submit-error">{{ errors.phone }}</div>
+        <div v-if="errors.address" class="submit-error">{{ errors.address }}</div>
+
         <button
           @click="submitOrder"
+          @touchstart="handleSubmitTouchStart"
+          @mousedown="handleSubmitMouseDown"
+          @pointerdown="handleSubmitPointerDown"
           :disabled="isSubmitting"
           class="submit-button"
+          type="button"
+          style="touch-action: manipulation; -webkit-tap-highlight-color: transparent;"
         >
           {{ isSubmitting ? "Оформляем..." : "Оформить заказ" }}
         </button>
@@ -502,11 +525,26 @@ function validateForm(): boolean {
   return true;
 }
 
+function handleSubmitTouchStart(event: TouchEvent) {
+  event.preventDefault();
+  event.stopPropagation();
+  submitOrder();
+}
+
+function handleSubmitMouseDown(event: MouseEvent) {
+  void event;
+}
+
+function handleSubmitPointerDown(event: PointerEvent) {
+  void event;
+}
+
 async function submitOrder() {
   // Скрываем клавиатуру перед отправкой
   blurActiveInput();
   
-  if (!validateForm()) return;
+  const validationResult = validateForm();
+  if (!validationResult) return;
 
   submitError.value = "";
   isSubmitting.value = true;
@@ -1170,15 +1208,27 @@ async function submitOrder() {
   line-height: 20px;
   color: #ffffff;
   cursor: pointer;
+  position: relative;
+  z-index: 10;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .submit-button:hover:not(:disabled) {
   opacity: 0.95;
 }
 
+.submit-button:active:not(:disabled) {
+  opacity: 0.9;
+  transform: scale(0.98);
+}
+
 .submit-button:disabled {
   opacity: 0.6;
   cursor: not-allowed;
+  pointer-events: none;
 }
 
 .submit-error {
@@ -1188,6 +1238,64 @@ async function submitOrder() {
   font-size: 14px;
   color: #dc2626;
   text-align: center;
+}
+
+.user-info-card {
+  background: #ffffff;
+  border-radius: 20px;
+  padding: 24px 16px;
+}
+
+.user-info-label {
+  font-family: "Montserrat", sans-serif;
+  font-weight: 700;
+  font-size: 16px;
+  line-height: 20px;
+  color: #191919;
+  margin: 0 0 16px;
+}
+
+.user-info-input-row {
+  display: flex;
+  align-items: center;
+  background: #ffffff;
+  border: 1px solid #e6e9ed;
+  border-radius: 16px;
+  height: 64px;
+  padding: 0 16px;
+  box-sizing: border-box;
+}
+
+.user-info-input-row:focus-within {
+  border-color: #2563eb;
+  outline: 2px solid rgba(37, 99, 235, 0.1);
+  outline-offset: -2px;
+}
+
+.user-info-input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  font-family: -apple-system, "SF Pro Display", sans-serif;
+  font-weight: 400;
+  font-size: 16px;
+  line-height: 19px;
+  color: #191919;
+  background: transparent;
+}
+
+.user-info-input::placeholder {
+  color: #aab2bd;
+}
+
+.user-info-error {
+  font-family: -apple-system, "SF Pro Display", sans-serif;
+  font-weight: 400;
+  font-size: 14px;
+  line-height: 18px;
+  color: #dc2626;
+  margin: 12px 0 0;
 }
 
 @media (max-width: 768px) {

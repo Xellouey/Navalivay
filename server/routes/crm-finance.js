@@ -751,13 +751,14 @@ crmFinanceRouter.get('/api/admin/crm/visit-logs', authMiddleware, (req, res) => 
 // =========================
 // PRODUCTS SEARCH FOR CRM (Поиск товаров для CRM)
 // =========================
-
 crmFinanceRouter.get('/api/admin/crm/products/search', authMiddleware, (req, res) => {
   try {
     const { search, limit = 25 } = req.query;
-    
     let whereClauses = [];
     let params = [];
+    
+    let variantParams = [];
+    let variantWhereClauses = [];
     
     if (search && typeof search === 'string' && search.trim()) {
       // Разбиваем запрос на слова и ищем товары, содержащие ВСЕ слова
@@ -773,7 +774,7 @@ crmFinanceRouter.get('/api/admin/crm/products/search', authMiddleware, (req, res
           const upperPattern = `%${word.toUpperCase()}%`;
           const titlePattern = `%${word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()}%`;
           
-          // Добавляем параметры для этого слова (9 параметров на слово)
+          // Добавляем параметры для этого слова (9 параметров на слово для обычных товаров)
           params.push(lowerPattern, upperPattern, titlePattern, lowerPattern, upperPattern, titlePattern, lowerPattern, upperPattern, titlePattern);
           
           return '(p.title LIKE ? OR p.title LIKE ? OR p.title LIKE ? OR p.description LIKE ? OR p.description LIKE ? OR p.description LIKE ? OR g.name LIKE ? OR g.name LIKE ? OR g.name LIKE ?)';
@@ -782,10 +783,26 @@ crmFinanceRouter.get('/api/admin/crm/products/search', authMiddleware, (req, res
         // Объединяем условия через AND — найдём товары со ВСЕМИ словами
         // Каждое слово должно присутствовать (в title, description или group_name)
         whereClauses.push(`(${wordConditions.join(' AND ')})`);
+        
+        // Для вариантов добавляем поиск по variant_name (v.name)
+        // Каждое слово должно быть найдено в title, description, group_name ИЛИ variant_name
+        const variantWordConditions = words.map(word => {
+          const lowerPattern = `%${word.toLowerCase()}%`;
+          const upperPattern = `%${word.toUpperCase()}%`;
+          const titlePattern = `%${word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()}%`;
+          
+          // Добавляем параметры для вариантов (12 параметров на слово: 9 для товара + 3 для варианта)
+          variantParams.push(lowerPattern, upperPattern, titlePattern, lowerPattern, upperPattern, titlePattern, lowerPattern, upperPattern, titlePattern, lowerPattern, upperPattern, titlePattern);
+          
+          return '(p.title LIKE ? OR p.title LIKE ? OR p.title LIKE ? OR p.description LIKE ? OR p.description LIKE ? OR p.description LIKE ? OR g.name LIKE ? OR g.name LIKE ? OR g.name LIKE ? OR v.name LIKE ? OR v.name LIKE ? OR v.name LIKE ?)';
+        });
+        
+        variantWhereClauses.push(`(${variantWordConditions.join(' AND ')})`);
       }
     }
     
     const searchCondition = whereClauses.length > 0 ? whereClauses.join(' AND ') : '';
+    const variantSearchCondition = variantWhereClauses.length > 0 ? variantWhereClauses.join(' AND ') : '';
     
     // Получаем обычные товары (с первым изображением)
     const regularQuery = `
@@ -838,12 +855,12 @@ crmFinanceRouter.get('/api/admin/crm/products/search', authMiddleware, (req, res
       INNER JOIN products p ON p.id = v.product_id
       LEFT JOIN categories c ON c.id = p.categoryId
       LEFT JOIN category_groups g ON g.id = p.groupId
-      WHERE p.has_variants = 1${searchCondition ? ` AND ${searchCondition}` : ''}
+      WHERE p.has_variants = 1${variantSearchCondition ? ` AND ${variantSearchCondition}` : ''}
       LIMIT ?
     `;
     
-    const variants = params.length > 0
-      ? db.prepare(variantsQuery).all(...params, Number(limit))
+    const variants = variantParams.length > 0
+      ? db.prepare(variantsQuery).all(...variantParams, Number(limit))
       : db.prepare(`
           SELECT 
             v.id,
