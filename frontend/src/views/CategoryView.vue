@@ -133,6 +133,7 @@
             v-for="group in liquidGroups"
             :key="group.id"
             :group="group"
+            :fallback-image="selectedCategory?.coverImage || PLACEHOLDER_IMAGE"
             :expanded-groups="liquidExpansionState"
             @toggle="toggleLiquidExpansion"
             @heightChanged="() => {}"
@@ -438,6 +439,27 @@ const selectedCategory = computed<Category | null>(() => {
   );
 });
 
+async function prefetchCurrentCategoryImages() {
+  const categoryId = selectedCategory.value?.id;
+  if (!categoryId) {
+    return;
+  }
+
+  await Promise.all([
+    catalogStore.loadCategoryImages([categoryId]),
+    catalogStore.loadGroupImagesForCategory(categoryId),
+  ]);
+}
+
+async function prefetchChildGroupImages(groupId: string) {
+  const categoryId = selectedCategory.value?.id;
+  if (!categoryId) {
+    return;
+  }
+
+  await catalogStore.loadGroupImagesForCategory(categoryId, groupId);
+}
+
 const resolvedDisplayMode = computed<"default" | "liquid" | "visual">(() =>
   resolveCategoryDisplayMode(selectedCategory.value),
 );
@@ -476,10 +498,16 @@ function isGroupExpanded(groupId: string): boolean {
 }
 
 function toggleGroupExpansion(groupId: string) {
+  const nextExpanded = !isGroupExpanded(groupId);
+
   groupExpansionState.value = {
     ...groupExpansionState.value,
-    [groupId]: !isGroupExpanded(groupId),
+    [groupId]: nextExpanded,
   };
+
+  if (nextExpanded) {
+    void prefetchChildGroupImages(groupId);
+  }
 }
 
 // Строим иерархическое дерево линеек с товарами
@@ -544,7 +572,6 @@ const liquidStructure = computed(() => {
   }
 
   const category = selectedCategory.value;
-  const fallbackCover = category.coverImage || PLACEHOLDER_IMAGE;
   // Используем allProducts для полного списка товаров (не ограниченного пагинацией)
   const productsPool = catalogStore.allProducts.length
     ? catalogStore.allProducts
@@ -567,7 +594,7 @@ const liquidStructure = computed(() => {
         name: group.name,
         slug: group.slug,
         order: group.order ?? 0,
-        coverImage: group.coverImage || fallbackCover,
+        coverImage: group.coverImage || null,
         products: groupProducts,
         productCount: groupProducts.length,
         badge: group.badge ?? null,
@@ -665,8 +692,20 @@ const nicaBoosterProduct = computed(() => {
 
 const liquidExpansionState = ref<Record<string, boolean>>({});
 
+function collectLiquidGroupIds(groups: LiquidGroup[]): string[] {
+  const ids: string[] = [];
+
+  const visit = (group: LiquidGroup) => {
+    ids.push(group.id);
+    group.children.forEach(visit);
+  };
+
+  groups.forEach(visit);
+  return ids;
+}
+
 watch(
-  () => liquidGroups.value.map((group) => group.id),
+  () => collectLiquidGroupIds(liquidGroups.value),
   (ids) => {
     if (!showLiquidShowcase.value) {
       liquidExpansionState.value = {};
@@ -684,10 +723,15 @@ watch(
 
 watch(
   () => selectedCategory.value?.id,
-  () => {
+  (categoryId) => {
     liquidExpansionState.value = {};
     groupExpansionState.value = {};
+
+    if (categoryId) {
+      void prefetchCurrentCategoryImages();
+    }
   },
+  { immediate: true },
 );
 
 const crossSellItems = computed<Product[]>(() => {
@@ -808,10 +852,16 @@ function goToCheckout() {
 }
 
 function toggleLiquidExpansion(groupId: string) {
+  const nextExpanded = !isLiquidGroupExpanded(groupId);
+
   liquidExpansionState.value = {
     ...liquidExpansionState.value,
-    [groupId]: !isLiquidGroupExpanded(groupId),
+    [groupId]: nextExpanded,
   };
+
+  if (nextExpanded) {
+    void prefetchChildGroupImages(groupId);
+  }
 }
 
 function isLiquidGroupExpanded(groupId: string): boolean {

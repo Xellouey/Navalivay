@@ -10,7 +10,7 @@
       >
         <div class="liquid-line-image-wrapper">
           <div v-if="coverUrl" class="liquid-line-image">
-            <img :src="coverUrl" :alt="title" />
+            <img :src="coverUrl" :alt="title" loading="lazy" decoding="async" />
           </div>
           <div v-else class="liquid-line-image liquid-line-image-placeholder">
             <svg
@@ -54,12 +54,23 @@
       </div>
     </div>
 
-    <div
-      ref="bodyWrapper"
-      class="liquid-line-body-wrapper"
-      :style="wrapperStyle"
+    <Transition
+      :css="false"
+      @before-enter="onBeforeEnter"
+      @enter="onEnter"
+      @after-enter="onAfterEnter"
+      @before-leave="onBeforeLeave"
+      @leave="onLeave"
+      @after-leave="onAfterLeave"
+      @enter-cancelled="onCancelled"
+      @leave-cancelled="onCancelled"
     >
-      <div class="liquid-line-body">
+      <div
+        v-if="expanded"
+        ref="bodyWrapper"
+        class="liquid-line-body-wrapper"
+      >
+        <div class="liquid-line-body">
         <!-- Подлинейки (товары с вариантами) - новый дизайн -->
         <div v-if="productsWithVariants.length" class="liquid-sublines">
           <div
@@ -81,6 +92,8 @@
                     v-if="getProductImage(product)"
                     :src="getProductImage(product)!"
                     :alt="product.title"
+                    loading="lazy"
+                    decoding="async"
                   />
                   <svg
                     v-else
@@ -139,6 +152,8 @@
                       :src="variant.colorImage"
                       :alt="variant.name"
                       class="liquid-variant-preview-img"
+                      loading="lazy"
+                      decoding="async"
                       @error="(e) => handleImageError(e, variant.colorImage!)"
                     />
                   </div>
@@ -255,8 +270,9 @@
             </div>
           </li>
         </ul>
+        </div>
       </div>
-    </div>
+    </Transition>
 
     <!-- Модальное окно для просмотра цвета -->
     <ColorPreviewModal
@@ -269,14 +285,14 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch, nextTick } from "vue";
+import { computed, onBeforeUnmount, ref, watch, nextTick } from "vue";
 import {
   ChevronDownIcon,
   PlusIcon,
   MinusIcon,
 } from "@heroicons/vue/24/outline";
 import { useCartStore } from "@/stores/cart";
-import type { Product, ProductVariant } from "@/stores/catalog";
+import { useCatalogStore, type Product, type ProductVariant } from "@/stores/catalog";
 import ColorPreviewModal from "@/components/product/ColorPreviewModal.vue";
 
 interface SubgroupInfo {
@@ -306,10 +322,11 @@ const emit = defineEmits<{
 }>();
 
 const cartStore = useCartStore();
+const catalogStore = useCatalogStore();
 const bodyWrapper = ref<HTMLElement | null>(null);
-const contentHeight = ref(0);
 const expandedVariantProducts = ref<Record<string, boolean>>({});
 const failedImages = ref<Set<string>>(new Set());
+let transitionTimer: ReturnType<typeof setTimeout> | null = null;
 
 // Разделение товаров на те, у которых есть варианты, и без них
 const productsWithVariants = computed(() =>
@@ -349,7 +366,9 @@ const countLabel = computed(() => {
   return "";
 });
 
-const coverUrl = computed(() => props.coverImage || props.fallbackImage);
+const coverUrl = computed(
+  () => props.coverImage || catalogStore.getGroupImage(props.groupId) || props.fallbackImage,
+);
 
 // Общее количество товаров для бейджа "Ещё N"
 const totalProductCount = computed(() => {
@@ -418,62 +437,147 @@ const metaText = computed(() => {
   return label || value;
 });
 
-const wrapperStyle = computed(() => {
-  if (!props.expanded) {
-    return { maxHeight: "0px" };
-  }
-  // Всегда используем конкретное значение высоты для плавной анимации
-  const height = contentHeight.value > 0 ? contentHeight.value : 5000;
-  return { maxHeight: `${height}px` };
-});
+function clearTransitionTimer() {
+  if (transitionTimer === null) return;
+  clearTimeout(transitionTimer);
+  transitionTimer = null;
+}
 
-// Функция для расчета высоты
-const calculateHeight = async () => {
+function queueNextFrame(callback: () => void) {
+  requestAnimationFrame(() => {
+    requestAnimationFrame(callback);
+  });
+}
+
+function getBodyHeight(element: HTMLElement) {
+  return Math.max(Math.ceil(element.scrollHeight), 1);
+}
+
+function applyTransitionStyles(element: HTMLElement) {
+  element.style.overflow = "hidden";
+  element.style.willChange = "height, opacity";
+  element.style.transition =
+    "height 360ms cubic-bezier(0.4, 0, 0.2, 1), opacity 220ms ease";
+}
+
+function resetTransitionStyles(element: HTMLElement) {
+  element.style.transition = "";
+  element.style.willChange = "";
+}
+
+function waitForHeightTransition(element: HTMLElement, done: () => void) {
+  clearTransitionTimer();
+
+  const finish = () => {
+    element.removeEventListener("transitionend", handleTransitionEnd);
+    clearTransitionTimer();
+    done();
+  };
+
+  const handleTransitionEnd = (event: TransitionEvent) => {
+    if (event.target !== element || event.propertyName !== "height") return;
+    finish();
+  };
+
+  element.addEventListener("transitionend", handleTransitionEnd);
+  transitionTimer = setTimeout(finish, 520);
+}
+
+function onBeforeEnter(element: Element) {
+  const panel = element as HTMLElement;
+  clearTransitionTimer();
+  panel.style.height = "0px";
+  panel.style.opacity = "0";
+  panel.style.overflow = "hidden";
+}
+
+function onEnter(element: Element, done: () => void) {
+  const panel = element as HTMLElement;
+  applyTransitionStyles(panel);
+
+  queueNextFrame(() => {
+    panel.style.height = `${getBodyHeight(panel)}px`;
+    panel.style.opacity = "1";
+  });
+
+  waitForHeightTransition(panel, done);
+}
+
+function onAfterEnter(element: Element) {
+  const panel = element as HTMLElement;
+  clearTransitionTimer();
+  resetTransitionStyles(panel);
+  panel.style.height = "auto";
+  panel.style.opacity = "1";
+  panel.style.overflow = "visible";
+}
+
+function onBeforeLeave(element: Element) {
+  const panel = element as HTMLElement;
+  clearTransitionTimer();
+  panel.style.height = `${getBodyHeight(panel)}px`;
+  panel.style.opacity = "1";
+  panel.style.overflow = "hidden";
+}
+
+function onLeave(element: Element, done: () => void) {
+  const panel = element as HTMLElement;
+  applyTransitionStyles(panel);
+
+  queueNextFrame(() => {
+    panel.style.height = "0px";
+    panel.style.opacity = "0";
+  });
+
+  waitForHeightTransition(panel, done);
+}
+
+function onAfterLeave(element: Element) {
+  const panel = element as HTMLElement;
+  clearTransitionTimer();
+  resetTransitionStyles(panel);
+  panel.style.height = "0px";
+  panel.style.opacity = "0";
+  panel.style.overflow = "hidden";
+}
+
+function onCancelled(element: Element) {
+  const panel = element as HTMLElement;
+  clearTransitionTimer();
+  resetTransitionStyles(panel);
+
+  if (props.expanded) {
+    panel.style.height = "auto";
+    panel.style.opacity = "1";
+    panel.style.overflow = "visible";
+  } else {
+    panel.style.height = "0px";
+    panel.style.opacity = "0";
+    panel.style.overflow = "hidden";
+  }
+}
+
+async function syncBodyHeightDuringTransition() {
   await nextTick();
-  if (bodyWrapper.value) {
-    // Используем scrollHeight самого wrapper для учета всех padding и margin
-    contentHeight.value = bodyWrapper.value.scrollHeight;
+  if (bodyWrapper.value && bodyWrapper.value.style.height !== "auto") {
+    bodyWrapper.value.style.height = `${getBodyHeight(bodyWrapper.value)}px`;
   }
-};
+}
 
-// Пересчитываем высоту при раскрытии
-watch(
-  () => props.expanded,
-  async (newVal) => {
-    if (newVal) {
-      // Сначала рассчитываем высоту для плавной анимации
-      await nextTick();
-      await calculateHeight();
-      // Дополнительные пересчёты для плавности
-      setTimeout(() => calculateHeight(), 50);
-      setTimeout(() => calculateHeight(), 150);
-      setTimeout(() => calculateHeight(), 350);
-    } else {
-      // При сворачивании сбрасываем высоту
-      contentHeight.value = 0;
-    }
-  },
-);
-
-// Пересчитываем высоту при изменении количества товаров в корзине
 watch(
   () => cartStore.items.length,
   async () => {
     if (props.expanded) {
-      await calculateHeight();
+      await syncBodyHeightDuringTransition();
     }
   },
 );
 
-// Пересчитываем высоту при изменении состояния развёрнутости товаров
 watch(
   expandedVariantProducts,
   async () => {
     if (props.expanded) {
-      await calculateHeight();
-      setTimeout(() => calculateHeight(), 50);
-      setTimeout(() => calculateHeight(), 150);
-      setTimeout(() => calculateHeight(), 350);
+      await syncBodyHeightDuringTransition();
     }
   },
   { deep: true },
@@ -584,6 +688,10 @@ function toggleVariantProductExpansion(productId: string) {
     [productId]: !isVariantProductExpanded(productId),
   };
 }
+
+onBeforeUnmount(() => {
+  clearTransitionTimer();
+});
 
 // Функции для работы с изображениями товаров
 function getProductImage(product: Product): string | null {
@@ -1334,8 +1442,6 @@ function closeColorPreview() {
 
 .liquid-line-body-wrapper {
   overflow: hidden;
-  transition: max-height 500ms cubic-bezier(0.4, 0, 0.2, 1);
-  max-height: 0;
 }
 
 .liquid-line-body {

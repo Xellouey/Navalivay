@@ -1,18 +1,19 @@
 <template>
   <div class="group-line-card" :class="{ expanded: isExpanded }">
-    <div class="group-line-header" @click="toggle">
-      <div
-        class="group-line-main"
-        role="button"
-        tabindex="0"
-        @keyup.enter.prevent="toggle"
-        @keyup.space.prevent="toggle"
-      >
-        <div class="group-line-image-wrapper">
-          <div v-if="node.coverImage" class="group-line-image">
-            <img :src="node.coverImage" :alt="node.name" />
-          </div>
-          <div v-else class="group-line-image group-line-image-placeholder">
+    <button
+      :id="headerId"
+      type="button"
+      class="group-line-header"
+      :aria-expanded="isExpanded"
+      :aria-controls="panelId"
+      @click="toggle"
+    >
+      <span class="group-line-main">
+        <span class="group-line-image-wrapper">
+          <span v-if="coverImage" class="group-line-image">
+            <img :src="coverImage" :alt="node.name" loading="lazy" decoding="async" />
+          </span>
+          <span v-else class="group-line-image group-line-image-placeholder">
             <svg
               width="40"
               height="40"
@@ -25,81 +26,88 @@
               <circle cx="8.5" cy="8.5" r="1.5" />
               <path d="M21 15l-5-5L5 21" />
             </svg>
-          </div>
-        </div>
-        <div class="group-line-info">
-          <h3 class="group-line-title">{{ node.name }}</h3>
-          <p v-if="metaText" class="group-line-meta">{{ metaText }}</p>
-          <p v-if="firstProductPrice" class="group-line-price">
+          </span>
+        </span>
+
+        <span class="group-line-info">
+          <span class="group-line-title">{{ node.name }}</span>
+          <span v-if="metaText" class="group-line-meta">{{ metaText }}</span>
+          <span v-if="firstProductPrice" class="group-line-price">
             {{ formatPrice(firstProductPrice) }} BYN
-          </p>
-          <div
+          </span>
+          <span
             v-if="!isExpanded && totalProductCount > 0"
             class="group-line-count-badge"
           >
             <span>Ещё {{ totalProductCount }}</span>
+          </span>
+        </span>
+      </span>
+
+      <span class="group-line-side">
+        <span class="group-line-toggle" :class="{ expanded: isExpanded }" aria-hidden="true">
+          <ChevronDownIcon class="group-line-toggle-icon" />
+        </span>
+      </span>
+    </button>
+
+    <Transition
+      :css="false"
+      @before-enter="onBeforeEnter"
+      @enter="onEnter"
+      @after-enter="onAfterEnter"
+      @before-leave="onBeforeLeave"
+      @leave="onLeave"
+      @after-leave="onAfterLeave"
+      @enter-cancelled="onCancelled"
+      @leave-cancelled="onCancelled"
+    >
+      <div
+        v-if="isExpanded"
+        :id="panelId"
+        ref="bodyWrapper"
+        class="group-line-body-wrapper"
+        role="region"
+        :aria-labelledby="headerId"
+      >
+        <div class="group-line-body">
+          <GroupLineItemContent
+            :node="node"
+            :category-image="categoryImage"
+            @showToast="forwardToast"
+          />
+
+          <div v-if="node.children.length" class="group-line-children">
+            <GroupLineItem
+              v-for="child in node.children"
+              :key="child.id"
+              :node="child"
+              :category-image="categoryImage"
+              :expanded-groups="expandedGroups"
+              @toggle="$emit('toggle', $event)"
+              @productClick="$emit('productClick', $event)"
+              @heightChanged="handleNestedHeightChanged"
+              @showToast="forwardToast"
+            />
           </div>
         </div>
       </div>
-      <div class="group-line-side">
-        <button
-          type="button"
-          class="group-line-toggle"
-          :class="{ expanded: isExpanded }"
-          @click.stop="toggle"
-          aria-label="Переключить линейку"
-        >
-          <ChevronDownIcon class="group-line-toggle-icon" />
-        </button>
-      </div>
-    </div>
-
-    <div
-      ref="bodyWrapper"
-      class="group-line-body-wrapper"
-      :style="wrapperStyle"
-    >
-      <div class="group-line-body">
-        <GroupLineItemContent
-          :node="node"
-          :category-image="categoryImage"
-          @showToast="
-            (msg: string, type: 'error' | 'success' | 'info') =>
-              emit('showToast', msg, type)
-          "
-        />
-
-        <!-- Подлинейки (рекурсивно) -->
-        <div v-if="node.children.length" class="group-line-children">
-          <GroupLineItem
-            v-for="child in node.children"
-            :key="child.id"
-            :node="child"
-            :category-image="categoryImage"
-            :expanded-groups="expandedGroups"
-            @toggle="$emit('toggle', $event)"
-            @productClick="$emit('productClick', $event)"
-            @heightChanged="onChildHeightChanged"
-            @showToast="
-              (msg: string, type: 'error' | 'success' | 'info') =>
-                $emit('showToast', msg, type)
-            "
-          />
-        </div>
-      </div>
-    </div>
-
+    </Transition>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch, nextTick, defineAsyncComponent } from "vue";
+import {
+  computed,
+  defineAsyncComponent,
+  nextTick,
+  onBeforeUnmount,
+  ref,
+} from "vue";
 import { ChevronDownIcon } from "@heroicons/vue/24/outline";
-import { useCartStore } from "@/stores/cart";
-import type { Product } from "@/stores/catalog";
+import { useCatalogStore, type Product } from "@/stores/catalog";
 import GroupLineItemContent from "@/components/product/GroupLineItemContent.vue";
 
-// Рекурсивный импорт через defineAsyncComponent для избежания циклических зависимостей
 const GroupLineItem = defineAsyncComponent(
   () => import("@/components/product/GroupLineItem.vue"),
 );
@@ -133,35 +141,44 @@ const emit = defineEmits<{
   (e: "heightChanged"): void;
 }>();
 
-const cartStore = useCartStore();
+const catalogStore = useCatalogStore();
 const bodyWrapper = ref<HTMLElement | null>(null);
-const contentHeight = ref(0);
-
+const headerId = computed(() => `group-line-header-${props.node.id}`);
+const panelId = computed(() => `group-line-panel-${props.node.id}`);
 const isExpanded = computed(() => props.expandedGroups[props.node.id] ?? false);
+const coverImage = computed(
+  () => props.node.coverImage || catalogStore.getGroupImage(props.node.id) || null,
+);
 
-// Общее количество товаров
+let transitionTimer: ReturnType<typeof setTimeout> | null = null;
+
 const totalProductCount = computed(() => {
-  let count = props.node.products.length;
-  if (props.node.children.length > 0) {
-    props.node.children.forEach((child) => {
-      count += child.productCount ?? 0;
-    });
-  }
-  return count;
+  return props.node.products.length + props.node.children.reduce((count, child) => {
+    return count + (child.totalProductCount ?? child.productCount ?? 0);
+  }, 0);
 });
 
-// Цена первого товара для отображения в заголовке
-const firstProductPrice = computed(() => {
-  const firstProduct = props.node.products.find((p) => Boolean(p));
-  if (!firstProduct) return null;
+function findFirstProduct(node: GroupNode): Product | null {
+  const directProduct = node.products.find(Boolean);
+  if (directProduct) return directProduct;
 
-  // Если товар с вариантами, берем цену первого варианта
-  if (firstProduct.hasVariants && Array.isArray(firstProduct.variants)) {
-    return firstProduct.variants[0]?.priceRub ?? null;
+  for (const child of node.children) {
+    const nestedProduct = findFirstProduct(child);
+    if (nestedProduct) return nestedProduct;
   }
 
-  // Иначе берем цену самого товара
-  return firstProduct.priceRub ?? null;
+  return null;
+}
+
+const firstProductPrice = computed(() => {
+  const product = findFirstProduct(props.node);
+  if (!product) return null;
+
+  if (product.hasVariants && Array.isArray(product.variants)) {
+    return product.variants[0]?.priceRub ?? null;
+  }
+
+  return product.priceRub ?? null;
 });
 
 const metaText = computed(() => {
@@ -173,75 +190,158 @@ const metaText = computed(() => {
   return label || value;
 });
 
-const wrapperStyle = computed(() => {
-  if (!isExpanded.value) {
-    return { maxHeight: "0px" };
-  }
-  const height = Math.max(contentHeight.value, 10000);
-  return { maxHeight: height + "px" };
-});
+function clearTransitionTimer() {
+  if (transitionTimer === null) return;
+  clearTimeout(transitionTimer);
+  transitionTimer = null;
+}
 
-// Функция для расчета высоты
-const calculateHeight = async () => {
+function queueNextFrame(callback: () => void) {
+  requestAnimationFrame(() => {
+    requestAnimationFrame(callback);
+  });
+}
+
+function getBodyHeight(element: HTMLElement) {
+  return Math.max(Math.ceil(element.scrollHeight), 1);
+}
+
+function applyTransitionStyles(element: HTMLElement) {
+  element.style.overflow = "hidden";
+  element.style.willChange = "height, opacity";
+  element.style.transition =
+    "height 360ms cubic-bezier(0.4, 0, 0.2, 1), opacity 220ms ease";
+}
+
+function resetTransitionStyles(element: HTMLElement) {
+  element.style.transition = "";
+  element.style.willChange = "";
+}
+
+function waitForHeightTransition(element: HTMLElement, done: () => void) {
+  clearTransitionTimer();
+
+  const finish = () => {
+    element.removeEventListener("transitionend", handleTransitionEnd);
+    clearTransitionTimer();
+    done();
+  };
+
+  const handleTransitionEnd = (event: TransitionEvent) => {
+    if (event.target !== element || event.propertyName !== "height") return;
+    finish();
+  };
+
+  element.addEventListener("transitionend", handleTransitionEnd);
+  transitionTimer = setTimeout(finish, 520);
+}
+
+function onBeforeEnter(element: Element) {
+  const panel = element as HTMLElement;
+  clearTransitionTimer();
+  panel.style.height = "0px";
+  panel.style.opacity = "0";
+  panel.style.overflow = "hidden";
+}
+
+function onEnter(element: Element, done: () => void) {
+  const panel = element as HTMLElement;
+  applyTransitionStyles(panel);
+
+  queueNextFrame(() => {
+    panel.style.height = `${getBodyHeight(panel)}px`;
+    panel.style.opacity = "1";
+  });
+
+  waitForHeightTransition(panel, done);
+}
+
+function onAfterEnter(element: Element) {
+  const panel = element as HTMLElement;
+  clearTransitionTimer();
+  resetTransitionStyles(panel);
+  panel.style.height = "auto";
+  panel.style.opacity = "1";
+  panel.style.overflow = "visible";
+  emit("heightChanged");
+}
+
+function onBeforeLeave(element: Element) {
+  const panel = element as HTMLElement;
+  clearTransitionTimer();
+  panel.style.height = `${getBodyHeight(panel)}px`;
+  panel.style.opacity = "1";
+  panel.style.overflow = "hidden";
+}
+
+function onLeave(element: Element, done: () => void) {
+  const panel = element as HTMLElement;
+  applyTransitionStyles(panel);
+
+  queueNextFrame(() => {
+    panel.style.height = "0px";
+    panel.style.opacity = "0";
+  });
+
+  waitForHeightTransition(panel, done);
+}
+
+function onAfterLeave(element: Element) {
+  const panel = element as HTMLElement;
+  clearTransitionTimer();
+  resetTransitionStyles(panel);
+  panel.style.height = "0px";
+  panel.style.opacity = "0";
+  panel.style.overflow = "hidden";
+  emit("heightChanged");
+}
+
+function onCancelled(element: Element) {
+  const panel = element as HTMLElement;
+  clearTransitionTimer();
+  resetTransitionStyles(panel);
+
+  if (isExpanded.value) {
+    panel.style.height = "auto";
+    panel.style.opacity = "1";
+    panel.style.overflow = "visible";
+  } else {
+    panel.style.height = "0px";
+    panel.style.opacity = "0";
+    panel.style.overflow = "hidden";
+  }
+}
+
+async function handleNestedHeightChanged() {
   await nextTick();
-  if (bodyWrapper.value) {
-    contentHeight.value = bodyWrapper.value.scrollHeight;
+  if (bodyWrapper.value && bodyWrapper.value.style.height !== "auto") {
+    bodyWrapper.value.style.height = `${getBodyHeight(bodyWrapper.value)}px`;
   }
-};
-
-// Пересчитываем высоту при раскрытии
-watch(
-  () => isExpanded.value,
-  async (newVal) => {
-    if (newVal) {
-      await nextTick();
-      await calculateHeight();
-      setTimeout(() => calculateHeight(), 50);
-      setTimeout(() => calculateHeight(), 150);
-      setTimeout(() => {
-        calculateHeight();
-        emit("heightChanged");
-      }, 350);
-    } else {
-      contentHeight.value = 0;
-      emit("heightChanged");
-    }
-  },
-);
-
-// Пересчитываем высоту при изменении корзины
-watch(
-  () => cartStore.items.length,
-  async () => {
-    if (isExpanded.value) {
-      await calculateHeight();
-    }
-  },
-);
-
-async function onChildHeightChanged() {
-  if (!isExpanded.value) return;
-  await calculateHeight();
-  setTimeout(() => calculateHeight(), 50);
-  setTimeout(() => calculateHeight(), 150);
-  setTimeout(() => {
-    calculateHeight();
-    emit("heightChanged");
-  }, 350);
+  emit("heightChanged");
 }
 
 function toggle() {
   emit("toggle", props.node.id);
 }
 
+function forwardToast(
+  message: string,
+  type: "error" | "success" | "info",
+) {
+  emit("showToast", message, type);
+}
+
 function formatPrice(value?: number | null) {
   if (value === null || value === undefined) return "—";
   return value.toLocaleString("ru-RU");
 }
+
+onBeforeUnmount(() => {
+  clearTransitionTimer();
+});
 </script>
 
 <style scoped>
-/* Figma Redesign - Карточка группы/линейки устройств */
 .group-line-card {
   box-sizing: border-box;
   background: #ffffff;
@@ -255,11 +355,22 @@ function formatPrice(value?: number | null) {
 }
 
 .group-line-header {
+  width: 100%;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  text-align: left;
   cursor: pointer;
+}
+
+.group-line-header:focus-visible {
+  outline: 2px solid rgba(25, 25, 25, 0.18);
+  outline-offset: 4px;
+  border-radius: 20px;
 }
 
 .group-line-main {
@@ -267,8 +378,6 @@ function formatPrice(value?: number | null) {
   align-items: center;
   gap: 12px;
   flex: 1;
-  cursor: pointer;
-  outline: none;
   min-width: 0;
 }
 
@@ -308,8 +417,14 @@ function formatPrice(value?: number | null) {
   flex: 1;
 }
 
-.group-line-title {
+.group-line-title,
+.group-line-meta,
+.group-line-price {
+  display: block;
   margin: 0;
+}
+
+.group-line-title {
   font-family: "Montserrat", sans-serif;
   font-style: normal;
   font-weight: 700;
@@ -319,7 +434,6 @@ function formatPrice(value?: number | null) {
 }
 
 .group-line-meta {
-  margin: 0;
   font-family:
     "SF Pro Display",
     -apple-system,
@@ -333,7 +447,6 @@ function formatPrice(value?: number | null) {
 }
 
 .group-line-price {
-  margin: 0;
   font-family: "Montserrat", sans-serif;
   font-style: normal;
   font-weight: 700;
@@ -378,22 +491,22 @@ function formatPrice(value?: number | null) {
   width: 40px;
   height: 40px;
   border-radius: 512px;
-  border: none;
   background: #f5f7fa;
   display: flex;
   align-items: center;
   justify-content: center;
-  cursor: pointer;
-  transition: all 0.2s ease;
+  transition:
+    background-color 0.2s ease,
+    transform 0.2s ease;
   flex-shrink: 0;
 }
 
-.group-line-toggle:hover {
+.group-line-header:hover .group-line-toggle {
   background: #e6e9ed;
 }
 
 .group-line-toggle.expanded .group-line-toggle-icon {
-  transform: rotate(-90deg) rotate(90deg);
+  transform: rotate(0deg);
 }
 
 .group-line-toggle-icon {
@@ -404,11 +517,8 @@ function formatPrice(value?: number | null) {
   transform: rotate(-90deg);
 }
 
-/* ========== Анимация раскрытия ========== */
 .group-line-body-wrapper {
   overflow: hidden;
-  transition: max-height 650ms cubic-bezier(0.4, 0, 0.2, 1);
-  max-height: 0;
 }
 
 .group-line-body {
@@ -422,8 +532,6 @@ function formatPrice(value?: number | null) {
   flex-direction: column;
   gap: 8px;
 }
-
-/* Адаптивные стили */
 
 @media (max-width: 1024px) {
   .group-line-card {

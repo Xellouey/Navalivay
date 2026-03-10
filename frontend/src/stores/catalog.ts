@@ -251,6 +251,16 @@ export const useCatalogStore = defineStore('catalog', () => {
     return groupImageCache.value.get(groupId) || null
   }
 
+  function updateCategoryCoverImage(categoryId: string, image: string) {
+    const categoryIndex = categories.value.findIndex(category => category.id === categoryId)
+    if (categoryIndex === -1) return
+
+    categories.value[categoryIndex] = {
+      ...categories.value[categoryIndex],
+      coverImage: image
+    }
+  }
+
   // Actions
   async function fetchCategories() {
     try {
@@ -295,48 +305,84 @@ export const useCatalogStore = defineStore('catalog', () => {
     }
   }
 
-  // Загрузка изображений категорий в фоне
-  async function loadCategoryImages() {
-    const categoriesToLoad = categories.value.filter(c => c.hasCoverImage && !c.coverImage)
-    
-    // Загружаем параллельно, но не более 3 одновременно
-    const batchSize = 3
+  // Загружаем только обложки категорий.
+  // Обложки групп подгружаем точечно по текущей категории и раскрытым веткам,
+  // чтобы не тормозить интерфейс десятками base64-картинок сразу.
+  async function loadCategoryImages(categoryIds?: string[]) {
+    const requestedIds = categoryIds?.length
+      ? new Set(categoryIds.map(id => String(id)))
+      : null
+    const categoriesToLoad = categories.value.filter((category) => {
+      if (!category.hasCoverImage || category.coverImage) return false
+      return requestedIds ? requestedIds.has(category.id) : true
+    })
+
+    const batchSize = 2
     for (let i = 0; i < categoriesToLoad.length; i += batchSize) {
       const batch = categoriesToLoad.slice(i, i + batchSize)
-      await Promise.all(batch.map(async (cat) => {
-        const image = await fetchCategoryImage(cat.id)
+      await Promise.all(batch.map(async (category) => {
+        const image = await fetchCategoryImage(category.id)
         if (image) {
-          // Обновляем категорию в массиве
-          const idx = categories.value.findIndex(c => c.id === cat.id)
-          if (idx !== -1) {
-            categories.value[idx] = { ...categories.value[idx], coverImage: image }
-          }
+          updateCategoryCoverImage(category.id, image)
         }
       }))
+
+      if (i + batchSize < categoriesToLoad.length) {
+        await delay(16)
+      }
     }
-    
-    // Также загружаем изображения групп
-    const groupsToLoad: { categoryIdx: number; groupIdx: number; groupId: string }[] = []
-    categories.value.forEach((cat, catIdx) => {
-      cat.groups.forEach((group, groupIdx) => {
-        if (group.hasCoverImage && !group.coverImage) {
-          groupsToLoad.push({ categoryIdx: catIdx, groupIdx, groupId: group.id })
-        }
-      })
+  }
+
+  async function loadGroupImages(groupIds: string[]) {
+    const requestedIds = Array.from(new Set(groupIds.map(id => String(id)).filter(id => id.length > 0)))
+    if (!requestedIds.length) {
+      return
+    }
+
+    const groupsToLoad = requestedIds.filter((groupId) => {
+      if (groupImageCache.value.has(groupId) || loadingGroupImages.value.has(groupId)) {
+        return false
+      }
+
+      return categories.value.some((category) =>
+        category.groups.some((group) =>
+          group.id === groupId && group.hasCoverImage && !group.coverImage
+        )
+      )
     })
-    
+
+    const batchSize = 2
     for (let i = 0; i < groupsToLoad.length; i += batchSize) {
       const batch = groupsToLoad.slice(i, i + batchSize)
-      await Promise.all(batch.map(async ({ categoryIdx, groupIdx, groupId }) => {
-        const image = await fetchGroupImage(groupId)
-        if (image && categories.value[categoryIdx]?.groups[groupIdx]) {
-          categories.value[categoryIdx].groups[groupIdx] = {
-            ...categories.value[categoryIdx].groups[groupIdx],
-            coverImage: image
-          }
-        }
+      await Promise.all(batch.map(async (groupId) => {
+        await fetchGroupImage(groupId)
       }))
+
+      if (i + batchSize < groupsToLoad.length) {
+        await delay(16)
+      }
     }
+  }
+
+  async function loadGroupImagesForCategory(
+    categoryId: string,
+    parentGroupId: string | null = null,
+  ) {
+    const category = categories.value.find((item) => item.id === categoryId)
+    if (!category) {
+      return
+    }
+
+    const targetGroupIds = category.groups
+      .filter((group) => {
+        const normalizedParentId = group.parentId ? String(group.parentId) : null
+        return parentGroupId === null
+          ? normalizedParentId === null
+          : normalizedParentId === parentGroupId
+      })
+      .map((group) => group.id)
+
+    return loadGroupImages(targetGroupIds)
   }
 
   async function fetchProducts(loadMore = false) {
@@ -624,6 +670,8 @@ export const useCatalogStore = defineStore('catalog', () => {
     fetchGroupImage,
     getCategoryImage,
     getGroupImage,
-    loadCategoryImages
+    loadCategoryImages,
+    loadGroupImages,
+    loadGroupImagesForCategory
   }
 })

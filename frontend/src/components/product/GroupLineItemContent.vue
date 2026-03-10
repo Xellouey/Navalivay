@@ -19,6 +19,8 @@
                 v-if="isImageDisplayMode(variant) && variant.colorImage"
                 :src="variant.colorImage"
                 :alt="variant.name"
+                loading="lazy"
+                decoding="async"
                 @error="handleVariantPreviewError"
               />
             </div>
