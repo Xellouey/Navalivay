@@ -194,8 +194,11 @@
           >
         </div>
 
-        <!-- Форма для ввода данных пользователя (показывается, если нет username в Telegram или мы вне Mini App) -->
-        <div v-if="!telegramUser || !telegramUser?.username" class="user-info-card">
+        <!-- Вне Telegram Mini App даём ввести username вручную -->
+        <div
+          v-if="shouldShowManualUsernameInput"
+          class="user-info-card"
+        >
           <p class="user-info-label">Ваши данные</p>
           <div class="user-info-input-row">
             <input
@@ -207,6 +210,25 @@
             />
           </div>
           <p v-if="errors.telegramUsername" class="user-info-error">{{ errors.telegramUsername }}</p>
+        </div>
+
+        <div
+          v-else-if="requiresTelegramUsername"
+          class="user-info-card user-info-card-warning"
+        >
+          <p class="user-info-label">Нужен Telegram username</p>
+          <p class="username-warning-text">
+            Без username мы не сможем связаться с вами по заказу в Telegram.
+          </p>
+          <div class="username-warning-actions">
+            <button
+              type="button"
+              class="username-warning-primary"
+              @click="openUsernameRequiredModal"
+            >
+              Как поставить username
+            </button>
+          </div>
         </div>
 
         <div v-if="errors.phone" class="submit-error">{{ errors.phone }}</div>
@@ -244,6 +266,33 @@
       :image="settingsStore.settings.delivery_conditions_image"
       @close="showDeliveryConditionsBanner = false"
     />
+
+    <AdminModal
+      :isOpen="showUsernameRequiredModal"
+      title="Нужен Telegram username"
+      description="Без username оформление заказа недоступно."
+      size="sm"
+      :showActions="false"
+      @close="closeUsernameRequiredModal"
+      @cancel="closeUsernameRequiredModal"
+    >
+      <div class="username-modal">
+        <ol class="username-modal-steps">
+          <li>Зайдите в настройки профиля Telegram.</li>
+          <li>Найдите поле «@Имя Пользователя» и установите его.</li>
+          <li>Вернитесь сюда и нажмите «Закрыть и перезайти».</li>
+        </ol>
+        <div class="username-modal-actions">
+          <button
+            type="button"
+            class="username-warning-primary"
+            @click="closeMiniApp"
+          >
+            Закрыть и перезайти
+          </button>
+        </div>
+      </div>
+    </AdminModal>
   </div>
 </template>
 
@@ -255,6 +304,17 @@ import { useCatalogStore } from "@/stores/catalog";
 import { useSettingsStore } from "@/stores/settings";
 import MinDeliveryBanner from "@/components/MinDeliveryBanner.vue";
 import DeliveryConditionsBanner from "@/components/DeliveryConditionsBanner.vue";
+import AdminModal from "@/components/AdminModal.vue";
+
+interface TelegramMiniAppUser {
+  id: number;
+  is_bot: boolean;
+  first_name: string;
+  last_name?: string;
+  username?: string;
+  language_code: string;
+  is_premium?: boolean;
+}
 
 const router = useRouter();
 const cartStore = useCartStore();
@@ -265,6 +325,11 @@ const isItemsExpanded = ref(false);
 const promoCode = ref("");
 const promoApplied = ref(false);
 const promoInputRef = ref<HTMLInputElement | null>(null);
+const telegramUser = ref<TelegramMiniAppUser | null>(null);
+const showUsernameRequiredModal = ref(false);
+const telegramUsernameVerified = ref(false);
+const detectedTelegramUsername = ref("");
+const verifiedTelegramUsername = ref("");
 
 const form = reactive({
   deliveryType: "pickup" as "pickup" | "delivery",
@@ -300,11 +365,16 @@ const canUseDelivery = computed(() => {
   );
 });
 
-const telegramUser = computed(() => {
-  if (typeof window !== "undefined" && window.Telegram?.WebApp) {
-    return window.Telegram.WebApp.initDataUnsafe?.user;
-  }
-  return null;
+const isTelegramMiniApp = computed(() => {
+  return typeof window !== "undefined" && Boolean(window.Telegram?.WebApp);
+});
+
+const requiresTelegramUsername = computed(() => {
+  return isTelegramMiniApp.value && !verifiedTelegramUsername.value;
+});
+
+const shouldShowManualUsernameInput = computed(() => {
+  return !isTelegramMiniApp.value;
 });
 
 const displayedItems = computed(() => {
@@ -364,6 +434,88 @@ function handlePageClick(event: MouseEvent) {
   }
 }
 
+function normalizeTelegramUsername(value: unknown): string {
+  return typeof value === "string" ? value.trim().replace(/^@+/, "") : "";
+}
+
+function readTelegramUser(): TelegramMiniAppUser | null {
+  if (!isTelegramMiniApp.value) {
+    return null;
+  }
+  return window.Telegram?.WebApp?.initDataUnsafe?.user ?? null;
+}
+
+function updateTelegramUserUsername(username: string) {
+  const currentUser = telegramUser.value;
+  if (!currentUser) {
+    return;
+  }
+
+  telegramUser.value = username
+    ? { ...currentUser, username }
+    : { ...currentUser, username: undefined };
+}
+
+function applyDetectedUsername(username: string | null) {
+  const normalizedUsername = normalizeTelegramUsername(username);
+  detectedTelegramUsername.value = normalizedUsername;
+  updateTelegramUserUsername(normalizedUsername);
+
+  if (normalizedUsername) {
+    form.telegramUsername = normalizedUsername;
+    errors.telegramUsername = "";
+  } else if (isTelegramMiniApp.value && !verifiedTelegramUsername.value) {
+    form.telegramUsername = "";
+  }
+
+  return normalizedUsername;
+}
+
+function applyVerifiedUsername(username: string | null) {
+  const normalizedUsername = applyDetectedUsername(username);
+  verifiedTelegramUsername.value = normalizedUsername;
+  telegramUsernameVerified.value = Boolean(normalizedUsername);
+
+  if (normalizedUsername) {
+    submitError.value = "";
+    showUsernameRequiredModal.value = false;
+  }
+
+  return normalizedUsername;
+}
+
+function syncTelegramUserData(options: { trustCurrentUser?: boolean } = {}) {
+  const { trustCurrentUser = false } = options;
+  const user = readTelegramUser();
+  telegramUser.value = user;
+
+  const detectedUsername = applyDetectedUsername(user?.username ?? null);
+  if (detectedUsername && trustCurrentUser) {
+    applyVerifiedUsername(detectedUsername);
+  }
+
+  return { user, detectedUsername };
+}
+
+function openUsernameRequiredModal() {
+  showUsernameRequiredModal.value = true;
+}
+
+function closeUsernameRequiredModal() {
+  showUsernameRequiredModal.value = false;
+}
+
+function closeMiniApp() {
+  // Закрываем Mini App через Telegram WebApp API
+  const tg = (window as any).Telegram?.WebApp;
+  if (tg?.close) {
+    tg.close();
+  } else {
+    // Fallback если API недоступен
+    alert("Закройте магазин вручную и откройте заново");
+  }
+}
+
 function applyPromoCode() {
   if (promoCode.value.trim()) {
     promoApplied.value = true;
@@ -404,9 +556,9 @@ onMounted(async () => {
     }
   }
   await fetchStockLimits();
-  const user = telegramUser.value;
-  if (user?.username) {
-    form.telegramUsername = user.username;
+  syncTelegramUserData({ trustCurrentUser: true });
+  if (requiresTelegramUsername.value) {
+    showUsernameRequiredModal.value = true;
   }
 });
 
@@ -500,6 +652,12 @@ function validateForm(): boolean {
   errors.phone = "";
   errors.address = "";
 
+  if (requiresTelegramUsername.value) {
+    submitError.value = "Без Telegram username оформить заказ нельзя.";
+    showUsernameRequiredModal.value = true;
+    return false;
+  }
+
   if (!form.telegramUsername.trim()) {
     errors.telegramUsername = "Укажите ваш Telegram username";
     return false;
@@ -540,22 +698,36 @@ function handleSubmitPointerDown(event: PointerEvent) {
 }
 
 async function submitOrder() {
+  if (isSubmitting.value) {
+    return;
+  }
+
   // Скрываем клавиатуру перед отправкой
   blurActiveInput();
-  
+  submitError.value = "";
+
+  // Telegram кеширует initData — если username не был при открытии,
+  // его не будет до перезапуска Mini App. Показываем модалку.
+  if (requiresTelegramUsername.value) {
+    showUsernameRequiredModal.value = true;
+    return;
+  }
+
   const validationResult = validateForm();
   if (!validationResult) return;
 
-  submitError.value = "";
   isSubmitting.value = true;
 
   try {
     const user = telegramUser.value;
-    const cleanUsername = form.telegramUsername.trim().replace(/^@/, "");
+    const cleanUsername = normalizeTelegramUsername(
+      verifiedTelegramUsername.value || detectedTelegramUsername.value || form.telegramUsername,
+    );
 
     const orderData = {
       telegram_id: user?.id ? String(user.id) : undefined,
       telegram_username: cleanUsername,
+      telegram_username_verified: user?.id ? telegramUsernameVerified.value : true,
       first_name: user?.first_name || undefined,
       last_name: user?.last_name || undefined,
       delivery_type: form.deliveryType,
@@ -600,8 +772,6 @@ async function submitOrder() {
 
     cartStore.clearCart();
 
-    const redirectTelegram =
-      settingsStore.settings.order_redirect_telegram?.trim();
     const showSuccessAlert = (message: string, callback: () => void) => {
       const tg = window.Telegram?.WebApp;
       if (
@@ -622,31 +792,12 @@ async function submitOrder() {
       }
     };
 
-    if (redirectTelegram) {
-      const textTemplate =
-        settingsStore.settings.order_redirect_text_template ||
-        "Мой номер заказа - #{order_number}";
-      const messageText = textTemplate
-        .replace("{order_number}", result.order_number)
-        .replace("#{order_number}", result.order_number);
-      const tgLink = `https://t.me/${redirectTelegram}?text=${encodeURIComponent(messageText)}`;
-      showSuccessAlert(
-        "Заказ успешно оформлен! Номер заказа: " + result.order_number,
-        () => {
-          window.open(tgLink, "_blank");
-          setTimeout(() => {
-            window.location.href = "/";
-          }, 100);
-        },
-      );
-    } else {
-      showSuccessAlert(
-        "Заказ успешно оформлен! Номер заказа: " + result.order_number,
-        () => {
-          window.location.href = "/";
-        },
-      );
-    }
+    showSuccessAlert(
+      "Заказ отправлен. Ожидайте, с вами свяжутся.",
+      () => {
+        window.location.href = "/";
+      },
+    );
   } catch (error: any) {
     console.error("[Checkout] Submit error", error);
     submitError.value =
@@ -1296,6 +1447,91 @@ async function submitOrder() {
   line-height: 18px;
   color: #dc2626;
   margin: 12px 0 0;
+}
+
+.user-info-card-warning {
+  border: 1px solid #fdba74;
+  background: #fff7ed;
+}
+
+.username-warning-text,
+.username-modal-text,
+.username-modal-hint {
+  font-family: -apple-system, "SF Pro Display", sans-serif;
+  font-weight: 400;
+  font-size: 14px;
+  line-height: 20px;
+  color: #7c2d12;
+  margin: 0;
+}
+
+.username-warning-actions,
+.username-modal-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.username-warning-primary,
+.username-warning-secondary {
+  width: 100%;
+  min-height: 52px;
+  border-radius: 16px;
+  padding: 14px 18px;
+  font-family: "Montserrat", sans-serif;
+  font-weight: 600;
+  font-size: 14px;
+  line-height: 18px;
+  cursor: pointer;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.username-warning-primary:disabled,
+.username-warning-secondary:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+.username-warning-primary {
+  border: none;
+  background: linear-gradient(90deg, #f50302 0%, #a90f0e 100%);
+  color: #ffffff;
+}
+
+.username-warning-secondary {
+  border: 1px solid #fdba74;
+  background: #ffffff;
+  color: #9a3412;
+}
+
+.username-warning-primary:hover,
+.username-warning-secondary:hover {
+  opacity: 0.95;
+}
+
+.username-warning-primary:active,
+.username-warning-secondary:active {
+  transform: scale(0.99);
+}
+
+.username-modal {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.username-modal-steps {
+  margin: 0;
+  padding-left: 20px;
+  color: #7c2d12;
+  font-family: -apple-system, "SF Pro Display", sans-serif;
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.username-modal-steps li + li {
+  margin-top: 8px;
 }
 
 @media (max-width: 768px) {

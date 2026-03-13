@@ -16,6 +16,11 @@ echo -e "${BLUE}╚════════════════════�
 # 1. Статус systemd сервисов
 echo -e "${YELLOW}[1] Systemd сервисы:${NC}"
 for service in navalivay-server navalivay-bot; do
+    if ! systemctl list-unit-files --type=service --no-legend | awk '{print $1}' | grep -qx "${service}.service"; then
+        echo -e "  $service: ${YELLOW}! Не установлен${NC}"
+        continue
+    fi
+
     if systemctl is-active --quiet $service; then
         status="${GREEN}✓ Активен${NC}"
         uptime=$(systemctl show $service --property=ActiveEnterTimestamp --value)
@@ -31,8 +36,8 @@ done
 
 # 2. API Health Check
 echo -e "\n${YELLOW}[2] API Health Check:${NC}"
-if curl -sf http://127.0.0.1:8080/api/health > /dev/null 2>&1; then
-    response=$(curl -s http://127.0.0.1:8080/api/health)
+if curl -sf http://127.0.0.1:8082/api/health > /dev/null 2>&1; then
+    response=$(curl -s http://127.0.0.1:8082/api/health)
     echo -e "  ${GREEN}✓ API отвечает${NC}"
     echo -e "  Response: $response"
 else
@@ -110,8 +115,8 @@ fi
 
 # 8. Сетевые подключения
 echo -e "\n${YELLOW}[8] Активные подключения:${NC}"
-connections=$(netstat -an 2>/dev/null | grep :8080 | grep ESTABLISHED | wc -l)
-echo -e "  Активных соединений на порту 8080: ${connections}"
+connections=$(netstat -an 2>/dev/null | grep :8082 | grep ESTABLISHED | wc -l)
+echo -e "  Активных соединений на порту 8082: ${connections}"
 
 echo -e "\n${BLUE}════════════════════════════════════════${NC}"
 echo -e "${GREEN}Полезные команды:${NC}"

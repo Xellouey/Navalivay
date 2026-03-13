@@ -372,16 +372,17 @@ crmOperationsRouter.post(
           throw new Error(`Product not found: ${item.product_id}`);
         }
 
-        // Проверяем наличие на складе
+        // Проверяем наличие на складе и получаем данные варианта
         // Для вариантов - проверяем сток варианта, для обычных товаров - сток продукта
+        let variantData = null;
         if (item.variant_id) {
-          const variant = db
-            .prepare("SELECT stock FROM product_variants WHERE id = ?")
+          variantData = db
+            .prepare("SELECT * FROM product_variants WHERE id = ?")
             .get(item.variant_id);
-          if (!variant) {
+          if (!variantData) {
             throw new Error(`Variant not found: ${item.variant_id}`);
           }
-          if (variant.stock < item.quantity) {
+          if (variantData.stock < item.quantity) {
             throw new Error(
               `Insufficient stock for variant ${item.variant_id}`,
             );
@@ -390,21 +391,16 @@ crmOperationsRouter.post(
           throw new Error(`Insufficient stock for ${product.title}`);
         }
 
-        // Получаем базовый продукт, если это вариант
+        // Для товаров с вариантами: base_product = сам product, variant_name = имя варианта
         let baseProductId = null;
         let baseProductTitle = null;
+        let variantName = null;
 
-        const variant = db
-          .prepare("SELECT product_id FROM product_variants WHERE id = ?")
-          .get(item.product_id);
-        if (variant) {
-          baseProductId = variant.product_id;
-          const baseProduct = db
-            .prepare("SELECT title FROM products WHERE id = ?")
-            .get(baseProductId);
-          if (baseProduct) {
-            baseProductTitle = baseProduct.title;
-          }
+        if (item.variant_id && variantData) {
+          // variant_id указан — product_id это базовый продукт
+          baseProductId = item.product_id;
+          baseProductTitle = product.title || "Без названия";
+          variantName = variantData.name || null;
         }
 
         const pricePerUnit = item.price_per_unit || product.priceRub;
@@ -428,11 +424,17 @@ crmOperationsRouter.post(
           }
         }
 
+        // product_title включает имя варианта (цвет) для корректного отображения
+        const productTitle = variantName
+          ? `${product.title} - ${variantName}`
+          : product.title || "Без названия";
+
         return {
           id: generateId("oi"),
           product_id: item.product_id,
           variant_id: item.variant_id || null,
-          product_title: product.title || "Без названия",
+          product_title: productTitle,
+          variant_name: variantName,
           group_name: groupName,
           base_product_id: baseProductId,
           base_product_title: baseProductTitle,
@@ -480,9 +482,9 @@ crmOperationsRouter.post(
         // Вставляем позиции
         const itemStmt = db.prepare(`
         INSERT INTO order_items (
-          id, order_id, product_id, variant_id, product_title, group_name, base_product_id, base_product_title, quantity,
+          id, order_id, product_id, variant_id, product_title, group_name, base_product_id, base_product_title, variant_name, quantity,
           price_per_unit, cost_per_unit, discount_amount, total_price, total_cost
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
 
         for (const item of orderItems) {
@@ -495,6 +497,7 @@ crmOperationsRouter.post(
             item.group_name,
             item.base_product_id,
             item.base_product_title,
+            item.variant_name,
             item.quantity,
             item.price_per_unit,
             item.cost_per_unit,
@@ -1315,7 +1318,9 @@ crmOperationsRouter.get(
       const items = db
         .prepare(
           `
-      SELECT pi.*, p.title as product_title, p.stock, p.min_stock, cg.name as group_name,
+      SELECT pi.*,
+             CASE WHEN pv.name IS NOT NULL THEN p.title || ' (' || pv.name || ')' ELSE p.title END as product_title,
+             p.stock, p.min_stock, cg.name as group_name,
              pv.name as variant_name, pv.stock as variant_stock
       FROM procurement_items pi
       JOIN products p ON p.id = pi.product_id
@@ -1425,7 +1430,9 @@ crmOperationsRouter.post(
       const procurementItems = db
         .prepare(
           `
-      SELECT pi.*, p.title as product_title, cg.name as group_name,
+      SELECT pi.*,
+             CASE WHEN pv.name IS NOT NULL THEN p.title || ' (' || pv.name || ')' ELSE p.title END as product_title,
+             cg.name as group_name,
              pv.name as variant_name
       FROM procurement_items pi
       JOIN products p ON p.id = pi.product_id
@@ -1561,7 +1568,9 @@ crmOperationsRouter.patch(
       const updatedItems = db
         .prepare(
           `
-      SELECT pi.*, p.title as product_title, p.stock, p.min_stock, cg.name as group_name,
+      SELECT pi.*,
+             CASE WHEN pv.name IS NOT NULL THEN p.title || ' (' || pv.name || ')' ELSE p.title END as product_title,
+             p.stock, p.min_stock, cg.name as group_name,
              pv.name as variant_name, pv.stock as variant_stock
       FROM procurement_items pi
       JOIN products p ON p.id = pi.product_id

@@ -4,9 +4,9 @@ module.exports = {
       name: 'navalivay-api',
       script: 'index.js',
       cwd: __dirname,
-env: {
+      env: {
         NODE_ENV: 'production',
-        PORT: '8080',
+        PORT: '8082',
         // You can also set DATABASE_FILE absolute path if needed
         // DATABASE_FILE: '/var/www/navalivay/server/data/navalivay.db',
       },
@@ -22,7 +22,7 @@ env: {
       name: 'navalivay-bot',
       script: 'bot.js',
       cwd: __dirname,
-env: {
+      env: {
         NODE_ENV: 'production',
         // BOT_TOKEN must be set in environment or PM2 ecosystem
         // BASE_URL can be set to your public site URL

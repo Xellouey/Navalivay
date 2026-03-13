@@ -136,7 +136,7 @@
                 <TransitionGroup name="item-list" tag="div" class="space-y-3">
                   <article
                     v-for="item in visibleItems"
-                    :key="item.productId"
+                    :key="item.variantId || item.productId"
                     class="rounded-xl border border-gray-200 bg-white p-4 shadow-sm"
                   >
                     <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -150,7 +150,7 @@
                       </div>
                       <button
                         class="admin-link-button admin-link-button--danger admin-link-button--compact"
-                        @click="removeItem(item.productId)"
+                        @click="removeItem(item.variantId || item.productId)"
                       >
                         Удалить
                       </button>
@@ -423,6 +423,7 @@ const form = reactive({
   notes: '',
   items: [] as Array<{
     productId: string
+    variantId?: string | null
     title: string
     quantity: number
     price: number
@@ -520,12 +521,16 @@ function customerLabel(customer: Customer) {
 }
 
 function addProduct(product: CrmProductSummary) {
-  const existing = form.items.find((item) => item.productId === product.id)
+  // Для вариантов: id = ID варианта, productId = ID базового товара
+  // Для обычных товаров: id = productId = ID товара
+  const itemKey = product.id
+  const existing = form.items.find((item) => item.productId === itemKey || item.variantId === itemKey)
   if (existing) {
     existing.quantity += 1
   } else {
     form.items.push({
-      productId: product.id,
+      productId: product.isVariant ? product.productId : product.id,
+      variantId: product.isVariant ? product.id : null,
       title: product.title,
       quantity: 1,
       price: product.priceRub,
@@ -541,7 +546,13 @@ function addProduct(product: CrmProductSummary) {
 }
 
 function removeItem(productId: string) {
-  form.items = form.items.filter((item) => item.productId !== productId)
+  form.items = form.items.filter((item) => {
+    // Удаляем по variantId если есть, иначе по productId
+    if (item.variantId) {
+      return item.variantId !== productId
+    }
+    return item.productId !== productId
+  })
 }
 
 function itemTotal(item: typeof form.items[number]) {
@@ -568,6 +579,7 @@ async function handleSubmit() {
       notes: form.notes || undefined,
       items: form.items.map((item) => ({
         product_id: item.productId,
+        variant_id: item.variantId || undefined,
         quantity: Math.max(item.quantity, 1),
         price_per_unit: Math.max(item.price, 0),
         discount_amount: Math.max(item.discount, 0) || undefined

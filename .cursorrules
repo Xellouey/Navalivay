@@ -93,11 +93,12 @@ ps aux | grep "node index.js"
 
 ### Restarting server (REQUIRED after backend changes):
 ```bash
-kill -9 $(lsof -t -i:8082) 2>/dev/null
-sleep 2
-cd /var/www/NAVALIVAY/server
-nohup node index.js > /tmp/server.log 2>&1 &
+sudo systemctl restart navalivay-server
+sudo systemctl status navalivay-server --no-pager
+curl -sf http://127.0.0.1:8082/api/health
 ```
+
+**Production rule:** do NOT run `nohup node index.js`, PM2, or any second manual server process on port `8082` alongside `systemd`. This causes `EADDRINUSE`, the `navalivay-server` unit enters `failed`, and nginx starts returning `502` for `/api`.
 
 ### Checking server logs:
 ```bash

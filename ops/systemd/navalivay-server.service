@@ -1,14 +1,21 @@
 [Unit]
 Description=NAVALIVAY Mini App Server
 After=network.target
+StartLimitIntervalSec=300
+StartLimitBurst=10
 
 [Service]
 Type=simple
 WorkingDirectory=/var/www/NAVALIVAY/server
+# Port 8082 is owned by the production API. If a stale manual process is still
+# listening there, stop it before starting to avoid EADDRINUSE and 502 errors.
+ExecStartPre=/usr/bin/bash -lc 'pids=$$(/usr/bin/lsof -t -iTCP:8082 -sTCP:LISTEN 2>/dev/null || true); if [ -n "$$pids" ]; then /usr/bin/kill -TERM $$pids || true; /usr/bin/sleep 2; fi; pids=$$(/usr/bin/lsof -t -iTCP:8082 -sTCP:LISTEN 2>/dev/null || true); if [ -n "$$pids" ]; then /usr/bin/kill -KILL $$pids || true; /usr/bin/sleep 1; fi'
 ExecStart=/usr/bin/node index.js
-Restart=always
-RestartSec=10
-EnvironmentFile=/var/www/NAVALIVAY/server/.env
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+# Keep the public storefront available even if .env is not deployed yet.
+EnvironmentFile=-/var/www/NAVALIVAY/server/.env
 
 # Безопасность (раскомментируйте после создания пользователя)
 # User=www-data
@@ -19,10 +26,6 @@ LimitNOFILE=65536
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=navalivay-server
-
-# Защита от зависаний
-StartLimitInterval=60
-StartLimitBurst=3
 
 [Install]
 WantedBy=multi-user.target

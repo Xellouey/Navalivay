@@ -44,9 +44,17 @@ crmFinanceRouter.get('/api/admin/crm/write-offs/:id', authMiddleware, (req, res)
     }
 
     const items = db.prepare(`
-      SELECT wi.*, p.title as product_title, p.stock, g.name as group_name
+      SELECT wi.*, 
+        CASE WHEN wi.variant_id IS NOT NULL 
+          THEN p.title || ' (' || v.name || ')'
+          ELSE p.title 
+        END as product_title,
+        COALESCE(v.stock, p.stock) as stock,
+        v.name as variant_name,
+        g.name as group_name
       FROM writeoff_items wi
       JOIN products p ON p.id = wi.product_id
+      LEFT JOIN product_variants v ON v.id = wi.variant_id
       LEFT JOIN category_groups g ON g.id = p.groupId
       WHERE wi.writeoff_id = ?
     `).all(id);
@@ -83,26 +91,49 @@ crmFinanceRouter.post('/api/admin/crm/write-offs', authMiddleware, (req, res) =>
 
       // Добавляем позиции и уменьшаем остатки
       for (const item of items) {
-        const product = db.prepare('SELECT * FROM products WHERE id = ?').get(item.product_id);
-        if (!product) {
-          throw new Error(`Product not found: ${item.product_id}`);
+        // Сначала проверяем, это вариант или обычный товар
+        const variant = db.prepare('SELECT v.*, p.cost_price, p.title as product_title FROM product_variants v JOIN products p ON p.id = v.product_id WHERE v.id = ?').get(item.product_id);
+        
+        if (variant) {
+          // Это вариант товара
+          if (variant.stock < item.quantity) {
+            throw new Error(`Insufficient stock for ${variant.product_title} (${variant.name})`);
+          }
+
+          const costPerUnit = variant.cost_price || 0;
+          const totalCost = costPerUnit * item.quantity;
+
+          db.prepare(`
+            INSERT INTO writeoff_items (id, writeoff_id, product_id, variant_id, quantity, cost_per_unit, total_cost)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+          `).run(generateId('wi'), writeOffId, variant.product_id, variant.id, item.quantity, costPerUnit, totalCost);
+
+          // Уменьшаем остаток варианта
+          db.prepare('UPDATE product_variants SET stock = stock - ? WHERE id = ?')
+            .run(item.quantity, variant.id);
+        } else {
+          // Это обычный товар без вариантов
+          const product = db.prepare('SELECT * FROM products WHERE id = ?').get(item.product_id);
+          if (!product) {
+            throw new Error(`Product not found: ${item.product_id}`);
+          }
+
+          if (product.stock < item.quantity) {
+            throw new Error(`Insufficient stock for ${product.title}`);
+          }
+
+          const costPerUnit = product.cost_price || 0;
+          const totalCost = costPerUnit * item.quantity;
+
+          db.prepare(`
+            INSERT INTO writeoff_items (id, writeoff_id, product_id, variant_id, quantity, cost_per_unit, total_cost)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+          `).run(generateId('wi'), writeOffId, item.product_id, null, item.quantity, costPerUnit, totalCost);
+
+          // Уменьшаем остаток товара
+          db.prepare('UPDATE products SET stock = stock - ? WHERE id = ?')
+            .run(item.quantity, item.product_id);
         }
-
-        if (product.stock < item.quantity) {
-          throw new Error(`Insufficient stock for ${product.title}`);
-        }
-
-        const costPerUnit = product.cost_price || 0;
-        const totalCost = costPerUnit * item.quantity;
-
-        db.prepare(`
-          INSERT INTO writeoff_items (id, writeoff_id, product_id, quantity, cost_per_unit, total_cost)
-          VALUES (?, ?, ?, ?, ?, ?)
-        `).run(generateId('wi'), writeOffId, item.product_id, item.quantity, costPerUnit, totalCost);
-
-        // Уменьшаем остаток
-        db.prepare('UPDATE products SET stock = stock - ? WHERE id = ?')
-          .run(item.quantity, item.product_id);
       }
     });
 
@@ -110,9 +141,16 @@ crmFinanceRouter.post('/api/admin/crm/write-offs', authMiddleware, (req, res) =>
 
     const writeOff = db.prepare('SELECT * FROM write_offs WHERE id = ?').get(writeOffId);
     const writeOffItems = db.prepare(`
-      SELECT wi.*, p.title as product_title, g.name as group_name
+      SELECT wi.*, 
+        CASE WHEN wi.variant_id IS NOT NULL 
+          THEN p.title || ' (' || v.name || ')'
+          ELSE p.title 
+        END as product_title,
+        v.name as variant_name,
+        g.name as group_name
       FROM writeoff_items wi
       JOIN products p ON p.id = wi.product_id
+      LEFT JOIN product_variants v ON v.id = wi.variant_id
       LEFT JOIN category_groups g ON g.id = p.groupId
       WHERE wi.writeoff_id = ?
     `).all(writeOffId);
@@ -153,10 +191,16 @@ crmFinanceRouter.patch('/api/admin/crm/write-offs/:id', authMiddleware, (req, re
           throw new Error('items_required');
         }
 
+        // Восстанавливаем остатки старых позиций
         const existingItems = db.prepare('SELECT * FROM writeoff_items WHERE writeoff_id = ?').all(id);
         for (const existing of existingItems) {
-          db.prepare('UPDATE products SET stock = stock + ? WHERE id = ?')
-            .run(existing.quantity, existing.product_id);
+          if (existing.variant_id) {
+            db.prepare('UPDATE product_variants SET stock = stock + ? WHERE id = ?')
+              .run(existing.quantity, existing.variant_id);
+          } else {
+            db.prepare('UPDATE products SET stock = stock + ? WHERE id = ?')
+              .run(existing.quantity, existing.product_id);
+          }
         }
 
         db.prepare('DELETE FROM writeoff_items WHERE writeoff_id = ?').run(id);
@@ -166,30 +210,50 @@ crmFinanceRouter.patch('/api/admin/crm/write-offs/:id', authMiddleware, (req, re
             throw new Error('invalid_item');
           }
 
-          const product = db.prepare('SELECT * FROM products WHERE id = ?').get(item.product_id);
-          if (!product) {
-            throw new Error(`Product not found: ${item.product_id}`);
-          }
-
           const quantity = Number(item.quantity || 0);
           if (!Number.isFinite(quantity) || quantity <= 0) {
             throw new Error('invalid_quantity');
           }
 
-          if (Number(product.stock || 0) < quantity) {
-            throw new Error(`Insufficient stock for ${product.title}`);
+          // Проверяем, это вариант или обычный товар
+          const variant = db.prepare('SELECT v.*, p.cost_price, p.title as product_title FROM product_variants v JOIN products p ON p.id = v.product_id WHERE v.id = ?').get(item.product_id);
+          
+          if (variant) {
+            if (Number(variant.stock || 0) < quantity) {
+              throw new Error(`Insufficient stock for ${variant.product_title} (${variant.name})`);
+            }
+
+            const costPerUnit = Number(variant.cost_price || 0);
+            const totalCost = costPerUnit * quantity;
+
+            db.prepare(`
+              INSERT INTO writeoff_items (id, writeoff_id, product_id, variant_id, quantity, cost_per_unit, total_cost)
+              VALUES (?, ?, ?, ?, ?, ?, ?)
+            `).run(generateId('wi'), id, variant.product_id, variant.id, quantity, costPerUnit, totalCost);
+
+            db.prepare('UPDATE product_variants SET stock = stock - ? WHERE id = ?')
+              .run(quantity, variant.id);
+          } else {
+            const product = db.prepare('SELECT * FROM products WHERE id = ?').get(item.product_id);
+            if (!product) {
+              throw new Error(`Product not found: ${item.product_id}`);
+            }
+
+            if (Number(product.stock || 0) < quantity) {
+              throw new Error(`Insufficient stock for ${product.title}`);
+            }
+
+            const costPerUnit = Number(product.cost_price || 0);
+            const totalCost = costPerUnit * quantity;
+
+            db.prepare(`
+              INSERT INTO writeoff_items (id, writeoff_id, product_id, variant_id, quantity, cost_per_unit, total_cost)
+              VALUES (?, ?, ?, ?, ?, ?, ?)
+            `).run(generateId('wi'), id, item.product_id, null, quantity, costPerUnit, totalCost);
+
+            db.prepare('UPDATE products SET stock = stock - ? WHERE id = ?')
+              .run(quantity, item.product_id);
           }
-
-          const costPerUnit = Number(product.cost_price || 0);
-          const totalCost = costPerUnit * quantity;
-
-          db.prepare(`
-            INSERT INTO writeoff_items (id, writeoff_id, product_id, quantity, cost_per_unit, total_cost)
-            VALUES (?, ?, ?, ?, ?, ?)
-          `).run(generateId('wi'), id, item.product_id, quantity, costPerUnit, totalCost);
-
-          db.prepare('UPDATE products SET stock = stock - ? WHERE id = ?')
-            .run(quantity, item.product_id);
         }
       }
     });
@@ -198,9 +262,17 @@ crmFinanceRouter.patch('/api/admin/crm/write-offs/:id', authMiddleware, (req, re
 
     const updated = db.prepare('SELECT * FROM write_offs WHERE id = ?').get(id);
     const updatedItems = db.prepare(`
-      SELECT wi.*, p.title as product_title, p.stock, g.name as group_name
+      SELECT wi.*, 
+        CASE WHEN wi.variant_id IS NOT NULL 
+          THEN p.title || ' (' || v.name || ')'
+          ELSE p.title 
+        END as product_title,
+        COALESCE(v.stock, p.stock) as stock,
+        v.name as variant_name,
+        g.name as group_name
       FROM writeoff_items wi
       JOIN products p ON p.id = wi.product_id
+      LEFT JOIN product_variants v ON v.id = wi.variant_id
       LEFT JOIN category_groups g ON g.id = p.groupId
       WHERE wi.writeoff_id = ?
     `).all(id);
@@ -230,8 +302,15 @@ crmFinanceRouter.delete('/api/admin/crm/write-offs/:id', authMiddleware, (req, r
 
     const tx = db.transaction(() => {
       for (const item of items) {
-        db.prepare('UPDATE products SET stock = stock + ? WHERE id = ?')
-          .run(item.quantity, item.product_id);
+        if (item.variant_id) {
+          // Восстанавливаем остаток варианта
+          db.prepare('UPDATE product_variants SET stock = stock + ? WHERE id = ?')
+            .run(item.quantity, item.variant_id);
+        } else {
+          // Восстанавливаем остаток обычного товара
+          db.prepare('UPDATE products SET stock = stock + ? WHERE id = ?')
+            .run(item.quantity, item.product_id);
+        }
       }
 
       db.prepare('DELETE FROM writeoff_items WHERE writeoff_id = ?').run(id);

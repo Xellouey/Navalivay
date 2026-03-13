@@ -73,7 +73,7 @@ npm run test:unit
 ### Server-Specific Commands (run from `/server`)
 
 ```bash
-# Start development server on port 8081 (or PORT from .env)
+# Start development server on port 8082 (or PORT from .env)
 npm run dev
 
 # Start production server
@@ -160,9 +160,9 @@ NAVALIVAY/
 - Helmet + CORS (security)
 
 **Deployment:**
-- PM2 process manager (see `ecosystem.config.cjs`)
-- Systemd services
+- Systemd services for production process management
 - Nginx reverse proxy
+- PM2 config exists in the repo as legacy/optional tooling and must not run in parallel with `systemd` on the same host
 
 ### Key Architectural Concepts
 
@@ -211,7 +211,7 @@ Create `server/.env` based on `server/.env.example`:
 
 ```bash
 # Server
-PORT=8080                                    # API server port
+PORT=8082                                    # API server port
 BASE_URL=https://your-domain.example         # Public URL
 SESSION_SECRET=please_change_me              # JWT secret
 
@@ -227,7 +227,7 @@ MANAGER_USERNAME=@dmitriy_mityuk            # Default manager contact
 ```
 
 ### Frontend Environment Variables
-Set `VITE_API_TARGET` to override the API proxy target (default: `http://127.0.0.1:8081`).
+Set `VITE_API_TARGET` to override the API proxy target (default: `http://127.0.0.1:8082`).
 
 ## Development Workflow
 
@@ -249,7 +249,7 @@ Set `VITE_API_TARGET` to override the API proxy target (default: `http://127.0.0
    ```bash
    npm run dev
    # Frontend: http://localhost:5173
-   # Backend: http://localhost:8081
+   # Backend: http://localhost:8082
    ```
 
 4. **With Telegram bot:**

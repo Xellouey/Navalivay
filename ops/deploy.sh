@@ -48,11 +48,11 @@ echo -e "${GREEN}✓ Зависимости установлены${NC}"
 # 3. Проверка .env файла
 echo -e "\n${YELLOW}[3/6] Проверка конфигурации...${NC}"
 if [ ! -f "${SERVER_DIR}/.env" ]; then
-    echo -e "${RED}✗ Файл .env не найден!${NC}"
-    echo -e "${YELLOW}Создайте ${SERVER_DIR}/.env на основе .env.example${NC}"
-    exit 1
+    echo -e "${YELLOW}! Файл .env не найден, продолжаем с настройками по умолчанию${NC}"
+    echo -e "${YELLOW}  При необходимости добавьте ${SERVER_DIR}/.env с секретами и override-переменными${NC}"
+else
+    echo -e "${GREEN}✓ Файл .env найден${NC}"
 fi
-echo -e "${GREEN}✓ Файл .env найден${NC}"
 
 # 4. Проверка директорий
 echo -e "\n${YELLOW}[4/6] Проверка директорий данных...${NC}"
@@ -63,7 +63,11 @@ echo -e "${GREEN}✓ Директории проверены${NC}"
 # 5. Перезапуск сервисов
 echo -e "\n${YELLOW}[5/6] Перезапуск сервисов...${NC}"
 sudo systemctl restart navalivay-server
-sudo systemctl restart navalivay-bot
+if systemctl list-unit-files --type=service --no-legend | awk '{print $1}' | grep -qx 'navalivay-bot.service'; then
+    sudo systemctl restart navalivay-bot
+else
+    echo -e "${YELLOW}! navalivay-bot.service не установлен, пропускаем${NC}"
+fi
 echo -e "${GREEN}✓ Сервисы перезапущены${NC}"
 
 # 6. Проверка статуса
@@ -88,7 +92,7 @@ fi
 # Health check
 echo -e "\n${YELLOW}Проверка health endpoint...${NC}"
 sleep 1
-if curl -sf http://127.0.0.1:8080/api/health > /dev/null; then
+if curl -sf http://127.0.0.1:8082/api/health > /dev/null; then
     echo -e "${GREEN}✓ API отвечает${NC}"
 else
     echo -e "${RED}✗ API не отвечает${NC}"

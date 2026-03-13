@@ -10,6 +10,121 @@ function debugLog(data) { try { fs.appendFileSync(DEBUG_LOG_PATH, JSON.stringify
 // #endregion
 
 const MAX_SQL_VARS = 900;
+const TELEGRAM_BOT_TOKEN = process.env.BOT_TOKEN || "";
+
+async function fetchTelegramChat(telegramId) {
+  if (!TELEGRAM_BOT_TOKEN || !telegramId) {
+    return null;
+  }
+
+  const response = await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getChat?chat_id=${encodeURIComponent(String(telegramId))}`);
+  const payload = await response.json();
+
+  if (!response.ok || !payload?.ok) {
+    const description = payload?.description || `HTTP ${response.status}`;
+    throw new Error(description);
+  }
+
+  return payload.result || null;
+}
+
+
+function normalizeTelegramUsername(value) {
+  return typeof value === "string" ? value.trim().replace(/^@+/, "") : "";
+}
+
+async function resolveTelegramUsernameStatus(telegramId) {
+  // #region agent log
+  fs.appendFileSync('/var/www/NAVALIVAY/.cursor/debug-a444d1.log', JSON.stringify({sessionId:'a444d1',location:'public.js:resolveTelegramUsernameStatus:entry',message:'resolveTelegramUsernameStatus called',data:{telegramId,hasBotToken:Boolean(TELEGRAM_BOT_TOKEN)},timestamp:Date.now(),hypothesisId:'E'})+'\n');
+  // #endregion
+  const dbCustomer = db
+    .prepare("SELECT telegram_username, first_name, last_name FROM customers WHERE telegram_id = ?")
+    .get(telegramId);
+
+  if (!TELEGRAM_BOT_TOKEN) {
+    return {
+      ok: true,
+      status: "retry",
+      hasUsername: false,
+      username: null,
+      source: "unavailable",
+      canRetryLive: false,
+      storedUsername: normalizeTelegramUsername(dbCustomer?.telegram_username),
+      message: "Проверка username временно недоступна. Закройте и откройте магазин заново.",
+    };
+  }
+
+  try {
+    const chat = await fetchTelegramChat(telegramId);
+    // #region agent log
+    fs.appendFileSync('/var/www/NAVALIVAY/.cursor/debug-a444d1.log', JSON.stringify({sessionId:'a444d1',location:'public.js:resolveTelegramUsernameStatus:telegramResponse',message:'Telegram getChat response',data:{telegramId,chatUsername:chat?.username,chatFirstName:chat?.first_name},timestamp:Date.now(),hypothesisId:'E'})+'\n');
+    // #endregion
+    const username = normalizeTelegramUsername(chat?.username);
+    const firstName = typeof chat?.first_name === "string" && chat.first_name.trim() !== ""
+      ? chat.first_name.trim()
+      : dbCustomer?.first_name || null;
+    const lastName = typeof chat?.last_name === "string" && chat.last_name.trim() !== ""
+      ? chat.last_name.trim()
+      : dbCustomer?.last_name || null;
+
+    if (dbCustomer) {
+      db.prepare(`
+        UPDATE customers
+        SET telegram_username = ?,
+            first_name = COALESCE(?, first_name),
+            last_name = COALESCE(?, last_name),
+            last_visit_at = DATETIME('now'),
+            updated_at = DATETIME('now')
+        WHERE telegram_id = ?
+      `).run(username || null, firstName, lastName, telegramId);
+    }
+
+    const status = username ? "confirmed" : "missing";
+    const message = username
+      ? "Username подтвержден"
+      : "Telegram пока не передал ваш username. Если вы только что его установили, закройте магазин и откройте заново - это обновит данные.";
+
+    debugLog({
+      location: 'public.js:username-status',
+      message: 'Live username check',
+      data: { telegramId, username, status, source: 'telegram' },
+    });
+
+    // #region agent log
+    fs.appendFileSync('/var/www/NAVALIVAY/.cursor/debug-a444d1.log', JSON.stringify({sessionId:'a444d1',location:'public.js:resolveTelegramUsernameStatus:result',message:'Returning result',data:{telegramId,username,status},timestamp:Date.now(),hypothesisId:'E'})+'\n');
+    // #endregion
+    return {
+      ok: true,
+      status,
+      hasUsername: Boolean(username),
+      username: username || null,
+      source: "telegram",
+      canRetryLive: true,
+      message,
+    };
+  } catch (telegramError) {
+    debugLog({
+      location: 'public.js:username-status',
+      message: 'Live username check failed',
+      data: { telegramId, error: String(telegramError) },
+    });
+
+    // #region agent log
+    fs.appendFileSync('/var/www/NAVALIVAY/.cursor/debug-a444d1.log', JSON.stringify({sessionId:'a444d1',location:'public.js:resolveTelegramUsernameStatus:error',message:'Telegram API error',data:{telegramId,error:String(telegramError)},timestamp:Date.now(),hypothesisId:'E'})+'\n');
+    // #endregion
+    return {
+      ok: true,
+      status: "retry",
+      hasUsername: false,
+      username: null,
+      source: "unavailable",
+      canRetryLive: true,
+      warning: "live_check_failed",
+      storedUsername: normalizeTelegramUsername(dbCustomer?.telegram_username),
+      message: "Telegram пока не передал обновлённый username. Подождите несколько секунд и попробуйте ещё раз.",
+    };
+  }
+}
 
 function chunkArray(arr, size = MAX_SQL_VARS) {
   const chunks = [];
@@ -821,6 +936,29 @@ publicRouter.get("/api/settings", (req, res) => {
   }
 });
 
+publicRouter.get("/api/telegram/username-status", async (req, res) => {
+  try {
+    const telegramId = typeof req.query.telegram_id === "string" ? req.query.telegram_id.trim() : "";
+
+    if (!telegramId) {
+      return res.status(400).json({
+        ok: false,
+        error: "telegram_id_required",
+        message: "Не указан Telegram ID",
+      });
+    }
+
+    return res.json(await resolveTelegramUsernameStatus(telegramId));
+  } catch (error) {
+    console.error("[public] Failed to check telegram username status:", error);
+    return res.status(500).json({
+      ok: false,
+      error: "username_status_failed",
+      message: "Не удалось проверить username",
+    });
+  }
+});
+
 // Helper functions
 function generateId(prefix) {
   return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
@@ -832,7 +970,7 @@ function getNextNumber(table, field) {
 }
 
 // Create order (public endpoint)
-publicRouter.post("/api/orders", (req, res) => {
+publicRouter.post("/api/orders", async (req, res) => {
   try {
     const {
       telegram_id,
@@ -846,20 +984,75 @@ publicRouter.post("/api/orders", (req, res) => {
       items,
     } = req.body;
 
+    // #region agent log
+    fs.appendFileSync('/var/www/NAVALIVAY/.cursor/debug-a444d1.log', JSON.stringify({sessionId:'a444d1',location:'public.js:POST /api/orders:entry',message:'Order request received',data:{telegram_id,telegram_username,first_name,hasItems:Array.isArray(items)&&items.length},timestamp:Date.now(),hypothesisId:'ORDER'})+'\n');
+    // #endregion
+
     if (!Array.isArray(items) || items.length === 0) {
       return res
         .status(400)
         .json({ error: "items_required", message: "Товары обязательны" });
     }
 
+    const normalizedUsername = normalizeTelegramUsername(telegram_username);
+
     // Validate telegram_username (required)
-    if (!telegram_username || !telegram_username.trim()) {
+    if (!normalizedUsername) {
       return res
         .status(400)
         .json({
           error: "telegram_username_required",
           message: "Укажите Telegram username",
         });
+    }
+
+    if (!/^[a-zA-Z0-9_]{5,32}$/.test(normalizedUsername)) {
+      return res
+        .status(400)
+        .json({
+          error: "telegram_username_invalid",
+          message: "Username должен содержать от 5 до 32 символов",
+        });
+    }
+
+    let verifiedTelegramUsername = normalizedUsername;
+
+    if (telegram_id) {
+      const usernameStatus = await resolveTelegramUsernameStatus(String(telegram_id));
+      // #region agent log
+      fs.appendFileSync('/var/www/NAVALIVAY/.cursor/debug-a444d1.log', JSON.stringify({sessionId:'a444d1',location:'public.js:POST /api/orders:usernameCheck',message:'Username status check result',data:{telegram_id,usernameStatus_status:usernameStatus.status,usernameStatus_username:usernameStatus.username,clientUsername:normalizedUsername},timestamp:Date.now(),hypothesisId:'ORDER'})+'\n');
+      // #endregion
+      
+      // Если Telegram API подтвердил username - используем его
+      if (usernameStatus.status === "confirmed" && usernameStatus.username) {
+        verifiedTelegramUsername = normalizeTelegramUsername(usernameStatus.username);
+      } 
+      // Если API вернул "missing" (пользователь точно без username) - блокируем
+      else if (usernameStatus.status === "missing") {
+        return res
+          .status(400)
+          .json({
+            error: "telegram_username_required",
+            message: usernameStatus.message || "Для оформления заказа нужен Telegram username",
+          });
+      }
+      // Если API недоступен (retry/chat not found), но клиент передал username - доверяем клиенту
+      // initDataUnsafe подписан Telegram и не может быть подделан
+      else if (usernameStatus.status === "retry" && normalizedUsername) {
+        verifiedTelegramUsername = normalizedUsername;
+        // #region agent log
+        fs.appendFileSync('/var/www/NAVALIVAY/.cursor/debug-a444d1.log', JSON.stringify({sessionId:'a444d1',location:'public.js:POST /api/orders:fallbackToClient',message:'Using client username (API unavailable)',data:{telegram_id,clientUsername:normalizedUsername},timestamp:Date.now(),hypothesisId:'ORDER'})+'\n');
+        // #endregion
+      }
+      // API недоступен и клиент не передал username - блокируем
+      else {
+        return res
+          .status(400)
+          .json({
+            error: "telegram_username_not_verified",
+            message: "Не удалось проверить username. Закройте магазин и откройте заново.",
+          });
+      }
     }
 
     // Validate delivery requirements
@@ -934,7 +1127,7 @@ publicRouter.post("/api/orders", (req, res) => {
             WHERE id = ?
           `,
           ).run(
-            telegram_username || null,
+            verifiedTelegramUsername || null,
             first_name || null,
             last_name || null,
             phone || null,
@@ -953,7 +1146,7 @@ publicRouter.post("/api/orders", (req, res) => {
           ).run(
             customerId,
             telegram_id,
-            telegram_username || null,
+            verifiedTelegramUsername || null,
             first_name || null,
             last_name || null,
             phone || null,
