@@ -36,9 +36,7 @@ lerna-debug.log*
 Thumbs.db
 
 # Database
-# Игнорируем все .db файлы, кроме основной базы данных
 server/data/*.db
-!server/data/navalivay.db
 server/data/*.db-wal
 server/data/*.db-shm
 server/data/*.db.bak*
