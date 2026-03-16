@@ -80,7 +80,8 @@ frontend.on('error', (error) => {
 console.log('⚙️  Starting backend server...');
 const serverCommand = botMode ? 'start:bot' : 'dev';
 const server = spawnProcess('npm', ['run', serverCommand], {
-  cwd: join(projectRoot, 'server')
+  cwd: join(projectRoot, 'server'),
+  env: { ...process.env, PORT: '3001' }
 });
 
 server.stdout.on('data', (data) => {
@@ -158,12 +159,12 @@ server.on('exit', (code, signal) => {
 
 console.log('✅ Development environment started!');
 console.log(`📱 Frontend: http://localhost:5173`);
-console.log(`🔧 Backend: http://localhost:8082`);
+console.log(`🔧 Backend: http://localhost:3001`);
 if (localIPs.length) {
   console.log('\n🌐 Доступ из локальной сети:');
   localIPs.forEach((ip) => {
     console.log(`   • Frontend: http://${ip}:5173`);
-    console.log(`   • Backend:  http://${ip}:8082`);
+    console.log(`   • Backend:  http://${ip}:3001`);
   });
   console.log('\n📱 Откройте один из адресов выше на телефоне, подключённом к той же сети.');
 } else {

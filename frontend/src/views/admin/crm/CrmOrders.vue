@@ -156,6 +156,27 @@
             Архив заказов
           </button>
           <button
+            v-if="cancelledOrders.length"
+            @click="cancelledModalOpen = true"
+            class="inline-flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm font-medium text-red-600 transition-colors hover:bg-red-100"
+          >
+            <svg
+              class="h-4 w-4"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"
+              />
+            </svg>
+            Отмененные
+            <span class="rounded-full bg-red-200 px-1.5 py-0.5 text-xs font-semibold">{{ cancelledOrders.length }}</span>
+          </button>
+          <button
             @click="showCreateModal = true"
             class="w-full rounded-lg bg-blue-600 px-5 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-700 sm:w-auto"
           >
@@ -336,22 +357,25 @@
                     <button
                       v-if="column.key === 'delivered'"
                       type="button"
-                      class="inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-70"
+                      class="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-medium transition"
                       :class="
                         profitUnlocked
-                          ? 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
-                          : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                          ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200'
+                          : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
                       "
                       :disabled="!profitUnlocked && verifyingPassword"
-                      @click="openDeliveredModal('today')"
+                      @click="profitUnlocked ? openDeliveredModal('today') : openPasswordModal()"
                     >
-                      <LockClosedIcon v-if="!profitUnlocked" class="h-4 w-4" />
+                      <LockClosedIcon v-if="!profitUnlocked" class="h-3.5 w-3.5" />
+                      <svg v-else class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                      </svg>
                       <span>{{
                         profitUnlocked
-                          ? "Смотреть все"
+                          ? "Статистика"
                           : verifyingPassword
-                            ? "Проверяем…"
-                            : "Открыть доступ"
+                            ? "..."
+                            : "Открыть"
                       }}</span>
                     </button>
                   </div>
@@ -445,6 +469,7 @@
                 @dragstart="onDragStart(order)"
                 @dragend="onDragEnd"
               >
+                <!-- Заголовок с номером и кнопкой отмены -->
                 <div class="flex items-center justify-between">
                   <div
                     class="flex items-center gap-2 text-sm font-semibold text-gray-900"
@@ -470,18 +495,16 @@
                       }}</span>
                     </button>
                   </div>
-                  <span
-                    :class="[
-                      'rounded-full px-2 py-0.5 text-xs font-medium',
-                      deliveryBadgeClass(order),
-                    ]"
+                  <!-- Кнопка отмены -->
+                  <button
+                    @click.stop="openCancelModal(order)"
+                    class="group flex h-7 w-7 items-center justify-center rounded-lg border border-transparent text-gray-400 transition-all hover:border-red-200 hover:bg-red-50 hover:text-red-500"
+                    title="Отменить заказ"
                   >
-                    {{
-                      order.delivery_type === "delivery"
-                        ? "Доставка"
-                        : "Самовывоз"
-                    }}
-                  </span>
+                    <svg class="h-4 w-4 transition-transform group-hover:scale-110" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                    </svg>
+                  </button>
                 </div>
 
                 <div class="mt-2 space-y-1 text-sm text-gray-700">
@@ -565,20 +588,27 @@
                   </p>
                 </div>
 
-                <ul
+                <ol
                   v-if="order.items?.length"
                   class="mt-3 space-y-1 text-xs text-gray-600"
                 >
-                  <li v-for="item in previewItems(order)" :key="item.id">
-                    •
-                    <span
-                      v-if="item.group_name"
-                      class="font-semibold text-blue-600"
-                      >{{ item.group_name }}</span
-                    >{{ item.group_name ? " - " : ""
-                    }}{{ item.base_product_title || item.product_title
-                    }}{{ item.variant_name ? " - " + item.variant_name : "" }} ×
-                    {{ item.quantity }}
+                  <li v-for="(item, index) in previewItems(order)" :key="item.id" class="flex gap-1.5">
+                    <span class="flex-shrink-0 font-medium text-gray-400">{{ index + 1 }}.</span>
+                    <div class="flex-1">
+                      <div>
+                        <span
+                          v-if="item.group_name"
+                          class="font-semibold text-blue-600"
+                        >{{ item.group_name }}</span
+                        >{{ item.group_name ? " - " : ""
+                        }}{{ item.base_product_title || item.product_title
+                        }}{{ item.variant_name ? " - " + item.variant_name : "" }}
+                        <span class="font-medium text-gray-800">× {{ item.quantity }}</span>
+                      </div>
+                      <div v-if="item.product_description" class="text-[11px] text-gray-400 leading-tight">
+                        {{ item.product_description }}
+                      </div>
+                    </div>
                   </li>
                   <li
                     v-if="
@@ -634,18 +664,35 @@
                       свернуть
                     </button>
                   </li>
-                </ul>
+                </ol>
 
-                <div class="mt-4 flex items-center justify-between">
+                <div class="mt-4 space-y-3">
+                  <!-- Сумма и скидка -->
                   <div>
-                    <div class="text-base font-semibold text-gray-900">
-                      {{ formatCurrency(order.final_amount) }}
+                    <div
+                      @click.stop="openDiscountModal(order)"
+                      class="group inline-flex cursor-pointer items-center gap-1.5 text-base font-semibold text-gray-900 transition-colors hover:text-emerald-600"
+                      title="Нажмите для скидки"
+                    >
+                      <span
+                        v-if="order.discount_amount > 0"
+                        class="text-sm text-gray-400 line-through"
+                      >{{ formatCurrency(order.total_amount) }}</span>
+                      <span>{{ formatCurrency(order.final_amount) }}</span>
+                      <svg class="h-3.5 w-3.5 flex-shrink-0 text-gray-400 group-hover:text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                      </svg>
                     </div>
+                    <div
+                      v-if="order.discount_amount > 0"
+                      class="text-xs text-emerald-600"
+                    >Скидка: -{{ formatCurrency(order.discount_amount) }}</div>
                     <div class="text-[11px] text-gray-400">
-                      Создан {{ formatDate(order.created_at) }}
+                      {{ formatDate(order.created_at) }}
                     </div>
                   </div>
-                  <div class="flex items-center gap-2">
+                  <!-- Кнопки на отдельной строке -->
+                  <div class="flex items-center justify-end gap-2">
                     <button
                       @click.stop="viewOrder(order.id)"
                       class="admin-link-button admin-link-button--compact admin-link-button--muted"
@@ -666,52 +713,6 @@
             </div>
           </section>
         </div>
-
-        <section
-          v-if="cancelledOrders.length"
-          class="rounded-xl border border-red-100 bg-white p-4 shadow-sm"
-        >
-          <div class="mb-3 flex items-center justify-between">
-            <h3 class="text-sm font-semibold uppercase text-red-600">
-              Отмененные
-            </h3>
-            <span
-              class="rounded-full bg-red-100 px-2 py-0.5 text-xs font-semibold text-red-700"
-              >{{ cancelledOrders.length }}</span
-            >
-          </div>
-          <div class="grid gap-3 sm:grid-cols-2">
-            <article
-              v-for="order in cancelledOrders"
-              :key="order.id"
-              class="cursor-grab rounded-lg border border-gray-200 bg-white p-4 shadow-sm transition hover:shadow-md active:cursor-grabbing"
-              :class="[
-                order.delivery_type === 'delivery'
-                  ? 'border-rose-200 ring-1 ring-rose-100'
-                  : '',
-                unseenOrderIds.has(order.id)
-                  ? 'ring-2 ring-amber-400 border-amber-300 bg-amber-50/50 animate-pulse'
-                  : '',
-              ]"
-              draggable="true"
-              @dragstart="onDragStart(order)"
-              @dragend="onDragEnd"
-            >
-              <div
-                class="flex items-center justify-between text-xs text-red-500"
-              >
-                <span class="font-semibold">#{{ order.order_number }}</span>
-                <span>{{ formatDate(order.created_at) }}</span>
-              </div>
-              <div class="mt-1 font-medium text-gray-800">
-                {{ order.customer_name || "Без имени" }}
-              </div>
-              <div class="mt-1 text-xs text-gray-500">
-                {{ order.notes || "Причина не указана" }}
-              </div>
-            </article>
-          </div>
-        </section>
       </div>
     </div>
 
@@ -1007,6 +1008,150 @@
       @close="showCreateModal = false"
       @created="handleOrderCreated"
     />
+
+    <!-- Модалка скидки -->
+    <AdminModal
+      :isOpen="discountModalOpen && !!discountOrder"
+      :title="discountOrder ? `Скидка на заказ #${discountOrder.order_number}` : 'Скидка'"
+      description="Введите сумму скидки в рублях"
+      size="sm"
+      :showActions="false"
+      @close="closeDiscountModal"
+      @cancel="closeDiscountModal"
+    >
+      <div class="grid gap-4">
+        <div>
+          <label class="text-sm font-medium text-gray-700">Сумма заказа</label>
+          <div class="mt-1 text-lg font-semibold text-gray-900">
+            {{ discountOrder ? formatCurrency(discountOrder.total_amount) : '' }}
+          </div>
+        </div>
+        <div>
+          <label class="text-sm font-medium text-gray-700">Скидка (₽)</label>
+          <input
+            v-model.number="discountAmount"
+            type="number"
+            min="0"
+            :max="discountOrder?.total_amount || 0"
+            step="1"
+            class="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-200"
+            placeholder="0"
+          />
+        </div>
+        <div v-if="discountAmount > 0" class="rounded-lg bg-emerald-50 p-3">
+          <div class="text-sm text-gray-600">Итого со скидкой:</div>
+          <div class="text-xl font-bold text-emerald-700">
+            {{ discountOrder ? formatCurrency(discountOrder.total_amount - discountAmount) : '' }}
+          </div>
+        </div>
+      </div>
+      <footer class="mt-6 flex justify-between gap-3">
+        <button
+          v-if="discountOrder?.discount_amount && discountOrder.discount_amount > 0"
+          @click="removeDiscount"
+          class="rounded-lg border border-red-200 px-4 py-2 text-sm font-medium text-red-600 transition hover:bg-red-50"
+          :disabled="isApplyingDiscount"
+        >
+          Убрать скидку
+        </button>
+        <div class="flex-1"></div>
+        <button
+          @click="closeDiscountModal"
+          class="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-600 transition hover:bg-gray-100"
+          :disabled="isApplyingDiscount"
+        >
+          Отмена
+        </button>
+        <button
+          @click="applyDiscount"
+          class="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-emerald-700 disabled:opacity-50"
+          :disabled="isApplyingDiscount || discountAmount < 0"
+        >
+          {{ isApplyingDiscount ? 'Сохранение...' : 'Применить' }}
+        </button>
+      </footer>
+    </AdminModal>
+
+    <!-- Модалка отмены заказа -->
+    <AdminModal
+      :isOpen="cancelModalOpen && !!cancelOrder"
+      :title="cancelOrder ? `Отмена заказа #${cancelOrder.order_number}` : 'Отмена заказа'"
+      description="Вы уверены, что хотите отменить этот заказ?"
+      size="sm"
+      :showActions="false"
+      @close="closeCancelModal"
+      @cancel="closeCancelModal"
+    >
+      <div class="rounded-lg bg-red-50 p-4 text-center">
+        <div class="text-sm text-gray-600">Заказ на сумму</div>
+        <div class="text-2xl font-bold text-gray-900">
+          {{ cancelOrder ? formatCurrency(cancelOrder.final_amount) : '' }}
+        </div>
+        <div class="mt-2 text-sm text-red-600">
+          Товары вернутся на склад
+        </div>
+      </div>
+      <footer class="mt-6 flex justify-end gap-3">
+        <button
+          @click="closeCancelModal"
+          class="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-600 transition hover:bg-gray-100"
+          :disabled="isCancelling"
+        >
+          Нет, оставить
+        </button>
+        <button
+          @click="confirmCancelOrder"
+          class="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-red-700 disabled:opacity-50"
+          :disabled="isCancelling"
+        >
+          {{ isCancelling ? 'Отмена...' : 'Да, отменить' }}
+        </button>
+      </footer>
+    </AdminModal>
+
+    <!-- Модалка списка отмененных заказов -->
+    <AdminModal
+      :isOpen="cancelledModalOpen"
+      title="Отмененные заказы"
+      :description="`Всего отменено: ${cancelledOrders.length}`"
+      size="lg"
+      :showActions="false"
+      @close="cancelledModalOpen = false"
+      @cancel="cancelledModalOpen = false"
+    >
+      <div v-if="cancelledOrders.length" class="space-y-3 max-h-96 overflow-y-auto">
+        <article
+          v-for="order in cancelledOrders"
+          :key="order.id"
+          class="flex items-center justify-between rounded-lg border border-gray-200 bg-white p-3 transition hover:bg-gray-50"
+        >
+          <div class="flex-1">
+            <div class="flex items-center gap-2">
+              <span class="font-semibold text-red-600">#{{ order.order_number }}</span>
+              <span class="text-xs text-gray-400">{{ formatDate(order.created_at) }}</span>
+            </div>
+            <div class="mt-1 text-sm font-medium text-gray-800">
+              {{ order.customer_name || "Без имени" }}
+            </div>
+            <div class="mt-0.5 text-xs text-gray-500">
+              {{ order.notes || "Причина не указана" }}
+            </div>
+          </div>
+          <div class="flex items-center gap-2">
+            <span class="text-sm font-semibold text-gray-600">{{ formatCurrency(order.final_amount) }}</span>
+            <button
+              @click="viewOrder(order.id); cancelledModalOpen = false"
+              class="admin-link-button admin-link-button--compact admin-link-button--muted"
+            >
+              Открыть
+            </button>
+          </div>
+        </article>
+      </div>
+      <div v-else class="py-8 text-center text-gray-500">
+        Нет отмененных заказов
+      </div>
+    </AdminModal>
     
     <!-- In-app Toast Notification (Safari fallback) -->
     <Teleport to="body">
@@ -1137,6 +1282,20 @@ const passwordInput = ref("");
 const passwordError = ref("");
 const verifyingPassword = computed(() => verifyingProfitAccess.value);
 const generatingMessageForOrder = ref<string | null>(null);
+
+// Discount modal state
+const discountModalOpen = ref(false);
+const discountOrder = ref<Order | null>(null);
+const discountAmount = ref(0);
+const isApplyingDiscount = ref(false);
+
+// Cancel order modal state
+const cancelModalOpen = ref(false);
+const cancelOrder = ref<Order | null>(null);
+const isCancelling = ref(false);
+
+// Cancelled orders modal
+const cancelledModalOpen = ref(false);
 
 type KanbanColumnConfig = {
   key: "new" | "in_progress" | "delivered";
@@ -1793,6 +1952,91 @@ function orderStatusLabel(
       return "Отменён";
     default:
       return status;
+  }
+}
+
+// Discount modal functions
+function openDiscountModal(order: Order) {
+  discountOrder.value = order;
+  discountAmount.value = order.discount_amount || 0;
+  discountModalOpen.value = true;
+}
+
+function closeDiscountModal() {
+  if (isApplyingDiscount.value) return;
+  discountModalOpen.value = false;
+  discountOrder.value = null;
+  discountAmount.value = 0;
+}
+
+async function applyDiscount() {
+  if (!discountOrder.value) return;
+  isApplyingDiscount.value = true;
+  try {
+    await crmStore.updateOrder(discountOrder.value.id, {
+      discount_amount: discountAmount.value,
+      discount_percent: 0,
+    });
+    // Закрываем модалку напрямую
+    discountModalOpen.value = false;
+    discountOrder.value = null;
+    discountAmount.value = 0;
+    await refreshOrders({ skipNotify: true });
+  } catch (error: any) {
+    const errorMessage = error?.message || "Не удалось применить скидку";
+    showOrderError(`Заказ #${discountOrder.value.order_number}: ${errorMessage}`);
+  } finally {
+    isApplyingDiscount.value = false;
+  }
+}
+
+async function removeDiscount() {
+  if (!discountOrder.value) return;
+  isApplyingDiscount.value = true;
+  try {
+    await crmStore.updateOrder(discountOrder.value.id, {
+      discount_amount: 0,
+      discount_percent: 0,
+    });
+    // Закрываем модалку напрямую
+    discountModalOpen.value = false;
+    discountOrder.value = null;
+    discountAmount.value = 0;
+    await refreshOrders({ skipNotify: true });
+  } catch (error: any) {
+    const errorMessage = error?.message || "Не удалось убрать скидку";
+    showOrderError(`Заказ #${discountOrder.value.order_number}: ${errorMessage}`);
+  } finally {
+    isApplyingDiscount.value = false;
+  }
+}
+
+// Cancel order modal functions
+function openCancelModal(order: Order) {
+  cancelOrder.value = order;
+  cancelModalOpen.value = true;
+}
+
+function closeCancelModal() {
+  if (isCancelling.value) return;
+  cancelModalOpen.value = false;
+  cancelOrder.value = null;
+}
+
+async function confirmCancelOrder() {
+  if (!cancelOrder.value) return;
+  isCancelling.value = true;
+  try {
+    await crmStore.updateOrder(cancelOrder.value.id, { status: "cancelled" });
+    // Закрываем модалку напрямую
+    cancelModalOpen.value = false;
+    cancelOrder.value = null;
+    await refreshOrders({ skipNotify: true });
+  } catch (error: any) {
+    const errorMessage = error?.message || "Не удалось отменить заказ";
+    showOrderError(`Заказ #${cancelOrder.value.order_number}: ${errorMessage}`);
+  } finally {
+    isCancelling.value = false;
   }
 }
 </script>

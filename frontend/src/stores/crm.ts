@@ -78,6 +78,7 @@ export interface OrderItem {
   order_id: string;
   product_id: string | null;
   product_title: string;
+  product_description?: string | null;
   group_name?: string | null;
   base_product_id?: string | null;
   base_product_title?: string | null;
@@ -145,6 +146,7 @@ export interface CrmProductSummary {
   id: string;
   productId?: string; // Для вариантов - ID базового товара
   title: string;
+  description?: string | null; // Описание товара (расшифровка вкуса и т.п.)
   priceRub: number;
   costPrice: number;
   stock: number;
@@ -1272,6 +1274,7 @@ export const useCrmStore = defineStore("crm", () => {
         ? String(product.product_id)
         : String(product.id),
       title: product.title ?? "Без названия",
+      description: product.description ?? null,
       priceRub: Number(product.priceRub ?? product.price_rub ?? 0),
       costPrice: Number(product.costPrice ?? product.cost_price ?? 0),
       stock: Number(product.stock ?? 0),

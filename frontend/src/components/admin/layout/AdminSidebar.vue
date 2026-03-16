@@ -9,7 +9,7 @@
               <button
                 v-for="tab in tabs"
                 :key="tab.id"
-                @click="$emit('update:modelValue', tab.id)"
+                @click="handleMainTabClick(tab.id)"
                 :class="[
                   'sidebar-button sidebar-button--compact w-full flex items-center text-left text-sm font-medium transition-all duration-200',
                   modelValue === tab.id && !isOnCrmPage
@@ -42,7 +42,7 @@
                   :class="isActive
                     ? 'sidebar-button--crm-active'
                     : 'sidebar-button--default'"
-                  @click="navigate"
+                  @click="handleCrmLinkClick(navigate)"
                 >
                   <span class="sidebar-button__icon relative">
                     <component :is="link.icon" class="w-5 h-5" />
@@ -82,7 +82,7 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import { RouterLink, useRoute } from 'vue-router'
+import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { LockClosedIcon } from '@heroicons/vue/24/outline'
 import { useCrmStore } from '@/stores/crm'
 import { storeToRefs } from 'pinia'
@@ -97,14 +97,31 @@ const props = defineProps<{
   crmLinks?: SidebarLink[]
 }>()
 
-defineEmits<{ (e: 'update:modelValue', v: string): void; (e: 'lock'): void }>()
+const emit = defineEmits<{ (e: 'update:modelValue', v: string): void; (e: 'lock'): void }>()
 
 const crmStore = useCrmStore()
 const { newOrdersCount } = storeToRefs(crmStore)
 
 const crmLinks = computed(() => props.crmLinks ?? [])
 const route = useRoute()
+const router = useRouter()
 const isOnCrmPage = computed(() => route.path.includes('/crm'))
+
+function handleMainTabClick(tabId: string) {
+  // Если мы на CRM странице, нужно сначала навигировать на /admin, потом обновить таб
+  if (isOnCrmPage.value) {
+    const query = tabId === 'dashboard' ? {} : { tab: tabId }
+    router.push({ path: '/admin', query }).then(() => {
+      emit('update:modelValue', tabId)
+    }).catch(() => {})
+  } else {
+    emit('update:modelValue', tabId)
+  }
+}
+
+function handleCrmLinkClick(navigate: () => void) {
+  navigate()
+}
 </script>
 
 <style scoped>

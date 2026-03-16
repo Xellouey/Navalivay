@@ -12,14 +12,19 @@ export function migrateColorDisplayMode() {
       ADD COLUMN color_display_mode TEXT DEFAULT 'color'
     `);
     
-    // Set mode based on existing data: if color_image exists, set to 'image', otherwise 'color'
-    db.exec(`
-      UPDATE product_variants 
-      SET color_display_mode = CASE 
-        WHEN color_image IS NOT NULL AND color_image != '' THEN 'image' 
-        ELSE 'color' 
-      END
-    `);
+    // Check if color_image column exists before trying to use it
+    const hasColorImage = columns.some(col => col.name === 'color_image');
+    
+    if (hasColorImage) {
+      // Set mode based on existing data: if color_image exists, set to 'image', otherwise 'color'
+      db.exec(`
+        UPDATE product_variants 
+        SET color_display_mode = CASE 
+          WHEN color_image IS NOT NULL AND color_image != '' THEN 'image' 
+          ELSE 'color' 
+        END
+      `);
+    }
     
     console.log('[migration] color_display_mode column added and populated');
   }

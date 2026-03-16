@@ -7,7 +7,7 @@ import UnoCSS from '@unocss/vite'
 // https://vite.dev/config/
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
-  const API_TARGET = process.env.VITE_API_TARGET || env.VITE_API_TARGET || 'http://127.0.0.1:8082'
+  const API_TARGET = process.env.VITE_API_TARGET || env.VITE_API_TARGET || 'http://127.0.0.1:3001'
 
   return {
     plugins: [

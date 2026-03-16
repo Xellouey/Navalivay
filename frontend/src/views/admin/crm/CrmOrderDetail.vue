@@ -232,14 +232,15 @@
             <p class="mb-2 text-xs font-semibold uppercase text-gray-500">Найдено товаров</p>
             <ul class="space-y-2">
               <li v-for="product in productResults" :key="product.id" class="flex items-center justify-between rounded-lg border border-gray-200 bg-white px-3 py-2">
-                <div>
+                <div class="flex-1 min-w-0">
                   <p class="font-medium text-gray-900">{{ product.title }}</p>
+                  <p v-if="product.description" class="text-[11px] text-gray-400 leading-tight truncate">{{ product.description }}</p>
                   <p class="text-xs text-gray-500">
                     Остаток: {{ product.stock }}
                     <span v-if="product.groupName">· {{ product.groupName }}</span>
                   </p>
                 </div>
-                <div class="flex items-center gap-3">
+                <div class="flex items-center gap-3 flex-shrink-0 ml-2">
                   <span class="text-sm font-semibold text-gray-900">{{ formatCurrency(product.priceRub) }}</span>
                   <button
                     class="rounded-lg bg-blue-600 px-3 py-1 text-xs font-semibold text-white transition hover:bg-blue-700"
@@ -273,6 +274,9 @@
                     <p class="text-base font-semibold text-gray-900">
                       <span v-if="item.groupName" class="text-blue-600">{{ item.groupName }} - </span>{{ item.baseProductTitle || item.title }}
                       <span v-if="item.variantName" class="text-sm text-gray-600"> - {{ item.variantName }}</span>
+                    </p>
+                    <p v-if="item.description" class="text-[11px] text-gray-400 leading-tight mt-0.5">
+                      {{ item.description }}
                     </p>
                   <p class="text-xs text-gray-500">
                     Себестоимость: {{ formatCurrency(item.cost) }}
@@ -425,6 +429,7 @@ type FormItem = {
   groupName?: string | null
   baseProductTitle?: string | null
   variantName?: string | null
+  description?: string | null
   quantity: number
   price: number
   discount: number
@@ -610,6 +615,7 @@ function initializeForm(order: Order) {
       groupName: item.group_name || null,
       baseProductTitle: item.base_product_title || null,
       variantName: item.variant_name || null,
+      description: item.product_description || null,
       quantity: Number(item.quantity || 0),
       price: Number(item.price_per_unit || 0),
       discount: Number(item.discount_amount || 0),
@@ -660,6 +666,7 @@ function addProduct(product: CrmProductSummary) {
     groupName: product.groupName || null,
     baseProductTitle: product.isVariant ? undefined : product.title,
     variantName: product.variantName || (product.isVariant ? product.title : null),
+    description: product.description || null,
     quantity: 1,
     price: product.priceRub,
     discount: 0,

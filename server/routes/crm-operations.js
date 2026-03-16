@@ -141,7 +141,10 @@ crmOperationsRouter.get("/api/admin/crm/orders", authMiddleware, (req, res) => {
       const itemsRows = db
         .prepare(
           `
-        SELECT * FROM order_items WHERE order_id IN (${placeholders})
+        SELECT oi.*, p.description as product_description 
+        FROM order_items oi
+        LEFT JOIN products p ON oi.product_id = p.id
+        WHERE oi.order_id IN (${placeholders})
       `,
         )
         .all(...orderIds);
@@ -259,7 +262,10 @@ crmOperationsRouter.get(
         const itemsRows = db
           .prepare(
             `
-        SELECT * FROM order_items WHERE order_id IN (${placeholders})
+        SELECT oi.*, p.description as product_description 
+        FROM order_items oi
+        LEFT JOIN products p ON oi.product_id = p.id
+        WHERE oi.order_id IN (${placeholders})
       `,
           )
           .all(...orderIds);
@@ -323,7 +329,10 @@ crmOperationsRouter.get(
       const items = db
         .prepare(
           `
-      SELECT * FROM order_items WHERE order_id = ?
+      SELECT oi.*, p.description as product_description 
+      FROM order_items oi
+      LEFT JOIN products p ON oi.product_id = p.id
+      WHERE oi.order_id = ?
     `,
         )
         .all(id);
@@ -532,7 +541,12 @@ crmOperationsRouter.post(
         .prepare("SELECT * FROM orders WHERE id = ?")
         .get(orderId);
       const items_result = db
-        .prepare("SELECT * FROM order_items WHERE order_id = ?")
+        .prepare(`
+          SELECT oi.*, p.description as product_description 
+          FROM order_items oi
+          LEFT JOIN products p ON oi.product_id = p.id
+          WHERE oi.order_id = ?
+        `)
         .all(orderId);
 
       recordStatusChange(orderId, null, order.status, "Создан заказ");
@@ -1016,7 +1030,12 @@ crmOperationsRouter.patch(
 
       const updated = db.prepare("SELECT * FROM orders WHERE id = ?").get(id);
       const updatedItems = db
-        .prepare("SELECT * FROM order_items WHERE order_id = ?")
+        .prepare(`
+          SELECT oi.*, p.description as product_description 
+          FROM order_items oi
+          LEFT JOIN products p ON oi.product_id = p.id
+          WHERE oi.order_id = ?
+        `)
         .all(id);
 
       if (updated.status !== order.status) {
@@ -1256,7 +1275,12 @@ crmOperationsRouter.delete(
         .prepare("SELECT * FROM orders WHERE id = ?")
         .get(id);
       const updatedItems = db
-        .prepare("SELECT * FROM order_items WHERE order_id = ?")
+        .prepare(`
+          SELECT oi.*, p.description as product_description 
+          FROM order_items oi
+          LEFT JOIN products p ON oi.product_id = p.id
+          WHERE oi.order_id = ?
+        `)
         .all(id);
 
       recordStatusChange(
