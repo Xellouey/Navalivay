@@ -1636,12 +1636,16 @@ const placeholder = 'https://placehold.co/64x64/f3f4f6/9ca3af?text=IMG'
 
 function getProductCover(product: Product) {
   const fromImages = product.images?.find(src => typeof src === 'string' && src.trim().length > 0)
-  if (fromImages) {
-    return fromImages
-  }
+  if (fromImages) return fromImages
 
   const fromLinks = product.links?.find(link => typeof link?.url === 'string' && link.url.trim().length > 0)?.url
-  return fromLinks || placeholder
+  if (fromLinks) return fromLinks
+
+  // Фолбэк на изображение группы/категории
+  if (product.groupImage) return product.groupImage
+  if (product.categoryImage) return product.categoryImage
+
+  return placeholder
 }
 
 function isBelowMin(product: Product) {

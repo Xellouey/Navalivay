@@ -798,6 +798,7 @@ adminRouter.get('/api/admin/products', authMiddleware, (req, res) => {
           p.categoryId, 
           p.groupId,
           c.name as categoryName, 
+          c.cover_image as categoryImage,
           p.title, 
           p.priceRub, 
           p.description, 
@@ -809,7 +810,8 @@ adminRouter.get('/api/admin/products', authMiddleware, (req, res) => {
           p.has_variants AS hasVariants,
           p.createdAt,
           g.name as groupName,
-          g.slug as groupSlug
+          g.slug as groupSlug,
+          g.cover_image as groupImage
         FROM products p 
         LEFT JOIN categories c ON p.categoryId = c.id
         LEFT JOIN category_groups g ON p.groupId = g.id
@@ -823,6 +825,7 @@ adminRouter.get('/api/admin/products', authMiddleware, (req, res) => {
           p.categoryId, 
           p.groupId,
           c.name as categoryName, 
+          c.cover_image as categoryImage,
           p.title, 
           p.priceRub, 
           p.description, 
@@ -834,7 +837,8 @@ adminRouter.get('/api/admin/products', authMiddleware, (req, res) => {
           p.has_variants AS hasVariants,
           p.createdAt,
           g.name as groupName,
-          g.slug as groupSlug
+          g.slug as groupSlug,
+          g.cover_image as groupImage
         FROM products p 
         LEFT JOIN categories c ON p.categoryId = c.id
         LEFT JOIN category_groups g ON p.groupId = g.id
@@ -1484,14 +1488,14 @@ adminRouter.get('/api/admin/category-groups', authMiddleware, (req, res) => {
       .forEach(node => visit(node));
   });
 
-  // Автоматически обновляем empty_since для групп
+  // Автоматически обновляем empty_since для групп (учитываем totalProductCount для родительских)
   flattened.forEach(group => {
-    const productCount = Number(group.productCount ?? 0);
-    if (productCount === 0 && !group.empty_since) {
+    const totalCount = Number(group.totalProductCount ?? group.productCount ?? 0);
+    if (totalCount === 0 && !group.empty_since) {
       // Группа стала пустой - записываем дату
       db.prepare('UPDATE category_groups SET empty_since = ? WHERE id = ?').run(new Date().toISOString(), group.id);
       group.empty_since = new Date().toISOString();
-    } else if (productCount > 0 && group.empty_since) {
+    } else if (totalCount > 0 && group.empty_since) {
       // Группа снова имеет товары - сбрасываем дату
       db.prepare('UPDATE category_groups SET empty_since = NULL WHERE id = ?').run(group.id);
       group.empty_since = null;

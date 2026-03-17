@@ -71,6 +71,8 @@ export interface Product {
   hasVariants?: boolean | number
   variants?: ProductVariant[]
   useCategoryImage?: boolean | number
+  categoryImage?: string | null
+  groupImage?: string | null
 }
 
 export interface CategoryGroup {

@@ -794,26 +794,35 @@
             v-for="(group, index) in editableGroups"
             :key="group.id"
             class="border rounded-lg p-4 shadow-sm"
-            :class="(group.productCount ?? 0) === 0 ? 'border-gray-300 bg-gray-100 opacity-70' : 'border-gray-200 bg-white'"
+            :class="(group.totalProductCount ?? group.productCount ?? 0) === 0 ? 'border-gray-300 bg-gray-100 opacity-70' : 'border-gray-200 bg-white'"
           >
             <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between mb-3">
-            <div class="flex items-start gap-3" :style="{ paddingLeft: `${(group.depth ?? 0) * 12}px` }">
-                <div class="w-10 h-10 rounded-lg overflow-hidden bg-gray-100 flex-shrink-0 border border-gray-200">
+            <div class="flex items-start gap-3" :style="{ paddingLeft: `${(group.depth ?? 0) * 16}px` }">
+                <span v-if="group.parentId" class="text-gray-300 text-lg leading-none mt-1">-</span>
+                <div :class="[
+                  'rounded-lg overflow-hidden bg-gray-100 flex-shrink-0 border border-gray-200',
+                  group.parentId ? 'w-8 h-8' : 'w-12 h-12'
+                ]">
                   <img v-if="group.coverImage" :src="group.coverImage" class="w-full h-full object-cover" alt="" />
                   <div v-else class="w-full h-full flex items-center justify-center text-gray-400">
-                    <PhotoIcon class="w-5 h-5" />
+                    <PhotoIcon :class="group.parentId ? 'w-4 h-4' : 'w-5 h-5'" />
                   </div>
                 </div>
-                <div class="space-y-2">
-                <p class="text-base font-semibold" :class="(group.productCount ?? 0) === 0 ? 'text-gray-500' : 'text-gray-900'">{{ group.name }}</p>
-              <p v-if="group.parentId" class="text-xs text-gray-500">Внутри: {{ groupNameById[group.parentId] || '—' }}</p>
+                <div class="space-y-1">
+                <p :class="[
+                  (group.totalProductCount ?? group.productCount ?? 0) === 0 ? 'text-gray-500' : 'text-gray-900',
+                  group.parentId ? 'text-sm font-medium' : 'text-lg font-bold'
+                ]">
+                  {{ group.name }}
+                  <span v-if="!group.parentId && adminStore.categoryGroups.some(g => g.parentId === group.id)" class="ml-1 text-xs font-normal text-gray-400">главная</span>
+                </p>
                 <div v-if="group.hideEmpty" class="mt-2">
                   <span class="inline-flex items-center gap-1 text-xs text-orange-600">
                     <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path d="M10 18a8 8 0 100-16 8 8 0 000 16zm-.75-5.25h1.5v1.5h-1.5v-1.5zm0-6h1.5v4.5h-1.5v-4.5z"/></svg>
                     Скрывать пустую
                   </span>
                 </div>
-                <div v-if="(group.productCount ?? 0) === 0" class="mt-2">
+                <div v-if="(group.totalProductCount ?? group.productCount ?? 0) === 0" class="mt-2">
                   <span class="inline-flex items-center gap-1 text-xs text-gray-500">
                     <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/></svg>
                     Отсутствуют товары, не отображается на витрине{{ group.emptySince ? ` уже ${getDaysEmpty(group.emptySince)} дн.` : '' }}
@@ -2099,10 +2108,10 @@ function syncEditableGroups(categoryId: string, restoreScroll = false) {
     : 0
   
   const groups = flattenGroupTree(buildGroupTreeForCategory(categoryId))
-  // Сортируем: сначала с товарами, потом пустые
+  // Сортируем: сначала с товарами, потом пустые (учитываем totalProductCount)
   groups.sort((a, b) => {
-    const aEmpty = (a.productCount ?? 0) === 0 ? 1 : 0
-    const bEmpty = (b.productCount ?? 0) === 0 ? 1 : 0
+    const aEmpty = (a.totalProductCount ?? a.productCount ?? 0) === 0 ? 1 : 0
+    const bEmpty = (b.totalProductCount ?? b.productCount ?? 0) === 0 ? 1 : 0
     return aEmpty - bEmpty
   })
   editableGroups.value = groups
