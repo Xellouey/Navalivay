@@ -1423,7 +1423,13 @@ adminRouter.get('/api/admin/category-groups', authMiddleware, (req, res) => {
       g.empty_since,
       g.createdAt,
       g.updatedAt,
-      COUNT(p.id) AS productCount
+      COUNT(p.id) AS productCount,
+      COALESCE(SUM(
+        CASE 
+          WHEN p.has_variants = 1 THEN (SELECT COALESCE(SUM(pv.stock), 0) FROM product_variants pv WHERE pv.product_id = p.id)
+          ELSE COALESCE(p.stock, 0)
+        END
+      ), 0) AS stockSum
     FROM category_groups g
     LEFT JOIN products p ON p.groupId = g.id
     ${whereClause}
@@ -1435,6 +1441,7 @@ adminRouter.get('/api/admin/category-groups', authMiddleware, (req, res) => {
   const nodes = rows.map(row => ({
     ...row,
     productCount: Number(row.productCount ?? 0),
+    stockSum: Number(row.stockSum ?? 0),
     parent_group_id: row.parent_group_id ?? null,
     empty_since: row.empty_since ?? null,
     children: []
@@ -1460,11 +1467,15 @@ adminRouter.get('/api/admin/category-groups', authMiddleware, (req, res) => {
   const computeTotals = (node) => {
     node.children.sort((a, b) => (a['order'] ?? 0) - (b['order'] ?? 0));
     let total = Number(node.productCount ?? 0);
+    let totalStock = Number(node.stockSum ?? 0);
     node.children.forEach(child => {
-      total += computeTotals(child);
+      const childResult = computeTotals(child);
+      total += childResult.count;
+      totalStock += childResult.stock;
     });
     node.totalProductCount = total;
-    return total;
+    node.totalStockSum = totalStock;
+    return { count: total, stock: totalStock };
   };
 
   rootsByCategory.forEach(list => {
@@ -1477,7 +1488,9 @@ adminRouter.get('/api/admin/category-groups', authMiddleware, (req, res) => {
     flattened.push({
       ...rest,
       productCount: Number(node.productCount ?? 0),
-      totalProductCount: Number(node.totalProductCount ?? node.productCount ?? 0)
+      totalProductCount: Number(node.totalProductCount ?? node.productCount ?? 0),
+      stockSum: Number(node.stockSum ?? 0),
+      totalStockSum: Number(node.totalStockSum ?? node.stockSum ?? 0)
     });
     node.children.forEach(child => visit(child));
   };
@@ -1488,15 +1501,15 @@ adminRouter.get('/api/admin/category-groups', authMiddleware, (req, res) => {
       .forEach(node => visit(node));
   });
 
-  // Автоматически обновляем empty_since для групп (учитываем totalProductCount для родительских)
+  // Автоматически обновляем empty_since для групп (по суммарному остатку, включая дочерние)
   flattened.forEach(group => {
-    const totalCount = Number(group.totalProductCount ?? group.productCount ?? 0);
-    if (totalCount === 0 && !group.empty_since) {
-      // Группа стала пустой - записываем дату
+    const totalStock = Number(group.totalStockSum ?? group.stockSum ?? 0);
+    if (totalStock === 0 && !group.empty_since) {
+      // Группа стала пустой (остаток 0) - записываем дату
       db.prepare('UPDATE category_groups SET empty_since = ? WHERE id = ?').run(new Date().toISOString(), group.id);
       group.empty_since = new Date().toISOString();
-    } else if (totalCount > 0 && group.empty_since) {
-      // Группа снова имеет товары - сбрасываем дату
+    } else if (totalStock > 0 && group.empty_since) {
+      // Группа снова имеет остаток - сбрасываем дату
       db.prepare('UPDATE category_groups SET empty_since = NULL WHERE id = ?').run(group.id);
       group.empty_since = null;
     }

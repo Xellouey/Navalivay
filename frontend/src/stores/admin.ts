@@ -91,6 +91,8 @@ export interface CategoryGroup {
   updatedAt?: string
   productCount?: number
   totalProductCount?: number
+  stockSum?: number
+  totalStockSum?: number
   emptySince?: string | null
 }
 
@@ -713,6 +715,8 @@ async function createCategory(category: { name: string; hideEmpty?: boolean; cov
         updatedAt: group.updatedAt,
         productCount: group.productCount ?? 0,
         totalProductCount: group.totalProductCount ?? group.productCount ?? 0,
+        stockSum: group.stockSum ?? 0,
+        totalStockSum: group.totalStockSum ?? group.stockSum ?? 0,
         emptySince: group.empty_since ?? null
       })) as CategoryGroup[]
 

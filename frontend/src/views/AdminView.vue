@@ -794,7 +794,7 @@
             v-for="(group, index) in editableGroups"
             :key="group.id"
             class="border rounded-lg p-4 shadow-sm"
-            :class="(group.totalProductCount ?? group.productCount ?? 0) === 0 ? 'border-gray-300 bg-gray-100 opacity-70' : 'border-gray-200 bg-white'"
+            :class="(group.totalStockSum ?? group.stockSum ?? 0) === 0 ? 'border-gray-300 bg-gray-100 opacity-70' : 'border-gray-200 bg-white'"
           >
             <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between mb-3">
             <div class="flex items-start gap-3" :style="{ paddingLeft: `${(group.depth ?? 0) * 16}px` }">
@@ -810,7 +810,7 @@
                 </div>
                 <div class="space-y-1">
                 <p :class="[
-                  (group.totalProductCount ?? group.productCount ?? 0) === 0 ? 'text-gray-500' : 'text-gray-900',
+                  (group.totalStockSum ?? group.stockSum ?? 0) === 0 ? 'text-gray-500' : 'text-gray-900',
                   group.parentId ? 'text-sm font-medium' : 'text-lg font-bold'
                 ]">
                   {{ group.name }}
@@ -822,10 +822,10 @@
                     Скрывать пустую
                   </span>
                 </div>
-                <div v-if="(group.totalProductCount ?? group.productCount ?? 0) === 0" class="mt-2">
+                <div v-if="(group.totalStockSum ?? group.stockSum ?? 0) === 0" class="mt-2">
                   <span class="inline-flex items-center gap-1 text-xs text-gray-500">
                     <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/></svg>
-                    Отсутствуют товары, не отображается на витрине{{ group.emptySince ? ` уже ${getDaysEmpty(group.emptySince)} дн.` : '' }}
+                    Нет в наличии, не отображается на витрине{{ group.emptySince ? ` уже ${getDaysEmpty(group.emptySince)} дн.` : '' }}
                   </span>
                 </div>
               </div>
@@ -2108,10 +2108,10 @@ function syncEditableGroups(categoryId: string, restoreScroll = false) {
     : 0
   
   const groups = flattenGroupTree(buildGroupTreeForCategory(categoryId))
-  // Сортируем: сначала с товарами, потом пустые (учитываем totalProductCount)
+  // Сортируем: сначала с остатком, потом без остатка (учитываем totalStockSum)
   groups.sort((a, b) => {
-    const aEmpty = (a.totalProductCount ?? a.productCount ?? 0) === 0 ? 1 : 0
-    const bEmpty = (b.totalProductCount ?? b.productCount ?? 0) === 0 ? 1 : 0
+    const aEmpty = (a.totalStockSum ?? a.stockSum ?? 0) === 0 ? 1 : 0
+    const bEmpty = (b.totalStockSum ?? b.stockSum ?? 0) === 0 ? 1 : 0
     return aEmpty - bEmpty
   })
   editableGroups.value = groups
