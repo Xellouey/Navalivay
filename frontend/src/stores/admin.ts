@@ -89,6 +89,7 @@ export interface CategoryGroup {
   updatedAt?: string
   productCount?: number
   totalProductCount?: number
+  emptySince?: string | null
 }
 
 interface ProductsResponse {
@@ -709,7 +710,8 @@ async function createCategory(category: { name: string; hideEmpty?: boolean; cov
         createdAt: group.createdAt,
         updatedAt: group.updatedAt,
         productCount: group.productCount ?? 0,
-        totalProductCount: group.totalProductCount ?? group.productCount ?? 0
+        totalProductCount: group.totalProductCount ?? group.productCount ?? 0,
+        emptySince: group.empty_since ?? null
       })) as CategoryGroup[]
 
       if (categoryId) {

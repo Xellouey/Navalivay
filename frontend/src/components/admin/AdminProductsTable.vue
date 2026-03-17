@@ -383,7 +383,7 @@
                 <img :src="getProductCover(p)" class="w-12 h-12 object-cover rounded border" />
                 <div class="min-w-0">
                   <div class="font-medium text-gray-900 truncate">{{ p.title || p.id }}</div>
-                  <div class="text-xs text-gray-500 truncate">ID: {{ p.id }}</div>
+                  <div v-if="p.description" class="text-xs text-gray-500 truncate">{{ p.description }}</div>
                 </div>
               </div>
             </td>
@@ -698,8 +698,8 @@
                     {{ p.title || p.id }}
                   </h3>
                   <div class="mt-1 space-y-1">
-                    <p class="text-sm text-gray-500">
-                      ID: <span class="font-mono">{{ p.id }}</span>
+                    <p v-if="p.description" class="text-sm text-gray-500">
+                      {{ p.description }}
                     </p>
                     <p class="text-sm text-gray-600">
                       Категория: <span class="font-medium">{{ categoryName(p.categoryId) }}</span>

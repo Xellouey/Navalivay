@@ -290,58 +290,6 @@
             ></textarea>
           </div>
 
-          <!-- Товары в зоне риска -->
-          <div class="rounded-xl border border-red-100 bg-red-50 p-4">
-            <div class="mb-3 flex items-center justify-between">
-              <h4 class="text-sm font-semibold text-red-900">
-                Товары в зоне риска
-              </h4>
-              <button
-                v-if="!lowStockLoading"
-                class="rounded-full border border-red-200 px-2.5 py-0.5 text-xs font-semibold text-red-600 transition hover:bg-red-100"
-                type="button"
-                @click="refreshLowStock"
-              >
-                Обновить
-              </button>
-            </div>
-            <div
-              v-if="lowStockLoading"
-              class="py-3 text-center text-xs text-red-600"
-            >
-              Загрузка…
-            </div>
-            <ul
-              v-else-if="lowStockSuggestions.length"
-              class="space-y-2 text-sm"
-            >
-              <li
-                v-for="product in lowStockSuggestions"
-                :key="`low-${product.id}`"
-                class="flex items-center justify-between gap-2 rounded-lg border border-red-200 bg-white p-2.5"
-              >
-                <div class="min-w-0 flex-1">
-                  <div class="truncate font-medium text-gray-900 text-xs">
-                    {{ product.title }}
-                  </div>
-                  <div class="text-xs text-red-600">
-                    На складе {{ product.stock }} из {{ product.minStock }} шт
-                  </div>
-                </div>
-                <button
-                  class="shrink-0 rounded-full border border-blue-200 px-2.5 py-1 text-xs font-semibold text-blue-600 transition hover:bg-blue-50"
-                  @click="addProduct(product)"
-                  type="button"
-                >
-                  Добавить
-                </button>
-              </li>
-            </ul>
-            <div v-else class="py-3 text-center text-xs text-red-600">
-              Дефицитных товаров нет
-            </div>
-          </div>
-
           <!-- Поиск товаров -->
           <div class="rounded-xl border border-gray-200 p-5">
             <div class="flex flex-wrap items-center justify-between gap-3">
@@ -374,7 +322,8 @@
               </p>
             </div>
             <div
-              class="mt-4 max-h-52 overflow-y-auto rounded-lg border border-dashed border-gray-200"
+              class="mt-4 min-h-[120px] max-h-[800px] overflow-y-auto rounded-lg border border-dashed border-gray-200 resize-y overscroll-contain"
+              style="height: 208px;"
             >
               <div
                 v-if="isSearchingProducts"
@@ -402,32 +351,67 @@
               </div>
               <ul v-else class="divide-y text-sm">
                 <li
-                  v-for="product in productResults"
+                  v-for="(product, index) in productResults"
                   :key="product.id"
-                  class="flex items-center justify-between gap-3 px-4 py-3 hover:bg-gray-50"
+                  :class="[
+                    'flex items-center justify-between gap-3 px-4 py-3 transition-colors',
+                    getAddedQuantity(product.id) > 0
+                      ? 'bg-blue-50 ring-2 ring-inset ring-blue-400'
+                      : 'hover:bg-gray-50'
+                  ]"
                 >
-                  <div>
-                    <div class="font-medium text-gray-900">
-                      {{ product.title }}
+                  <div class="flex items-center gap-3">
+                    <span class="w-5 text-xs text-gray-400">{{ index + 1 }}.</span>
+                    <img
+                      v-if="product.image"
+                      :src="product.image"
+                      class="h-10 w-10 flex-shrink-0 rounded object-cover"
+                      :alt="product.title"
+                    />
+                    <div v-else class="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded bg-gray-100">
+                      <svg class="h-5 w-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                      </svg>
                     </div>
-                    <div
-                      v-if="product.groupName"
-                      class="text-xs font-semibold text-blue-600"
-                    >
-                      {{ product.groupName }}
-                    </div>
-                    <div class="text-xs text-gray-500">
-                      Остаток: {{ product.stock }} • Себестоимость:
-                      {{ formatCurrency(product.costPrice) }}
+                    <div>
+                      <div class="font-medium text-gray-900">
+                        {{ product.title }}
+                      </div>
+                      <div
+                        v-if="product.groupName"
+                        class="text-xs font-semibold text-blue-600"
+                      >
+                        {{ product.groupName }}
+                      </div>
+                      <div class="text-xs text-gray-500">
+                        Остаток: {{ product.stock }} • Себестоимость:
+                        {{ formatCurrency(product.costPrice) }}
+                      </div>
                     </div>
                   </div>
-                  <button
-                    class="rounded-full border border-blue-200 px-3 py-1 text-xs font-semibold text-blue-600 transition hover:bg-blue-50"
-                    @click="addProduct(product)"
-                    type="button"
-                  >
-                    Добавить
-                  </button>
+                  <div class="flex items-center gap-2">
+                    <span
+                      v-if="getAddedQuantity(product.id) > 0"
+                      class="rounded-full bg-blue-600 px-2 py-0.5 text-xs font-semibold text-white"
+                    >
+                      {{ getAddedQuantity(product.id) }} шт
+                    </span>
+                    <button
+                      v-if="getAddedQuantity(product.id) > 0"
+                      class="rounded-full border border-gray-300 px-3 py-1 text-xs font-semibold text-gray-600 transition hover:bg-gray-100"
+                      @click.stop="decreaseProduct(product.id)"
+                      type="button"
+                    >
+                      -1
+                    </button>
+                    <button
+                      class="rounded-full border border-blue-200 px-3 py-1 text-xs font-semibold text-blue-600 transition hover:bg-blue-50"
+                      @click="addProduct(product)"
+                      type="button"
+                    >
+                      {{ getAddedQuantity(product.id) > 0 ? '+1' : 'Добавить' }}
+                    </button>
+                  </div>
                 </li>
               </ul>
             </div>
@@ -440,6 +424,7 @@
                   class="bg-gray-50 text-xs font-medium uppercase text-gray-500"
                 >
                   <tr>
+                    <th class="w-8 px-2 py-3 text-left">#</th>
                     <th class="px-4 py-3 text-left">Товар</th>
                     <th class="px-4 py-3 text-left">Остаток</th>
                     <th class="px-4 py-3 text-left">Кол-во</th>
@@ -450,23 +435,39 @@
                   </tr>
                 </thead>
                 <tbody v-if="draftItems.length" class="divide-y">
-                  <tr v-for="item in draftItems" :key="item.product.id">
+                  <tr v-for="(item, index) in draftItems" :key="item.product.id">
+                    <td class="px-2 py-3 text-sm text-gray-400">{{ index + 1 }}</td>
                     <td class="px-4 py-3">
-                      <div class="font-medium text-gray-900">
-                        {{ item.product.title }}
-                        <span v-if="item.product.variantName" class="text-gray-500 font-normal">
-                          — {{ item.product.variantName }}
-                        </span>
-                      </div>
-                      <div
-                        v-if="item.product.groupName"
-                        class="text-xs font-semibold text-blue-600"
-                      >
-                        {{ item.product.groupName }}
-                      </div>
-                      <div class="text-xs text-gray-500">
-                        Текущая себестоимость:
-                        {{ formatCurrency(item.product.costPrice) }}
+                      <div class="flex items-center gap-3">
+                        <img
+                          v-if="item.product.image"
+                          :src="item.product.image"
+                          class="h-10 w-10 flex-shrink-0 rounded object-cover"
+                          :alt="item.product.title"
+                        />
+                        <div v-else class="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded bg-gray-100">
+                          <svg class="h-5 w-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                          </svg>
+                        </div>
+                        <div>
+                          <div class="font-medium text-gray-900">
+                            {{ item.product.title }}
+                            <span v-if="item.product.variantName" class="text-gray-500 font-normal">
+                              — {{ item.product.variantName }}
+                            </span>
+                          </div>
+                          <div
+                            v-if="item.product.groupName"
+                            class="text-xs font-semibold text-blue-600"
+                          >
+                            {{ item.product.groupName }}
+                          </div>
+                          <div class="text-xs text-gray-500">
+                            Текущая себестоимость:
+                            {{ formatCurrency(item.product.costPrice) }}
+                          </div>
+                        </div>
                       </div>
                     </td>
                     <td class="px-4 py-3 text-sm text-gray-600">
@@ -1399,6 +1400,21 @@ function addProduct(product: CrmProductSummary) {
     quantity: 1,
     costPerUnit: product.costPrice > 0 ? product.costPrice : product.priceRub,
   });
+}
+
+function getAddedQuantity(productId: string): number {
+  const item = draftItems.value.find((i) => i.product.id === productId);
+  return item?.quantity ?? 0;
+}
+
+function decreaseProduct(productId: string) {
+  const item = draftItems.value.find((i) => i.product.id === productId);
+  if (!item) return;
+  if (item.quantity <= 1) {
+    draftItems.value = draftItems.value.filter((i) => i.product.id !== productId);
+  } else {
+    item.quantity -= 1;
+  }
 }
 
 async function startEditProcurement(id: string, existing?: Procurement | null) {

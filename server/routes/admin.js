@@ -1416,13 +1416,14 @@ adminRouter.get('/api/admin/category-groups', authMiddleware, (req, res) => {
       g.parent_group_id,
       g.meta_label,
       g.meta_value,
+      g.empty_since,
       g.createdAt,
       g.updatedAt,
       COUNT(p.id) AS productCount
     FROM category_groups g
     LEFT JOIN products p ON p.groupId = g.id
     ${whereClause}
-    GROUP BY g.id, g.categoryId, g.slug, g.name, g.[order], g.hide_empty, g.parent_group_id, g.meta_label, g.meta_value, g.createdAt, g.updatedAt
+    GROUP BY g.id, g.categoryId, g.slug, g.name, g.[order], g.hide_empty, g.parent_group_id, g.meta_label, g.meta_value, g.empty_since, g.createdAt, g.updatedAt
     ORDER BY g.categoryId ASC, g.[order] ASC, g.name ASC
   `).all(...params);
 
@@ -1431,6 +1432,7 @@ adminRouter.get('/api/admin/category-groups', authMiddleware, (req, res) => {
     ...row,
     productCount: Number(row.productCount ?? 0),
     parent_group_id: row.parent_group_id ?? null,
+    empty_since: row.empty_since ?? null,
     children: []
   }));
 
@@ -1480,6 +1482,20 @@ adminRouter.get('/api/admin/category-groups', authMiddleware, (req, res) => {
     list
       .sort((a, b) => (a['order'] ?? 0) - (b['order'] ?? 0))
       .forEach(node => visit(node));
+  });
+
+  // Автоматически обновляем empty_since для групп
+  flattened.forEach(group => {
+    const productCount = Number(group.productCount ?? 0);
+    if (productCount === 0 && !group.empty_since) {
+      // Группа стала пустой - записываем дату
+      db.prepare('UPDATE category_groups SET empty_since = ? WHERE id = ?').run(new Date().toISOString(), group.id);
+      group.empty_since = new Date().toISOString();
+    } else if (productCount > 0 && group.empty_since) {
+      // Группа снова имеет товары - сбрасываем дату
+      db.prepare('UPDATE category_groups SET empty_since = NULL WHERE id = ?').run(group.id);
+      group.empty_since = null;
+    }
   });
 
   res.json(flattened);

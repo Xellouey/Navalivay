@@ -14,6 +14,7 @@ import { uploadRouter } from './upload.js';
 import { crmRouter } from './routes/crm.js';
 import { crmOperationsRouter } from './routes/crm-operations.js';
 import { crmFinanceRouter } from './routes/crm-finance.js';
+import { posRouter } from './routes/pos.js';
 import { archiveOldDeliveredOrders, scheduleArchiving } from './cleanup-delivered-orders.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -69,6 +70,8 @@ app.use(uploadRouter);
 app.use(crmRouter);
 app.use(crmOperationsRouter);
 app.use(crmFinanceRouter);
+// POS API
+app.use(posRouter);
 
 
 app.listen(PORT, () => {

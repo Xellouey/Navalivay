@@ -888,7 +888,9 @@ crmFinanceRouter.get('/api/admin/crm/products/search', authMiddleware, (req, res
       SELECT 
         p.*,
         c.name as category_name,
+        c.cover_image as category_image,
         g.name as group_name,
+        g.cover_image as group_image,
         (SELECT url FROM product_images WHERE productId = p.id ORDER BY position LIMIT 1) as first_image
       FROM products p
       LEFT JOIN categories c ON c.id = p.categoryId
@@ -903,7 +905,9 @@ crmFinanceRouter.get('/api/admin/crm/products/search', authMiddleware, (req, res
           SELECT 
             p.*,
             c.name as category_name,
+            c.cover_image as category_image,
             g.name as group_name,
+            g.cover_image as group_image,
             (SELECT url FROM product_images WHERE productId = p.id ORDER BY position LIMIT 1) as first_image
           FROM products p
           LEFT JOIN categories c ON c.id = p.categoryId
@@ -927,8 +931,10 @@ crmFinanceRouter.get('/api/admin/crm/products/search', authMiddleware, (req, res
         p.min_stock,
         p.categoryId,
         c.name as category_name,
+        c.cover_image as category_image,
         p.groupId,
         g.name as group_name,
+        g.cover_image as group_image,
         (SELECT url FROM product_images WHERE productId = p.id AND (variant_id = v.id OR variant_id IS NULL) ORDER BY variant_id DESC, position LIMIT 1) as first_image
       FROM product_variants v
       INNER JOIN products p ON p.id = v.product_id
@@ -954,8 +960,10 @@ crmFinanceRouter.get('/api/admin/crm/products/search', authMiddleware, (req, res
             p.min_stock,
             p.categoryId,
             c.name as category_name,
+            c.cover_image as category_image,
             p.groupId,
             g.name as group_name,
+            g.cover_image as group_image,
             (SELECT url FROM product_images WHERE productId = p.id AND (variant_id = v.id OR variant_id IS NULL) ORDER BY variant_id DESC, position LIMIT 1) as first_image
           FROM product_variants v
           INNER JOIN products p ON p.id = v.product_id
@@ -978,8 +986,10 @@ crmFinanceRouter.get('/api/admin/crm/products/search', authMiddleware, (req, res
       min_stock: v.min_stock,
       categoryId: v.categoryId,
       category_name: v.category_name,
+      category_image: v.category_image,
       groupId: v.groupId,
       group_name: v.group_name,
+      group_image: v.group_image,
       has_variants: 0,
       is_variant: true,
       // Убираем base64 изображения - они слишком тяжёлые для поиска
@@ -1036,8 +1046,15 @@ crmFinanceRouter.get('/api/admin/crm/products/search', authMiddleware, (req, res
     
     allProducts = allProducts.slice(0, Number(limit));
     
-    // Убираем тяжёлые поля из ответа
-    const cleanProducts = allProducts.map(({ group_cover_image, first_image, variant_color_image, ...rest }) => rest);
+    // Убираем тяжёлые поля из ответа, но оставляем нужные изображения
+    const cleanProducts = allProducts.map(p => {
+      const { first_image, variant_color_image, ...rest } = p;
+      return {
+        ...rest,
+        // Приоритет: фото товара > фото линейки > фото категории
+        image: p.imageUrl || p.group_image || p.category_image || null
+      };
+    });
     
     res.json(cleanProducts);
   } catch (error) {

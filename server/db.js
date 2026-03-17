@@ -33,6 +33,8 @@ import { migrateColorImageToVariants } from './migrations/add_color_image_to_var
 import { migrateCategoryGroupMetaFields } from './migrations/add_group_meta_fields.js';
 import { migrateStockDeductedToOrders } from './migrations/add_stock_deducted_to_orders.js';
 import { migrateVariantIdToOrderItems } from './migrations/add_variant_id_to_order_items.js';
+import { migrateEmptySinceToGroups } from './migrations/add_empty_since_to_groups.js';
+import { migratePosSales } from './migrations/add_pos_sales.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -165,6 +167,8 @@ export function initDb() {
   migrateColorImageToVariants();
   migrateStockDeductedToOrders();
   migrateVariantIdToOrderItems();
+  migrateEmptySinceToGroups();
+  migratePosSales();
 
   seedIfEmpty();
 }

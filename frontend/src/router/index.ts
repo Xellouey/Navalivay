@@ -102,6 +102,12 @@ const router = createRouter({
           beforeEnter: requireAdminAuth,
         },
         {
+          path: "crm/pos-sales",
+          name: "CrmPosSales",
+          component: () => import("@/views/admin/crm/CrmPosSales.vue"),
+          beforeEnter: requireAdminAuth,
+        },
+        {
           path: "crm/message-templates",
           name: "CrmMessageTemplates",
           component: () => import("@/views/admin/crm/CrmMessageTemplates.vue"),

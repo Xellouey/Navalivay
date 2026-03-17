@@ -36,6 +36,9 @@ lerna-debug.log*
 Thumbs.db
 
 # Database
+server/navalivay.db
+server/navalivay.db-wal
+server/navalivay.db-shm
 server/data/*.db
 server/data/*.db-wal
 server/data/*.db-shm

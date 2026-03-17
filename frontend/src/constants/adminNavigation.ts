@@ -9,7 +9,8 @@ import {
   ArrowDownTrayIcon,
   BanknotesIcon,
   ArchiveBoxXMarkIcon,
-  ArchiveBoxIcon
+  ArchiveBoxIcon,
+  ReceiptPercentIcon
 } from '@heroicons/vue/24/outline'
 
 export const adminTabOptions = ['dashboard', 'products', 'categories', 'banners', 'settings'] as const
@@ -74,5 +75,12 @@ export const crmLinks: SidebarLink[] = [
     description: 'Учёт списаний товаров',
     icon: ArchiveBoxXMarkIcon,
     to: '/admin/crm/write-offs'
+  },
+  {
+    id: 'crm-pos-sales',
+    name: 'Продажи касса',
+    description: 'Продажи через кассу',
+    icon: ReceiptPercentIcon,
+    to: '/admin/crm/pos-sales'
   }
 ]

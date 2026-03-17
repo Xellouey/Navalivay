@@ -158,6 +158,7 @@ export interface CrmProductSummary {
   isVariant?: boolean; // Это вариант товара
   variantName?: string | null; // Название варианта (цвет)
   imageUrl?: string | null; // URL изображения товара или линейки
+  image?: string | null; // Итоговое фото (товар > линейка > категория)
 }
 
 export interface CashAccount {
@@ -180,6 +181,21 @@ export interface CashTransaction {
   employee_id: string | null;
   employee_name: string | null;
   created_at: string;
+}
+
+export interface PosSale {
+  id: string;
+  sale_number: number;
+  product_name: string;
+  price: number;
+  cost_price: number | null;
+  profit: number | null;
+  status: 'completed' | 'pending';
+  notes: string | null;
+  employee_id: string | null;
+  employee_name?: string | null;
+  created_at: string;
+  completed_at: string | null;
 }
 
 export interface VisitLog {
@@ -981,30 +997,6 @@ export const useCrmStore = defineStore("crm", () => {
     return procurement;
   }
 
-  async function verifyProfitPassword(password: string) {
-    verifyingProfitAccess.value = true;
-    try {
-      const result = await fetchAPI<{ ok: boolean }>(
-        `/api/admin/settings/profit-password/verify`,
-        {
-          method: "POST",
-          body: JSON.stringify({ password }),
-        },
-      );
-
-      if (result.ok) {
-        profitUnlocked.value = true;
-      }
-
-      return result;
-    } catch (error) {
-      profitUnlocked.value = false;
-      throw error;
-    } finally {
-      verifyingProfitAccess.value = false;
-    }
-  }
-
   // Write-offs
   const writeOffs = ref<WriteOff[]>([]);
   const currentWriteOff = ref<WriteOff | null>(null);
@@ -1192,6 +1184,111 @@ export const useCrmStore = defineStore("crm", () => {
     cashTransactions.value = cashTransactions.value.filter((t) => t.id !== id);
   }
 
+  // POS Sales
+  const posSales = ref<PosSale[]>([]);
+  const pendingPosSales = ref<PosSale[]>([]);
+  const loadingPosSales = ref(false);
+  const posSalesTotal = ref(0);
+
+  async function fetchPosSales(params?: {
+    status?: 'completed' | 'pending';
+    from?: string;
+    to?: string;
+    limit?: number;
+    offset?: number;
+  }) {
+    loadingPosSales.value = true;
+    try {
+      const query = new URLSearchParams();
+      if (params?.status) query.append('status', params.status);
+      if (params?.from) query.append('from', params.from);
+      if (params?.to) query.append('to', params.to);
+      if (params?.limit) query.append('limit', params.limit.toString());
+      if (params?.offset) query.append('offset', params.offset.toString());
+
+      const response = await fetchAPI<{ sales: PosSale[]; total: number }>(
+        `/api/admin/pos/sales?${query}`
+      );
+      posSales.value = response.sales;
+      posSalesTotal.value = response.total;
+      return response;
+    } finally {
+      loadingPosSales.value = false;
+    }
+  }
+
+  async function fetchPendingPosSales() {
+    try {
+      pendingPosSales.value = await fetchAPI<PosSale[]>('/api/admin/pos/pending');
+      return pendingPosSales.value;
+    } catch (error) {
+      console.error('Failed to fetch pending POS sales:', error);
+      return [];
+    }
+  }
+
+  async function createPosSale(data: {
+    product_name: string;
+    price: number;
+    cost_price?: number | null;
+    notes?: string;
+    employee_id?: string;
+  }) {
+    const sale = await fetchAPI<PosSale>('/api/admin/pos/sales', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+    
+    if (sale.status === 'pending') {
+      pendingPosSales.value.unshift(sale);
+    } else {
+      posSales.value.unshift(sale);
+    }
+    
+    return sale;
+  }
+
+  async function updatePosSale(
+    id: string,
+    data: {
+      product_name?: string;
+      price?: number;
+      cost_price?: number;
+      notes?: string;
+    }
+  ) {
+    const sale = await fetchAPI<PosSale>(`/api/admin/pos/sales/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    });
+
+    // Обновляем в списке отложенных
+    const pendingIndex = pendingPosSales.value.findIndex((s) => s.id === id);
+    if (pendingIndex !== -1) {
+      if (sale.status === 'completed') {
+        // Убираем из отложенных, добавляем в основной список
+        pendingPosSales.value.splice(pendingIndex, 1);
+        posSales.value.unshift(sale);
+      } else {
+        pendingPosSales.value[pendingIndex] = sale;
+      }
+    } else {
+      // Обновляем в основном списке
+      const index = posSales.value.findIndex((s) => s.id === id);
+      if (index !== -1) {
+        posSales.value[index] = sale;
+      }
+    }
+
+    return sale;
+  }
+
+  async function deletePosSale(id: string) {
+    await fetchAPI(`/api/admin/pos/sales/${id}`, { method: 'DELETE' });
+    posSales.value = posSales.value.filter((s) => s.id !== id);
+    pendingPosSales.value = pendingPosSales.value.filter((s) => s.id !== id);
+  }
+
   // Low stock
   const lowStockProducts = ref<any[]>([]);
 
@@ -1246,6 +1343,7 @@ export const useCrmStore = defineStore("crm", () => {
       isVariant: product.is_variant === true,
       variantName: product.variant_name ?? null,
       imageUrl: product.imageUrl ?? null,
+      image: product.image ?? null,
     })) as CrmProductSummary[];
   }
 
@@ -1447,6 +1545,17 @@ export const useCrmStore = defineStore("crm", () => {
     createCashTransaction,
     updateCashTransaction,
     deleteCashTransaction,
+
+    // POS Sales
+    posSales,
+    pendingPosSales,
+    loadingPosSales,
+    posSalesTotal,
+    fetchPosSales,
+    fetchPendingPosSales,
+    createPosSale,
+    updatePosSale,
+    deletePosSale,
 
     // Low stock
     lowStockProducts,

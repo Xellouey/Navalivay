@@ -1,11 +1,8 @@
 <template>
   <div class="min-h-screen bg-gray-50 md:h-screen md:overflow-hidden">
     
-    <!-- Login screen -->
-    <AdminLoginScreen v-if="!adminStore.isAuthenticated" @success="handleLoginSuccess" />
-    
-    <!-- Lock screen -->
-    <AdminLockScreen v-else-if="adminStore.isAuthenticated && isLocked" @unlocked="handleUnlock" />
+    <!-- Login/Lock screen - Cashier POS interface -->
+    <CashierLockScreen v-if="!adminStore.isAuthenticated || isLocked" @unlocked="handleUnlock" />
 
     <!-- Authenticated layout -->
 <AdminLayout v-else-if="adminStore.isAuthenticated" v-model="layoutTab" :tabs="adminTabs" :main-active="!isCrmRoute" :crm-links="crmLinks" @lock="handleLock">
@@ -796,21 +793,33 @@
           <div
             v-for="(group, index) in editableGroups"
             :key="group.id"
-            class="border border-gray-200 rounded-lg p-4 bg-white shadow-sm"
+            class="border rounded-lg p-4 shadow-sm"
+            :class="(group.productCount ?? 0) === 0 ? 'border-gray-300 bg-gray-100 opacity-70' : 'border-gray-200 bg-white'"
           >
             <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between mb-3">
-            <div class="space-y-2" :style="{ paddingLeft: `${(group.depth ?? 0) * 12}px` }">
-                <p class="text-base font-semibold text-gray-900">{{ group.name }}</p>
+            <div class="flex items-start gap-3" :style="{ paddingLeft: `${(group.depth ?? 0) * 12}px` }">
+                <div class="w-10 h-10 rounded-lg overflow-hidden bg-gray-100 flex-shrink-0 border border-gray-200">
+                  <img v-if="group.coverImage" :src="group.coverImage" class="w-full h-full object-cover" alt="" />
+                  <div v-else class="w-full h-full flex items-center justify-center text-gray-400">
+                    <PhotoIcon class="w-5 h-5" />
+                  </div>
+                </div>
+                <div class="space-y-2">
+                <p class="text-base font-semibold" :class="(group.productCount ?? 0) === 0 ? 'text-gray-500' : 'text-gray-900'">{{ group.name }}</p>
               <p v-if="group.parentId" class="text-xs text-gray-500">Внутри: {{ groupNameById[group.parentId] || '—' }}</p>
-                <div class="mt-2 text-xs text-gray-500 space-x-2">
-                  <span>Порядок: <strong>{{ index + 1 }}</strong></span>
-                  <span>Товаров в этой линейке: <strong>{{ group.productCount ?? 0 }}</strong></span>
-                  <span>Товаров включая дочерние линейки: <strong>{{ group.totalProductCount ?? group.productCount ?? 0 }}</strong></span>
-                  <span v-if="group.hideEmpty" class="inline-flex items-center gap-1 text-orange-600">
+                <div v-if="group.hideEmpty" class="mt-2">
+                  <span class="inline-flex items-center gap-1 text-xs text-orange-600">
                     <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path d="M10 18a8 8 0 100-16 8 8 0 000 16zm-.75-5.25h1.5v1.5h-1.5v-1.5zm0-6h1.5v4.5h-1.5v-4.5z"/></svg>
                     Скрывать пустую
                   </span>
                 </div>
+                <div v-if="(group.productCount ?? 0) === 0" class="mt-2">
+                  <span class="inline-flex items-center gap-1 text-xs text-gray-500">
+                    <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/></svg>
+                    Отсутствуют товары, не отображается на витрине{{ group.emptySince ? ` уже ${getDaysEmpty(group.emptySince)} дн.` : '' }}
+                  </span>
+                </div>
+              </div>
               </div>
               <div class="flex flex-col gap-2 sm:items-end">
                 <div class="flex items-center justify-center sm:justify-end gap-1 flex-wrap">
@@ -991,7 +1000,7 @@
 import { ref, onMounted, onUnmounted, computed, watch, reactive, nextTick } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { storeToRefs } from 'pinia'
-import { ChevronUpIcon, ChevronDownIcon, PencilSquareIcon, TrashIcon, PlusIcon, ArrowTrendingUpIcon, CurrencyDollarIcon, ChartBarIcon, BoltIcon, TruckIcon, ClipboardDocumentCheckIcon, SparklesIcon, LockOpenIcon, Cog6ToothIcon } from '@heroicons/vue/24/outline'
+import { ChevronUpIcon, ChevronDownIcon, PencilSquareIcon, TrashIcon, PlusIcon, ArrowTrendingUpIcon, CurrencyDollarIcon, ChartBarIcon, BoltIcon, TruckIcon, ClipboardDocumentCheckIcon, SparklesIcon, LockOpenIcon, Cog6ToothIcon, PhotoIcon } from '@heroicons/vue/24/outline'
 import { useAdminStore, type Category, type CategoryGroup, type Product } from '@/stores/admin'
 import { useCrmStore } from '@/stores/crm'
 import AdminBannersList from '@/components/admin/AdminBannersList.vue'
@@ -1004,9 +1013,8 @@ import AdminLayout from '@/components/admin/layout/AdminLayout.vue'
 import AdminSectionHero from '@/components/admin/layout/AdminSectionHero.vue'
 import AdminProductsTable from '@/components/admin/AdminProductsTable.vue'
 import AdminCategoryGroupForm from '@/components/admin/AdminCategoryGroupForm.vue'
-import AdminLoginScreen from '@/components/admin/AdminLoginScreen.vue'
-import AdminLockScreen from '@/components/admin/AdminLockScreen.vue'
-import CountUp from '@/components/CountUp.vue'
+  import CashierLockScreen from '@/components/admin/CashierLockScreen.vue'
+  import CountUp from '@/components/CountUp.vue'
 import CountUpCurrency from '@/components/CountUpCurrency.vue'
 import { adminTabs, crmLinks, adminTabOptions, type AdminTabId } from '@/constants/adminNavigation'
 
@@ -1112,6 +1120,12 @@ const toast = ref<{ visible: boolean; message: string; type: 'success' | 'error'
   type: 'success',
   timer: null
 })
+
+function getDaysEmpty(emptySince: string | null | undefined): number {
+  if (!emptySince) return 0
+  const diff = Date.now() - new Date(emptySince).getTime()
+  return Math.floor(diff / 86400000)
+}
 
 function showToast(message: string, type: 'success' | 'error' = 'success', timeout = 2500) {
   // Clear previous timer if any
@@ -1555,6 +1569,12 @@ function handleLock() {
 function handleUnlock() {
   isLocked.value = false
   localStorage.removeItem(LOCK_STATE_KEY)
+  // Load initial data after successful authentication/unlock
+  if (adminStore.isAuthenticated) {
+    resetLoadedState()
+    loadInitialAdminData()
+    updateManagerForm()
+  }
 }
 
 // Overview navigation
@@ -2078,7 +2098,14 @@ function syncEditableGroups(categoryId: string, restoreScroll = false) {
     ? scrollContainer.scrollTop 
     : 0
   
-  editableGroups.value = flattenGroupTree(buildGroupTreeForCategory(categoryId))
+  const groups = flattenGroupTree(buildGroupTreeForCategory(categoryId))
+  // Сортируем: сначала с товарами, потом пустые
+  groups.sort((a, b) => {
+    const aEmpty = (a.productCount ?? 0) === 0 ? 1 : 0
+    const bEmpty = (b.productCount ?? 0) === 0 ? 1 : 0
+    return aEmpty - bEmpty
+  })
+  editableGroups.value = groups
   
   if (restoreScroll && scrollPos > 0) {
     nextTick(() => {

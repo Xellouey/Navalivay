@@ -5,13 +5,15 @@
         <div
           class="flex w-full flex-wrap items-center justify-start gap-2 sm:w-auto sm:justify-end"
         >
+          <!-- Обновить -->
           <button
             @click="refreshOrders()"
             :disabled="isRefreshing"
-            class="inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-60"
+            class="inline-flex items-center gap-2 rounded-xl border border-slate-200/40 bg-gradient-to-br from-slate-50/90 to-gray-50/60 px-4 py-2 text-sm font-medium text-slate-600 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-slate-300/50 hover:shadow-md disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:translate-y-0"
           >
             <svg
-              class="h-4 w-4"
+              class="h-4 w-4 transition-transform duration-500"
+              :class="{ 'animate-spin': isRefreshing }"
               fill="none"
               stroke="currentColor"
               viewBox="0 0 24 24"
@@ -23,176 +25,279 @@
                 d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
               />
             </svg>
-            <span v-if="!isRefreshing">Обновить</span>
-            <span v-else>Обновляем...</span>
+            <span class="hidden sm:inline">{{ isRefreshing ? 'Обновляем...' : 'Обновить' }}</span>
           </button>
-          <button
-            @click="crmStore.setAutoRefreshEnabled(!autoRefreshEnabled)"
-            class="inline-flex items-center gap-2 rounded-lg border px-4 py-2 text-sm font-medium transition-colors"
-            :class="
-              autoRefreshEnabled
-                ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
-                : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-100'
-            "
-          >
-            <svg
-              class="h-4 w-4"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
+
+          <!-- Dropdown: Настройки -->
+          <div class="relative" ref="settingsDropdownRef">
+            <button
+              @click="settingsDropdownOpen = !settingsDropdownOpen"
+              class="inline-flex items-center gap-2 rounded-xl border px-4 py-2 text-sm font-medium transition-all duration-200"
+              :class="
+                hasActiveSettings
+                  ? 'border-emerald-200 bg-gradient-to-r from-emerald-50 to-green-50 text-emerald-700 shadow-sm'
+                  : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50 hover:border-gray-300'
+              "
             >
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="2"
-                d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-              />
-            </svg>
-            {{ autoRefreshEnabled ? "Авто включено" : "Включить авто" }}
-          </button>
-          <button
-            @click="crmStore.setNotificationsEnabled(!notificationsEnabled)"
-            :disabled="!notificationsSupported || notificationPermissionDenied"
-            class="inline-flex items-center gap-2 rounded-lg border px-4 py-2 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60"
-            :class="
-              notificationsEnabled
-                ? 'border-sky-200 bg-sky-50 text-sky-700'
-                : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-100'
-            "
-            :title="`Permission: ${notificationPermissionStatus}`"
-          >
-            <svg
-              class="h-4 w-4"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
+              <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+              </svg>
+              <span class="hidden sm:inline">Настройки</span>
+              <svg 
+                class="h-3.5 w-3.5 transition-transform duration-200" 
+                :class="{ 'rotate-180': settingsDropdownOpen }"
+                fill="none" 
+                stroke="currentColor" 
+                viewBox="0 0 24 24"
+              >
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+              </svg>
+            </button>
+            <Transition
+              enter-active-class="transition ease-out duration-150"
+              enter-from-class="transform opacity-0 scale-95 -translate-y-1"
+              enter-to-class="transform opacity-100 scale-100 translate-y-0"
+              leave-active-class="transition ease-in duration-100"
+              leave-from-class="transform opacity-100 scale-100 translate-y-0"
+              leave-to-class="transform opacity-0 scale-95 -translate-y-1"
             >
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="2"
-                d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6 6 0 10-12 0v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"
-              />
-            </svg>
-            {{ notificationsEnabled ? "Уведомления" : "Уведомления выкл" }}
-            <span v-if="notificationPermissionStatus !== 'granted'" class="ml-1 text-xs text-red-500">({{ notificationPermissionStatus }})</span>
-          </button>
-          <button
-            @click="crmStore.setSoundEnabled(!soundEnabled)"
-            class="inline-flex items-center gap-2 rounded-lg border px-4 py-2 text-sm font-medium transition-colors"
-            :class="
-              soundEnabled
-                ? 'border-purple-200 bg-purple-50 text-purple-700'
-                : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-100'
-            "
-          >
-            <svg
-              class="h-4 w-4"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
+              <div
+                v-if="settingsDropdownOpen"
+                class="absolute left-0 z-50 mt-2 w-80 origin-top-left rounded-2xl border border-slate-200/40 bg-white/95 p-3 shadow-2xl backdrop-blur-sm sm:left-auto sm:right-0 sm:origin-top-right"
+              >
+                <!-- Заголовок -->
+                <div class="px-2 py-1.5 mb-2">
+                  <h3 class="text-[11px] font-semibold uppercase tracking-[0.2em] text-gray-400">Уведомления</h3>
+                </div>
+                
+                <!-- Автообновление -->
+                <button
+                  @click="crmStore.setAutoRefreshEnabled(!autoRefreshEnabled)"
+                  class="flex w-full items-center justify-between gap-3 rounded-xl border px-3 py-2.5 text-left transition-all duration-200 hover:-translate-y-0.5 focus:outline-none"
+                  :class="autoRefreshEnabled 
+                    ? 'border-emerald-200/60 bg-gradient-to-br from-emerald-50/90 to-green-50/60 shadow-lg shadow-emerald-100/50' 
+                    : 'border-slate-200/40 bg-gradient-to-br from-slate-50/90 to-gray-50/60 hover:border-slate-300/50 hover:shadow-md'"
+                >
+                  <div class="flex items-center gap-3">
+                    <span 
+                      class="flex h-9 w-9 items-center justify-center rounded-xl transition-all"
+                      :class="autoRefreshEnabled ? 'bg-emerald-100/80 text-emerald-600 shadow-sm shadow-emerald-200/50' : 'bg-slate-100/80 text-slate-500'"
+                    >
+                      <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                      </svg>
+                    </span>
+                    <div>
+                      <div class="text-sm font-semibold text-slate-800">Автообновление</div>
+                      <div class="text-xs text-slate-400">Каждые 15 секунд</div>
+                    </div>
+                  </div>
+                  <div
+                    class="relative h-6 w-11 rounded-full transition-colors duration-200"
+                    :class="autoRefreshEnabled ? 'bg-emerald-500' : 'bg-slate-300'"
+                  >
+                    <div
+                      class="absolute top-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition-all duration-200"
+                      :class="autoRefreshEnabled ? 'left-[22px]' : 'left-0.5'"
+                    />
+                  </div>
+                </button>
+                
+                <!-- Уведомления -->
+                <button
+                  @click="crmStore.setNotificationsEnabled(!notificationsEnabled)"
+                  :disabled="!notificationsSupported || notificationPermissionDenied"
+                  class="mt-2 flex w-full items-center justify-between gap-3 rounded-xl border px-3 py-2.5 text-left transition-all duration-200 hover:-translate-y-0.5 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0"
+                  :class="notificationsEnabled 
+                    ? 'border-sky-200/60 bg-gradient-to-br from-sky-50/90 to-blue-50/60 shadow-lg shadow-sky-100/50' 
+                    : 'border-slate-200/40 bg-gradient-to-br from-slate-50/90 to-gray-50/60 hover:border-slate-300/50 hover:shadow-md'"
+                >
+                  <div class="flex items-center gap-3">
+                    <span 
+                      class="flex h-9 w-9 items-center justify-center rounded-xl transition-all"
+                      :class="notificationsEnabled ? 'bg-sky-100/80 text-sky-600 shadow-sm shadow-sky-200/50' : 'bg-slate-100/80 text-slate-500'"
+                    >
+                      <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6 6 0 10-12 0v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+                      </svg>
+                    </span>
+                    <div>
+                      <div class="text-sm font-semibold text-slate-800">Push-уведомления</div>
+                      <div class="text-xs text-slate-400">Браузерные оповещения</div>
+                    </div>
+                  </div>
+                  <div
+                    class="relative h-6 w-11 rounded-full transition-colors duration-200"
+                    :class="notificationsEnabled ? 'bg-sky-500' : 'bg-slate-300'"
+                  >
+                    <div
+                      class="absolute top-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition-all duration-200"
+                      :class="notificationsEnabled ? 'left-[22px]' : 'left-0.5'"
+                    />
+                  </div>
+                </button>
+                
+                <!-- Звук -->
+                <button
+                  @click="crmStore.setSoundEnabled(!soundEnabled)"
+                  class="mt-2 flex w-full items-center justify-between gap-3 rounded-xl border px-3 py-2.5 text-left transition-all duration-200 hover:-translate-y-0.5 focus:outline-none"
+                  :class="soundEnabled 
+                    ? 'border-purple-200/60 bg-gradient-to-br from-purple-50/90 to-violet-50/60 shadow-lg shadow-purple-100/50' 
+                    : 'border-slate-200/40 bg-gradient-to-br from-slate-50/90 to-gray-50/60 hover:border-slate-300/50 hover:shadow-md'"
+                >
+                  <div class="flex items-center gap-3">
+                    <span 
+                      class="flex h-9 w-9 items-center justify-center rounded-xl transition-all"
+                      :class="soundEnabled ? 'bg-purple-100/80 text-purple-600 shadow-sm shadow-purple-200/50' : 'bg-slate-100/80 text-slate-500'"
+                    >
+                      <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
+                      </svg>
+                    </span>
+                    <div>
+                      <div class="text-sm font-semibold text-slate-800">Звук</div>
+                      <div class="text-xs text-slate-400">При новом заказе</div>
+                    </div>
+                  </div>
+                  <div
+                    class="relative h-6 w-11 rounded-full transition-colors duration-200"
+                    :class="soundEnabled ? 'bg-purple-500' : 'bg-slate-300'"
+                  >
+                    <div
+                      class="absolute top-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition-all duration-200"
+                      :class="soundEnabled ? 'left-[22px]' : 'left-0.5'"
+                    />
+                  </div>
+                </button>
+                
+                <!-- Разрешить уведомления (если нужно) -->
+                <template v-if="notificationPermissionStatus === 'default'">
+                  <div class="my-3 border-t border-slate-100"></div>
+                  <button
+                    @click="requestNotificationPermission"
+                    class="flex w-full items-center gap-3 rounded-xl border border-orange-200/60 bg-gradient-to-br from-orange-50/90 to-amber-50/60 px-3 py-2.5 text-left shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md focus:outline-none"
+                  >
+                    <span class="flex h-9 w-9 items-center justify-center rounded-xl bg-orange-100/80 text-orange-500 shadow-sm shadow-orange-200/50">
+                      <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6 6 0 10-12 0v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+                      </svg>
+                    </span>
+                    <div>
+                      <div class="text-sm font-semibold text-orange-700">Разрешить уведомления</div>
+                      <div class="text-xs text-orange-500/80">Требуется разрешение браузера</div>
+                    </div>
+                  </button>
+                </template>
+                
+                <!-- Статус уведомлений если заблокированы -->
+                <template v-if="notificationPermissionStatus === 'denied'">
+                  <div class="my-3 border-t border-slate-100"></div>
+                  <div class="flex items-center gap-3 rounded-xl border border-red-200/60 bg-gradient-to-br from-red-50/90 to-rose-50/60 px-3 py-2.5">
+                    <span class="flex h-9 w-9 items-center justify-center rounded-xl bg-red-100/80 text-red-500">
+                      <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
+                      </svg>
+                    </span>
+                    <div class="text-xs font-medium text-red-600">
+                      Уведомления заблокированы в браузере
+                    </div>
+                  </div>
+                </template>
+              </div>
+            </Transition>
+          </div>
+
+          <!-- Dropdown: Ещё -->
+          <div class="relative" ref="moreDropdownRef">
+            <button
+              @click="moreDropdownOpen = !moreDropdownOpen"
+              class="inline-flex items-center gap-2 rounded-xl border border-slate-200/40 bg-gradient-to-br from-slate-50/90 to-gray-50/60 px-4 py-2 text-sm font-medium text-slate-600 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-slate-300/50 hover:shadow-md"
             >
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="2"
-                d="M11 5l-6 6h4v5l6-6h-4V5z"
-              />
-            </svg>
-            {{ soundEnabled ? "Звук" : "Звук выкл" }}
-          </button>
-          <!-- Debug: Request permission button -->
-          <button
-            v-if="notificationPermissionStatus === 'default'"
-            @click="requestNotificationPermission"
-            class="inline-flex items-center gap-2 rounded-lg border border-orange-200 bg-orange-50 px-4 py-2 text-sm font-medium text-orange-700 transition-colors hover:bg-orange-100"
-          >
-            🔔 Разрешить уведомления
-          </button>
-          <!-- Debug: Test notification button -->
-          <button
-            @click="testNotification"
-            class="inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-100"
-            title="Тест уведомления и звука"
-          >
-            🧪 Тест
-          </button>
-          <button
-            @click="$router.push('/admin/crm/message-templates')"
-            class="inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-100"
-          >
-            <svg
-              class="h-4 w-4"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
+              <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h.01M12 12h.01M19 12h.01M6 12a1 1 0 11-2 0 1 1 0 012 0zm7 0a1 1 0 11-2 0 1 1 0 012 0zm7 0a1 1 0 11-2 0 1 1 0 012 0z" />
+              </svg>
+              <span class="hidden sm:inline">Ещё</span>
+            </button>
+            <Transition
+              enter-active-class="transition ease-out duration-150"
+              enter-from-class="transform opacity-0 scale-95 -translate-y-1"
+              enter-to-class="transform opacity-100 scale-100 translate-y-0"
+              leave-active-class="transition ease-in duration-100"
+              leave-from-class="transform opacity-100 scale-100 translate-y-0"
+              leave-to-class="transform opacity-0 scale-95 -translate-y-1"
             >
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="2"
-                d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"
-              />
-            </svg>
-            Шаблоны
-          </button>
-          <button
-            @click="$router.push('/admin/crm/orders/archive')"
-            class="inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-100"
-          >
-            <svg
-              class="h-4 w-4"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="2"
-                d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"
-              />
-            </svg>
-            Архив заказов
-          </button>
+              <div
+                v-if="moreDropdownOpen"
+                class="absolute left-0 z-50 mt-2 w-72 origin-top-left rounded-2xl border border-slate-200/40 bg-white/95 p-3 shadow-2xl backdrop-blur-sm sm:left-auto sm:right-0 sm:origin-top-right"
+              >
+                <!-- Заголовок -->
+                <div class="px-2 py-1.5 mb-2">
+                  <h3 class="text-[11px] font-semibold uppercase tracking-[0.2em] text-gray-400">Дополнительно</h3>
+                </div>
+                
+                <button
+                  @click="$router.push('/admin/crm/message-templates'); moreDropdownOpen = false"
+                  class="flex w-full items-center gap-3 rounded-xl border border-slate-200/40 bg-gradient-to-br from-slate-50/90 to-gray-50/60 px-3 py-2.5 text-left transition-all duration-200 hover:-translate-y-0.5 hover:border-slate-300/50 hover:shadow-md focus:outline-none"
+                >
+                  <span class="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-100/80 text-blue-500 shadow-sm shadow-blue-200/50">
+                    <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                    </svg>
+                  </span>
+                  <div>
+                    <div class="text-sm font-semibold text-slate-800">Шаблоны сообщений</div>
+                    <div class="text-xs text-slate-400">Готовые ответы клиентам</div>
+                  </div>
+                </button>
+                
+                <button
+                  @click="$router.push('/admin/crm/orders/archive'); moreDropdownOpen = false"
+                  class="mt-2 flex w-full items-center gap-3 rounded-xl border border-slate-200/40 bg-gradient-to-br from-slate-50/90 to-gray-50/60 px-3 py-2.5 text-left transition-all duration-200 hover:-translate-y-0.5 hover:border-slate-300/50 hover:shadow-md focus:outline-none"
+                >
+                  <span class="flex h-9 w-9 items-center justify-center rounded-xl bg-amber-100/80 text-amber-500 shadow-sm shadow-amber-200/50">
+                    <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" />
+                    </svg>
+                  </span>
+                  <div>
+                    <div class="text-sm font-semibold text-slate-800">Архив заказов</div>
+                    <div class="text-xs text-slate-400">Старые и завершенные</div>
+                  </div>
+                </button>
+              </div>
+            </Transition>
+          </div>
+
+          <!-- Отмененные -->
           <button
             v-if="cancelledOrders.length"
             @click="cancelledModalOpen = true"
-            class="inline-flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm font-medium text-red-600 transition-colors hover:bg-red-100"
+            class="inline-flex items-center gap-2 rounded-xl border border-red-200 bg-gradient-to-r from-red-50 to-rose-50 px-4 py-2 text-sm font-medium text-red-600 shadow-sm transition-all duration-200 hover:from-red-100 hover:to-rose-100"
           >
-            <svg
-              class="h-4 w-4"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="2"
-                d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"
-              />
+            <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
             </svg>
-            Отмененные
-            <span class="rounded-full bg-red-200 px-1.5 py-0.5 text-xs font-semibold">{{ cancelledOrders.length }}</span>
+            <span class="hidden sm:inline">Отмененные</span>
+            <span class="rounded-full bg-red-200 px-2 py-0.5 text-xs font-bold">{{ cancelledOrders.length }}</span>
           </button>
+
+          <!-- Создать заказ -->
           <button
             @click="showCreateModal = true"
-            class="w-full rounded-lg bg-blue-600 px-5 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-700 sm:w-auto"
+            class="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 px-5 py-2 text-sm font-semibold text-white shadow-md transition-all duration-200 hover:from-blue-700 hover:to-indigo-700 hover:shadow-lg"
           >
-            Создать заказ
+            <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+            </svg>
+            <span class="hidden sm:inline">Создать заказ</span>
+            <span class="sm:hidden">Заказ</span>
           </button>
         </div>
       </div>
 
-      <header class="flex flex-col gap-2">
-        <h1 class="text-2xl font-bold text-gray-900 sm:text-3xl">Заказы</h1>
-        <p class="text-sm text-gray-600 sm:text-base">
-          Канбан доска для статусов «Новый → Собран → Выдан»
-        </p>
-      </header>
-
-      <div class="flex flex-col sm:flex-row gap-3">
+      <div class="flex flex-col sm:flex-row sm:items-center gap-4">
+        <h1 class="text-2xl font-bold text-gray-900 sm:text-3xl shrink-0">Заказы</h1>
         <div class="relative flex-1">
           <input
             v-model="searchQuery"
@@ -216,64 +321,6 @@
             />
           </svg>
         </div>
-      </div>
-
-      <div class="flex flex-wrap items-center gap-4 text-xs text-gray-500">
-        <span class="inline-flex items-center gap-1">
-          <svg
-            class="h-3.5 w-3.5"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              stroke-width="2"
-              d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
-            />
-          </svg>
-          Последнее обновление:
-          <span class="font-semibold text-gray-700">{{ lastUpdateLabel }}</span>
-        </span>
-        <span
-          v-if="autoRefreshEnabled"
-          class="inline-flex items-center gap-1 text-emerald-600"
-        >
-          <svg
-            class="h-3.5 w-3.5"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              stroke-width="2"
-              d="M3 3v4h.01M7 21a9 9 0 0010-8.94V11a4 4 0 10-8 0v1.06A9 9 0 007 21z"
-            />
-          </svg>
-          Автообновление каждые {{ refreshIntervalMs / 1000 }}с
-        </span>
-        <span
-          v-if="unseenOrdersCount > 0"
-          class="inline-flex items-center gap-1 text-red-600"
-        >
-          <svg
-            class="h-3.5 w-3.5"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              stroke-width="2"
-              d="M13 16h-1v-4h-1m1-4h.01M12 18h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-            />
-          </svg>
-          {{ unseenOrdersCount }} новых заказов не просмотрено
-        </span>
       </div>
 
       <!-- Error banner -->
@@ -1216,6 +1263,17 @@ const isIssuing = ref(false);
 const dragOrder = ref<Order | null>(null);
 const activeDropColumn = ref<string | null>(null);
 
+// Dropdown states
+const settingsDropdownOpen = ref(false);
+const moreDropdownOpen = ref(false);
+const settingsDropdownRef = ref<HTMLElement | null>(null);
+const moreDropdownRef = ref<HTMLElement | null>(null);
+
+// Computed for settings indicator
+const hasActiveSettings = computed(() => 
+  autoRefreshEnabled.value || notificationsEnabled.value || soundEnabled.value
+);
+
 const searchQuery = ref("");
 let searchDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -1463,53 +1521,14 @@ const notificationPermissionStatus = computed(() => {
   return Notification.permission;
 });
 
-// Debug functions for testing notifications
+// Request notification permission (used in settings dropdown)
 async function requestNotificationPermission() {
   if (typeof Notification !== "undefined" && Notification.permission === "default") {
     try {
-      const result = await Notification.requestPermission();
-      alert(`Результат запроса разрешения: ${result}`);
+      await Notification.requestPermission();
     } catch (e) {
-      alert(`Ошибка запроса разрешения: ${e}`);
+      console.error("Failed to request notification permission:", e);
     }
-  }
-}
-
-function testNotification() {
-  const permStatus = typeof Notification !== "undefined" ? Notification.permission : "N/A";
-
-  // Test sound
-  try {
-    const ctx = new AudioContext();
-    const oscillator = ctx.createOscillator();
-    const gain = ctx.createGain();
-    oscillator.type = "triangle";
-    oscillator.frequency.value = 880;
-    oscillator.connect(gain);
-    gain.connect(ctx.destination);
-    const now = ctx.currentTime;
-    gain.gain.setValueAtTime(0.0001, now);
-    gain.gain.exponentialRampToValueAtTime(0.25, now + 0.02);
-    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.5);
-    oscillator.start(now);
-    oscillator.stop(now + 0.5);
-    setTimeout(() => ctx.close().catch(() => null), 1000);
-  } catch (e) {
-    alert(`Ошибка звука: ${e}`);
-  }
-
-  // Test notification
-  if (typeof Notification !== "undefined" && Notification.permission === "granted") {
-    try {
-      new Notification("Тест уведомления", {
-        body: "Если вы видите это - уведомления работают!",
-        icon: "/favicon.ico"
-      });
-    } catch (e) {
-      alert(`Ошибка уведомления: ${e}`);
-    }
-  } else {
-    alert(`Уведомления недоступны. Статус: ${permStatus}`);
   }
 }
 
@@ -1830,6 +1849,9 @@ onMounted(async () => {
   };
   document.addEventListener('click', unlockOnInteraction, { once: true });
   document.addEventListener('touchstart', unlockOnInteraction, { once: true });
+  
+  // Close dropdowns on click outside
+  document.addEventListener('click', handleClickOutside);
 });
 
 onUnmounted(() => {
@@ -1845,7 +1867,18 @@ onUnmounted(() => {
     clearTimeout(searchDebounceTimer);
     searchDebounceTimer = null;
   }
+  document.removeEventListener('click', handleClickOutside);
 });
+
+function handleClickOutside(event: MouseEvent) {
+  const target = event.target as Node;
+  if (settingsDropdownRef.value && !settingsDropdownRef.value.contains(target)) {
+    settingsDropdownOpen.value = false;
+  }
+  if (moreDropdownRef.value && !moreDropdownRef.value.contains(target)) {
+    moreDropdownOpen.value = false;
+  }
+}
 
 function scheduleAutoRefresh() {
   if (refreshTimer) {

@@ -87,6 +87,26 @@ crmRouter.get('/api/admin/crm/dashboard', authMiddleware, (req, res) => {
         AND ${paidAtFilter}
     `).get();
 
+    // POS продажи - добавляем к общей статистике
+    const posStats = db.prepare(`
+      SELECT 
+        COALESCE(COUNT(*), 0) AS pos_sales,
+        COALESCE(SUM(price), 0) AS pos_revenue,
+        COALESCE(SUM(profit), 0) AS pos_profit
+      FROM pos_sales
+      WHERE status = 'completed'
+        AND datetime(completed_at) >= '${toSqliteDate(start)}' 
+        AND datetime(completed_at) < '${toSqliteDate(end)}'
+    `).get();
+
+    // Объединяем статистику заказов и POS
+    const combinedStats = {
+      total_sales: (stats.total_sales || 0) + (posStats.pos_sales || 0),
+      revenue: (stats.revenue || 0) + (posStats.pos_revenue || 0),
+      profit: (stats.profit || 0) + (posStats.pos_profit || 0),
+      unique_customers: stats.unique_customers || 0
+    };
+
     // Топ линейки (category groups) - по дате ОПЛАТЫ (paid_at)
     const topProducts = db.prepare(`
       WITH order_totals AS (
@@ -164,11 +184,11 @@ crmRouter.get('/api/admin/crm/dashboard', authMiddleware, (req, res) => {
     res.json({
       period,
       stats: {
-        totalSales: stats.total_sales,
-        revenue: stats.revenue,
-        profit: stats.profit,
-        averageCheck: stats.total_sales > 0 ? stats.revenue / stats.total_sales : 0,
-        uniqueCustomers: stats.unique_customers || 0
+        totalSales: combinedStats.total_sales,
+        revenue: combinedStats.revenue,
+        profit: combinedStats.profit,
+        averageCheck: combinedStats.total_sales > 0 ? combinedStats.revenue / combinedStats.total_sales : 0,
+        uniqueCustomers: combinedStats.unique_customers || 0
       },
       topProducts,
       ordersByStatus,
@@ -253,12 +273,24 @@ crmRouter.get('/api/admin/crm/dashboard-timeseries', authMiddleware, (req, res) 
             AND datetime(o.paid_at) >= ?
             AND datetime(o.paid_at) < ?
         `).get(toSqliteDate(monthStart), toSqliteDate(monthEnd));
+
+        // POS продажи за этот месяц
+        const posStats = db.prepare(`
+          SELECT 
+            COALESCE(COUNT(*), 0) AS orders,
+            COALESCE(SUM(price), 0) AS revenue,
+            COALESCE(SUM(profit), 0) AS profit
+          FROM pos_sales
+          WHERE status = 'completed'
+            AND datetime(completed_at) >= ?
+            AND datetime(completed_at) < ?
+        `).get(toSqliteDate(monthStart), toSqliteDate(monthEnd));
         
         data.push({
           label: monthNames[i],
-          orders: stats?.orders || 0,
-          revenue: stats?.revenue || 0,
-          profit: stats?.profit || 0
+          orders: (stats?.orders || 0) + (posStats?.orders || 0),
+          revenue: (stats?.revenue || 0) + (posStats?.revenue || 0),
+          profit: (stats?.profit || 0) + (posStats?.profit || 0)
         });
       }
     } else if (granularity === 'day') {
@@ -280,12 +312,24 @@ crmRouter.get('/api/admin/crm/dashboard-timeseries', authMiddleware, (req, res) 
             AND datetime(o.paid_at) >= ?
             AND datetime(o.paid_at) < ?
         `).get(toSqliteDate(dayStart), toSqliteDate(dayEnd));
+
+        // POS продажи за этот день
+        const posStats = db.prepare(`
+          SELECT 
+            COALESCE(COUNT(*), 0) AS orders,
+            COALESCE(SUM(price), 0) AS revenue,
+            COALESCE(SUM(profit), 0) AS profit
+          FROM pos_sales
+          WHERE status = 'completed'
+            AND datetime(completed_at) >= ?
+            AND datetime(completed_at) < ?
+        `).get(toSqliteDate(dayStart), toSqliteDate(dayEnd));
         
         data.push({
           label: String(dayStart.getUTCDate()),
-          orders: stats?.orders || 0,
-          revenue: stats?.revenue || 0,
-          profit: stats?.profit || 0
+          orders: (stats?.orders || 0) + (posStats?.orders || 0),
+          revenue: (stats?.revenue || 0) + (posStats?.revenue || 0),
+          profit: (stats?.profit || 0) + (posStats?.profit || 0)
         });
       }
     }
