@@ -4,10 +4,6 @@ import { db } from "../db.js";
 
 export const publicRouter = express.Router();
 
-// #region agent log
-const DEBUG_LOG_PATH = '/var/www/NAVALIVAY/.cursor/debug-036109.log';
-function debugLog(data) { try { fs.appendFileSync(DEBUG_LOG_PATH, JSON.stringify({...data, serverTime: Date.now()}) + '\n'); } catch(e) {} }
-// #endregion
 
 const MAX_SQL_VARS = 900;
 const TELEGRAM_BOT_TOKEN = process.env.BOT_TOKEN || "";
@@ -34,9 +30,6 @@ function normalizeTelegramUsername(value) {
 }
 
 async function resolveTelegramUsernameStatus(telegramId) {
-  // #region agent log
-  fs.appendFileSync('/var/www/NAVALIVAY/.cursor/debug-a444d1.log', JSON.stringify({sessionId:'a444d1',location:'public.js:resolveTelegramUsernameStatus:entry',message:'resolveTelegramUsernameStatus called',data:{telegramId,hasBotToken:Boolean(TELEGRAM_BOT_TOKEN)},timestamp:Date.now(),hypothesisId:'E'})+'\n');
-  // #endregion
   const dbCustomer = db
     .prepare("SELECT telegram_username, first_name, last_name FROM customers WHERE telegram_id = ?")
     .get(telegramId);
@@ -56,9 +49,6 @@ async function resolveTelegramUsernameStatus(telegramId) {
 
   try {
     const chat = await fetchTelegramChat(telegramId);
-    // #region agent log
-    fs.appendFileSync('/var/www/NAVALIVAY/.cursor/debug-a444d1.log', JSON.stringify({sessionId:'a444d1',location:'public.js:resolveTelegramUsernameStatus:telegramResponse',message:'Telegram getChat response',data:{telegramId,chatUsername:chat?.username,chatFirstName:chat?.first_name},timestamp:Date.now(),hypothesisId:'E'})+'\n');
-    // #endregion
     const username = normalizeTelegramUsername(chat?.username);
     const firstName = typeof chat?.first_name === "string" && chat.first_name.trim() !== ""
       ? chat.first_name.trim()
@@ -84,15 +74,6 @@ async function resolveTelegramUsernameStatus(telegramId) {
       ? "Username подтвержден"
       : "Telegram пока не передал ваш username. Если вы только что его установили, закройте магазин и откройте заново - это обновит данные.";
 
-    debugLog({
-      location: 'public.js:username-status',
-      message: 'Live username check',
-      data: { telegramId, username, status, source: 'telegram' },
-    });
-
-    // #region agent log
-    fs.appendFileSync('/var/www/NAVALIVAY/.cursor/debug-a444d1.log', JSON.stringify({sessionId:'a444d1',location:'public.js:resolveTelegramUsernameStatus:result',message:'Returning result',data:{telegramId,username,status},timestamp:Date.now(),hypothesisId:'E'})+'\n');
-    // #endregion
     return {
       ok: true,
       status,
@@ -103,15 +84,6 @@ async function resolveTelegramUsernameStatus(telegramId) {
       message,
     };
   } catch (telegramError) {
-    debugLog({
-      location: 'public.js:username-status',
-      message: 'Live username check failed',
-      data: { telegramId, error: String(telegramError) },
-    });
-
-    // #region agent log
-    fs.appendFileSync('/var/www/NAVALIVAY/.cursor/debug-a444d1.log', JSON.stringify({sessionId:'a444d1',location:'public.js:resolveTelegramUsernameStatus:error',message:'Telegram API error',data:{telegramId,error:String(telegramError)},timestamp:Date.now(),hypothesisId:'E'})+'\n');
-    // #endregion
     return {
       ok: true,
       status: "retry",
@@ -984,10 +956,6 @@ publicRouter.post("/api/orders", async (req, res) => {
       items,
     } = req.body;
 
-    // #region agent log
-    fs.appendFileSync('/var/www/NAVALIVAY/.cursor/debug-a444d1.log', JSON.stringify({sessionId:'a444d1',location:'public.js:POST /api/orders:entry',message:'Order request received',data:{telegram_id,telegram_username,first_name,hasItems:Array.isArray(items)&&items.length},timestamp:Date.now(),hypothesisId:'ORDER'})+'\n');
-    // #endregion
-
     if (!Array.isArray(items) || items.length === 0) {
       return res
         .status(400)
@@ -1019,9 +987,6 @@ publicRouter.post("/api/orders", async (req, res) => {
 
     if (telegram_id) {
       const usernameStatus = await resolveTelegramUsernameStatus(String(telegram_id));
-      // #region agent log
-      fs.appendFileSync('/var/www/NAVALIVAY/.cursor/debug-a444d1.log', JSON.stringify({sessionId:'a444d1',location:'public.js:POST /api/orders:usernameCheck',message:'Username status check result',data:{telegram_id,usernameStatus_status:usernameStatus.status,usernameStatus_username:usernameStatus.username,clientUsername:normalizedUsername},timestamp:Date.now(),hypothesisId:'ORDER'})+'\n');
-      // #endregion
       
       // Если Telegram API подтвердил username - используем его
       if (usernameStatus.status === "confirmed" && usernameStatus.username) {
@@ -1040,9 +1005,6 @@ publicRouter.post("/api/orders", async (req, res) => {
       // initDataUnsafe подписан Telegram и не может быть подделан
       else if (usernameStatus.status === "retry" && normalizedUsername) {
         verifiedTelegramUsername = normalizedUsername;
-        // #region agent log
-        fs.appendFileSync('/var/www/NAVALIVAY/.cursor/debug-a444d1.log', JSON.stringify({sessionId:'a444d1',location:'public.js:POST /api/orders:fallbackToClient',message:'Using client username (API unavailable)',data:{telegram_id,clientUsername:normalizedUsername},timestamp:Date.now(),hypothesisId:'ORDER'})+'\n');
-        // #endregion
       }
       // API недоступен и клиент не передал username - блокируем
       else {
@@ -1308,10 +1270,6 @@ publicRouter.post("/api/orders", async (req, res) => {
     });
 
     const result = tx();
-
-    // #region agent log
-    debugLog({location:'public.js:createOrder',message:'Order created',data:{orderId:result.orderId,orderNumber:result.orderNumber},hypothesisId:'H4'});
-    // #endregion
 
     res.json({
       success: true,

@@ -1468,17 +1468,6 @@ async function requestNotificationPermission() {
   if (typeof Notification !== "undefined" && Notification.permission === "default") {
     try {
       const result = await Notification.requestPermission();
-      // Log to server
-      fetch('/api/debug-log', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          location: 'CrmOrders.vue:requestNotificationPermission',
-          message: 'Permission requested',
-          data: { result },
-          timestamp: Date.now()
-        })
-      }).catch(() => {});
       alert(`Результат запроса разрешения: ${result}`);
     } catch (e) {
       alert(`Ошибка запроса разрешения: ${e}`);
@@ -1488,22 +1477,6 @@ async function requestNotificationPermission() {
 
 function testNotification() {
   const permStatus = typeof Notification !== "undefined" ? Notification.permission : "N/A";
-  
-  // Log to server
-  fetch('/api/debug-log', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      location: 'CrmOrders.vue:testNotification',
-      message: 'Test notification triggered',
-      data: { 
-        permissionStatus: permStatus,
-        notificationsEnabled: notificationsEnabled.value,
-        soundEnabled: soundEnabled.value
-      },
-      timestamp: Date.now()
-    })
-  }).catch(() => {});
 
   // Test sound
   try {

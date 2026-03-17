@@ -357,18 +357,12 @@ export const useCrmStore = defineStore("crm", () => {
       source.connect(cachedAudioContext.destination);
       source.start(0);
       audioContextUnlocked = true;
-      // #region agent log
-      fetch('/api/debug-log',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'crm.ts:unlockAudioContext',message:'AudioContext unlocked',data:{},timestamp:Date.now()})}).catch(()=>{});
-      // #endregion
     } catch (e) {
       // ignore
     }
   }
 
   function playNotificationSound() {
-    // #region agent log
-    fetch('/api/debug-log',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'crm.ts:playNotificationSound',message:'playNotificationSound called',data:{windowDefined:typeof window !== "undefined", audioContextUnlocked},timestamp:Date.now(),hypothesisId:'H5'})}).catch(()=>{});
-    // #endregion
     if (typeof window === "undefined") return;
     try {
       // Try to use cached context or create new one
@@ -401,24 +395,12 @@ export const useCrmStore = defineStore("crm", () => {
       if (ctx !== cachedAudioContext) {
         setTimeout(() => ctx.close().catch(() => null), 1500);
       }
-      // #region agent log
-      fetch('/api/debug-log',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'crm.ts:playNotificationSound:success',message:'Sound played successfully',data:{contextState: ctx.state},timestamp:Date.now(),hypothesisId:'H5'})}).catch(()=>{});
-      // #endregion
     } catch (error) {
-      // #region agent log
-      fetch('/api/debug-log',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'crm.ts:playNotificationSound:error',message:'Sound failed',data:{error:String(error)},timestamp:Date.now(),hypothesisId:'H5'})}).catch(()=>{});
-      // #endregion
       console.warn("[CRM] Notification sound failed:", error);
     }
   }
 
   function triggerBrowserNotification(count: number) {
-    // #region agent log
-    const notificationSupported = typeof window !== "undefined" && "Notification" in window;
-    const notificationPermission = notificationSupported ? Notification.permission : 'N/A';
-    fetch('/api/debug-log',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'crm.ts:triggerBrowserNotification',message:'triggerBrowserNotification called',data:{count,notificationSupported,notificationPermission},timestamp:Date.now(),hypothesisId:'H5'})}).catch(()=>{});
-    // #endregion
-    
     // Always show in-app toast (works in Safari and all browsers)
     const toastMessage = count === 1 ? "Новый заказ!" : `Новых заказов: ${count}`;
     inAppToast.value = { show: true, message: toastMessage, count };
@@ -444,13 +426,7 @@ export const useCrmStore = defineStore("crm", () => {
         body,
         icon: "/favicon.ico",
       });
-      // #region agent log
-      fetch('/api/debug-log',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'crm.ts:triggerBrowserNotification:success',message:'Notification created successfully',data:{title,body},timestamp:Date.now(),hypothesisId:'H5'})}).catch(()=>{});
-      // #endregion
     } catch (error) {
-      // #region agent log
-      fetch('/api/debug-log',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'crm.ts:triggerBrowserNotification:error',message:'Notification creation failed',data:{error:String(error)},timestamp:Date.now(),hypothesisId:'H5'})}).catch(()=>{});
-      // #endregion
       console.warn("[CRM] Browser notification failed:", error);
     }
   }
@@ -474,19 +450,12 @@ export const useCrmStore = defineStore("crm", () => {
   }
 
   async function checkForNewOrders() {
-    // #region agent log
-    fetch('/api/debug-log',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'crm.ts:checkForNewOrders:start',message:'checkForNewOrders called',data:{pollingInitialized,lastKnownCount:lastKnownOrderIds.value.size,notificationsEnabled:notificationsEnabled.value,soundEnabled:soundEnabled.value},timestamp:Date.now(),hypothesisId:'H2'})}).catch(()=>{});
-    // #endregion
     try {
       const data = await fetchAPI<{ orders: Order[] }>(
         `${API_BASE}/orders?status=new&limit=100`
       );
       const currentNewOrders = data.orders || [];
       const currentIds = new Set(currentNewOrders.map((o) => o.id));
-
-      // #region agent log
-      fetch('/api/debug-log',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'crm.ts:checkForNewOrders:afterFetch',message:'API returned orders',data:{ordersCount:currentNewOrders.length,orderIds:Array.from(currentIds),lastKnownIds:Array.from(lastKnownOrderIds.value)},timestamp:Date.now(),hypothesisId:'H2,H4'})}).catch(()=>{});
-      // #endregion
 
       // Find truly new orders (not seen before)
       const newIds: string[] = [];
@@ -496,10 +465,6 @@ export const useCrmStore = defineStore("crm", () => {
           unseenOrderIds.value.add(id);
         }
       });
-
-      // #region agent log
-      fetch('/api/debug-log',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'crm.ts:checkForNewOrders:newIdsFound',message:'New IDs calculated',data:{newIdsCount:newIds.length,newIds,pollingInitialized,willTriggerNotification:pollingInitialized && newIds.length > 0},timestamp:Date.now(),hypothesisId:'H3,H4'})}).catch(()=>{});
-      // #endregion
 
       // Update last known IDs
       lastKnownOrderIds.value = currentIds;
@@ -516,9 +481,6 @@ export const useCrmStore = defineStore("crm", () => {
 
       // Trigger notifications for new orders (only if not first load)
       if (pollingInitialized && newIds.length > 0) {
-        // #region agent log
-        fetch('/api/debug-log',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'crm.ts:checkForNewOrders:triggeringNotifications',message:'About to trigger notifications',data:{newIdsCount:newIds.length,notificationsEnabled:notificationsEnabled.value,soundEnabled:soundEnabled.value},timestamp:Date.now(),hypothesisId:'H3'})}).catch(()=>{});
-        // #endregion
         if (notificationsEnabled.value) {
           triggerBrowserNotification(newIds.length);
         }
@@ -529,17 +491,11 @@ export const useCrmStore = defineStore("crm", () => {
 
       pollingInitialized = true;
     } catch (error) {
-      // #region agent log
-      fetch('/api/debug-log',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'crm.ts:checkForNewOrders:error',message:'checkForNewOrders failed',data:{error:String(error)},timestamp:Date.now(),hypothesisId:'H2'})}).catch(()=>{});
-      // #endregion
       console.error("[CRM] Check for new orders failed:", error);
     }
   }
 
   function startPolling() {
-    // #region agent log
-    fetch('/api/debug-log',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'crm.ts:startPolling',message:'startPolling called',data:{hasTimer:!!pollingTimer,pollingInitialized},timestamp:Date.now(),hypothesisId:'H1'})}).catch(()=>{});
-    // #endregion
     if (pollingTimer) return;
     checkForNewOrders(); // Initial check
     pollingTimer = setInterval(checkForNewOrders, POLLING_INTERVAL_MS);

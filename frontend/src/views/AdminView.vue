@@ -2444,17 +2444,11 @@ onMounted(async () => {
   resetLoadedState()
   // @ts-ignore - checkAuth method exists in adminStore
   await adminStore.checkAuth()
-  // #region agent log
-  fetch('/api/debug-log',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'AdminView.vue:onMounted',message:'After checkAuth',data:{isAuthenticated:adminStore.isAuthenticated},timestamp:Date.now(),hypothesisId:'H1'})}).catch(()=>{});
-  // #endregion
   if (adminStore.isAuthenticated) {
     // Загружаем данные для текущей вкладки
     await ensureTabData(activeTab.value)
     updateManagerForm()
     // Запускаем глобальный polling новых заказов
-    // #region agent log
-    fetch('/api/debug-log',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'AdminView.vue:onMounted:beforeStartPolling',message:'About to call startPolling',data:{},timestamp:Date.now(),hypothesisId:'H1'})}).catch(()=>{});
-    // #endregion
     crmStore.startPolling()
   }
 })

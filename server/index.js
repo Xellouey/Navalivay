@@ -40,26 +40,6 @@ app.use(cookieParser());
 app.use(cors({ origin: true, credentials: true }));
 app.use(helmet({ contentSecurityPolicy: false }));
 
-// #region agent log - Debug endpoint for frontend logging
-const DEBUG_LOG_PATH = '/var/www/NAVALIVAY/.cursor/debug-036109.log';
-app.post('/api/debug-log', (req, res) => {
-  try {
-    const logEntry = JSON.stringify({ ...req.body, serverTime: Date.now() }) + '\n';
-    fs.appendFileSync(DEBUG_LOG_PATH, logEntry);
-    res.json({ ok: true });
-  } catch (e) {
-    res.json({ ok: false, error: String(e) });
-  }
-});
-app.get('/api/debug-log', (req, res) => {
-  try {
-    const content = fs.existsSync(DEBUG_LOG_PATH) ? fs.readFileSync(DEBUG_LOG_PATH, 'utf-8') : '';
-    res.type('text/plain').send(content);
-  } catch (e) {
-    res.type('text/plain').send('Error: ' + String(e));
-  }
-});
-// #endregion
 
 // Static (БЕЗ КЭША)
 const uploadsDir = path.resolve(__dirname, '../uploads');
