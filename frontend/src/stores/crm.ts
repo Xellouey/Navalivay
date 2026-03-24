@@ -70,6 +70,12 @@ export interface Order {
   payment_notes?: string | null;
   telegram_username?: string;
   customer_name?: string;
+  phone?: string | null;
+  needs_manager_action?: number;
+  manager_action_type?: 'modified' | 'cancelled_by_customer' | null;
+  manager_action_note?: string | null;
+  promo_code_id?: string | null;
+  promo_code_text?: string | null;
   items?: OrderItem[];
 }
 
@@ -77,6 +83,7 @@ export interface OrderItem {
   id: string;
   order_id: string;
   product_id: string | null;
+  variant_id?: string | null;
   product_title: string;
   product_description?: string | null;
   group_name?: string | null;
@@ -86,9 +93,87 @@ export interface OrderItem {
   quantity: number;
   price_per_unit: number;
   cost_per_unit: number;
+  manual_discount_amount?: number;
+  loyalty_discount_amount?: number;
+  loyalty_units_applied?: number;
   discount_amount: number;
   total_price: number;
   total_cost: number;
+}
+
+export interface CrmLoyaltyMapping {
+  id: string;
+  loyalty_category_id: string;
+  category_id: string | null;
+  group_id: string | null;
+  created_at: string;
+}
+
+export interface CrmLoyaltyCategory {
+  id: string;
+  key: string;
+  title: string;
+  description: string | null;
+  threshold: number;
+  discount_amount: number;
+  sort_order: number;
+  active: number;
+  mappings: CrmLoyaltyMapping[];
+}
+
+export interface CrmLoyaltyCustomer {
+  id: string;
+  telegram_username: string | null;
+  first_name: string | null;
+  last_name: string | null;
+  last_activity_at: string | null;
+  categories: Array<{
+    key: string;
+    balance: number;
+    available_bonus_count: number;
+  }>;
+}
+
+export interface CrmLoyaltyLedgerEntry {
+  id: string;
+  customer_id: string;
+  loyalty_category_id: string;
+  order_id: string | null;
+  order_item_id: string | null;
+  delta: number;
+  balance_after: number;
+  reason: string;
+  created_at: string;
+  category_key: string;
+  category_title: string;
+}
+
+export interface PromoCode {
+  id: string;
+  code: string;
+  description: string | null;
+  discount_type: 'fixed' | 'percent';
+  discount_value: number;
+  min_order_amount: number;
+  max_uses: number;
+  current_uses: number;
+  valid_from: string | null;
+  valid_until: string | null;
+  active: number;
+  created_at: string;
+}
+
+export interface PromoUsage {
+  id: string;
+  promo_code_id: string;
+  order_id: string;
+  customer_id: string | null;
+  discount_applied: number;
+  used_at: string;
+  order_number?: number;
+  order_amount?: number;
+  customer_name?: string;
+  telegram_username?: string;
 }
 
 export interface Procurement {
@@ -134,8 +219,10 @@ export interface WriteOffItem {
   id: string;
   writeoff_id: string;
   product_id: string;
+  variant_id?: string | null;
   product_title: string;
   group_name?: string | null;
+  variant_name?: string | null;
   quantity: number;
   cost_per_unit: number;
   total_cost: number;
@@ -178,6 +265,8 @@ export interface CashTransaction {
   amount: number;
   description: string | null;
   order_id: string | null;
+  pos_sale_id?: string | null;
+  pos_sale_number?: number | null;
   employee_id: string | null;
   employee_name: string | null;
   created_at: string;
@@ -186,6 +275,7 @@ export interface CashTransaction {
 export interface PosSale {
   id: string;
   sale_number: number;
+  transaction_id?: string | null;
   product_name: string;
   price: number;
   cost_price: number | null;
@@ -307,6 +397,9 @@ export const useCrmStore = defineStore("crm", () => {
   const newOrdersCount = ref(0);
   const unseenOrderIds = ref<Set<string>>(new Set());
   const lastKnownOrderIds = ref<Set<string>>(new Set());
+  const actionRequiredCount = ref(0);
+  const unseenActionIds = ref<Set<string>>(new Set());
+  const lastKnownActionIds = ref<Set<string>>(new Set());
   // In-app toast notification (fallback for Safari)
   const inAppToast = ref<{ show: boolean; message: string; count: number }>({
     show: false,
@@ -416,9 +509,11 @@ export const useCrmStore = defineStore("crm", () => {
     }
   }
 
-  function triggerBrowserNotification(count: number) {
+  function triggerBrowserNotification(count: number, isActionRequired = false) {
     // Always show in-app toast (works in Safari and all browsers)
-    const toastMessage = count === 1 ? "Новый заказ!" : `Новых заказов: ${count}`;
+    const toastMessage = isActionRequired
+      ? (count === 1 ? "Заказ требует действий!" : `Заказов требует действий: ${count}`)
+      : (count === 1 ? "Новый заказ!" : `Новых заказов: ${count}`);
     inAppToast.value = { show: true, message: toastMessage, count };
     // Auto-hide after 10 seconds
     setTimeout(() => {
@@ -431,11 +526,16 @@ export const useCrmStore = defineStore("crm", () => {
     if (typeof window === "undefined" || !("Notification" in window)) return;
     if (Notification.permission !== "granted") return;
 
-    const title = count === 1 ? "Новый заказ" : `Новых заказов: ${count}`;
-    const body =
-      count === 1
-        ? "Появился новый заказ в колонке «Новые»."
-        : "На доске появились новые заказы. Проверьте колонку «Новые».";
+    const title = isActionRequired
+      ? (count === 1 ? "Требует действий" : `Требует действий: ${count}`)
+      : (count === 1 ? "Новый заказ" : `Новых заказов: ${count}`);
+    const body = isActionRequired
+      ? (count === 1
+          ? "Заказ требует внимания менеджера."
+          : "Несколько заказов требуют внимания менеджера.")
+      : (count === 1
+          ? "Появился новый заказ в колонке «Новые»."
+          : "На доске появились новые заказы. Проверьте колонку «Новые».");
 
     try {
       new Notification(title, {
@@ -511,10 +611,55 @@ export const useCrmStore = defineStore("crm", () => {
     }
   }
 
+  async function checkForActionRequired() {
+    try {
+      const data = await fetchAPI<{ orders: Order[] }>(
+        `${API_BASE}/orders?limit=200`
+      );
+      const allOrders = data.orders || [];
+      const actionOrders = allOrders.filter((o) => o.needs_manager_action === 1);
+      const currentIds = new Set(actionOrders.map((o) => o.id));
+
+      const newActionIds: string[] = [];
+      currentIds.forEach((id) => {
+        if (!lastKnownActionIds.value.has(id)) {
+          newActionIds.push(id);
+          unseenActionIds.value.add(id);
+        }
+      });
+
+      lastKnownActionIds.value = currentIds;
+
+      const cleanedUnseen = new Set<string>();
+      unseenActionIds.value.forEach((id) => {
+        if (currentIds.has(id)) {
+          cleanedUnseen.add(id);
+        }
+      });
+      unseenActionIds.value = cleanedUnseen;
+      actionRequiredCount.value = unseenActionIds.value.size;
+
+      if (pollingInitialized && newActionIds.length > 0) {
+        if (notificationsEnabled.value) {
+          triggerBrowserNotification(newActionIds.length, true);
+        }
+        if (soundEnabled.value) {
+          playNotificationSound();
+        }
+      }
+    } catch (error) {
+      console.error("[CRM] Check for action required failed:", error);
+    }
+  }
+
   function startPolling() {
     if (pollingTimer) return;
     checkForNewOrders(); // Initial check
-    pollingTimer = setInterval(checkForNewOrders, POLLING_INTERVAL_MS);
+    checkForActionRequired();
+    pollingTimer = setInterval(() => {
+      checkForNewOrders();
+      checkForActionRequired();
+    }, POLLING_INTERVAL_MS);
   }
 
   function stopPolling() {
@@ -785,6 +930,57 @@ export const useCrmStore = defineStore("crm", () => {
     return currentOrder.value;
   }
 
+  async function fetchOrderHistory(id: string) {
+    return await fetchAPI<Array<{
+      id: string;
+      order_id: string;
+      previous_status: string | null;
+      new_status: string;
+      changed_at: string;
+      note: string | null;
+    }>>(`${API_BASE}/orders/${id}/history`);
+  }
+
+  const deliveredOrders = ref<Order[]>([]);
+  const loadingDelivered = ref(false);
+  const deliveredStats = ref<{
+    totalCount: number;
+    totalAmount: number;
+    deliveryCount: number;
+    deliveryAmount: number;
+    pickupCount: number;
+    pickupAmount: number;
+  } | null>(null);
+  const deliveredPagination = ref<{ page: number; limit: number; total: number; totalPages: number } | null>(null);
+
+  async function fetchDeliveredOrders(params?: { page?: number; limit?: number; search?: string; period?: string }) {
+    loadingDelivered.value = true;
+    try {
+      const query = new URLSearchParams();
+      if (params?.page) query.append("page", params.page.toString());
+      if (params?.limit) query.append("limit", params.limit.toString());
+      if (params?.search) query.append("search", params.search);
+      if (params?.period) query.append("period", params.period);
+      const response = await fetchAPI<{
+        orders: Order[];
+        stats: typeof deliveredStats.value;
+        pagination: { page: number; limit: number; total: number; totalPages: number };
+      }>(
+        `${API_BASE}/orders/delivered?${query}`,
+      );
+      if (params?.page && params.page > 1) {
+        deliveredOrders.value = [...deliveredOrders.value, ...response.orders];
+      } else {
+        deliveredOrders.value = response.orders;
+      }
+      deliveredStats.value = response.stats;
+      deliveredPagination.value = response.pagination;
+      return response;
+    } finally {
+      loadingDelivered.value = false;
+    }
+  }
+
   async function createOrder(data: {
     customer_id?: string;
     delivery_type: "pickup" | "delivery";
@@ -794,9 +990,14 @@ export const useCrmStore = defineStore("crm", () => {
     notes?: string;
     items: Array<{
       product_id: string;
+      variant_id?: string | null;
       quantity: number;
       price_per_unit?: number;
       discount_amount?: number;
+      manual_discount_amount?: number;
+      loyalty_discount_amount?: number;
+      loyalty_units_applied?: number;
+      variant_name?: string | null;
     }>;
   }) {
     const order = await fetchAPI<Order>(`${API_BASE}/orders`, {
@@ -817,9 +1018,14 @@ export const useCrmStore = defineStore("crm", () => {
       discount_percent?: number;
       items?: Array<{
         product_id: string;
+        variant_id?: string | null;
         quantity: number;
         price_per_unit?: number;
         discount_amount?: number;
+        manual_discount_amount?: number;
+        loyalty_discount_amount?: number;
+        loyalty_units_applied?: number;
+        variant_name?: string | null;
       }>;
       payment_type?: "cash";
       payment_account_id?: string;
@@ -835,6 +1041,23 @@ export const useCrmStore = defineStore("crm", () => {
     const index = orders.value.findIndex((o) => o.id === id);
     if (index !== -1) {
       orders.value[index] = order;
+    }
+    return order;
+  }
+
+  async function resolveManagerAction(id: string) {
+    const order = await fetchAPI<Order>(`${API_BASE}/orders/${id}/resolve-action`, {
+      method: "POST",
+    });
+    const index = orders.value.findIndex((o) => o.id === id);
+    if (index !== -1) {
+      orders.value[index] = order;
+    }
+    // Remove from unseen action ids
+    if (unseenActionIds.value.has(id)) {
+      unseenActionIds.value.delete(id);
+      unseenActionIds.value = new Set(unseenActionIds.value);
+      actionRequiredCount.value = unseenActionIds.value.size;
     }
     return order;
   }
@@ -1023,6 +1246,7 @@ export const useCrmStore = defineStore("crm", () => {
     notes?: string;
     items: Array<{
       product_id: string;
+      variant_id?: string;
       quantity: number;
     }>;
   }) {
@@ -1041,6 +1265,7 @@ export const useCrmStore = defineStore("crm", () => {
       notes?: string;
       items?: Array<{
         product_id: string;
+        variant_id?: string;
         quantity: number;
       }>;
     },
@@ -1289,6 +1514,140 @@ export const useCrmStore = defineStore("crm", () => {
     pendingPosSales.value = pendingPosSales.value.filter((s) => s.id !== id);
   }
 
+  // Promo Codes
+  const promoCodes = ref<PromoCode[]>([]);
+  const promoCodesLoading = ref(false);
+  const promoCodesTotal = ref(0);
+
+  async function fetchPromoCodes(params?: { search?: string; filter?: string; limit?: number; offset?: number }) {
+    promoCodesLoading.value = true;
+    try {
+      const query = new URLSearchParams();
+      if (params?.search) query.set('search', params.search);
+      if (params?.filter) query.set('filter', params.filter);
+      if (params?.limit) query.set('limit', String(params.limit));
+      if (params?.offset) query.set('offset', String(params.offset));
+      const qs = query.toString();
+      const data = await fetchAPI<{ promo_codes: PromoCode[]; total: number }>(`${API_BASE}/promo-codes${qs ? `?${qs}` : ''}`);
+      promoCodes.value = data.promo_codes;
+      promoCodesTotal.value = data.total;
+      return data;
+    } finally {
+      promoCodesLoading.value = false;
+    }
+  }
+
+  async function createPromoCode(data: Partial<PromoCode>) {
+    const promo = await fetchAPI<PromoCode>(`${API_BASE}/promo-codes`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    promoCodes.value = [promo, ...promoCodes.value];
+    promoCodesTotal.value++;
+    return promo;
+  }
+
+  async function updatePromoCode(id: string, data: Partial<PromoCode>) {
+    const promo = await fetchAPI<PromoCode>(`${API_BASE}/promo-codes/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    const idx = promoCodes.value.findIndex((p) => p.id === id);
+    if (idx !== -1) promoCodes.value[idx] = promo;
+    return promo;
+  }
+
+  async function deletePromoCode(id: string) {
+    await fetchAPI(`${API_BASE}/promo-codes/${id}`, { method: 'DELETE' });
+    promoCodes.value = promoCodes.value.filter((p) => p.id !== id);
+    promoCodesTotal.value = Math.max(promoCodesTotal.value - 1, 0);
+  }
+
+  async function fetchPromoUsage(id: string) {
+    return await fetchAPI<PromoUsage[]>(`${API_BASE}/promo-codes/${id}/usage`);
+  }
+
+  // Loyalty
+  const loyaltyCategories = ref<CrmLoyaltyCategory[]>([]);
+  const loyaltyCustomers = ref<CrmLoyaltyCustomer[]>([]);
+  const loyaltyLedger = ref<CrmLoyaltyLedgerEntry[]>([]);
+  const loyaltyLoading = ref(false);
+
+  async function fetchLoyaltyCategories() {
+    loyaltyLoading.value = true;
+    try {
+      const data = await fetchAPI<{ categories: CrmLoyaltyCategory[] }>(
+        `${API_BASE}/loyalty/categories`,
+      );
+      loyaltyCategories.value = data.categories || [];
+      return loyaltyCategories.value;
+    } finally {
+      loyaltyLoading.value = false;
+    }
+  }
+
+  async function updateLoyaltyCategory(
+    id: string,
+    data: {
+      threshold: number;
+      discount_amount: number;
+      title: string;
+      description?: string | null;
+      active: boolean;
+    },
+  ) {
+    const category = await fetchAPI<CrmLoyaltyCategory>(
+      `${API_BASE}/loyalty/categories/${id}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify(data),
+      },
+    );
+    const index = loyaltyCategories.value.findIndex((item) => item.id === id);
+    if (index !== -1) {
+      loyaltyCategories.value[index] = category;
+    }
+    return category;
+  }
+
+  async function updateLoyaltyMappings(
+    id: string,
+    data: { category_ids: string[]; group_ids: string[] },
+  ) {
+    const category = await fetchAPI<CrmLoyaltyCategory>(
+      `${API_BASE}/loyalty/categories/${id}/mappings`,
+      {
+        method: "PUT",
+        body: JSON.stringify(data),
+      },
+    );
+    const index = loyaltyCategories.value.findIndex((item) => item.id === id);
+    if (index !== -1) {
+      loyaltyCategories.value[index] = category;
+    }
+    return category;
+  }
+
+  async function fetchLoyaltyCustomers(search = "") {
+    const query = new URLSearchParams();
+    if (search.trim()) query.set("search", search.trim());
+    const data = await fetchAPI<{ customers: CrmLoyaltyCustomer[] }>(
+      `${API_BASE}/loyalty/customers?${query.toString()}`,
+    );
+    loyaltyCustomers.value = data.customers || [];
+    return loyaltyCustomers.value;
+  }
+
+  async function fetchLoyaltyLedger(customerId: string) {
+    const data = await fetchAPI<{ entries: CrmLoyaltyLedgerEntry[] }>(
+      `${API_BASE}/loyalty/customers/${customerId}/ledger`,
+    );
+    loyaltyLedger.value = data.entries || [];
+    return loyaltyLedger.value;
+  }
+
   // Low stock
   const lowStockProducts = ref<any[]>([]);
 
@@ -1451,6 +1810,8 @@ export const useCrmStore = defineStore("crm", () => {
     // Global Order Notifications
     newOrdersCount,
     unseenOrderIds,
+    actionRequiredCount,
+    unseenActionIds,
     notificationsEnabled,
     soundEnabled,
     autoRefreshEnabled,
@@ -1460,6 +1821,7 @@ export const useCrmStore = defineStore("crm", () => {
     startPolling,
     stopPolling,
     checkForNewOrders,
+    checkForActionRequired,
     markOrderAsSeen,
     markAllOrdersAsSeen,
     isOrderUnseen,
@@ -1510,8 +1872,15 @@ export const useCrmStore = defineStore("crm", () => {
     ordersPagination,
     fetchOrders,
     fetchOrder,
+    fetchOrderHistory,
+    deliveredOrders,
+    loadingDelivered,
+    deliveredStats,
+    deliveredPagination,
+    fetchDeliveredOrders,
     createOrder,
     updateOrder,
+    resolveManagerAction,
     issueOrder,
 
     // Procurements
@@ -1556,6 +1925,27 @@ export const useCrmStore = defineStore("crm", () => {
     createPosSale,
     updatePosSale,
     deletePosSale,
+
+    // Promo Codes
+    promoCodes,
+    promoCodesLoading,
+    promoCodesTotal,
+    fetchPromoCodes,
+    createPromoCode,
+    updatePromoCode,
+    deletePromoCode,
+    fetchPromoUsage,
+
+    // Loyalty
+    loyaltyCategories,
+    loyaltyCustomers,
+    loyaltyLedger,
+    loyaltyLoading,
+    fetchLoyaltyCategories,
+    updateLoyaltyCategory,
+    updateLoyaltyMappings,
+    fetchLoyaltyCustomers,
+    fetchLoyaltyLedger,
 
     // Low stock
     lowStockProducts,

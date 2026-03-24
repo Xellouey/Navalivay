@@ -1,0 +1,563 @@
+<template>
+  <div class="order-page">
+    <div class="order-header">
+      <button class="order-back-button" @click="router.push('/')">
+        <svg width="7" height="12" viewBox="0 0 7 12" fill="none">
+          <path
+            d="M6 1L1 6L6 11"
+            stroke="#191919"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+        </svg>
+      </button>
+      <h1 class="order-title">Мой заказ</h1>
+    </div>
+
+    <div class="order-container">
+      <div v-if="isLoading && !order" class="order-state-card">
+        <div class="loader"></div>
+        <p>Загружаем ваш заказ…</p>
+      </div>
+
+      <div v-else-if="!order" class="order-state-card">
+        <div class="order-state-icon">✓</div>
+        <h2>Активного заказа нет</h2>
+        <p>Когда оформите новый заказ, он появится здесь.</p>
+        <button class="order-primary-button" @click="router.push('/')">На главную</button>
+      </div>
+
+      <template v-else>
+        <section class="order-status-card">
+          <div class="order-status-pill" :class="`order-status-pill--${order.status}`">
+            {{ statusLabel }}
+          </div>
+          <div class="order-status-copy">
+            <span class="order-number">Заказ №{{ order.order_number }}</span>
+            <strong>{{ statusHeadline }}</strong>
+            <p>{{ statusDescription }}</p>
+          </div>
+        </section>
+
+        <section class="order-items-card">
+          <div class="order-card-header">
+            <h2>Состав заказа</h2>
+            <span>{{ order.items.length }} поз.</span>
+          </div>
+
+          <div class="order-items-list">
+            <article
+              v-for="item in order.items"
+              :key="item.id"
+              class="order-item"
+            >
+              <div class="order-item-image">
+                <img v-if="item.image" :src="item.image" :alt="item.product_title" />
+                <div v-else class="order-item-image-placeholder"></div>
+              </div>
+
+              <div class="order-item-copy">
+                <span v-if="item.group_name" class="order-item-group">{{ item.group_name }}</span>
+                <strong>{{ item.base_product_title || item.product_title }}</strong>
+                <span v-if="item.variant_name" class="order-item-meta">{{ item.variant_name }}</span>
+                <span class="order-item-meta">{{ item.quantity }} шт. · {{ formatPrice(item.total_price) }} BYN</span>
+              </div>
+            </article>
+          </div>
+        </section>
+
+        <section class="order-summary-card">
+          <div class="summary-row">
+            <span>Сумма</span>
+            <strong>{{ formatPrice(order.total_amount) }} BYN</strong>
+          </div>
+          <div v-if="order.discount_amount > 0" class="summary-row summary-row--muted">
+            <span>Скидка</span>
+            <strong>-{{ formatPrice(order.discount_amount) }} BYN</strong>
+          </div>
+          <div class="summary-row summary-row--total">
+            <span>Итого</span>
+            <strong>{{ formatPrice(order.final_amount) }} BYN</strong>
+          </div>
+        </section>
+
+        <section class="order-actions-card">
+          <button
+            class="order-secondary-button"
+            :disabled="isEditingOrder || !order.can_edit"
+            @click="handleEditOrder"
+          >
+            {{ isEditingOrder ? "Открываем корзину…" : "Изменить заказ" }}
+          </button>
+          <button
+            class="order-danger-button"
+            :disabled="isCancellingOrder || !order.can_cancel"
+            @click="handleCancelOrder"
+          >
+            {{ isCancellingOrder ? "Отменяем…" : "Отменить заказ" }}
+          </button>
+        </section>
+
+        <p v-if="errorMessage" class="order-error">{{ errorMessage }}</p>
+      </template>
+    </div>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { computed, onMounted, onUnmounted, ref } from "vue";
+import { useRouter } from "vue-router";
+import { useCartStore } from "@/stores/cart";
+import {
+  fetchMyActiveOrder,
+  getTelegramIdentity,
+  type CustomerActiveOrder,
+} from "@/utils/customerOrders";
+
+const router = useRouter();
+const cartStore = useCartStore();
+
+const order = ref<CustomerActiveOrder | null>(null);
+const isLoading = ref(false);
+const isCancellingOrder = ref(false);
+const isEditingOrder = ref(false);
+const errorMessage = ref("");
+
+let pollTimer: number | null = null;
+
+const statusLabel = computed(() => {
+  return order.value?.status === "in_progress" ? "Собран" : "Ожидает сборки";
+});
+
+const statusHeadline = computed(() => {
+  return order.value?.status === "in_progress"
+    ? "Собран, можно забирать"
+    : "Ожидает сборки, скоро вам напишут";
+});
+
+const statusDescription = computed(() => {
+  return order.value?.status === "in_progress"
+    ? "Если передумали, отмена для вас пройдет сразу, а менеджер увидит, что заказ нужно разобрать."
+    : "Пока заказ активен, новый оформить нельзя. Если нужно что-то поменять, откройте редактирование.";
+});
+
+async function loadOrder(options: { silent?: boolean } = {}) {
+  if (!options.silent) {
+    isLoading.value = true;
+  }
+
+  try {
+    errorMessage.value = "";
+    order.value = await fetchMyActiveOrder(getTelegramIdentity());
+  } catch (error: any) {
+    console.error("[MyOrder] Failed to load order", error);
+    errorMessage.value = error?.message || "Не удалось загрузить заказ";
+  } finally {
+    if (!options.silent) {
+      isLoading.value = false;
+    }
+  }
+}
+
+async function handleEditOrder() {
+  if (!order.value) return;
+
+  if (
+    cartStore.items.length > 0 &&
+    !cartStore.editingOrderId &&
+    !window.confirm("Текущая корзина будет заменена товарами из заказа. Продолжить?")
+  ) {
+    return;
+  }
+
+  isEditingOrder.value = true;
+  try {
+    cartStore.replaceItemsFromOrder(order.value.items);
+    cartStore.startOrderEdit(order.value.id, {
+      promoCode: order.value.promo_code_text,
+    });
+    await router.push("/");
+  } finally {
+    isEditingOrder.value = false;
+  }
+}
+
+async function handleCancelOrder() {
+  if (!order.value) return;
+  if (!window.confirm("Отменить текущий заказ?")) return;
+
+  isCancellingOrder.value = true;
+  errorMessage.value = "";
+
+  try {
+    const identity = getTelegramIdentity();
+    const response = await fetch(`/api/orders/${order.value.id}/cancel-by-customer`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        telegram_id: identity.telegramId || undefined,
+        telegram_username: identity.telegramUsername || undefined,
+      }),
+    });
+
+    const result = await response.json().catch(() => null);
+    if (!response.ok) {
+      throw new Error(result?.message || "Не удалось отменить заказ");
+    }
+
+    cartStore.clearOrderEdit();
+    order.value = null;
+  } catch (error: any) {
+    console.error("[MyOrder] Failed to cancel order", error);
+    errorMessage.value = error?.message || "Не удалось отменить заказ";
+  } finally {
+    isCancellingOrder.value = false;
+  }
+}
+
+function formatPrice(value: number) {
+  return Number(value || 0).toFixed(0);
+}
+
+function startPolling() {
+  stopPolling();
+  pollTimer = window.setInterval(() => {
+    void loadOrder({ silent: true });
+  }, 12000);
+}
+
+function stopPolling() {
+  if (pollTimer !== null) {
+    window.clearInterval(pollTimer);
+    pollTimer = null;
+  }
+}
+
+onMounted(async () => {
+  await loadOrder();
+  startPolling();
+});
+
+onUnmounted(() => {
+  stopPolling();
+});
+</script>
+
+<style scoped>
+.order-page {
+  min-height: 100vh;
+  background: #f5f7fa;
+  padding-bottom: 24px;
+}
+
+.order-header {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 64px;
+  padding: 12px 16px 18px;
+  background: #ffffff;
+  border-radius: 0 0 24px 24px;
+  box-shadow: 0 4px 32px rgba(170, 178, 189, 0.2);
+}
+
+.order-back-button {
+  position: absolute;
+  left: 16px;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+}
+
+.order-title {
+  margin: 0;
+  font-family: "Montserrat", sans-serif;
+  font-size: 20px;
+  line-height: 24px;
+  font-weight: 700;
+  color: #191919;
+}
+
+.order-container {
+  padding: 18px 16px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.order-state-card,
+.order-status-card,
+.order-items-card,
+.order-summary-card,
+.order-actions-card {
+  background: #ffffff;
+  border-radius: 24px;
+  padding: 20px 18px;
+}
+
+.order-state-card {
+  min-height: 260px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 12px;
+}
+
+.order-state-icon {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #ecfdf3;
+  color: #16a34a;
+  font-size: 28px;
+  font-weight: 700;
+}
+
+.loader {
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  border: 4px solid rgba(245, 3, 2, 0.15);
+  border-top-color: #f50302;
+  animation: spin 1s linear infinite;
+}
+
+.order-status-card {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  background: linear-gradient(140deg, #ffffff 0%, #fdf1f1 100%);
+}
+
+.order-status-pill {
+  width: fit-content;
+  padding: 8px 12px;
+  border-radius: 999px;
+  font-family: -apple-system, "SF Pro Display", sans-serif;
+  font-size: 12px;
+  line-height: 14px;
+  font-weight: 600;
+}
+
+.order-status-pill--new {
+  background: #fff4d6;
+  color: #9a6700;
+}
+
+.order-status-pill--in_progress {
+  background: #dceeff;
+  color: #005bb8;
+}
+
+.order-status-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.order-number {
+  font-family: -apple-system, "SF Pro Display", sans-serif;
+  font-size: 13px;
+  line-height: 16px;
+  color: #8f95a3;
+}
+
+.order-status-copy strong,
+.order-items-card h2 {
+  font-family: "Montserrat", sans-serif;
+  font-size: 20px;
+  line-height: 24px;
+  font-weight: 700;
+  color: #191919;
+}
+
+.order-status-copy p,
+.order-state-card p {
+  margin: 0;
+  font-family: -apple-system, "SF Pro Display", sans-serif;
+  font-size: 14px;
+  line-height: 20px;
+  color: #5f6675;
+}
+
+.order-card-header,
+.summary-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.order-card-header span,
+.summary-row span {
+  font-family: -apple-system, "SF Pro Display", sans-serif;
+  font-size: 14px;
+  line-height: 18px;
+  color: #8f95a3;
+}
+
+.order-items-list {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-top: 16px;
+}
+
+.order-item {
+  display: flex;
+  gap: 14px;
+}
+
+.order-item-image {
+  width: 72px;
+  height: 84px;
+  border-radius: 18px;
+  border: 1px solid #edf0f4;
+  overflow: hidden;
+  background: #f8fafc;
+  flex-shrink: 0;
+}
+
+.order-item-image img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.order-item-image-placeholder {
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(135deg, #f3f4f6 0%, #e5e7eb 100%);
+}
+
+.order-item-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.order-item-group {
+  font-family: "Montserrat", sans-serif;
+  font-size: 11px;
+  line-height: 14px;
+  font-weight: 600;
+  color: #2563eb;
+  text-transform: uppercase;
+}
+
+.order-item-copy strong {
+  font-family: "Montserrat", sans-serif;
+  font-size: 15px;
+  line-height: 19px;
+  font-weight: 700;
+  color: #191919;
+}
+
+.order-item-meta {
+  font-family: -apple-system, "SF Pro Display", sans-serif;
+  font-size: 14px;
+  line-height: 18px;
+  color: #7d8594;
+}
+
+.order-summary-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.summary-row strong {
+  font-family: "Montserrat", sans-serif;
+  font-size: 16px;
+  line-height: 20px;
+  font-weight: 700;
+  color: #191919;
+}
+
+.summary-row--muted strong {
+  color: #16a34a;
+}
+
+.summary-row--total {
+  padding-top: 12px;
+  border-top: 1px solid #eef1f5;
+}
+
+.summary-row--total span,
+.summary-row--total strong {
+  font-size: 18px;
+  line-height: 22px;
+  color: #191919;
+}
+
+.order-actions-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.order-primary-button,
+.order-secondary-button,
+.order-danger-button {
+  width: 100%;
+  min-height: 56px;
+  border: none;
+  border-radius: 999px;
+  font-family: "Montserrat", sans-serif;
+  font-size: 15px;
+  line-height: 18px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.order-primary-button,
+.order-secondary-button {
+  background: linear-gradient(90deg, #f50302 0%, #a90f0e 100%);
+  color: #ffffff;
+}
+
+.order-danger-button {
+  background: #f3f4f6;
+  color: #191919;
+}
+
+.order-primary-button:disabled,
+.order-secondary-button:disabled,
+.order-danger-button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.order-error {
+  margin: 0;
+  padding: 14px 16px;
+  border-radius: 16px;
+  background: #fee2e2;
+  color: #b91c1c;
+  font-family: -apple-system, "SF Pro Display", sans-serif;
+  font-size: 14px;
+  line-height: 18px;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+</style>

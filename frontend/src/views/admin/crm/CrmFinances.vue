@@ -77,17 +77,17 @@
                     <div class="flex justify-end gap-2">
                       <button
                         @click="openEditTransaction(transaction)"
-                        :disabled="!!transaction.order_id"
+                        :disabled="isAutoTransaction(transaction)"
                         class="admin-link-button admin-link-button--edit disabled:cursor-not-allowed disabled:opacity-40"
-                        :title="transaction.order_id ? 'Транзакция создана автоматически и редактируется из заказа' : 'Редактировать транзакцию'"
+                        :title="getEditTransactionTitle(transaction)"
                       >
                         Редактировать
                       </button>
                       <button
                         @click="deleteTransaction(transaction)"
-                        :disabled="!!transaction.order_id"
+                        :disabled="isAutoTransaction(transaction)"
                         class="admin-link-button admin-link-button--danger disabled:cursor-not-allowed disabled:opacity-40"
-                        :title="transaction.order_id ? 'Операция создана автоматически. Удалите оплату в заказе.' : 'Удалить транзакцию'"
+                        :title="getDeleteTransactionTitle(transaction)"
                       >
                         Удалить
                       </button>
@@ -464,7 +464,7 @@ async function submitPassword() {
 }
 
 function openEditTransaction(transaction: CashTransaction) {
-  if (transaction.order_id) {
+  if (isAutoTransaction(transaction)) {
     return
   }
   editTransaction.value = transaction
@@ -518,7 +518,7 @@ async function submitEditTransaction() {
 }
 
 async function deleteTransaction(transaction: CashTransaction) {
-  if (transaction.order_id) {
+  if (isAutoTransaction(transaction)) {
     return
   }
   if (!confirm('Удалить эту транзакцию?')) {
@@ -532,6 +532,34 @@ async function deleteTransaction(transaction: CashTransaction) {
   } catch (error) {
     alert('Ошибка удаления транзакции')
   }
+}
+
+function isAutoTransaction(transaction: CashTransaction) {
+  return Boolean(transaction.order_id || transaction.pos_sale_id)
+}
+
+function getEditTransactionTitle(transaction: CashTransaction) {
+  if (transaction.order_id) {
+    return 'Транзакция создана автоматически и редактируется из заказа'
+  }
+  if (transaction.pos_sale_id) {
+    return transaction.pos_sale_number
+      ? `Транзакция создана автоматически из продажи кассы #${transaction.pos_sale_number}`
+      : 'Транзакция создана автоматически из продажи кассы'
+  }
+  return 'Редактировать транзакцию'
+}
+
+function getDeleteTransactionTitle(transaction: CashTransaction) {
+  if (transaction.order_id) {
+    return 'Операция создана автоматически. Удалите оплату в заказе.'
+  }
+  if (transaction.pos_sale_id) {
+    return transaction.pos_sale_number
+      ? `Операция создана автоматически. Удалите продажу кассы #${transaction.pos_sale_number}.`
+      : 'Операция создана автоматически. Удалите продажу в кассе.'
+  }
+  return 'Удалить транзакцию'
 }
 
 function formatCurrency(value: number): string {

@@ -141,6 +141,42 @@
         </div>
       </Transition>
 
+      <!-- Баннер: заказ требует действий менеджера -->
+      <div
+        v-if="currentOrder?.needs_manager_action"
+        class="rounded-lg border-2 p-4 shadow-sm"
+        :class="currentOrder.manager_action_type === 'cancelled_by_customer'
+          ? 'border-red-300 bg-red-50'
+          : 'border-orange-300 bg-orange-50'"
+      >
+        <div class="flex items-start gap-3">
+          <svg class="h-6 w-6 flex-shrink-0" :class="currentOrder.manager_action_type === 'cancelled_by_customer' ? 'text-red-500' : 'text-orange-500'" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
+          </svg>
+          <div class="flex-1">
+            <p class="text-sm font-semibold" :class="currentOrder.manager_action_type === 'cancelled_by_customer' ? 'text-red-800' : 'text-orange-800'">
+              {{ currentOrder.manager_action_type === 'cancelled_by_customer' ? 'Заказ отменен покупателем' : 'Заказ изменен покупателем' }}
+            </p>
+            <p v-if="currentOrder.manager_action_note" class="mt-1 text-sm" :class="currentOrder.manager_action_type === 'cancelled_by_customer' ? 'text-red-700' : 'text-orange-700'">
+              {{ currentOrder.manager_action_note }}
+            </p>
+          </div>
+          <button
+            @click="resolveAction"
+            :disabled="isResolvingAction"
+            class="inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold text-white shadow-sm transition disabled:opacity-60"
+            :class="currentOrder.manager_action_type === 'cancelled_by_customer'
+              ? 'bg-red-600 hover:bg-red-700'
+              : 'bg-orange-600 hover:bg-orange-700'"
+          >
+            <svg v-if="isResolvingAction" class="h-4 w-4 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+            <span>{{ isResolvingAction ? 'Обработка...' : (currentOrder.manager_action_type === 'cancelled_by_customer' ? 'Разобрать' : 'Принять изменения') }}</span>
+          </button>
+        </div>
+      </div>
+
       <div v-if="loading || !currentOrder" class="rounded-2xl bg-white p-12 text-center shadow-sm">
         <div class="mx-auto h-12 w-12 animate-spin rounded-full border-4 border-blue-600 border-r-transparent"></div>
         <p class="mt-4 text-sm text-gray-600">Загружаем заказ…</p>
@@ -159,6 +195,22 @@
               <p v-if="currentOrder.telegram_username" class="text-sm text-blue-600">
                 <a :href="`https://t.me/${currentOrder.telegram_username}`" target="_blank" class="hover:underline">@{{ currentOrder.telegram_username }}</a>
               </p>
+              <div v-if="currentOrder.promo_code_text" class="mt-2 inline-flex items-center gap-1.5 rounded-lg bg-blue-50 border border-blue-200 px-3 py-1.5">
+                <svg class="w-4 h-4 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
+                </svg>
+                <span class="text-sm font-medium text-blue-700">Промокод: {{ currentOrder.promo_code_text }}</span>
+                <span v-if="currentOrder.discount_amount > 0" class="text-sm text-blue-500">(-{{ formatCurrency(currentOrder.discount_amount) }})</span>
+              </div>
+              <div
+                v-if="currentOrder.items?.some((item) => Number(item.loyalty_discount_amount || 0) > 0)"
+                class="mt-2 inline-flex items-center gap-1.5 rounded-lg border border-violet-200 bg-violet-50 px-3 py-1.5"
+              >
+                <span class="text-sm font-medium text-violet-700">
+                  Скидка за покупки:
+                  -{{ formatCurrency(currentOrder.items?.reduce((sum, item) => sum + Number(item.loyalty_discount_amount || 0), 0) || 0) }}
+                </span>
+              </div>
             </div>
             <div class="text-right">
               <span :class="statusBadgeClass(editableStatus)" class="inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-wide">{{ statusLabel(editableStatus, deliveryType) }}</span>
@@ -266,7 +318,7 @@
               :key="item.productId"
               class="rounded-xl border border-gray-200 bg-white p-4 shadow-sm"
               :class="{
-                'border-red-300 bg-red-50/40': item.quantity <= 0 || item.discount > item.price * item.quantity
+                'border-red-300 bg-red-50/40': item.quantity <= 0 || item.manualDiscount + item.loyaltyDiscount > item.price * item.quantity
               }"
             >
                 <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -314,9 +366,9 @@
                   />
                 </label>
                 <label class="flex flex-col gap-1 text-xs font-medium text-gray-600">
-                  Скидка на позицию, ₽
+                  Ручная скидка на позицию, ₽
                   <input
-                    v-model.number="item.discount"
+                    v-model.number="item.manualDiscount"
                     type="number"
                     min="0"
                     step="0.01"
@@ -326,9 +378,19 @@
                 </label>
               </div>
 
+              <div
+                v-if="item.loyaltyDiscount > 0"
+                class="mt-3 flex flex-wrap items-center gap-2 text-xs text-violet-700"
+              >
+                <span class="rounded-full bg-violet-50 px-2.5 py-1 font-semibold">
+                  Скидка за покупки: -{{ formatCurrency(item.loyaltyDiscount) }}
+                </span>
+                <span>Списано бонусов: {{ item.loyaltyUnitsApplied }}</span>
+              </div>
+
               <div class="mt-3 flex flex-wrap items-center justify-between text-sm text-gray-600">
                 <span>Всего: <span class="font-semibold text-gray-900">{{ formatCurrency(itemSubtotal(item)) }}</span></span>
-                <span>Максимальная скидка: {{ formatCurrency(item.price * Math.max(item.quantity, 0)) }}</span>
+                <span>Максимальная ручная скидка: {{ formatCurrency(Math.max(item.price * Math.max(item.quantity, 0) - item.loyaltyDiscount, 0)) }}</span>
               </div>
             </article>
           </div>
@@ -349,6 +411,14 @@
                 <div class="flex items-center justify-between">
                   <dt>Сумма позиций (со скидками)</dt>
                   <dd class="font-semibold text-gray-900">{{ formatCurrency(itemsDiscountedSubtotal) }}</dd>
+                </div>
+                <div class="flex items-center justify-between">
+                  <dt>Скидка за покупки</dt>
+                  <dd class="font-semibold text-violet-700">{{ formatCurrency(loyaltyDiscountTotal) }}</dd>
+                </div>
+                <div class="flex items-center justify-between">
+                  <dt>Ручные скидки по позициям</dt>
+                  <dd class="font-semibold text-gray-900">{{ formatCurrency(manualItemDiscountTotal) }}</dd>
                 </div>
                 <div class="flex items-center justify-between">
                   <dt>Скидка ₽</dt>
@@ -403,6 +473,35 @@
             </div>
           </div>
         </section>
+
+        <!-- История изменений статуса -->
+        <section v-if="orderHistory.length" class="rounded-2xl bg-white p-6 shadow-sm">
+          <h2 class="mb-4 text-lg font-semibold text-gray-900">История изменений</h2>
+          <div class="relative space-y-0">
+            <div
+              v-for="(entry, idx) in orderHistory"
+              :key="entry.id"
+              class="relative flex gap-4 pb-4"
+            >
+              <!-- Timeline line -->
+              <div class="flex flex-col items-center">
+                <div class="h-3 w-3 rounded-full border-2 border-blue-400 bg-white" :class="idx === 0 ? 'bg-blue-400' : ''"></div>
+                <div v-if="idx < orderHistory.length - 1" class="w-0.5 flex-1 bg-gray-200"></div>
+              </div>
+              <div class="flex-1 -mt-0.5">
+                <div class="flex items-center gap-2">
+                  <span v-if="entry.previous_status" class="rounded bg-gray-100 px-1.5 py-0.5 text-[11px] font-medium text-gray-600">{{ statusLabel(entry.previous_status as Order['status']) }}</span>
+                  <svg v-if="entry.previous_status" class="h-3 w-3 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+                  </svg>
+                  <span class="rounded bg-blue-100 px-1.5 py-0.5 text-[11px] font-medium text-blue-700">{{ statusLabel(entry.new_status as Order['status']) }}</span>
+                </div>
+                <p v-if="entry.note" class="mt-1 text-xs text-gray-500">{{ entry.note }}</p>
+                <p class="mt-0.5 text-[11px] text-gray-400">{{ formatFullDate(entry.changed_at) }}</p>
+              </div>
+            </div>
+          </div>
+        </section>
       </div>
     </div>
   </div>
@@ -432,7 +531,9 @@ type FormItem = {
   description?: string | null
   quantity: number
   price: number
-  discount: number
+  manualDiscount: number
+  loyaltyDiscount: number
+  loyaltyUnitsApplied: number
   cost: number
   stock?: number | null
 }
@@ -454,6 +555,7 @@ const productSearch = ref('')
 const productResults = ref<CrmProductSummary[]>([])
 const isSearchingProducts = ref(false)
 const searchError = ref('')
+const productSearchRequestId = ref(0)
 
 const isSaving = ref(false)
 const saveError = ref('')
@@ -461,6 +563,33 @@ const saveSuccess = ref('')
 const deletingPayment = ref(false)
 const reactivating = ref(false)
 const isGeneratingMessage = ref(false)
+const isResolvingAction = ref(false)
+const orderHistory = ref<Array<{
+  id: string;
+  order_id: string;
+  previous_status: string | null;
+  new_status: string;
+  changed_at: string;
+  note: string | null;
+}>>([])
+
+async function resolveAction() {
+  if (!currentOrder.value) return
+  const actionType = currentOrder.value.manager_action_type
+  isResolvingAction.value = true
+  try {
+    await crmStore.resolveManagerAction(currentOrder.value.id)
+    await refreshOrder()
+    await loadHistory()
+    saveSuccess.value = actionType === 'cancelled_by_customer'
+      ? 'Отмена подтверждена, заказ разобран'
+      : 'Изменения приняты, заказ отправлен на пересборку'
+  } catch (error: any) {
+    saveError.value = error?.message || 'Не удалось обработать действие'
+  } finally {
+    isResolvingAction.value = false
+  }
+}
 
 const statusOptions: Array<{ value: Order['status']; label: string }> = [
   { value: 'new', label: 'Новый' },
@@ -484,6 +613,14 @@ const paymentDescription = computed(() => {
 
 const itemsSubtotal = computed(() => {
   return form.items.reduce((sum, item) => sum + Math.max(item.price, 0) * Math.max(item.quantity, 0), 0)
+})
+
+const loyaltyDiscountTotal = computed(() => {
+  return form.items.reduce((sum, item) => sum + Math.max(item.loyaltyDiscount || 0, 0), 0)
+})
+
+const manualItemDiscountTotal = computed(() => {
+  return form.items.reduce((sum, item) => sum + Math.max(item.manualDiscount || 0, 0), 0)
 })
 
 const itemsDiscountedSubtotal = computed(() => {
@@ -520,12 +657,17 @@ const hasChanges = computed(() => {
   // Проверяем каждую позицию
   for (let i = 0; i < form.items.length; i++) {
     const formItem = form.items[i]
-    const originalItem = originalItems.find(item => item.product_id === formItem.productId)
+    const originalItem = originalItems.find((item) => {
+      const itemKey = item.variant_id
+        ? `${item.product_id}:${item.variant_id}`
+        : item.product_id
+      return itemKey === formItem.productId
+    })
     if (!originalItem) return true
     
     if (formItem.quantity !== Number(originalItem.quantity || 0)) return true
     if (formItem.price !== Number(originalItem.price_per_unit || 0)) return true
-    if (formItem.discount !== Number(originalItem.discount_amount || 0)) return true
+    if (formItem.manualDiscount !== Number(originalItem.manual_discount_amount || 0)) return true
   }
   
   return false
@@ -547,21 +689,32 @@ const canRemovePayment = computed(() => hasPayment.value && !isSaving.value)
 let searchTimer: ReturnType<typeof setTimeout> | null = null
 let successTimer: ReturnType<typeof setTimeout> | null = null
 
+function invalidateProductSearch() {
+  productSearchRequestId.value += 1
+  isSearchingProducts.value = false
+}
+
+function clearProductSearchState() {
+  if (searchTimer) {
+    clearTimeout(searchTimer)
+    searchTimer = null
+  }
+  invalidateProductSearch()
+  searchError.value = ''
+  productResults.value = []
+}
+
 watch(productSearch, (value) => {
   const query = value.trim()
   if (searchTimer) clearTimeout(searchTimer)
   
   if (!query) {
-    productResults.value = []
-    searchError.value = ''
-    isSearchingProducts.value = false
+    clearProductSearchState()
     return
   }
   
   if (query.length < 2) {
-    productResults.value = []
-    searchError.value = ''
-    isSearchingProducts.value = false
+    clearProductSearchState()
     return
   }
   
@@ -576,11 +729,21 @@ watch(currentOrder, (order) => {
 
 onMounted(() => {
   void refreshOrder()
+  void loadHistory()
 })
+
+async function loadHistory() {
+  try {
+    orderHistory.value = await crmStore.fetchOrderHistory(props.id)
+  } catch (error) {
+    console.error('[CRM] Failed to load order history:', error)
+  }
+}
 
 onBeforeUnmount(() => {
   if (searchTimer) clearTimeout(searchTimer)
   if (successTimer) clearTimeout(successTimer)
+  clearProductSearchState()
 })
 
 async function refreshOrder() {
@@ -618,28 +781,35 @@ function initializeForm(order: Order) {
       description: item.product_description || null,
       quantity: Number(item.quantity || 0),
       price: Number(item.price_per_unit || 0),
-      discount: Number(item.discount_amount || 0),
+      manualDiscount: Number(item.manual_discount_amount || 0),
+      loyaltyDiscount: Number(item.loyalty_discount_amount || 0),
+      loyaltyUnitsApplied: Number(item.loyalty_units_applied || 0),
       cost: Number(item.cost_per_unit || 0),
       stock: null
     }))
-  productResults.value = []
   productSearch.value = ''
+  clearProductSearchState()
   saveError.value = ''
   saveSuccess.value = ''
 }
 
 async function loadProducts(query: string) {
+  const requestId = ++productSearchRequestId.value
   isSearchingProducts.value = true
   searchError.value = ''
   try {
     const results = await crmStore.searchCrmProducts({ search: query, limit: 100 })
+    if (requestId !== productSearchRequestId.value) return
     productResults.value = results
   } catch (error) {
+    if (requestId !== productSearchRequestId.value) return
     console.error('[CRM] product search error', error)
     searchError.value = 'Не удалось загрузить товары'
     productResults.value = []
   } finally {
-    isSearchingProducts.value = false
+    if (requestId === productSearchRequestId.value) {
+      isSearchingProducts.value = false
+    }
   }
 }
 
@@ -669,12 +839,14 @@ function addProduct(product: CrmProductSummary) {
     description: product.description || null,
     quantity: 1,
     price: product.priceRub,
-    discount: 0,
+    manualDiscount: 0,
+    loyaltyDiscount: 0,
+    loyaltyUnitsApplied: 0,
     cost: product.costPrice,
     stock: product.stock
   })
-  productResults.value = []
   productSearch.value = ''
+  clearProductSearchState()
 }
 
 function removeItem(productId: string) {
@@ -684,17 +856,27 @@ function removeItem(productId: string) {
 function normalizeItem(item: FormItem) {
   if (!Number.isFinite(item.quantity) || item.quantity <= 0) item.quantity = 1
   if (!Number.isFinite(item.price) || item.price < 0) item.price = 0
-  if (!Number.isFinite(item.discount) || item.discount < 0) item.discount = 0
-  const maxDiscount = Math.max(item.price * item.quantity, 0)
-  if (item.discount > maxDiscount) item.discount = maxDiscount
+  if (!Number.isFinite(item.manualDiscount) || item.manualDiscount < 0) item.manualDiscount = 0
+  item.loyaltyDiscount = Math.max(0, Number(item.loyaltyDiscount || 0))
+  item.loyaltyUnitsApplied = Math.max(0, Math.round(Number(item.loyaltyUnitsApplied || 0)))
+  const maxManualDiscount = Math.max(item.price * item.quantity - item.loyaltyDiscount, 0)
+  if (item.manualDiscount > maxManualDiscount) item.manualDiscount = maxManualDiscount
 }
 
 function isItemValid(item: FormItem) {
-  return item.quantity > 0 && item.price >= 0 && item.discount >= 0 && item.discount <= item.price * item.quantity
+  return (
+    item.quantity > 0 &&
+    item.price >= 0 &&
+    item.manualDiscount >= 0 &&
+    item.manualDiscount + item.loyaltyDiscount <= item.price * item.quantity
+  )
 }
 
 function itemSubtotal(item: FormItem) {
-  const total = Math.max(item.price, 0) * Math.max(item.quantity, 0) - Math.max(item.discount, 0)
+  const total =
+    Math.max(item.price, 0) * Math.max(item.quantity, 0) -
+    Math.max(item.manualDiscount, 0) -
+    Math.max(item.loyaltyDiscount, 0)
   return total < 0 ? 0 : total
 }
 
@@ -715,14 +897,17 @@ async function saveChanges() {
   const sanitizedItems = form.items.map((item) => {
     const quantity = Math.max(1, Math.round(Number(item.quantity) || 0))
     const price = Math.max(0, Number(item.price) || 0)
-    let discount = Math.max(0, Number(item.discount) || 0)
-    const maxDiscount = price * quantity
-    if (discount > maxDiscount) discount = maxDiscount
+    let manualDiscount = Math.max(0, Number(item.manualDiscount) || 0)
+    const loyaltyDiscount = Math.max(0, Number(item.loyaltyDiscount) || 0)
+    const maxDiscount = Math.max(price * quantity - loyaltyDiscount, 0)
+    if (manualDiscount > maxDiscount) manualDiscount = maxDiscount
     const result: any = {
       product_id: item.baseProductId || item.productId,
       quantity,
       price_per_unit: price,
-      discount_amount: discount
+      manual_discount_amount: manualDiscount,
+      loyalty_discount_amount: loyaltyDiscount,
+      loyalty_units_applied: Math.max(0, Math.round(Number(item.loyaltyUnitsApplied || 0))),
     }
     // variant_id и variant_name нужны только для товаров с вариантами
     if (item.variantId) {

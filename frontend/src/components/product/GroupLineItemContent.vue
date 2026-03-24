@@ -28,7 +28,7 @@
           <div class="group-variant-info">
             <!-- Название варианта - всегда черным текстом -->
             <span class="group-variant-title">{{ variant.name }}</span>
-            <span v-if="variant.priceRub && variant.priceRub !== firstProductPrice" class="group-variant-price">{{ formatPrice(variant.priceRub) }} BYN</span>
+            <span v-if="shouldShowVariantPrice(variant)" class="group-variant-price">{{ formatPrice(variant.priceRub) }} BYN</span>
             <!-- 
               Кнопка "Как выглядит цвет" показывается ВСЕГДА когда есть изображение товара варианта
               Независимо от режима отображения (цвет или картинка)
@@ -114,7 +114,7 @@
       >
         <div class="group-product-info">
           <span class="group-product-title">{{ product.title }}</span>
-          <span v-if="product.priceRub && product.priceRub !== firstProductPrice" class="group-product-price">{{ formatPrice(product.priceRub) }} BYN</span>
+          <span v-if="shouldShowProductPrice(product)" class="group-product-price">{{ formatPrice(product.priceRub) }} BYN</span>
         </div>
         <div class="group-product-actions">
           <template v-if="getQuantity(product.id) > 0">
@@ -170,6 +170,7 @@ import { PlusIcon, MinusIcon } from "@heroicons/vue/24/outline";
 import { useCartStore } from "@/stores/cart";
 import type { Product, ProductVariant } from "@/stores/catalog";
 import ColorPreviewModal from "@/components/product/ColorPreviewModal.vue";
+import { getMinPriceForProducts } from "@/components/product/groupPrice";
 
 export interface GroupNode {
   id: string;
@@ -230,22 +231,28 @@ const productsWithoutVariants = computed(() =>
   ),
 );
 
-// Цена первого товара для сравнения цен
-const firstProductPrice = computed(() => {
-  const firstProduct = props.node.products.find((p) => Boolean(p));
-  if (!firstProduct) return null;
-  
-  // Если товар с вариантами, берем цену первого варианта
-  if (firstProduct.hasVariants) {
-    const variants = getSafeVariants(firstProduct);
-    if (variants.length) {
-      return variants[0].priceRub ?? null;
-    }
-  }
-  
-  // Иначе берем цену самого товара
-  return firstProduct.priceRub ?? null;
-});
+// Цена минимального товара для сравнения цен
+const firstProductPrice = computed(() =>
+  getMinPriceForProducts(props.node.products),
+);
+
+function hasPositivePrice(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0;
+}
+
+function shouldShowVariantPrice(variant: ProductVariant): boolean {
+  return (
+    hasPositivePrice(variant.priceRub) &&
+    variant.priceRub !== firstProductPrice.value
+  );
+}
+
+function shouldShowProductPrice(product: Product): boolean {
+  return (
+    hasPositivePrice(product.priceRub) &&
+    product.priceRub !== firstProductPrice.value
+  );
+}
 
 function formatPrice(value?: number | null) {
   if (value === null || value === undefined) return "—";

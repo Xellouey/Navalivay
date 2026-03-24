@@ -35,6 +35,12 @@ import { migrateStockDeductedToOrders } from './migrations/add_stock_deducted_to
 import { migrateVariantIdToOrderItems } from './migrations/add_variant_id_to_order_items.js';
 import { migrateEmptySinceToGroups } from './migrations/add_empty_since_to_groups.js';
 import { migratePosSales } from './migrations/add_pos_sales.js';
+import { migratePosSaleTransactionLink } from './migrations/add_pos_sale_transaction_link.js';
+import { migrateManagerActionFields } from './migrations/add_manager_action_fields.js';
+import { migrateCustomerPhoto } from './migrations/add_customer_photo.js';
+import { migratePromoCodes } from './migrations/add_promo_codes.js';
+import { migrateOrderItemDisplayFields } from './migrations/add_order_item_display_fields.js';
+import { migrateLoyaltyTables, seedDefaultLoyaltyData } from './migrations/add_loyalty_tables.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -167,10 +173,17 @@ export function initDb() {
   migrateColorImageToVariants();
   migrateStockDeductedToOrders();
   migrateVariantIdToOrderItems();
+  migrateOrderItemDisplayFields();
   migrateEmptySinceToGroups();
   migratePosSales();
+  migratePosSaleTransactionLink();
+  migrateManagerActionFields();
+  migrateCustomerPhoto();
+  migratePromoCodes();
+  migrateLoyaltyTables();
 
   seedIfEmpty();
+  seedDefaultLoyaltyData();
 }
 
 function seedIfEmpty() {

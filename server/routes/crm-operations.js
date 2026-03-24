@@ -2,6 +2,12 @@ import express from "express";
 import { db } from "../db.js";
 import { authMiddleware } from "../auth.js";
 import { archiveOldDeliveredOrders } from "../cleanup-delivered-orders.js";
+import {
+  applyOrderLoyaltyReservations,
+  awardLoyaltyForOrder,
+  buildLoyaltyApplication,
+  releaseOrderLoyaltyReservations,
+} from "../loyalty.js";
 
 export const crmOperationsRouter = express.Router();
 
@@ -72,6 +78,120 @@ function applyDiscounts(totalAmount, discountAmount, discountPercent) {
   }
 
   return finalAmount < 0 ? 0 : finalAmount;
+}
+
+function buildAdminOrderItemsWithLoyalty({
+  items,
+  customerId = null,
+  promoCodeText = null,
+}) {
+  let totalAmount = 0;
+  let totalCost = 0;
+
+  const preparedItems = items.map((item) => {
+    if (!item || !item.product_id) {
+      throw new Error("invalid_item");
+    }
+
+    const product = db
+      .prepare("SELECT * FROM products WHERE id = ?")
+      .get(item.product_id);
+    if (!product) {
+      throw new Error(`Product not found: ${item.product_id}`);
+    }
+
+    const quantity = Math.max(1, Math.round(Number(item.quantity || 0)));
+    const manualDiscountAmount = Math.max(
+      0,
+      Number(item.manual_discount_amount ?? item.discount_amount ?? 0),
+    );
+
+    let variantData = null;
+    if (item.variant_id) {
+      variantData = db
+        .prepare("SELECT * FROM product_variants WHERE id = ?")
+        .get(item.variant_id);
+      if (!variantData) {
+        throw new Error(`Variant not found: ${item.variant_id}`);
+      }
+    }
+
+    const pricePerUnit = Number(
+      item.price_per_unit !== undefined
+        ? item.price_per_unit
+        : variantData?.price_rub ?? product.priceRub,
+    );
+    const costPerUnit = Number(product.cost_price || 0);
+
+    totalAmount += pricePerUnit * quantity;
+    totalCost += costPerUnit * quantity;
+
+    let groupName = item.group_name || null;
+    if (!groupName && product.groupId) {
+      groupName =
+        db.prepare("SELECT name FROM category_groups WHERE id = ?").get(product.groupId)
+          ?.name || null;
+    }
+
+    let variantName = item.variant_name || null;
+    if (item.variant_id && !variantName) {
+      variantName = variantData?.name || null;
+    }
+
+    const baseProductTitle =
+      item.base_product_title || product.title || "Без названия";
+    const productTitle = variantName
+      ? `${baseProductTitle} - ${variantName}`
+      : item.product_title || product.title || "Без названия";
+
+    return {
+      id: item.id || generateId("oi"),
+      product_id: item.product_id,
+      variant_id: item.variant_id || null,
+      product_title: productTitle,
+      group_name: groupName,
+      base_product_id: item.base_product_id || item.product_id || null,
+      base_product_title: baseProductTitle,
+      variant_name: variantName,
+      quantity,
+      price_per_unit: pricePerUnit,
+      cost_per_unit: costPerUnit,
+      manual_discount_amount: manualDiscountAmount,
+      loyalty_units_applied: Number(item.loyalty_units_applied || 0),
+    };
+  });
+
+  const application = buildLoyaltyApplication({
+    customerId,
+    items: preparedItems,
+    promoCodeText,
+  });
+
+  return {
+    items: application.items.map((item) => ({
+      id: item.id,
+      product_id: item.product_id,
+      variant_id: item.variant_id || null,
+      product_title: item.product_title,
+      group_name: item.group_name || null,
+      base_product_id: item.base_product_id || null,
+      base_product_title: item.base_product_title || null,
+      variant_name: item.variant_name || null,
+      quantity: Number(item.quantity || 0),
+      price_per_unit: Number(item.price_per_unit || 0),
+      cost_per_unit: Number(item.cost_per_unit || 0),
+      manual_discount_amount: Number(item.manual_discount_amount || 0),
+      loyalty_discount_amount: Number(item.loyalty_discount_amount || 0),
+      loyalty_units_applied: Number(item.loyalty_units_applied || 0),
+      discount_amount: Number(item.discount_amount || 0),
+      total_price: Number(item.total_price || 0),
+      total_cost: Number(item.cost_per_unit || 0) * Number(item.quantity || 0),
+    })),
+    totalAmount,
+    totalCost,
+    totalLoyaltyDiscount: Number(application.total_loyalty_discount || 0),
+    application,
+  };
 }
 
 // =========================
@@ -299,6 +419,115 @@ crmOperationsRouter.get(
   },
 );
 
+// Доставленные заказы (включая архивные) - MUST be before /orders/:id
+crmOperationsRouter.get(
+  "/api/admin/crm/orders/delivered",
+  authMiddleware,
+  (req, res) => {
+    try {
+      const { page = 1, limit = 100, search, period = "all" } = req.query;
+
+      const whereClauses = ["o.status IN ('delivered','completed')"];
+      const params = [];
+
+      // Серверная фильтрация по периоду
+      if (period === "today") {
+        whereClauses.push("DATE(COALESCE(o.completed_at, o.paid_at, o.updated_at, o.created_at)) = DATE('now')");
+      } else if (period === "week") {
+        whereClauses.push("COALESCE(o.completed_at, o.paid_at, o.updated_at, o.created_at) >= DATETIME('now', '-7 days')");
+      } else if (period === "month") {
+        whereClauses.push("COALESCE(o.completed_at, o.paid_at, o.updated_at, o.created_at) >= DATETIME('now', '-30 days')");
+      }
+
+      if (search) {
+        const searchTerm = String(search).trim();
+        if (searchTerm) {
+          whereClauses.push(
+            "(CAST(o.order_number AS TEXT) LIKE ? OR c.first_name LIKE ? OR c.last_name LIKE ? OR c.telegram_username LIKE ? OR o.telegram_username LIKE ?)",
+          );
+          const likePattern = `%${searchTerm}%`;
+          params.push(likePattern, likePattern, likePattern, likePattern, likePattern);
+        }
+      }
+
+      const whereClause = `WHERE ${whereClauses.join(" AND ")}`;
+      const offset = (parseInt(page) - 1) * parseInt(limit);
+
+      const countSql = `SELECT COUNT(*) as count FROM orders o LEFT JOIN customers c ON c.id = o.customer_id ${whereClause}`;
+      const total = db.prepare(countSql).get(...params).count;
+
+      const ordersSql = `
+        SELECT
+          o.*,
+          COALESCE(o.telegram_username, c.telegram_username) as telegram_username,
+          c.first_name || ' ' || COALESCE(c.last_name, '') as customer_name
+        FROM orders o
+        LEFT JOIN customers c ON c.id = o.customer_id
+        ${whereClause}
+        ORDER BY COALESCE(o.completed_at, o.paid_at, o.updated_at, o.created_at) DESC
+        LIMIT ? OFFSET ?
+      `;
+
+      const orders = db.prepare(ordersSql).all(...params, parseInt(limit), offset);
+
+      // Считаем статистику по ВСЕМ заказам периода (не только по странице)
+      const statsSql = `
+        SELECT
+          COUNT(*) as totalCount,
+          COALESCE(SUM(CASE WHEN o.discount_amount > 0 THEN o.total_amount - o.discount_amount ELSE o.total_amount END), 0) as totalAmount,
+          SUM(CASE WHEN o.delivery_type = 'delivery' THEN 1 ELSE 0 END) as deliveryCount,
+          COALESCE(SUM(CASE WHEN o.delivery_type = 'delivery' THEN (CASE WHEN o.discount_amount > 0 THEN o.total_amount - o.discount_amount ELSE o.total_amount END) ELSE 0 END), 0) as deliveryAmount,
+          SUM(CASE WHEN o.delivery_type = 'pickup' OR o.delivery_type IS NULL THEN 1 ELSE 0 END) as pickupCount,
+          COALESCE(SUM(CASE WHEN o.delivery_type = 'pickup' OR o.delivery_type IS NULL THEN (CASE WHEN o.discount_amount > 0 THEN o.total_amount - o.discount_amount ELSE o.total_amount END) ELSE 0 END), 0) as pickupAmount
+        FROM orders o
+        LEFT JOIN customers c ON c.id = o.customer_id
+        ${whereClause}
+      `;
+      const stats = db.prepare(statsSql).get(...params);
+
+      let ordersWithItems = orders;
+      if (orders.length > 0) {
+        const orderIds = orders.map((order) => order.id);
+        const placeholders = orderIds.map(() => "?").join(",");
+        const itemsRows = db
+          .prepare(
+            `SELECT oi.*, p.description as product_description
+            FROM order_items oi
+            LEFT JOIN products p ON oi.product_id = p.id
+            WHERE oi.order_id IN (${placeholders})`,
+          )
+          .all(...orderIds);
+
+        const itemsByOrder = itemsRows.reduce((acc, item) => {
+          const list = acc.get(item.order_id) || [];
+          list.push(item);
+          acc.set(item.order_id, list);
+          return acc;
+        }, new Map());
+
+        ordersWithItems = orders.map((order) => ({
+          ...order,
+          items: itemsByOrder.get(order.id) || [],
+        }));
+      }
+
+      res.json({
+        orders: ordersWithItems,
+        stats,
+        pagination: {
+          page: parseInt(page),
+          limit: parseInt(limit),
+          total,
+          totalPages: Math.ceil(total / parseInt(limit)),
+        },
+      });
+    } catch (error) {
+      console.error("[crm] Fetch delivered orders error:", error);
+      res.status(500).json({ error: "failed", message: error.message });
+    }
+  },
+);
+
 crmOperationsRouter.get(
   "/api/admin/crm/orders/:id",
   authMiddleware,
@@ -373,7 +602,7 @@ crmOperationsRouter.post(
       let totalCost = 0;
       let itemsSubtotal = 0;
 
-      const orderItems = items.map((item) => {
+      let orderItems = items.map((item) => {
         const product = db
           .prepare("SELECT * FROM products WHERE id = ?")
           .get(item.product_id);
@@ -457,6 +686,18 @@ crmOperationsRouter.post(
       });
 
       // Применяем скидки
+      const orderBuild = buildAdminOrderItemsWithLoyalty({
+        items,
+        customerId: customer_id || null,
+      });
+      orderItems = orderBuild.items;
+      totalAmount = Number(orderBuild.totalAmount || 0);
+      totalCost = Number(orderBuild.totalCost || 0);
+      itemsSubtotal = orderItems.reduce(
+        (sum, item) => sum + Number(item.total_price || 0),
+        0,
+      );
+
       const finalAmount = applyDiscounts(
         itemsSubtotal,
         discount_amount,
@@ -492,8 +733,8 @@ crmOperationsRouter.post(
         const itemStmt = db.prepare(`
         INSERT INTO order_items (
           id, order_id, product_id, variant_id, product_title, group_name, base_product_id, base_product_title, variant_name, quantity,
-          price_per_unit, cost_per_unit, discount_amount, total_price, total_cost
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          price_per_unit, cost_per_unit, manual_discount_amount, loyalty_discount_amount, loyalty_units_applied, discount_amount, total_price, total_cost
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
 
         for (const item of orderItems) {
@@ -510,6 +751,9 @@ crmOperationsRouter.post(
             item.quantity,
             item.price_per_unit,
             item.cost_per_unit,
+            item.manual_discount_amount,
+            item.loyalty_discount_amount,
+            item.loyalty_units_applied,
             item.discount_amount,
             item.total_price,
             item.total_cost,
@@ -521,6 +765,12 @@ crmOperationsRouter.post(
         }
 
         // Обновляем статистику клиента
+        applyOrderLoyaltyReservations({
+          customerId: customer_id || null,
+          orderId,
+          application: orderBuild.application,
+        });
+
         if (customer_id) {
           db.prepare(
             `
@@ -533,6 +783,7 @@ crmOperationsRouter.post(
         `,
           ).run(finalAmount, customer_id);
         }
+
       });
 
       tx();
@@ -554,6 +805,22 @@ crmOperationsRouter.post(
       res.json({ ...order, items: items_result });
     } catch (error) {
       console.error("[crm] Create order error:", error);
+      const clientErrors = new Set([
+        "items_required",
+        "invalid_item",
+        "invalid_item_quantity",
+        "promo_and_loyalty_conflict",
+        "loyalty_category_not_available",
+        "loyalty_balance_not_enough",
+      ]);
+      const isClientError =
+        clientErrors.has(error.message) ||
+        error.message.startsWith("Insufficient stock") ||
+        error.message.startsWith("Product not found") ||
+        error.message.startsWith("Variant not found");
+      if (isClientError) {
+        return res.status(400).json({ error: error.message });
+      }
       res.status(500).json({ error: "failed", message: error.message });
     }
   },
@@ -624,6 +891,8 @@ crmOperationsRouter.patch(
       }
 
       let statusChangeNote = null;
+      const hasItemsPayload = Array.isArray(items);
+      const workingStatuses = ["in_progress", "completed", "delivered"];
 
       const tx = db.transaction(() => {
         const updateFields = [];
@@ -670,10 +939,10 @@ crmOperationsRouter.patch(
 
           // СПИСАНИЕ СТОКА: При переходе в "рабочий" статус (in_progress, completed, delivered)
           // если сток еще не был списан
-          const workingStatuses = ["in_progress", "completed", "delivered"];
           if (
             workingStatuses.includes(desiredStatus) &&
-            !order.stock_deducted
+            !order.stock_deducted &&
+            !hasItemsPayload
           ) {
             const orderItems = db
               .prepare("SELECT * FROM order_items WHERE order_id = ?")
@@ -725,14 +994,38 @@ crmOperationsRouter.patch(
             updateFields.push("stock_deducted = 1");
           }
 
+          if (
+            !workingStatuses.includes(desiredStatus) &&
+            order.stock_deducted &&
+            desiredStatus !== "cancelled" &&
+            !hasItemsPayload
+          ) {
+            const orderItems = db
+              .prepare("SELECT * FROM order_items WHERE order_id = ?")
+              .all(id);
+            for (const item of orderItems) {
+              if (item.variant_id) {
+                db.prepare(
+                  "UPDATE product_variants SET stock = stock + ? WHERE id = ?",
+                ).run(item.quantity, item.variant_id);
+              } else if (item.product_id) {
+                db.prepare(
+                  "UPDATE products SET stock = stock + ? WHERE id = ?",
+                ).run(item.quantity, item.product_id);
+              }
+            }
+            updateFields.push("stock_deducted = 0");
+          }
+
           if (desiredStatus === "cancelled" && order.status !== "cancelled") {
             updateFields.push("previous_status = ?");
             updateValues.push(order.status);
+            releaseOrderLoyaltyReservations(id);
             updateFields.push("cancelled_at = DATETIME('now')");
             statusChangeNote = "Заказ отменён";
 
             // ВОЗВРАТ СТОКА: При отмене заказа, если сток был списан
-            if (order.stock_deducted) {
+            if (order.stock_deducted && !hasItemsPayload) {
               const orderItems = db
                 .prepare("SELECT * FROM order_items WHERE order_id = ?")
                 .all(id);
@@ -748,6 +1041,12 @@ crmOperationsRouter.patch(
                 }
               }
               updateFields.push("stock_deducted = 0");
+            }
+
+            // ОТКАТ ПРОМОКОДА: При отмене заказа возвращаем использование промокода
+            if (order.promo_code_id) {
+              db.prepare('UPDATE promo_codes SET current_uses = MAX(current_uses - 1, 0) WHERE id = ?').run(order.promo_code_id);
+              db.prepare('DELETE FROM promo_usage WHERE order_id = ?').run(id);
             }
           } else if (desiredStatus !== "cancelled") {
             updateFields.push("previous_status = NULL");
@@ -837,20 +1136,31 @@ crmOperationsRouter.patch(
             }
           }
 
+          releaseOrderLoyaltyReservations(id);
+          const orderBuild = buildAdminOrderItemsWithLoyalty({
+            items,
+            customerId: order.customer_id || null,
+            promoCodeText: order.promo_code_text || null,
+          });
+          const rebuiltItems = orderBuild.items;
+          const shouldDeductUpdatedItems =
+            workingStatuses.includes(desiredStatus) &&
+            (!order.stock_deducted || itemsChanged);
+
           db.prepare("DELETE FROM order_items WHERE order_id = ?").run(id);
 
-          let totalAmount = 0;
-          let totalCost = 0;
+          let totalAmount = Number(orderBuild.totalAmount || 0);
+          let totalCost = Number(orderBuild.totalCost || 0);
           let itemsSubtotal = 0;
 
           const itemStmt = db.prepare(`
           INSERT INTO order_items (
             id, order_id, product_id, variant_id, product_title, group_name, base_product_id, base_product_title, variant_name, quantity,
-            price_per_unit, cost_per_unit, discount_amount, total_price, total_cost
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            price_per_unit, cost_per_unit, manual_discount_amount, loyalty_discount_amount, loyalty_units_applied, discount_amount, total_price, total_cost
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `);
 
-          for (const item of items) {
+          for (const item of rebuiltItems) {
             if (!item || !item.product_id) {
               throw new Error("invalid_item");
             }
@@ -878,7 +1188,7 @@ crmOperationsRouter.patch(
             // Проверяем сток ТОЛЬКО если заказ уже был собран (stock_deducted = 1) И позиции изменились
             // Если stock_deducted = 0, сток не будет списываться, проверка не нужна
             // Если позиции не изменились, сток уже списан, проверка не нужна
-            if (order.stock_deducted && itemsChanged) {
+            if (shouldDeductUpdatedItems) {
               if (item.variant_id) {
                 const variant = db
                   .prepare("SELECT stock FROM product_variants WHERE id = ?")
@@ -887,8 +1197,7 @@ crmOperationsRouter.patch(
                   throw new Error(`Variant not found: ${item.variant_id}`);
                 }
                 // Учитываем уже возвращенный сток из этого заказа
-                const oldQuantity = oldItemsMap.get(item.variant_id) || 0;
-                const availableStock = Number(variant.stock || 0) + oldQuantity;
+                const availableStock = Number(variant.stock || 0);
                 if (availableStock < quantity) {
                   throw new Error(
                     `Insufficient stock for variant ${item.variant_id}`,
@@ -896,8 +1205,7 @@ crmOperationsRouter.patch(
                 }
               } else {
                 // Учитываем уже возвращенный сток из этого заказа
-                const oldQuantity = oldItemsMap.get(item.product_id) || 0;
-                const availableStock = Number(product.stock || 0) + oldQuantity;
+                const availableStock = Number(product.stock || 0);
                 if (availableStock < quantity) {
                   throw new Error(
                     `Insufficient stock for ${product.title || product.id}`,
@@ -935,18 +1243,21 @@ crmOperationsRouter.patch(
             }
 
             itemStmt.run(
-              generateId("oi"),
+              item.id || generateId("oi"),
               id,
               item.product_id,
               item.variant_id || null,
               product.title || "Без названия",
-              groupName,
-              product.base_product_id || null,
-              product.base_product_title || null,
-              variantName,
+              item.group_name || groupName,
+              item.base_product_id || null,
+              item.base_product_title || null,
+              item.variant_name || variantName,
               quantity,
               pricePerUnit,
               costPerUnit,
+              Number(item.manual_discount_amount || 0),
+              Number(item.loyalty_discount_amount || 0),
+              Number(item.loyalty_units_applied || 0),
               itemDiscount,
               totalPrice,
               totalItemCost,
@@ -954,7 +1265,7 @@ crmOperationsRouter.patch(
 
             // Списываем сток ТОЛЬКО если заказ уже был собран (stock_deducted = 1) И позиции изменились
             // Если позиции не изменились, сток уже списан, не нужно списывать заново
-            if (order.stock_deducted && itemsChanged) {
+            if (shouldDeductUpdatedItems) {
               if (item.variant_id) {
                 db.prepare(
                   "UPDATE product_variants SET stock = stock - ? WHERE id = ?",
@@ -966,6 +1277,14 @@ crmOperationsRouter.patch(
               }
             }
           }
+
+          applyOrderLoyaltyReservations({
+            customerId: order.customer_id || null,
+            orderId: id,
+            application: orderBuild.application,
+          });
+          totalAmount = Number(orderBuild.totalAmount || 0);
+          totalCost = Number(orderBuild.totalCost || 0);
 
           const finalAmount = applyDiscounts(
             itemsSubtotal,
@@ -989,6 +1308,9 @@ crmOperationsRouter.patch(
             updatedDiscountPercent,
             id,
           );
+          db.prepare(
+            `UPDATE orders SET stock_deducted = ?, updated_at = DATETIME('now') WHERE id = ?`,
+          ).run(shouldDeductUpdatedItems ? 1 : 0, id);
         } else if (shouldUpdateDiscount) {
           const totals = db
             .prepare(
@@ -1023,6 +1345,10 @@ crmOperationsRouter.patch(
             profit,
             id,
           );
+        }
+
+        if (["completed", "delivered"].includes(desiredStatus)) {
+          awardLoyaltyForOrder(id);
         }
       });
 
@@ -1059,6 +1385,9 @@ crmOperationsRouter.patch(
         "invalid_quantity",
         "invalid_cost",
         "items_required",
+        "promo_and_loyalty_conflict",
+        "loyalty_category_not_available",
+        "loyalty_balance_not_enough",
       ]);
 
       // Проверяем клиентские ошибки (которые должны вернуть 400, а не 500)
@@ -1072,6 +1401,124 @@ crmOperationsRouter.patch(
       if (isClientError) {
         return res.status(400).json({ error: error.message });
       }
+      res.status(500).json({ error: "failed", message: error.message });
+    }
+  },
+);
+
+// История статусов заказа (must be after /delivered to avoid route conflict)
+crmOperationsRouter.get(
+  "/api/admin/crm/orders/:id/history",
+  authMiddleware,
+  (req, res) => {
+    try {
+      const { id } = req.params;
+      const history = db
+        .prepare(
+          `SELECT * FROM order_status_history WHERE order_id = ? ORDER BY changed_at DESC`,
+        )
+        .all(id);
+      res.json(history);
+    } catch (error) {
+      console.error("[crm] Fetch order history error:", error);
+      res.status(500).json({ error: "failed", message: error.message });
+    }
+  },
+);
+
+// Resolve manager action (менеджер подтвердил что увидел изменение/отмену)
+crmOperationsRouter.post(
+  "/api/admin/crm/orders/:id/resolve-action",
+  authMiddleware,
+  (req, res) => {
+    try {
+      const { id } = req.params;
+
+      const order = db.prepare("SELECT * FROM orders WHERE id = ?").get(id);
+      if (!order) {
+        return res.status(404).json({ error: "not_found" });
+      }
+
+      if (!order.needs_manager_action) {
+        return res.status(400).json({ error: "no_action_required" });
+      }
+
+      const tx = db.transaction(() => {
+        if (order.manager_action_type === "modified") {
+          // Измененный заказ - возвращаем в "Новые" для пересборки
+          // Если сток был списан (заказ был собран до изменения), возвращаем сток
+          if (order.stock_deducted) {
+            const orderItems = db
+              .prepare("SELECT * FROM order_items WHERE order_id = ?")
+              .all(id);
+            for (const item of orderItems) {
+              if (item.variant_id) {
+                db.prepare(
+                  "UPDATE product_variants SET stock = stock + ? WHERE id = ?",
+                ).run(item.quantity, item.variant_id);
+              } else if (item.product_id) {
+                db.prepare(
+                  "UPDATE products SET stock = stock + ? WHERE id = ?",
+                ).run(item.quantity, item.product_id);
+              }
+            }
+          }
+
+          db.prepare(
+            `UPDATE orders SET
+              needs_manager_action = 0,
+              manager_action_resolved_at = DATETIME('now'),
+              status = 'new',
+              stock_deducted = 0,
+              updated_at = DATETIME('now')
+            WHERE id = ?`,
+          ).run(id);
+
+          recordStatusChange(id, order.status, "new", "Менеджер принял изменения, заказ на пересборку");
+        } else if (order.manager_action_type === "cancelled_by_customer") {
+          // Отмененный покупателем - просто сбрасываем флаг, заказ остается cancelled
+          db.prepare(
+            `UPDATE orders SET
+              needs_manager_action = 0,
+              manager_action_resolved_at = DATETIME('now'),
+              updated_at = DATETIME('now')
+            WHERE id = ?`,
+          ).run(id);
+
+          recordStatusChange(id, order.status, order.status, "Менеджер подтвердил отмену, заказ разобран");
+        } else {
+          // Неизвестный тип - просто сбрасываем флаг
+          db.prepare(
+            `UPDATE orders SET
+              needs_manager_action = 0,
+              manager_action_resolved_at = DATETIME('now'),
+              updated_at = DATETIME('now')
+            WHERE id = ?`,
+          ).run(id);
+        }
+      });
+
+      tx();
+
+      const updated = db.prepare("SELECT * FROM orders WHERE id = ?").get(id);
+      const updatedItems = db
+        .prepare(`
+          SELECT oi.*, p.description as product_description
+          FROM order_items oi
+          LEFT JOIN products p ON oi.product_id = p.id
+          WHERE oi.order_id = ?
+        `)
+        .all(id);
+
+      const customerName = (() => {
+        if (!updated.customer_id) return null;
+        const c = db.prepare("SELECT first_name, last_name FROM customers WHERE id = ?").get(updated.customer_id);
+        return c ? `${c.first_name || ''} ${c.last_name || ''}`.trim() : null;
+      })();
+
+      res.json({ ...updated, customer_name: customerName, items: updatedItems });
+    } catch (error) {
+      console.error("[crm] Resolve manager action error:", error);
       res.status(500).json({ error: "failed", message: error.message });
     }
   },
@@ -1160,6 +1607,8 @@ crmOperationsRouter.post(
         db.prepare(
           "UPDATE cash_accounts SET balance = balance + ? WHERE id = ?",
         ).run(parsedAmount, payment_account_id);
+
+        awardLoyaltyForOrder(id);
       });
 
       tx();

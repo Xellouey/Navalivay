@@ -473,6 +473,7 @@ watch(
 watch(productSearch, (value) => {
   const query = value.trim()
   if (!query || query.length < 2) {
+    invalidateProductSearch()
     productSuggestions.value = []
     return
   }
@@ -497,6 +498,11 @@ watch(productSearch, (value) => {
     })
 })
 
+function invalidateProductSearch() {
+  searchToken.value += 1
+  isSearching.value = false
+}
+
 function resetForm() {
   form.customerId = ''
   form.deliveryType = 'pickup'
@@ -505,6 +511,7 @@ function resetForm() {
   form.discountPercent = 0
   form.notes = ''
   form.items = []
+  invalidateProductSearch()
   productSearch.value = ''
   productSuggestions.value = []
   submitError.value = ''
@@ -529,7 +536,7 @@ function addProduct(product: CrmProductSummary) {
     existing.quantity += 1
   } else {
     form.items.push({
-      productId: product.isVariant ? product.productId : product.id,
+      productId: product.isVariant ? (product.productId || product.id) : product.id,
       variantId: product.isVariant ? product.id : null,
       title: product.title,
       quantity: 1,
@@ -541,6 +548,7 @@ function addProduct(product: CrmProductSummary) {
       groupName: product.groupName ?? null
     })
   }
+  invalidateProductSearch()
   productSearch.value = ''
   productSuggestions.value = []
 }

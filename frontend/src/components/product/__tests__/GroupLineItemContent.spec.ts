@@ -64,4 +64,48 @@ describe("GroupLineItemContent", () => {
     expect(wrapper.text()).toContain("Variant 3");
     expect(wrapper.text()).not.toContain("Variant 2");
   });
+
+  it("hides the minimum direct product price instead of the first one", () => {
+    const expensiveProduct = makeProduct({
+      id: "p-2",
+      title: "Smoant Knight 80",
+      priceRub: 140,
+    });
+    const cheapProduct = makeProduct({
+      id: "p-3",
+      title: "Smoant Knight 40",
+      priceRub: 50,
+    });
+
+    const wrapper = mount(GroupLineItemContent, {
+      global: {
+        plugins: [pinia],
+        stubs: { Teleport: true },
+      },
+      props: {
+        node: {
+          id: "g-2",
+          name: "SMOANT",
+          slug: "smoant",
+          order: 0,
+          productCount: 2,
+          totalProductCount: 2,
+          depth: 0,
+          parentId: null,
+          metaLabel: null,
+          metaValue: null,
+          children: [],
+          products: [expensiveProduct, cheapProduct],
+        },
+        categoryImage: null,
+      },
+    });
+
+    const priceTexts = wrapper
+      .findAll(".group-product-price")
+      .map((node) => node.text());
+
+    expect(priceTexts).toContain("140 BYN");
+    expect(priceTexts).not.toContain("50 BYN");
+  });
 });

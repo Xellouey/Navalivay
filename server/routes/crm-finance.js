@@ -15,6 +15,63 @@ function getNextNumber(table, field) {
   return (row?.maxNum || 0) + 1;
 }
 
+function getLinkedPosSaleByTransactionId(transactionId) {
+  return db.prepare(`
+    SELECT id, sale_number
+    FROM pos_sales
+    WHERE transaction_id = ?
+    LIMIT 1
+  `).get(transactionId);
+}
+
+function resolveWriteOffProduct(item) {
+  const explicitVariantId =
+    typeof item?.variant_id === "string" && item.variant_id.trim()
+      ? item.variant_id.trim()
+      : null;
+  const lookupId =
+    explicitVariantId ||
+    (typeof item?.product_id === "string" ? item.product_id.trim() : "");
+
+  if (!lookupId) {
+    throw new Error("invalid_item");
+  }
+
+  const variant = db
+    .prepare(
+      `
+        SELECT v.*, p.cost_price, p.title as product_title
+        FROM product_variants v
+        JOIN products p ON p.id = v.product_id
+        WHERE v.id = ?
+      `,
+    )
+    .get(lookupId);
+
+  if (variant) {
+    return {
+      productId: variant.product_id,
+      variantId: variant.id,
+      title: `${variant.product_title} (${variant.name})`,
+      stock: Number(variant.stock || 0),
+      costPerUnit: Number(variant.cost_price || 0),
+    };
+  }
+
+  const product = db.prepare("SELECT * FROM products WHERE id = ?").get(lookupId);
+  if (!product) {
+    throw new Error(`Product not found: ${lookupId}`);
+  }
+
+  return {
+    productId: product.id,
+    variantId: null,
+    title: product.title,
+    stock: Number(product.stock || 0),
+    costPerUnit: Number(product.cost_price || 0),
+  };
+}
+
 // =========================
 // WRITE-OFFS (Списания)
 // =========================
@@ -91,48 +148,37 @@ crmFinanceRouter.post('/api/admin/crm/write-offs', authMiddleware, (req, res) =>
 
       // Добавляем позиции и уменьшаем остатки
       for (const item of items) {
-        // Сначала проверяем, это вариант или обычный товар
-        const variant = db.prepare('SELECT v.*, p.cost_price, p.title as product_title FROM product_variants v JOIN products p ON p.id = v.product_id WHERE v.id = ?').get(item.product_id);
-        
-        if (variant) {
-          // Это вариант товара
-          if (variant.stock < item.quantity) {
-            throw new Error(`Insufficient stock for ${variant.product_title} (${variant.name})`);
-          }
+        const quantity = Number(item?.quantity || 0);
+        if (!Number.isFinite(quantity) || quantity <= 0) {
+          throw new Error("invalid_quantity");
+        }
 
-          const costPerUnit = variant.cost_price || 0;
-          const totalCost = costPerUnit * item.quantity;
+        const resolved = resolveWriteOffProduct(item);
+        if (resolved.stock < quantity) {
+          throw new Error(`Insufficient stock for ${resolved.title}`);
+        }
 
-          db.prepare(`
-            INSERT INTO writeoff_items (id, writeoff_id, product_id, variant_id, quantity, cost_per_unit, total_cost)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-          `).run(generateId('wi'), writeOffId, variant.product_id, variant.id, item.quantity, costPerUnit, totalCost);
+        const totalCost = resolved.costPerUnit * quantity;
 
-          // Уменьшаем остаток варианта
+        db.prepare(`
+          INSERT INTO writeoff_items (id, writeoff_id, product_id, variant_id, quantity, cost_per_unit, total_cost)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
+        `).run(
+          generateId('wi'),
+          writeOffId,
+          resolved.productId,
+          resolved.variantId,
+          quantity,
+          resolved.costPerUnit,
+          totalCost,
+        );
+
+        if (resolved.variantId) {
           db.prepare('UPDATE product_variants SET stock = stock - ? WHERE id = ?')
-            .run(item.quantity, variant.id);
+            .run(quantity, resolved.variantId);
         } else {
-          // Это обычный товар без вариантов
-          const product = db.prepare('SELECT * FROM products WHERE id = ?').get(item.product_id);
-          if (!product) {
-            throw new Error(`Product not found: ${item.product_id}`);
-          }
-
-          if (product.stock < item.quantity) {
-            throw new Error(`Insufficient stock for ${product.title}`);
-          }
-
-          const costPerUnit = product.cost_price || 0;
-          const totalCost = costPerUnit * item.quantity;
-
-          db.prepare(`
-            INSERT INTO writeoff_items (id, writeoff_id, product_id, variant_id, quantity, cost_per_unit, total_cost)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-          `).run(generateId('wi'), writeOffId, item.product_id, null, item.quantity, costPerUnit, totalCost);
-
-          // Уменьшаем остаток товара
           db.prepare('UPDATE products SET stock = stock - ? WHERE id = ?')
-            .run(item.quantity, item.product_id);
+            .run(quantity, resolved.productId);
         }
       }
     });
@@ -158,6 +204,10 @@ crmFinanceRouter.post('/api/admin/crm/write-offs', authMiddleware, (req, res) =>
     res.json({ ...writeOff, items: writeOffItems });
   } catch (error) {
     console.error('[crm] Create write-off error:', error);
+    const clientErrors = new Set(['reason_required', 'items_required', 'invalid_item', 'invalid_quantity']);
+    if (clientErrors.has(error.message) || error.message?.startsWith('Insufficient stock') || error.message?.startsWith('Product not found')) {
+      return res.status(400).json({ error: error.message });
+    }
     res.status(500).json({ error: 'failed', message: error.message });
   }
 });
@@ -215,44 +265,24 @@ crmFinanceRouter.patch('/api/admin/crm/write-offs/:id', authMiddleware, (req, re
             throw new Error('invalid_quantity');
           }
 
-          // Проверяем, это вариант или обычный товар
-          const variant = db.prepare('SELECT v.*, p.cost_price, p.title as product_title FROM product_variants v JOIN products p ON p.id = v.product_id WHERE v.id = ?').get(item.product_id);
-          
-          if (variant) {
-            if (Number(variant.stock || 0) < quantity) {
-              throw new Error(`Insufficient stock for ${variant.product_title} (${variant.name})`);
-            }
+          const resolved = resolveWriteOffProduct(item);
+          if (resolved.stock < quantity) {
+            throw new Error(`Insufficient stock for ${resolved.title}`);
+          }
 
-            const costPerUnit = Number(variant.cost_price || 0);
-            const totalCost = costPerUnit * quantity;
+          const totalCost = resolved.costPerUnit * quantity;
 
-            db.prepare(`
-              INSERT INTO writeoff_items (id, writeoff_id, product_id, variant_id, quantity, cost_per_unit, total_cost)
-              VALUES (?, ?, ?, ?, ?, ?, ?)
-            `).run(generateId('wi'), id, variant.product_id, variant.id, quantity, costPerUnit, totalCost);
+          db.prepare(`
+            INSERT INTO writeoff_items (id, writeoff_id, product_id, variant_id, quantity, cost_per_unit, total_cost)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+          `).run(generateId('wi'), id, resolved.productId, resolved.variantId, quantity, resolved.costPerUnit, totalCost);
 
+          if (resolved.variantId) {
             db.prepare('UPDATE product_variants SET stock = stock - ? WHERE id = ?')
-              .run(quantity, variant.id);
+              .run(quantity, resolved.variantId);
           } else {
-            const product = db.prepare('SELECT * FROM products WHERE id = ?').get(item.product_id);
-            if (!product) {
-              throw new Error(`Product not found: ${item.product_id}`);
-            }
-
-            if (Number(product.stock || 0) < quantity) {
-              throw new Error(`Insufficient stock for ${product.title}`);
-            }
-
-            const costPerUnit = Number(product.cost_price || 0);
-            const totalCost = costPerUnit * quantity;
-
-            db.prepare(`
-              INSERT INTO writeoff_items (id, writeoff_id, product_id, variant_id, quantity, cost_per_unit, total_cost)
-              VALUES (?, ?, ?, ?, ?, ?, ?)
-            `).run(generateId('wi'), id, item.product_id, null, quantity, costPerUnit, totalCost);
-
             db.prepare('UPDATE products SET stock = stock - ? WHERE id = ?')
-              .run(quantity, item.product_id);
+              .run(quantity, resolved.productId);
           }
         }
       }
@@ -281,7 +311,7 @@ crmFinanceRouter.patch('/api/admin/crm/write-offs/:id', authMiddleware, (req, re
   } catch (error) {
     console.error('[crm] Update write-off error:', error);
     const clientErrors = new Set(['items_required', 'invalid_item', 'invalid_quantity']);
-    if (clientErrors.has(error.message) || error.message?.startsWith('Insufficient stock')) {
+    if (clientErrors.has(error.message) || error.message?.startsWith('Insufficient stock') || error.message?.startsWith('Product not found')) {
       return res.status(400).json({ error: error.message });
     }
     res.status(500).json({ error: 'failed', message: error.message });
@@ -473,10 +503,13 @@ crmFinanceRouter.get('/api/admin/crm/cash-transactions', authMiddleware, (req, r
           SELECT 
             ct.*,
             ca.name as account_name,
-            e.first_name || ' ' || e.last_name as employee_name
+            e.first_name || ' ' || e.last_name as employee_name,
+            ps.id as pos_sale_id,
+            ps.sale_number as pos_sale_number
           FROM cash_transactions ct
           JOIN cash_accounts ca ON ca.id = ct.account_id
           LEFT JOIN employees e ON e.id = ct.employee_id
+          LEFT JOIN pos_sales ps ON ps.transaction_id = ct.id
           ${whereClause}
           ORDER BY ct.created_at DESC
           LIMIT ? OFFSET ?
@@ -485,10 +518,13 @@ crmFinanceRouter.get('/api/admin/crm/cash-transactions', authMiddleware, (req, r
           SELECT 
             ct.*,
             ca.name as account_name,
-            e.first_name || ' ' || e.last_name as employee_name
+            e.first_name || ' ' || e.last_name as employee_name,
+            ps.id as pos_sale_id,
+            ps.sale_number as pos_sale_number
           FROM cash_transactions ct
           JOIN cash_accounts ca ON ca.id = ct.account_id
           LEFT JOIN employees e ON e.id = ct.employee_id
+          LEFT JOIN pos_sales ps ON ps.transaction_id = ct.id
           ORDER BY ct.created_at DESC
           LIMIT ? OFFSET ?
         `).all(parseInt(limit), parseInt(offset));
@@ -568,6 +604,11 @@ crmFinanceRouter.patch('/api/admin/crm/cash-transactions/:id', authMiddleware, (
       return res.status(409).json({ error: 'linked_order' });
     }
 
+    const linkedPosSale = getLinkedPosSaleByTransactionId(id);
+    if (linkedPosSale) {
+      return res.status(409).json({ error: 'linked_pos_sale' });
+    }
+
     const nextAccountId = account_id ?? existing.account_id;
     const nextType = type ?? existing.type;
     const nextAmount = amount !== undefined ? Number(amount) : existing.amount;
@@ -641,6 +682,11 @@ crmFinanceRouter.delete('/api/admin/crm/cash-transactions/:id', authMiddleware, 
 
     if (transaction.order_id) {
       return res.status(409).json({ error: 'linked_order' });
+    }
+
+    const linkedPosSale = getLinkedPosSaleByTransactionId(id);
+    if (linkedPosSale) {
+      return res.status(409).json({ error: 'linked_pos_sale' });
     }
 
     const tx = db.transaction(() => {

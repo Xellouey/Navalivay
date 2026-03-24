@@ -7,6 +7,7 @@
     "start": "node index.js",
     "dev": "node index.js",
     "start:bot": "node bot.js",
+    "test": "node tests/public-order-smoke.test.js && node tests/loyalty-smoke.test.js",
     "lint": "node -e \"console.log('Server lint not configured; skipping.')\""
   },
   "dependencies": {

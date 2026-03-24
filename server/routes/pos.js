@@ -15,6 +15,119 @@ function getNextSaleNumber() {
   return (row?.maxNum || 0) + 1;
 }
 
+function getPosCashAccount() {
+  return db.prepare(`
+    SELECT *
+    FROM cash_accounts
+    WHERE active = 1
+    ORDER BY is_default DESC, created_at ASC
+    LIMIT 1
+  `).get();
+}
+
+function buildPosTransactionDescription(sale) {
+  return `Продажа касса #${sale.sale_number}: ${sale.product_name}`;
+}
+
+function adjustAccountBalanceForTransaction(transaction, mode = 'apply') {
+  if (!transaction?.account_id || !transaction?.amount) {
+    return;
+  }
+
+  if (mode === 'apply') {
+    if (transaction.type === 'income') {
+      db.prepare('UPDATE cash_accounts SET balance = balance + ? WHERE id = ?')
+        .run(transaction.amount, transaction.account_id);
+    } else if (transaction.type === 'expense') {
+      db.prepare('UPDATE cash_accounts SET balance = balance - ? WHERE id = ?')
+        .run(transaction.amount, transaction.account_id);
+    }
+    return;
+  }
+
+  if (transaction.type === 'income') {
+    db.prepare('UPDATE cash_accounts SET balance = balance - ? WHERE id = ?')
+      .run(transaction.amount, transaction.account_id);
+  } else if (transaction.type === 'expense') {
+    db.prepare('UPDATE cash_accounts SET balance = balance + ? WHERE id = ?')
+      .run(transaction.amount, transaction.account_id);
+  }
+}
+
+function createPosCashTransaction(sale) {
+  const account = getPosCashAccount();
+  if (!account) {
+    throw new Error('cash_account_not_found');
+  }
+
+  const transactionId = generateId('trans');
+
+  db.prepare(`
+    INSERT INTO cash_transactions (id, account_id, type, amount, description, employee_id)
+    VALUES (?, ?, 'income', ?, ?, ?)
+  `).run(
+    transactionId,
+    account.id,
+    sale.price,
+    buildPosTransactionDescription(sale),
+    sale.employee_id || null,
+  );
+
+  adjustAccountBalanceForTransaction(
+    { account_id: account.id, amount: sale.price, type: 'income' },
+    'apply',
+  );
+
+  db.prepare('UPDATE pos_sales SET transaction_id = ? WHERE id = ?')
+    .run(transactionId, sale.id);
+}
+
+function updatePosCashTransaction(sale) {
+  if (!sale.transaction_id) {
+    createPosCashTransaction(sale);
+    return;
+  }
+
+  const transaction = db.prepare('SELECT * FROM cash_transactions WHERE id = ?').get(sale.transaction_id);
+  if (!transaction) {
+    db.prepare('UPDATE pos_sales SET transaction_id = NULL WHERE id = ?').run(sale.id);
+    createPosCashTransaction(sale);
+    return;
+  }
+
+  adjustAccountBalanceForTransaction(transaction, 'revert');
+
+  db.prepare(`
+    UPDATE cash_transactions
+    SET amount = ?, description = ?, employee_id = ?
+    WHERE id = ?
+  `).run(
+    sale.price,
+    buildPosTransactionDescription(sale),
+    sale.employee_id || null,
+    transaction.id,
+  );
+
+  adjustAccountBalanceForTransaction(
+    { ...transaction, amount: sale.price, type: 'income' },
+    'apply',
+  );
+}
+
+function deletePosCashTransaction(transactionId) {
+  if (!transactionId) {
+    return;
+  }
+
+  const transaction = db.prepare('SELECT * FROM cash_transactions WHERE id = ?').get(transactionId);
+  if (!transaction) {
+    return;
+  }
+
+  db.prepare('DELETE FROM cash_transactions WHERE id = ?').run(transactionId);
+  adjustAccountBalanceForTransaction(transaction, 'revert');
+}
+
 // =========================
 // POS SALES (Продажи через кассу)
 // =========================
@@ -23,25 +136,25 @@ function getNextSaleNumber() {
 posRouter.get('/api/admin/pos/sales', authMiddleware, (req, res) => {
   try {
     const { status, from, to, limit = 100, offset = 0 } = req.query;
-    
+
     let whereClause = '1=1';
     const params = [];
-    
+
     if (status && ['completed', 'pending'].includes(status)) {
       whereClause += ' AND ps.status = ?';
       params.push(status);
     }
-    
+
     if (from) {
       whereClause += ' AND ps.created_at >= ?';
       params.push(from);
     }
-    
+
     if (to) {
       whereClause += ' AND ps.created_at < ?';
       params.push(to);
     }
-    
+
     const sales = db.prepare(`
       SELECT 
         ps.*,
@@ -51,18 +164,17 @@ posRouter.get('/api/admin/pos/sales', authMiddleware, (req, res) => {
       WHERE ${whereClause}
       ORDER BY ps.created_at DESC
       LIMIT ? OFFSET ?
-    `).all(...params, parseInt(limit), parseInt(offset));
-    
-    // Получаем общее количество
+    `).all(...params, parseInt(limit, 10), parseInt(offset, 10));
+
     const countResult = db.prepare(`
       SELECT COUNT(*) as total FROM pos_sales ps WHERE ${whereClause}
     `).get(...params);
-    
+
     res.json({
       sales,
       total: countResult.total,
-      limit: parseInt(limit),
-      offset: parseInt(offset)
+      limit: parseInt(limit, 10),
+      offset: parseInt(offset, 10),
     });
   } catch (error) {
     console.error('[pos] Get sales error:', error);
@@ -82,7 +194,7 @@ posRouter.get('/api/admin/pos/pending', authMiddleware, (req, res) => {
       WHERE ps.status = 'pending'
       ORDER BY ps.created_at DESC
     `).all();
-    
+
     res.json(sales);
   } catch (error) {
     console.error('[pos] Get pending sales error:', error);
@@ -94,20 +206,20 @@ posRouter.get('/api/admin/pos/pending', authMiddleware, (req, res) => {
 posRouter.get('/api/admin/pos/stats', authMiddleware, (req, res) => {
   try {
     const { from, to } = req.query;
-    
+
     let whereClause = "status = 'completed'";
     const params = [];
-    
+
     if (from) {
       whereClause += ' AND created_at >= ?';
       params.push(from);
     }
-    
+
     if (to) {
       whereClause += ' AND created_at < ?';
       params.push(to);
     }
-    
+
     const stats = db.prepare(`
       SELECT 
         COUNT(*) as total_sales,
@@ -117,14 +229,14 @@ posRouter.get('/api/admin/pos/stats', authMiddleware, (req, res) => {
       FROM pos_sales
       WHERE ${whereClause}
     `).get(...params);
-    
+
     const pendingCount = db.prepare(`
       SELECT COUNT(*) as count FROM pos_sales WHERE status = 'pending'
     `).get();
-    
+
     res.json({
       ...stats,
-      pending_count: pendingCount.count
+      pending_count: pendingCount.count,
     });
   } catch (error) {
     console.error('[pos] Get stats error:', error);
@@ -136,57 +248,73 @@ posRouter.get('/api/admin/pos/stats', authMiddleware, (req, res) => {
 posRouter.post('/api/admin/pos/sales', authMiddleware, (req, res) => {
   try {
     const { product_name, price, cost_price, notes, employee_id } = req.body;
-    
+
     if (!product_name || typeof product_name !== 'string' || !product_name.trim()) {
       return res.status(400).json({ error: 'product_name_required' });
     }
-    
-    if (price === undefined || price === null || isNaN(Number(price)) || Number(price) <= 0) {
+
+    if (price === undefined || price === null || !Number.isFinite(Number(price)) || Number(price) <= 0) {
       return res.status(400).json({ error: 'invalid_price' });
     }
-    
+
     const id = generateId('pos');
     const saleNumber = getNextSaleNumber();
     const priceNum = Number(price);
     const now = new Date().toISOString();
-    
-    // Определяем статус и прибыль
+
     let status = 'pending';
     let profit = null;
     let costPriceNum = null;
     let completedAt = null;
-    
+
     if (cost_price !== undefined && cost_price !== null && cost_price !== '') {
       costPriceNum = Number(cost_price);
-      if (!isNaN(costPriceNum)) {
-        status = 'completed';
-        profit = priceNum - costPriceNum;
-        completedAt = now;
+      if (!Number.isFinite(costPriceNum)) {
+        return res.status(400).json({ error: 'invalid_cost_price' });
       }
+
+      status = 'completed';
+      profit = priceNum - costPriceNum;
+      completedAt = now;
     }
-    
-    db.prepare(`
-      INSERT INTO pos_sales (id, sale_number, product_name, price, cost_price, profit, status, notes, employee_id, created_at, completed_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      id,
-      saleNumber,
-      product_name.trim(),
-      priceNum,
-      costPriceNum,
-      profit,
-      status,
-      notes || null,
-      employee_id || null,
-      now,
-      completedAt
-    );
-    
-    const sale = db.prepare('SELECT * FROM pos_sales WHERE id = ?').get(id);
-    
+
+    const tx = db.transaction(() => {
+      db.prepare(`
+        INSERT INTO pos_sales (
+          id, sale_number, product_name, price, cost_price, profit,
+          status, notes, employee_id, created_at, completed_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        id,
+        saleNumber,
+        product_name.trim(),
+        priceNum,
+        costPriceNum,
+        profit,
+        status,
+        notes || null,
+        employee_id || null,
+        now,
+        completedAt,
+      );
+
+      let sale = db.prepare('SELECT * FROM pos_sales WHERE id = ?').get(id);
+      if (sale.status === 'completed') {
+        createPosCashTransaction(sale);
+        sale = db.prepare('SELECT * FROM pos_sales WHERE id = ?').get(id);
+      }
+
+      return sale;
+    });
+
+    const sale = tx();
     res.json(sale);
   } catch (error) {
     console.error('[pos] Create sale error:', error);
+    if (error.message === 'cash_account_not_found') {
+      return res.status(400).json({ error: 'cash_account_not_found' });
+    }
     res.status(500).json({ error: 'failed', message: error.message });
   }
 });
@@ -196,52 +324,76 @@ posRouter.patch('/api/admin/pos/sales/:id', authMiddleware, (req, res) => {
   try {
     const { id } = req.params;
     const { product_name, price, cost_price, notes } = req.body;
-    
+
     const existing = db.prepare('SELECT * FROM pos_sales WHERE id = ?').get(id);
     if (!existing) {
       return res.status(404).json({ error: 'not_found' });
     }
-    
-    const updates = {};
-    const now = new Date().toISOString();
-    
-    if (product_name !== undefined) {
-      updates.product_name = product_name.trim();
+
+    if (price !== undefined && (!Number.isFinite(Number(price)) || Number(price) <= 0)) {
+      return res.status(400).json({ error: 'invalid_price' });
     }
-    
-    if (price !== undefined) {
-      updates.price = Number(price);
-    }
-    
-    if (notes !== undefined) {
-      updates.notes = notes || null;
-    }
-    
-    // Обработка себестоимости
-    if (cost_price !== undefined && cost_price !== null && cost_price !== '') {
-      const costPriceNum = Number(cost_price);
-      if (!isNaN(costPriceNum)) {
-        updates.cost_price = costPriceNum;
-        const finalPrice = updates.price !== undefined ? updates.price : existing.price;
-        updates.profit = finalPrice - costPriceNum;
-        updates.status = 'completed';
-        updates.completed_at = now;
+
+    const tx = db.transaction(() => {
+      const updates = {};
+      const now = new Date().toISOString();
+
+      if (product_name !== undefined) {
+        updates.product_name = product_name.trim();
       }
-    }
-    
-    // Строим UPDATE запрос
-    const setClauses = Object.keys(updates).map(key => `${key} = ?`).join(', ');
-    const values = Object.values(updates);
-    
-    if (setClauses) {
-      db.prepare(`UPDATE pos_sales SET ${setClauses} WHERE id = ?`).run(...values, id);
-    }
-    
-    const sale = db.prepare('SELECT * FROM pos_sales WHERE id = ?').get(id);
-    
+
+      if (price !== undefined) {
+        updates.price = Number(price);
+      }
+
+      if (notes !== undefined) {
+        updates.notes = notes || null;
+      }
+
+      const nextPrice = updates.price !== undefined ? updates.price : existing.price;
+
+      if (cost_price !== undefined && cost_price !== null && cost_price !== '') {
+        const costPriceNum = Number(cost_price);
+        if (!Number.isFinite(costPriceNum)) {
+          throw new Error('invalid_cost_price');
+        }
+
+        updates.cost_price = costPriceNum;
+        updates.profit = nextPrice - costPriceNum;
+        updates.status = 'completed';
+        updates.completed_at = existing.completed_at || now;
+      } else if (updates.price !== undefined && existing.status === 'completed' && existing.cost_price !== null) {
+        updates.profit = nextPrice - existing.cost_price;
+      }
+
+      const setClauses = Object.keys(updates).map((key) => `${key} = ?`).join(', ');
+      const values = Object.values(updates);
+
+      if (setClauses) {
+        db.prepare(`UPDATE pos_sales SET ${setClauses} WHERE id = ?`).run(...values, id);
+      }
+
+      let sale = db.prepare('SELECT * FROM pos_sales WHERE id = ?').get(id);
+
+      if (sale.status === 'completed') {
+        updatePosCashTransaction(sale);
+        sale = db.prepare('SELECT * FROM pos_sales WHERE id = ?').get(id);
+      } else if (sale.transaction_id) {
+        deletePosCashTransaction(sale.transaction_id);
+        db.prepare('UPDATE pos_sales SET transaction_id = NULL WHERE id = ?').run(id);
+        sale = db.prepare('SELECT * FROM pos_sales WHERE id = ?').get(id);
+      }
+
+      return sale;
+    });
+
+    const sale = tx();
     res.json(sale);
   } catch (error) {
     console.error('[pos] Update sale error:', error);
+    if (error.message === 'cash_account_not_found' || error.message === 'invalid_cost_price') {
+      return res.status(400).json({ error: error.message });
+    }
     res.status(500).json({ error: 'failed', message: error.message });
   }
 });
@@ -250,14 +402,22 @@ posRouter.patch('/api/admin/pos/sales/:id', authMiddleware, (req, res) => {
 posRouter.delete('/api/admin/pos/sales/:id', authMiddleware, (req, res) => {
   try {
     const { id } = req.params;
-    
+
     const existing = db.prepare('SELECT * FROM pos_sales WHERE id = ?').get(id);
     if (!existing) {
       return res.status(404).json({ error: 'not_found' });
     }
-    
-    db.prepare('DELETE FROM pos_sales WHERE id = ?').run(id);
-    
+
+    const tx = db.transaction(() => {
+      if (existing.transaction_id) {
+        deletePosCashTransaction(existing.transaction_id);
+      }
+
+      db.prepare('DELETE FROM pos_sales WHERE id = ?').run(id);
+    });
+
+    tx();
+
     res.json({ ok: true });
   } catch (error) {
     console.error('[pos] Delete sale error:', error);

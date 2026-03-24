@@ -279,7 +279,18 @@
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
             </svg>
             <span class="hidden sm:inline">Отмененные</span>
-            <span class="rounded-full bg-red-200 px-2 py-0.5 text-xs font-bold">{{ cancelledOrders.length }}</span>
+          </button>
+
+          <!-- Выданные (запаролено) -->
+          <button
+            @click="profitUnlocked ? openDeliveredModal('today') : openPasswordModal()"
+            class="inline-flex items-center gap-2 rounded-xl border border-emerald-200 bg-gradient-to-r from-emerald-50 to-green-50 px-4 py-2 text-sm font-medium text-emerald-600 shadow-sm transition-all duration-200 hover:from-emerald-100 hover:to-green-100"
+          >
+            <LockClosedIcon v-if="!profitUnlocked" class="h-4 w-4" />
+            <svg v-else class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+            </svg>
+            <span class="hidden sm:inline">Выданные</span>
           </button>
 
           <!-- Создать заказ -->
@@ -401,36 +412,11 @@
                     <h2 class="text-lg font-semibold text-gray-900">
                       {{ column.label }}
                     </h2>
-                    <button
-                      v-if="column.key === 'delivered'"
-                      type="button"
-                      class="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-medium transition"
-                      :class="
-                        profitUnlocked
-                          ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200'
-                          : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                      "
-                      :disabled="!profitUnlocked && verifyingPassword"
-                      @click="profitUnlocked ? openDeliveredModal('today') : openPasswordModal()"
-                    >
-                      <LockClosedIcon v-if="!profitUnlocked" class="h-3.5 w-3.5" />
-                      <svg v-else class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-                      </svg>
-                      <span>{{
-                        profitUnlocked
-                          ? "Статистика"
-                          : verifyingPassword
-                            ? "..."
-                            : "Открыть"
-                      }}</span>
-                    </button>
                   </div>
                   <p class="text-xs text-gray-500">{{ column.description }}</p>
                 </div>
                 <div class="flex items-center gap-2">
                   <span
-                    v-if="column.key !== 'delivered' || profitUnlocked"
                     :class="[
                       'rounded-full px-2 py-1 text-xs font-semibold',
                       column.badgeClass,
@@ -439,16 +425,16 @@
                     {{ column.orders.length }}
                   </span>
                   <span
-                    v-else
-                    class="rounded-full bg-gray-100 px-2 py-1 text-xs font-semibold text-gray-400"
-                  >
-                    <LockClosedIcon class="h-3.5 w-3.5" />
-                  </span>
-                  <span
                     v-if="column.key === 'new' && unseenOrdersCount > 0"
                     class="inline-flex items-center rounded-full bg-red-100 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-red-700"
                   >
                     +{{ unseenOrdersCount }}
+                  </span>
+                  <span
+                    v-if="column.key === 'action_required' && crmStore.actionRequiredCount > 0"
+                    class="inline-flex items-center rounded-full bg-orange-100 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-orange-700"
+                  >
+                    +{{ crmStore.actionRequiredCount }}
                   </span>
                 </div>
               </div>
@@ -465,40 +451,15 @@
               @dragleave.prevent="onDragLeave(column.key)"
               @drop.prevent="onDrop(column.key)"
             >
-              <!-- Плейсхолдер для колонки "Доставлено" до ввода пароля -->
-              <div
-                v-if="column.key === 'delivered' && !profitUnlocked"
-                class="flex flex-col items-center justify-center rounded-lg border border-dashed border-gray-200 bg-gray-50/50 px-4 py-12 text-center"
-              >
-                <div class="mb-3 rounded-full bg-gray-100 p-3">
-                  <LockClosedIcon class="h-6 w-6 text-gray-400" />
-                </div>
-                <p class="mb-1 text-sm font-medium text-gray-600">
-                  Доступ ограничен
-                </p>
-                <p class="mb-4 text-xs text-gray-400">
-                  Введите пароль для просмотра выданных заказов
-                </p>
-                <button
-                  type="button"
-                  class="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-70"
-                  :disabled="verifyingPassword"
-                  @click="openPasswordModal()"
-                >
-                  <LockClosedIcon class="h-4 w-4" />
-                  <span>{{ verifyingPassword ? "Проверяем…" : "Открыть доступ" }}</span>
-                </button>
-              </div>
-
               <p
-                v-else-if="column.orders.length === 0"
+                v-if="column.orders.length === 0"
                 class="rounded-lg border border-dashed border-gray-200 px-3 py-8 text-center text-sm text-gray-400"
               >
                 Нет заказов в этом статусе
               </p>
 
               <article
-                v-for="order in (column.key === 'delivered' && !profitUnlocked) ? [] : column.orders"
+                v-for="order in column.orders"
                 :key="order.id"
                 class="cursor-grab rounded-lg border border-gray-200 bg-white p-4 shadow-sm transition hover:shadow-md active:cursor-grabbing"
                 :class="[
@@ -511,39 +472,35 @@
                   unseenOrderIds.has(order.id) && newOrderHighlight
                     ? 'animate-pulse'
                     : '',
+                  order.needs_manager_action && order.manager_action_type === 'cancelled_by_customer'
+                    ? 'ring-2 ring-red-400 border-red-300 bg-red-50/30'
+                    : '',
+                  order.needs_manager_action && order.manager_action_type === 'modified'
+                    ? 'ring-2 ring-orange-400 border-orange-300 bg-orange-50/30'
+                    : '',
                 ]"
-                draggable="true"
+                :draggable="!order.needs_manager_action"
                 @dragstart="onDragStart(order)"
                 @dragend="onDragEnd"
               >
-                <!-- Заголовок с номером и кнопкой отмены -->
+                <!-- Заголовок с номером и бейджами -->
                 <div class="flex items-center justify-between">
                   <div
                     class="flex items-center gap-2 text-sm font-semibold text-gray-900"
                   >
                     <span>#{{ order.order_number }}</span>
-                    <button
-                      v-if="deliveredStatuses.includes(order.status)"
-                      type="button"
-                      class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold transition"
-                      :class="
-                        profitUnlocked
-                          ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200'
-                          : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
-                      "
-                      @click.stop="openDeliveredModal()"
-                    >
-                      <LockClosedIcon
-                        v-if="!profitUnlocked"
-                        class="h-3.5 w-3.5"
-                      />
-                      <span>{{
-                        orderStatusLabel(order.status, order.delivery_type)
-                      }}</span>
-                    </button>
+                    <span
+                      v-if="order.needs_manager_action && order.manager_action_type === 'modified'"
+                      class="rounded-full bg-orange-100 px-2 py-0.5 text-[10px] font-semibold text-orange-700"
+                    >Изменен покупателем</span>
+                    <span
+                      v-else-if="order.needs_manager_action && order.manager_action_type === 'cancelled_by_customer'"
+                      class="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold text-red-700"
+                    >Отменен покупателем</span>
                   </div>
-                  <!-- Кнопка отмены -->
+                  <!-- Кнопка отмены (не показываем для action_required) -->
                   <button
+                    v-if="!order.needs_manager_action"
                     @click.stop="openCancelModal(order)"
                     class="group flex h-7 w-7 items-center justify-center rounded-lg border border-transparent text-gray-400 transition-all hover:border-red-200 hover:bg-red-50 hover:text-red-500"
                     title="Отменить заказ"
@@ -714,6 +671,13 @@
                 </ol>
 
                 <div class="mt-4 space-y-3">
+                  <!-- Примечание об изменениях (для action_required) -->
+                  <div
+                    v-if="order.needs_manager_action && order.manager_action_note"
+                    class="rounded-md bg-gray-50 px-3 py-2 text-xs text-gray-600"
+                  >
+                    <span class="font-medium">Изменения:</span> {{ order.manager_action_note }}
+                  </div>
                   <!-- Сумма и скидка -->
                   <div>
                     <div
@@ -722,7 +686,7 @@
                       title="Нажмите для скидки"
                     >
                       <span
-                        v-if="order.discount_amount > 0"
+                        v-if="getOrderTotalDiscount(order) > 0"
                         class="text-sm text-gray-400 line-through"
                       >{{ formatCurrency(order.total_amount) }}</span>
                       <span>{{ formatCurrency(order.final_amount) }}</span>
@@ -731,15 +695,48 @@
                       </svg>
                     </div>
                     <div
-                      v-if="order.discount_amount > 0"
+                      v-if="getOrderTotalDiscount(order) > 0"
                       class="text-xs text-emerald-600"
-                    >Скидка: -{{ formatCurrency(order.discount_amount) }}</div>
+                    >Скидка: -{{ formatCurrency(getOrderTotalDiscount(order)) }}</div>
+                    <div
+                      v-if="getOrderLoyaltyDiscount(order) > 0"
+                      class="text-xs text-violet-600"
+                    >Покупки: -{{ formatCurrency(getOrderLoyaltyDiscount(order)) }}</div>
+                    <span
+                      v-if="order.promo_code_text"
+                      class="inline-flex items-center rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-medium text-blue-700"
+                    >ПРОМО: {{ order.promo_code_text }}</span>
                     <div class="text-[11px] text-gray-400">
                       {{ formatDate(order.created_at) }}
                     </div>
                   </div>
-                  <!-- Кнопки на отдельной строке -->
-                  <div class="flex items-center justify-end gap-2">
+                  <!-- Кнопки resolve для action_required -->
+                  <div v-if="order.needs_manager_action" class="flex items-center justify-end gap-2">
+                    <button
+                      @click.stop="viewOrder(order.id)"
+                      class="admin-link-button admin-link-button--compact admin-link-button--muted"
+                    >
+                      Подробнее
+                    </button>
+                    <button
+                      v-if="order.manager_action_type === 'modified'"
+                      @click.stop="handleResolveAction(order)"
+                      :disabled="resolvingOrderId === order.id"
+                      class="admin-link-button admin-link-button--compact bg-orange-600 text-white hover:bg-orange-700 disabled:opacity-60"
+                    >
+                      {{ resolvingOrderId === order.id ? 'Обработка...' : 'Принять изменения' }}
+                    </button>
+                    <button
+                      v-else-if="order.manager_action_type === 'cancelled_by_customer'"
+                      @click.stop="handleResolveAction(order)"
+                      :disabled="resolvingOrderId === order.id"
+                      class="admin-link-button admin-link-button--compact bg-red-600 text-white hover:bg-red-700 disabled:opacity-60"
+                    >
+                      {{ resolvingOrderId === order.id ? 'Обработка...' : 'Разобрать' }}
+                    </button>
+                  </div>
+                  <!-- Обычные кнопки -->
+                  <div v-else class="flex items-center justify-end gap-2">
                     <button
                       @click.stop="viewOrder(order.id)"
                       class="admin-link-button admin-link-button--compact admin-link-button--muted"
@@ -907,7 +904,7 @@
 
     <AdminModal
       :isOpen="deliveredModalOpen"
-      title="Доставленные заказы"
+      title="Статистика заказов"
       description="Статистика выполненных заказов и доставок."
       size="xl"
       :showActions="false"
@@ -942,7 +939,7 @@
           </div>
         </div>
 
-        <div class="grid gap-4 lg:grid-cols-4">
+        <div class="grid gap-4 lg:grid-cols-2">
           <div class="rounded-lg border border-gray-200 bg-gray-50 p-4">
             <div class="text-xs uppercase text-gray-500">Всего заказов</div>
             <div class="mt-2 text-2xl font-semibold text-gray-900">
@@ -955,25 +952,7 @@
             <div class="mt-2 text-2xl font-semibold text-emerald-700">
               {{ formatCurrency(deliveredSummary.totalAmount) }}
             </div>
-            <p class="text-xs text-gray-500">Все доставленные заказы</p>
-          </div>
-          <div class="rounded-lg border border-gray-200 bg-gray-50 p-4">
-            <div class="text-xs uppercase text-gray-500">Доставок курьером</div>
-            <div class="mt-2 text-2xl font-semibold text-rose-700">
-              {{ deliveredSummary.deliveryCount }}
-            </div>
-            <p class="text-xs text-rose-600">
-              {{ formatCurrency(deliveredSummary.deliveryAmount) }}
-            </p>
-          </div>
-          <div class="rounded-lg border border-gray-200 bg-gray-50 p-4">
-            <div class="text-xs uppercase text-gray-500">Самовывозов</div>
-            <div class="mt-2 text-2xl font-semibold text-blue-700">
-              {{ deliveredSummary.pickupCount }}
-            </div>
-            <p class="text-xs text-blue-600">
-              {{ formatCurrency(deliveredSummary.pickupAmount) }}
-            </p>
+            <p class="text-xs text-gray-500">{{ deliveredSummaryLabel }}</p>
           </div>
         </div>
 
@@ -988,7 +967,6 @@
               <tr>
                 <th class="px-4 py-3 text-left">№</th>
                 <th class="px-4 py-3 text-left">Клиент</th>
-                <th class="px-4 py-3 text-left">Тип</th>
                 <th class="px-4 py-3 text-left">Сумма</th>
                 <th class="px-4 py-3 text-left">Завершён</th>
                 <th class="px-4 py-3 text-right">Действия</th>
@@ -1005,22 +983,6 @@
                 </td>
                 <td class="px-4 py-3 text-gray-700">
                   {{ order.customer_name || "Без имени" }}
-                </td>
-                <td class="px-4 py-3">
-                  <span
-                    :class="
-                      order.delivery_type === 'delivery'
-                        ? 'bg-rose-100 text-rose-700'
-                        : 'bg-gray-100 text-gray-600'
-                    "
-                    class="inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold"
-                  >
-                    {{
-                      order.delivery_type === "delivery"
-                        ? "Доставка"
-                        : "Самовывоз"
-                    }}
-                  </span>
                 </td>
                 <td class="px-4 py-3 font-medium text-gray-900">
                   {{ formatCurrency(order.final_amount) }}
@@ -1040,11 +1002,25 @@
             </tbody>
           </table>
         </div>
+        <!-- Загрузить ещё -->
         <div
-          v-else
+          v-if="filteredDeliveredOrders.length && deliveredPagination && deliveredPagination.page < deliveredPagination.totalPages"
+          class="flex justify-center pt-2"
+        >
+          <button
+            :disabled="crmStore.loadingDelivered"
+            class="rounded-lg border border-gray-200 bg-white px-6 py-2 text-sm font-medium text-gray-700 shadow-sm transition hover:bg-gray-50 disabled:opacity-50"
+            @click="loadMoreDelivered"
+          >
+            <span v-if="crmStore.loadingDelivered">Загрузка...</span>
+            <span v-else>Загрузить ещё ({{ filteredDeliveredOrders.length }} из {{ deliveredPagination.total }})</span>
+          </button>
+        </div>
+        <div
+          v-else-if="!filteredDeliveredOrders.length"
           class="rounded-lg border border-dashed border-gray-200 bg-gray-50 px-4 py-8 text-center text-sm text-gray-500"
         >
-          За выбранный период доставленных заказов не найдено.
+          За выбранный период заказов не найдено.
         </div>
       </div>
     </AdminModal>
@@ -1248,6 +1224,9 @@ const {
   cashAccounts,
   profitUnlocked,
   verifyingProfitAccess,
+  deliveredOrders: storeDeliveredOrders,
+  deliveredStats,
+  deliveredPagination,
 } = storeToRefs(crmStore);
 
 const router = useRouter();
@@ -1324,6 +1303,31 @@ function dismissOrderError() {
   }
 }
 
+function getOrderLoyaltyDiscount(order: Order) {
+  return (order.items || []).reduce(
+    (sum, item) => sum + Number(item.loyalty_discount_amount || 0),
+    0,
+  );
+}
+
+function getOrderTotalDiscount(order: Order) {
+  return Math.max(
+    0,
+    Number(order.total_amount || 0) - Number(order.final_amount || 0),
+  );
+}
+
+function handleNewOrders(newOrders: Order[]) {
+  if (!newOrders.length) return;
+  newOrderHighlight.value = true;
+  if (highlightTimer) {
+    clearTimeout(highlightTimer);
+  }
+  highlightTimer = setTimeout(() => {
+    newOrderHighlight.value = false;
+  }, 2600);
+}
+
 const deliveredModalOpen = ref(false);
 const deliveredFilter = ref<DeliveredFilter>("today");
 const deliveredSearch = ref("");
@@ -1352,14 +1356,29 @@ const cancelModalOpen = ref(false);
 const cancelOrder = ref<Order | null>(null);
 const isCancelling = ref(false);
 
+// Resolve manager action
+const resolvingOrderId = ref<string | null>(null);
+
+async function handleResolveAction(order: Order) {
+  resolvingOrderId.value = order.id;
+  try {
+    await crmStore.resolveManagerAction(order.id);
+    await crmStore.fetchOrders();
+  } catch (error) {
+    console.error("[CRM] Resolve action failed:", error);
+  } finally {
+    resolvingOrderId.value = null;
+  }
+}
+
 // Cancelled orders modal
 const cancelledModalOpen = ref(false);
 
 type KanbanColumnConfig = {
-  key: "new" | "in_progress" | "delivered";
+  key: "action_required" | "new" | "in_progress";
   label: string;
   description: string;
-  statuses: Order["status"][];
+  filter: (order: Order) => boolean;
   badgeClass: string;
 };
 
@@ -1369,39 +1388,33 @@ const deliveredStatuses: Array<Order["status"]> = ["delivered", "completed"];
 
 const kanbanConfig: KanbanColumnConfig[] = [
   {
+    key: "action_required",
+    label: "Требует действий",
+    description: "Измененные или отмененные покупателем",
+    filter: (order) => order.needs_manager_action === 1,
+    badgeClass: "bg-orange-100 text-orange-700",
+  },
+  {
     key: "new",
     label: "Новые",
     description: "Необходимо собрать заказ",
-    statuses: ["new"],
+    filter: (order) => order.status === "new" && !order.needs_manager_action,
     badgeClass: "bg-amber-100 text-amber-700",
   },
   {
     key: "in_progress",
     label: "Собран",
     description: "Ожидает выдачи клиенту",
-    statuses: ["in_progress"],
+    filter: (order) => order.status === "in_progress" && !order.needs_manager_action,
     badgeClass: "bg-blue-100 text-blue-700",
-  },
-  {
-    key: "delivered",
-    label: "Доставлено",
-    description: "Оплаченные и выданные заказы",
-    statuses: deliveredStatuses,
-    badgeClass: "bg-emerald-100 text-emerald-700",
   },
 ];
 
 const kanbanColumns = computed(() =>
   kanbanConfig.map((column) => ({
     ...column,
-    orders: orders.value.filter((order) =>
-      column.statuses.includes(order.status),
-    ),
+    orders: orders.value.filter(column.filter),
   })),
-);
-
-const deliveredOrdersList = computed(() =>
-  orders.value.filter((order) => deliveredStatuses.includes(order.status)),
 );
 
 function orderCompletedAt(order: Order): string | null {
@@ -1435,21 +1448,7 @@ function isDeliveredInRange(order: Order, filter: DeliveredFilter) {
 }
 
 const filteredDeliveredOrders = computed(() => {
-  const term = deliveredSearch.value.trim().toLowerCase();
-  const filter = deliveredFilter.value;
-  return deliveredOrdersList.value
-    .filter((order) => isDeliveredInRange(order, filter))
-    .filter((order) => {
-      if (!term) return true;
-      const orderNumberMatch = String(order.order_number).includes(term);
-      const nameMatch = (order.customer_name || "")
-        .toLowerCase()
-        .includes(term);
-      const typeLabel =
-        order.delivery_type === "delivery" ? "доставка" : "самовывоз";
-      const typeMatch = typeLabel.includes(term);
-      return orderNumberMatch || nameMatch || typeMatch;
-    })
+  return storeDeliveredOrders.value
     .sort((a, b) => {
       const dateB = orderCompletedAt(b);
       const dateA = orderCompletedAt(a);
@@ -1461,23 +1460,15 @@ const filteredDeliveredOrders = computed(() => {
 });
 
 const deliveredSummary = computed(() => {
-  const list = filteredDeliveredOrders.value;
-  const deliveryOrders = list.filter(
-    (order) => order.delivery_type === "delivery",
-  );
-  const pickupOrders = list.filter((order) => order.delivery_type === "pickup");
-  const sum = (items: Order[]) =>
-    items.reduce(
-      (total, item) => total + (item.final_amount ?? item.total_amount ?? 0),
-      0,
-    );
+  const s = deliveredStats.value;
+  if (s) return s;
   return {
-    totalCount: list.length,
-    totalAmount: sum(list),
-    deliveryCount: deliveryOrders.length,
-    deliveryAmount: sum(deliveryOrders),
-    pickupCount: pickupOrders.length,
-    pickupAmount: sum(pickupOrders),
+    totalCount: 0,
+    totalAmount: 0,
+    deliveryCount: 0,
+    deliveryAmount: 0,
+    pickupCount: 0,
+    pickupAmount: 0,
   };
 });
 
@@ -1645,8 +1636,10 @@ function viewOrder(id: string) {
 }
 
 function canDropTo(columnKey: string, order: Order) {
+  // Нельзя перетаскивать заказы, требующие действий менеджера
+  if (order.needs_manager_action) return false;
+  // Из "Новые" в "Собран"
   if (columnKey === "in_progress") return order.status === "new";
-  if (columnKey === "delivered") return order.status === "in_progress";
   return false;
 }
 
@@ -1782,10 +1775,18 @@ async function refreshOrders(options: { skipNotify?: boolean } = {}) {
 
   const previousIds = new Set<string>(orders.value.map((order) => order.id));
 
+  // #region agent log
+  fetch('http://127.0.0.1:7375/ingest/770bfcdb-ad04-41b5-8064-47b780108bbc',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'bc40da'},body:JSON.stringify({sessionId:'bc40da',location:'CrmOrders.vue:refreshOrders',message:'before fetch',data:{totalOrders:orders.value.length,deliveredCount:orders.value.filter(o=>['delivered','completed'].includes(o.status)).length},timestamp:Date.now()})}).catch(()=>{});
+  // #endregion
+
   try {
     const searchParam = searchQuery.value.trim() || undefined;
     await crmStore.fetchOrders({ limit: 200, search: searchParam });
     lastUpdateAt.value = new Date();
+
+    // #region agent log
+    fetch('http://127.0.0.1:7375/ingest/770bfcdb-ad04-41b5-8064-47b780108bbc',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'bc40da'},body:JSON.stringify({sessionId:'bc40da',location:'CrmOrders.vue:refreshOrders:afterFetch',message:'after fetch',data:{totalOrders:orders.value.length,deliveredCount:orders.value.filter(o=>['delivered','completed'].includes(o.status)).length,statusBreakdown:orders.value.reduce((acc,o)=>{acc[o.status]=(acc[o.status]||0)+1;return acc},{} as Partial<Record<Order["status"], number>>)},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
 
     if (options.skipNotify) {
       return;
@@ -1907,27 +1908,29 @@ watch(profitUnlocked, (unlocked) => {
   }
 });
 
+// Серверная фильтрация доставленных заказов
+let deliveredSearchTimer: ReturnType<typeof setTimeout> | null = null;
+
+watch(() => deliveredFilter.value, (newFilter) => {
+  if (deliveredModalOpen.value) {
+    void crmStore.fetchDeliveredOrders({ limit: 30, period: newFilter, search: deliveredSearch.value.trim() || undefined });
+  }
+});
+
+watch(() => deliveredSearch.value, () => {
+  if (deliveredSearchTimer) clearTimeout(deliveredSearchTimer);
+  deliveredSearchTimer = setTimeout(() => {
+    if (deliveredModalOpen.value) {
+      void crmStore.fetchDeliveredOrders({ limit: 30, period: deliveredFilter.value, search: deliveredSearch.value.trim() || undefined });
+    }
+  }, 400);
+});
+
 watch(autoRefreshEnabled, () => {
   scheduleAutoRefresh();
 });
 
-watch(
-  orders,
-  (current) => {
-    const filtered = new Set<string>();
-    current.forEach((order) => {
-      if (order.status === "new" && unseenOrderIds.value.has(order.id)) {
-        filtered.add(order.id);
-      }
-    });
-    if (filtered.size !== unseenOrderIds.value.size) {
-      unseenOrderIds.value = filtered;
-    }
-  },
-  { deep: true },
-);
-
-function openDeliveredModal(preset: DeliveredFilter = deliveredFilter.value) {
+function openDeliveredModal(preset: DeliveredFilter = "all") {
   if (!profitUnlocked.value) {
     openPasswordModal();
     return;
@@ -1935,10 +1938,22 @@ function openDeliveredModal(preset: DeliveredFilter = deliveredFilter.value) {
   deliveredFilter.value = preset;
   deliveredSearch.value = "";
   deliveredModalOpen.value = true;
+  void crmStore.fetchDeliveredOrders({ limit: 30, period: preset });
 }
 
 function closeDeliveredModal() {
   deliveredModalOpen.value = false;
+}
+
+function loadMoreDelivered() {
+  const p = deliveredPagination.value;
+  if (!p || p.page >= p.totalPages) return;
+  void crmStore.fetchDeliveredOrders({
+    page: p.page + 1,
+    limit: p.limit,
+    period: deliveredFilter.value,
+    search: deliveredSearch.value.trim() || undefined,
+  });
 }
 
 function orderStatusLabel(
@@ -1977,9 +1992,10 @@ function closeDiscountModal() {
 
 async function applyDiscount() {
   if (!discountOrder.value) return;
+  const activeOrder = discountOrder.value;
   isApplyingDiscount.value = true;
   try {
-    await crmStore.updateOrder(discountOrder.value.id, {
+    await crmStore.updateOrder(activeOrder.id, {
       discount_amount: discountAmount.value,
       discount_percent: 0,
     });
@@ -1990,7 +2006,7 @@ async function applyDiscount() {
     await refreshOrders({ skipNotify: true });
   } catch (error: any) {
     const errorMessage = error?.message || "Не удалось применить скидку";
-    showOrderError(`Заказ #${discountOrder.value.order_number}: ${errorMessage}`);
+    showOrderError(`Заказ #${activeOrder.order_number}: ${errorMessage}`);
   } finally {
     isApplyingDiscount.value = false;
   }
@@ -1998,9 +2014,10 @@ async function applyDiscount() {
 
 async function removeDiscount() {
   if (!discountOrder.value) return;
+  const activeOrder = discountOrder.value;
   isApplyingDiscount.value = true;
   try {
-    await crmStore.updateOrder(discountOrder.value.id, {
+    await crmStore.updateOrder(activeOrder.id, {
       discount_amount: 0,
       discount_percent: 0,
     });
@@ -2011,7 +2028,7 @@ async function removeDiscount() {
     await refreshOrders({ skipNotify: true });
   } catch (error: any) {
     const errorMessage = error?.message || "Не удалось убрать скидку";
-    showOrderError(`Заказ #${discountOrder.value.order_number}: ${errorMessage}`);
+    showOrderError(`Заказ #${activeOrder.order_number}: ${errorMessage}`);
   } finally {
     isApplyingDiscount.value = false;
   }
@@ -2031,16 +2048,17 @@ function closeCancelModal() {
 
 async function confirmCancelOrder() {
   if (!cancelOrder.value) return;
+  const activeOrder = cancelOrder.value;
   isCancelling.value = true;
   try {
-    await crmStore.updateOrder(cancelOrder.value.id, { status: "cancelled" });
+    await crmStore.updateOrder(activeOrder.id, { status: "cancelled" });
     // Закрываем модалку напрямую
     cancelModalOpen.value = false;
     cancelOrder.value = null;
     await refreshOrders({ skipNotify: true });
   } catch (error: any) {
     const errorMessage = error?.message || "Не удалось отменить заказ";
-    showOrderError(`Заказ #${cancelOrder.value.order_number}: ${errorMessage}`);
+    showOrderError(`Заказ #${activeOrder.order_number}: ${errorMessage}`);
   } finally {
     isCancelling.value = false;
   }

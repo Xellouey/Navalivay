@@ -107,6 +107,7 @@ import {
 import { ChevronDownIcon } from "@heroicons/vue/24/outline";
 import { useCatalogStore, type Product } from "@/stores/catalog";
 import GroupLineItemContent from "@/components/product/GroupLineItemContent.vue";
+import { getMinPriceForGroupTree } from "@/components/product/groupPrice";
 
 const GroupLineItem = defineAsyncComponent(
   () => import("@/components/product/GroupLineItem.vue"),
@@ -158,28 +159,7 @@ const totalProductCount = computed(() => {
   }, 0);
 });
 
-function findFirstProduct(node: GroupNode): Product | null {
-  const directProduct = node.products.find(Boolean);
-  if (directProduct) return directProduct;
-
-  for (const child of node.children) {
-    const nestedProduct = findFirstProduct(child);
-    if (nestedProduct) return nestedProduct;
-  }
-
-  return null;
-}
-
-const firstProductPrice = computed(() => {
-  const product = findFirstProduct(props.node);
-  if (!product) return null;
-
-  if (product.hasVariants && Array.isArray(product.variants)) {
-    return product.variants[0]?.priceRub ?? null;
-  }
-
-  return product.priceRub ?? null;
-});
+const firstProductPrice = computed(() => getMinPriceForGroupTree(props.node));
 
 const metaText = computed(() => {
   const label = (props.node.metaLabel ?? "").trim();

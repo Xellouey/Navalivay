@@ -128,7 +128,7 @@
 
     <AdminModal
       :isOpen="showCreateModal"
-      title="Новое списание"
+      :title="createModalTitle"
       size="2xl"
       :showActions="false"
       @close="closeCreateModal"
@@ -203,12 +203,19 @@
             </div>
 
             <div class="rounded-xl border border-gray-200">
+              <div
+                v-if="isEditingDraft"
+                class="border-b border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-900"
+              >
+                В редактировании показываем лимит для сохранения: текущий остаток на складе плюс количество,
+                которое уже было добавлено в это списание.
+              </div>
               <div class="overflow-x-auto">
                 <table class="w-full min-w-[600px] text-sm">
                 <thead class="bg-gray-50 text-xs font-medium uppercase text-gray-500">
                   <tr>
                     <th class="px-4 py-3 text-left">Товар</th>
-                    <th class="px-4 py-3 text-left">На складе</th>
+                    <th class="px-4 py-3 text-left">{{ draftStockColumnLabel }}</th>
                     <th class="px-4 py-3 text-left">Списать</th>
                     <th class="px-4 py-3 text-left">Себестоимость</th>
                     <th class="px-4 py-3 text-right">Потери</th>
@@ -228,7 +235,21 @@
                       </div>
                       <div class="text-xs текст-gray-500">Мин. остаток: {{ item.product.minStock }} шт</div>
                     </td>
-                    <td class="px-4 py-3 text-sm text-gray-600">{{ item.product.stock }} шт</td>
+                    <td class="px-4 py-3 text-sm text-gray-600">
+                      <div>{{ item.product.stock }} шт</div>
+                      <div
+                        v-if="isEditingDraft && item.currentStock !== undefined"
+                        class="mt-1 text-xs text-amber-700"
+                      >
+                        Сейчас на складе: {{ item.currentStock }} шт
+                      </div>
+                      <div
+                        v-if="isEditingDraft && item.originalQuantity"
+                        class="text-xs text-gray-500"
+                      >
+                        В этом списании уже было: {{ item.originalQuantity }} шт
+                      </div>
+                    </td>
                     <td class="px-4 py-3">
                       <input
                         v-model.number="item.quantity"
@@ -238,7 +259,9 @@
                         class="w-24 rounded-lg border border-gray-300 px-2 py-1 text-sm focus:border-red-500 focus:outline-none"
                         @change="clampQuantity(item)"
                       />
-                      <p v-if="item.quantity > item.product.stock" class="mt-1 text-xs text-red-600">На складе только {{ item.product.stock }} шт</p>
+                      <p v-if="item.quantity > item.product.stock" class="mt-1 text-xs text-red-600">
+                        {{ getDraftQuantityError(item) }}
+                      </p>
                     </td>
                     <td class="px-4 py-3 text-sm text-gray-600">{{ formatCurrency(item.product.costPrice) }}</td>
                     <td class="px-4 py-3 text-right text-sm font-semibold text-gray-900">
@@ -285,7 +308,7 @@
               :disabled="!canSubmitWriteOff || creatingWriteOff"
               @click="submitWriteOff"
             >
-              {{ creatingWriteOff ? 'Сохраняем…' : 'Сохранить списание' }}
+              {{ creatingWriteOff ? 'Сохраняем…' : submitButtonLabel }}
             </button>
           </aside>
         </div>
@@ -381,6 +404,8 @@ import AdminModal from '@/components/AdminModal.vue'
 interface DraftWriteOffItem {
   product: CrmProductSummary
   quantity: number
+  currentStock?: number
+  originalQuantity?: number
 }
 
 const crmStore = useCrmStore()
@@ -395,6 +420,7 @@ const productSearch = ref('')
 const productResults = ref<CrmProductSummary[]>([])
 const isSearchingProducts = ref(false)
 const searchError = ref('')
+const productSearchRequestId = ref(0)
 const creatingWriteOff = ref(false)
 const writeOffSuccess = ref('')
 let writeOffSuccessTimer: ReturnType<typeof setTimeout> | null = null
@@ -415,6 +441,10 @@ const draftTotalQuantity = computed(() => draftItems.value.reduce((sum, item) =>
 const draftTotalCost = computed(() => draftItems.value.reduce((sum, item) => sum + item.quantity * item.product.costPrice, 0))
 const hasInvalidQuantities = computed(() => draftItems.value.some((item) => item.quantity <= 0 || item.quantity > item.product.stock))
 const canSubmitWriteOff = computed(() => draftItems.value.length > 0 && !hasInvalidQuantities.value)
+const isEditingDraft = computed(() => Boolean(editingWriteOffId.value))
+const createModalTitle = computed(() => isEditingDraft.value ? 'Редактирование списания' : 'Новое списание')
+const draftStockColumnLabel = computed(() => isEditingDraft.value ? 'Доступно' : 'На складе')
+const submitButtonLabel = computed(() => isEditingDraft.value ? 'Сохранить изменения' : 'Сохранить списание')
 
 const lastWriteOffDate = computed(() => {
   if (!writeOffs.value.length) return '—'
@@ -428,6 +458,21 @@ const showSearchHint = computed(() => {
 
 let searchDebounce: ReturnType<typeof setTimeout> | null = null
 
+function invalidateProductSearch() {
+  productSearchRequestId.value += 1
+  isSearchingProducts.value = false
+}
+
+function clearProductSearchState() {
+  if (searchDebounce) {
+    clearTimeout(searchDebounce)
+    searchDebounce = null
+  }
+  invalidateProductSearch()
+  searchError.value = ''
+  productResults.value = []
+}
+
 onMounted(async () => {
   await crmStore.fetchWriteOffs()
 })
@@ -438,11 +483,11 @@ watch(productSearch, (query) => {
   searchDebounce = setTimeout(() => {
     const trimmed = query.trim()
     if (!trimmed) {
-      productResults.value = []
+      clearProductSearchState()
       return
     }
     if (trimmed.length < 2) {
-      productResults.value = []
+      clearProductSearchState()
       return
     }
     void loadProducts(trimmed)
@@ -450,16 +495,22 @@ watch(productSearch, (query) => {
 })
 
 async function loadProducts(search: string) {
+  const requestId = ++productSearchRequestId.value
   isSearchingProducts.value = true
   searchError.value = ''
   try {
-    productResults.value = await crmStore.searchCrmProducts({ search, limit: 20 })
+    const results = await crmStore.searchCrmProducts({ search, limit: 20 })
+    if (requestId !== productSearchRequestId.value) return
+    productResults.value = results
   } catch (error) {
+    if (requestId !== productSearchRequestId.value) return
     console.error('[CRM] write-off search error', error)
     searchError.value = 'Не удалось загрузить товары. Попробуйте еще раз.'
     productResults.value = []
   } finally {
-    isSearchingProducts.value = false
+    if (requestId === productSearchRequestId.value) {
+      isSearchingProducts.value = false
+    }
   }
 }
 
@@ -487,13 +538,14 @@ async function openCreateModal() {
   writeOffNotes.value = ''
   draftItems.value = []
   productSearch.value = ''
-  productResults.value = []
+  clearProductSearchState()
   showCreateModal.value = true
 }
 
 function closeCreateModal() {
   showCreateModal.value = false
   editingWriteOffId.value = null
+  clearProductSearchState()
 }
 
 function addProduct(product: CrmProductSummary) {
@@ -509,7 +561,9 @@ function addProduct(product: CrmProductSummary) {
   }
   draftItems.value.push({
     product: normalized,
-    quantity: normalized.stock > 0 ? 1 : 0
+    quantity: normalized.stock > 0 ? 1 : 0,
+    currentStock: normalized.stock,
+    originalQuantity: 0
   })
 }
 
@@ -526,6 +580,51 @@ function clampQuantity(item: DraftWriteOffItem) {
   }
 }
 
+function getDraftQuantityError(item: DraftWriteOffItem) {
+  if (!isEditingDraft.value) {
+    return `На складе только ${item.product.stock} шт`
+  }
+
+  return `Доступно к сохранению только ${item.product.stock} шт`
+}
+
+function buildWriteOffItemPayload(product: CrmProductSummary) {
+  if (product.isVariant && product.productId) {
+    return {
+      product_id: product.productId,
+      variant_id: product.id
+    }
+  }
+
+  return {
+    product_id: product.id
+  }
+}
+
+function formatWriteOffErrorMessage(errorMessage: string) {
+  if (!errorMessage) {
+    return 'Не удалось сохранить списание. Проверьте данные и повторите попытку.'
+  }
+
+  const errorLower = errorMessage.toLowerCase()
+
+  if (errorLower.includes('insufficient stock') || errorLower.includes('недостаточно товара')) {
+    const productMatch = errorMessage.match(/for\s+(.+)$/i) || errorMessage.match(/для\s+(.+)$/i)
+    const productName = productMatch ? productMatch[1].trim() : 'товара'
+    return `Недостаточно остатка на складе для "${productName}". Обновите остатки и уменьшите количество в списании.`
+  }
+
+  if (errorLower.includes('product not found') || errorLower.includes('not found') || errorLower.includes('не найден')) {
+    return 'Товар не найден. Возможно, он был изменен или удален. Обновите страницу и повторите попытку.'
+  }
+
+  if (errorLower.includes('invalid_quantity') || errorLower.includes('invalid quantity') || errorLower.includes('неверн')) {
+    return 'Укажите корректное количество для списания.'
+  }
+
+  return errorMessage
+}
+
 async function submitWriteOff() {
   if (!canSubmitWriteOff.value || creatingWriteOff.value) return
   creatingWriteOff.value = true
@@ -534,7 +633,7 @@ async function submitWriteOff() {
       reason: selectedReason.value,
       notes: writeOffNotes.value.trim() || undefined,
       items: draftItems.value.map((item) => ({
-        product_id: item.product.id,
+        ...buildWriteOffItemPayload(item.product),
         quantity: item.quantity
       }))
     }
@@ -563,7 +662,7 @@ async function submitWriteOff() {
     }
   } catch (error) {
     console.error('[CRM] create write-off error', error)
-    alert('Не удалось сохранить списание. Проверьте данные и повторите попытку.')
+    alert(formatWriteOffErrorMessage((error as Error)?.message || 'Не удалось сохранить списание.'))
   } finally {
     creatingWriteOff.value = false
   }
@@ -602,10 +701,14 @@ function startEditFromDetails() {
   writeOffNotes.value = writeOff.notes || ''
 
   draftItems.value = (writeOff.items || []).map((item) => {
-    const availableStock = Number(item.stock ?? 0) + Number(item.quantity ?? 0)
+    const currentStock = Number(item.stock ?? 0)
+    const originalQuantity = Number(item.quantity ?? 0)
+    const availableStock = currentStock + originalQuantity
+    const variantId = item.variant_id || null
     return {
       product: {
-        id: item.product_id,
+        id: variantId || item.product_id,
+        productId: variantId ? item.product_id : undefined,
         title: item.product_title || 'Без названия',
         priceRub: 0,
         costPrice: Number(item.cost_per_unit ?? 0),
@@ -614,14 +717,18 @@ function startEditFromDetails() {
         categoryId: '',
         categoryName: null,
         groupId: null,
-        groupName: item.group_name ?? null
+        groupName: item.group_name ?? null,
+        isVariant: Boolean(variantId),
+        variantName: item.variant_name ?? null
       },
-      quantity: Number(item.quantity ?? 0)
+      quantity: originalQuantity,
+      currentStock,
+      originalQuantity
     }
   })
 
   productSearch.value = ''
-  productResults.value = []
+  clearProductSearchState()
 
   detailModalOpen.value = false
   showCreateModal.value = true

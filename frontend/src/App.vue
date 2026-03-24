@@ -1,8 +1,20 @@
 <script setup lang="ts">
 import { RouterView } from "vue-router";
-import { onMounted } from "vue";
+import { computed, onMounted } from "vue";
+import { useRoute } from "vue-router";
 import VapeSmoke from "@/components/VapeSmoke.vue";
 import TelegramDebugPanel from "@/components/TelegramDebugPanel.vue";
+import BottomTabBar from "@/components/BottomTabBar.vue";
+
+const route = useRoute();
+
+const showTabBar = computed(() => {
+  const path = route.path;
+  if (path.startsWith("/admin")) return false;
+  if (path === "/checkout") return false;
+  if (path === "/my-order") return false;
+  return true;
+});
 
 onMounted(() => {
   if (typeof window !== "undefined" && window.Telegram?.WebApp) {
@@ -15,13 +27,14 @@ onMounted(() => {
 
 <template>
   <div class="min-h-screen" style="background: #ffffff">
-    <RouterView v-slot="{ Component, route }">
+    <RouterView v-slot="{ Component, route: viewRoute }">
       <Transition name="page-fade" mode="out-in">
-        <component :is="Component" :key="route.fullPath" />
+        <component :is="Component" :key="viewRoute.fullPath" />
       </Transition>
     </RouterView>
     <VapeSmoke />
     <TelegramDebugPanel />
+    <BottomTabBar v-if="showTabBar" />
   </div>
 </template>
 

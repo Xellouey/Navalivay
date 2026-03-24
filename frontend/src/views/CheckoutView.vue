@@ -19,7 +19,7 @@
             />
           </svg>
         </button>
-        <h1 class="checkout-title">Оформление заказа</h1>
+        <h1 class="checkout-title">{{ checkoutTitle }}</h1>
         <button
           v-if="cartStore.items.length"
           @click="handleClearCart"
@@ -162,10 +162,20 @@
           <span class="toggle-count">{{ cartStore.items.length }}</span>
         </button>
 
-        <div class="promo-card">
+        <div v-if="isEditingOrder" class="editing-order-card">
+          <p class="editing-order-kicker">Редактирование заказа</p>
+          <p class="editing-order-title">
+            Заказ №{{ editingOrderDetails?.order_number || cartStore.editingOrderId }}
+          </p>
+          <p class="editing-order-text">
+            После сохранения заказ снова попадет в новые, а менеджер увидит, что состав изменился.
+          </p>
+        </div>
+
+        <div class="promo-card" :class="{ 'promo-card-applied': promoResult, 'promo-card-error': promoError }">
           <p class="promo-label">Есть промокод?</p>
 
-          <div class="promo-input-row">
+          <div v-if="!promoResult" class="promo-input-row">
             <input
               ref="promoInputRef"
               v-model="promoCode"
@@ -173,24 +183,120 @@
               class="promo-input"
               placeholder="Введите промокод"
               enterkeyhint="done"
-              @keydown.enter="handlePromoInputDone"
+              :disabled="promoValidating"
+              @keydown.enter="handlePromoApply"
+              @input="promoError = ''"
             />
+            <button
+              class="promo-apply-btn"
+              :disabled="!promoCode.trim() || promoValidating"
+              @click="handlePromoApply"
+            >
+              {{ promoValidating ? '...' : 'Применить' }}
+            </button>
           </div>
 
-          <p v-if="promoCode.trim()" class="promo-info-text">
-            Раздел с промокодами пока не работает, но скоро мы его добавим. Система промокодов уже разрабатывается и будет автоматизирована!
+          <div v-else class="promo-applied-row">
+            <div class="promo-applied-info">
+              <span class="promo-input-label">Промокод</span>
+              <div class="promo-code-display">
+                <span class="promo-code-text">{{ promoCode.toUpperCase() }}</span>
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                  <path d="M2 7L5.5 10.5L12 3.5" stroke="#34c759" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+              </div>
+            </div>
+            <button class="promo-cancel-btn" @click="handlePromoClear">Убрать</button>
+          </div>
+
+          <p v-if="promoError" class="promo-error-text">{{ promoError }}</p>
+
+          <p v-if="promoResult" class="promo-discount-text">
+            Скидка: -{{ formatPrice(promoResult.calculated_discount) }} BYN
+            <template v-if="promoResult.description"> - {{ promoResult.description }}</template>
           </p>
         </div>
 
-        <div v-if="promoApplied" class="summary-row">
-          <span class="summary-label">Скидка</span>
-          <span class="summary-discount">−8 BYN</span>
+        <div v-if="promoResult" class="summary-row">
+          <span class="summary-label">Скидка по промокоду</span>
+          <span class="summary-discount">-{{ formatPrice(promoResult.calculated_discount) }} BYN</span>
+        </div>
+
+        <div v-if="loyaltyStore.previewCategories.length" class="loyalty-stack">
+          <article
+            v-for="category in loyaltyStore.previewCategories"
+            :key="category.category_id"
+            class="loyalty-card"
+          >
+            <div class="loyalty-card-head">
+              <div>
+                <p class="loyalty-card-title">{{ category.title }}</p>
+                <p class="loyalty-card-copy">
+                  {{ category.current_balance }} -> {{ category.projected_balance }} покупок
+                </p>
+              </div>
+              <span class="loyalty-card-badge">
+                {{ category.current_available_bonus_count }} скидок
+              </span>
+            </div>
+
+            <p class="loyalty-card-copy loyalty-card-copy--secondary">
+              <template v-if="category.current_available_bonus_count > 0">
+                Можно применить скидку {{ formatPrice(category.discount_amount) }} BYN к {{ category.title.toLowerCase() }}.
+              </template>
+              <template v-else>
+                До скидки {{ formatPrice(category.discount_amount) }} BYN осталось {{ category.remaining_to_next }} покупок.
+              </template>
+            </p>
+
+            <div v-if="promoResult" class="loyalty-disabled-note">
+              При активном промокоде скидки за покупки недоступны.
+            </div>
+
+            <div
+              v-else-if="category.current_available_bonus_count > 0"
+              class="loyalty-line-list"
+            >
+              <div
+                v-for="line in category.line_items"
+                :key="line.key"
+                class="loyalty-line-item"
+              >
+                <div class="loyalty-line-copy">
+                  <span class="loyalty-line-title">{{ line.product_title }}</span>
+                  <span class="loyalty-line-meta">Макс.: {{ line.max_redeemable_units }}</span>
+                </div>
+                <select
+                  class="loyalty-line-select"
+                  :value="getItemLoyaltyUnits(line.product_id, line.variant_id)"
+                  @change="handleLoyaltyUnitsChange(category, line, $event)"
+                >
+                  <option
+                    v-for="units in loyaltyOptionsForLine(category, line)"
+                    :key="`${line.key}-${units}`"
+                    :value="units"
+                  >
+                    {{ units }} шт.
+                  </option>
+                </select>
+              </div>
+            </div>
+
+            <button class="loyalty-rules-btn" @click="openLoyaltyRules(category.category_key)">
+              Как работают скидки за покупки?
+            </button>
+          </article>
+        </div>
+
+        <div v-if="loyaltyDiscountAmount > 0" class="summary-row">
+          <span class="summary-label">Скидка за покупки</span>
+          <span class="summary-discount">-{{ formatPrice(loyaltyDiscountAmount) }} BYN</span>
         </div>
 
         <div class="total-block">
           <span class="total-label">Итого</span>
           <span class="total-amount"
-            >{{ formatPrice(cartStore.totalAmount) }} BYN</span
+            >{{ formatPrice(finalTotal) }} BYN</span
           >
         </div>
 
@@ -244,7 +350,7 @@
           type="button"
           style="touch-action: manipulation; -webkit-tap-highlight-color: transparent;"
         >
-          {{ isSubmitting ? "Оформляем..." : "Оформить заказ" }}
+          {{ submitButtonLabel }}
         </button>
 
         <div v-if="submitError" class="submit-error">{{ submitError }}</div>
@@ -293,6 +399,31 @@
         </div>
       </div>
     </AdminModal>
+
+    <AdminModal
+      :isOpen="Boolean(activeLoyaltyRulesCategory)"
+      title="Как работают скидки"
+      :description="activeLoyaltyRulesCategory ? loyaltyRulesDescription(activeLoyaltyRulesCategory) : ''"
+      size="sm"
+      :showActions="false"
+      @close="activeLoyaltyRulesCategory = null"
+      @cancel="activeLoyaltyRulesCategory = null"
+    >
+      <div v-if="activeLoyaltyRulesCategory" class="username-modal">
+        <ol class="username-modal-steps">
+          <li>{{ loyaltyRulesHeadline(activeLoyaltyRulesCategory) }}</li>
+          <li>За покупку по промокоду, бонусу или ручной скидке покупки не начисляются.</li>
+          <li>Если username изменится, накопленные покупки сбросятся.</li>
+        </ol>
+      </div>
+    </AdminModal>
+
+    <LoyaltyBonusPopup
+      :open="showLoyaltyPopup"
+      :categories="loyaltyStore.availableCategories"
+      @close="showLoyaltyPopup = false"
+      @open-profile="openProfileFromLoyaltyPopup"
+    />
   </div>
 </template>
 
@@ -301,10 +432,22 @@ import { ref, reactive, computed, onMounted, watch } from "vue";
 import { useRouter } from "vue-router";
 import { useCartStore } from "@/stores/cart";
 import { useCatalogStore } from "@/stores/catalog";
+import {
+  useLoyaltyStore,
+  type LoyaltyPreviewCategory,
+  type LoyaltyPreviewLineItem,
+  type LoyaltySnapshotCategory,
+} from "@/stores/loyalty";
 import { useSettingsStore } from "@/stores/settings";
 import MinDeliveryBanner from "@/components/MinDeliveryBanner.vue";
 import DeliveryConditionsBanner from "@/components/DeliveryConditionsBanner.vue";
 import AdminModal from "@/components/AdminModal.vue";
+import LoyaltyBonusPopup from "@/components/LoyaltyBonusPopup.vue";
+import {
+  fetchMyActiveOrder,
+  getTelegramIdentity,
+  type CustomerActiveOrder,
+} from "@/utils/customerOrders";
 
 interface TelegramMiniAppUser {
   id: number;
@@ -320,10 +463,18 @@ const router = useRouter();
 const cartStore = useCartStore();
 const settingsStore = useSettingsStore();
 const catalogStore = useCatalogStore();
+const loyaltyStore = useLoyaltyStore();
 
 const isItemsExpanded = ref(false);
 const promoCode = ref("");
-const promoApplied = ref(false);
+const promoValidating = ref(false);
+const promoResult = ref<{
+  discount_type: 'fixed' | 'percent';
+  discount_value: number;
+  calculated_discount: number;
+  description?: string;
+} | null>(null);
+const promoError = ref("");
 const promoInputRef = ref<HTMLInputElement | null>(null);
 const telegramUser = ref<TelegramMiniAppUser | null>(null);
 const showUsernameRequiredModal = ref(false);
@@ -352,6 +503,20 @@ const stockLoading = ref(false);
 const showMinDeliveryBanner = ref(false);
 const showDeliveryConditionsBanner = ref(false);
 const deliveryConditionsShown = ref(false);
+const editingOrderDetails = ref<CustomerActiveOrder | null>(null);
+const activeLoyaltyRulesCategory = ref<LoyaltySnapshotCategory | null>(null);
+const showLoyaltyPopup = ref(false);
+
+const isEditingOrder = computed(() => Boolean(cartStore.editingOrderId));
+const checkoutTitle = computed(() =>
+  isEditingOrder.value ? "Изменение заказа" : "Оформление заказа",
+);
+const submitButtonLabel = computed(() => {
+  if (isSubmitting.value) {
+    return isEditingOrder.value ? "Сохраняем..." : "Оформляем...";
+  }
+  return isEditingOrder.value ? "Сохранить изменения" : "Оформить заказ";
+});
 
 const minDeliveryAmount = computed(() => {
   const val = parseFloat(settingsStore.settings.min_delivery_amount || "0");
@@ -410,13 +575,185 @@ function isIceProduct(item: (typeof cartStore.items)[0]): boolean {
   return title.includes("ice") || variant.includes("ice");
 }
 
+const finalTotal = computed(() => {
+  const base = cartStore.totalAmount;
+  if (loyaltyDiscountAmount.value > 0) {
+    return Math.max(base - loyaltyDiscountAmount.value, 0);
+  }
+  if (promoResult.value) {
+    return Math.max(base - promoResult.value.calculated_discount, 0);
+  }
+  return base;
+});
+
+const loyaltyDiscountAmount = computed(() =>
+  promoResult.value ? 0 : Number(loyaltyStore.totalLoyaltyDiscount || 0),
+);
+
 function toggleItemsExpanded() {
   isItemsExpanded.value = !isItemsExpanded.value;
 }
 
 function handlePromoInputDone() {
-  // Скрываем клавиатуру на iOS при нажатии Enter/Done
   promoInputRef.value?.blur();
+}
+
+async function handlePromoApply() {
+  const code = promoCode.value.trim();
+  if (!code || promoValidating.value) return;
+
+  promoInputRef.value?.blur();
+  promoError.value = '';
+  promoResult.value = null;
+  promoValidating.value = true;
+
+  try {
+    const response = await fetch('/api/promo/validate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code, order_amount: cartStore.totalAmount }),
+    });
+
+    const data = await response.json();
+
+    if (data.valid) {
+      cartStore.clearLoyaltySelections();
+      promoResult.value = {
+        discount_type: data.discount_type,
+        discount_value: data.discount_value,
+        calculated_discount: data.calculated_discount,
+        description: data.description,
+      };
+      if (isEditingOrder.value) {
+        cartStore.setEditingPromoCode(code);
+      }
+    } else {
+      promoError.value = data.message || 'Недействительный промокод';
+    }
+  } catch {
+    promoError.value = 'Не удалось проверить промокод';
+  } finally {
+    promoValidating.value = false;
+    await refreshLoyaltyPreview();
+  }
+}
+
+function handlePromoClear() {
+  promoCode.value = '';
+  promoResult.value = null;
+  promoError.value = '';
+  if (isEditingOrder.value) {
+    cartStore.setEditingPromoCode('');
+  }
+  void refreshLoyaltyPreview();
+}
+
+function buildLoyaltyIdentity() {
+  const user = telegramUser.value;
+  return {
+    telegram_id: user?.id ? String(user.id) : undefined,
+    telegram_username: normalizeTelegramUsername(
+      verifiedTelegramUsername.value || detectedTelegramUsername.value || form.telegramUsername,
+    ) || undefined,
+  };
+}
+
+async function refreshLoyaltyPreview() {
+  if (!cartStore.items.length) {
+    loyaltyStore.resetPreview();
+    return;
+  }
+
+  try {
+    await loyaltyStore.fetchCheckoutPreview({
+      ...buildLoyaltyIdentity(),
+      promo_code: promoResult.value ? promoCode.value.trim() : undefined,
+      editing_order_id: cartStore.editingOrderId || undefined,
+      items: cartStore.items.map((item) => ({
+        product_id: item.productId,
+        variant_id: item.variantId || null,
+        product_title: item.productTitle || item.title,
+        quantity: item.quantity,
+        price_per_unit: item.priceRub,
+        loyalty_units_applied: Number(item.loyaltyUnitsApplied || 0),
+      })),
+    });
+  } catch (error) {
+    console.warn("[Checkout] Failed to refresh loyalty preview", error);
+  }
+}
+
+function findPreviewLine(
+  category: LoyaltyPreviewCategory,
+  productId: string | null,
+  variantId: string | null,
+) {
+  return (
+    category.line_items.find(
+      (line) =>
+        line.product_id === productId &&
+        (line.variant_id || null) === (variantId || null),
+    ) || null
+  );
+}
+
+function getItemLoyaltyUnits(productId: string | null, variantId: string | null) {
+  const item = cartStore.items.find(
+    (cartItem) =>
+      cartItem.productId === productId &&
+      (cartItem.variantId || null) === (variantId || null),
+  );
+  return Math.max(0, Number(item?.loyaltyUnitsApplied || 0));
+}
+
+function loyaltyOptionsForLine(category: LoyaltyPreviewCategory, line: LoyaltyPreviewLineItem) {
+  const currentUnits = getItemLoyaltyUnits(line.product_id, line.variant_id);
+  const usedByOtherLines = category.line_items.reduce((sum, currentLine) => {
+    if (currentLine.key === line.key) return sum;
+    return sum + getItemLoyaltyUnits(currentLine.product_id, currentLine.variant_id);
+  }, 0);
+  const maxAllowed = Math.max(
+    0,
+    Math.min(
+      Number(line.max_redeemable_units || 0),
+      Number(category.current_available_bonus_count || 0) - usedByOtherLines + currentUnits,
+    ),
+  );
+
+  return Array.from({ length: maxAllowed + 1 }, (_, index) => index);
+}
+
+function handleLoyaltyUnitsChange(
+  category: LoyaltyPreviewCategory,
+  line: LoyaltyPreviewLineItem,
+  event: Event,
+) {
+  const target = event.target as HTMLSelectElement;
+  const nextUnits = Number(target.value || 0);
+  const maxAllowed = Math.max(...loyaltyOptionsForLine(category, line), 0);
+  cartStore.setLoyaltyUnits(
+    String(line.product_id || ""),
+    Math.min(maxAllowed, Math.max(0, nextUnits)),
+    line.variant_id || null,
+  );
+}
+
+function openLoyaltyRules(categoryKey: string) {
+  activeLoyaltyRulesCategory.value =
+    loyaltyStore.snapshot.find((category) => category.key === categoryKey) || null;
+}
+
+function loyaltyRulesHeadline(category: LoyaltySnapshotCategory) {
+  return `Одна покупка в категории = одна отметка. За каждые ${category.threshold} покупок можно применить скидку ${formatPrice(category.discount_amount)} BYN к одной позиции этой категории.`;
+}
+
+function loyaltyRulesDescription(category: LoyaltySnapshotCategory) {
+  return `${category.title}: скидка действует только на товары этой категории.`;
+}
+
+async function openProfileFromLoyaltyPopup() {
+  showLoyaltyPopup.value = false;
+  await router.push("/profile");
 }
 
 function blurActiveInput() {
@@ -516,15 +853,8 @@ function closeMiniApp() {
   }
 }
 
-function applyPromoCode() {
-  if (promoCode.value.trim()) {
-    promoApplied.value = true;
-  }
-}
-
 function cancelPromoCode() {
-  promoApplied.value = false;
-  promoCode.value = "";
+  handlePromoClear();
 }
 
 watch(
@@ -557,10 +887,78 @@ onMounted(async () => {
   }
   await fetchStockLimits();
   syncTelegramUserData({ trustCurrentUser: true });
+  await hydrateEditingOrder();
+  await refreshLoyaltyPreview();
+  try {
+    await loyaltyStore.fetchSnapshot(getTelegramIdentity());
+    if (loyaltyStore.canShowAvailableBonusPopup()) {
+      loyaltyStore.markPopupSeen();
+      showLoyaltyPopup.value = true;
+    }
+  } catch (error) {
+    console.warn("[Checkout] Failed to fetch loyalty snapshot", error);
+  }
   if (requiresTelegramUsername.value) {
     showUsernameRequiredModal.value = true;
   }
 });
+
+watch(
+  () =>
+    JSON.stringify({
+      promo: promoResult.value ? promoCode.value.trim() : "",
+      edit: cartStore.editingOrderId,
+      username: form.telegramUsername,
+      items: cartStore.items.map((item) => ({
+        productId: item.productId,
+        variantId: item.variantId || null,
+        quantity: item.quantity,
+        priceRub: item.priceRub,
+        loyaltyUnitsApplied: Number(item.loyaltyUnitsApplied || 0),
+      })),
+    }),
+  () => {
+    void refreshLoyaltyPreview();
+  },
+);
+
+async function hydrateEditingOrder() {
+  if (!isEditingOrder.value) {
+    editingOrderDetails.value = null;
+    return;
+  }
+
+  try {
+    const activeOrder = await fetchMyActiveOrder(getTelegramIdentity());
+    if (!activeOrder || activeOrder.id !== cartStore.editingOrderId) {
+      cartStore.clearOrderEdit();
+      editingOrderDetails.value = null;
+      return;
+    }
+
+    editingOrderDetails.value = activeOrder;
+    form.deliveryType = activeOrder.delivery_type;
+    form.phone = activeOrder.phone || "";
+    form.address = activeOrder.delivery_address || "";
+    form.notes = activeOrder.notes || "";
+
+    const orderUsername = normalizeTelegramUsername(activeOrder.telegram_username);
+    if (orderUsername && !form.telegramUsername) {
+      form.telegramUsername = orderUsername;
+    }
+
+    const orderPromoCode = activeOrder.promo_code_text || cartStore.editingPromoCode;
+    if (orderPromoCode) {
+      promoCode.value = orderPromoCode;
+      cartStore.setEditingPromoCode(orderPromoCode);
+      await handlePromoApply();
+    } else {
+      handlePromoClear();
+    }
+  } catch (error) {
+    console.warn("[Checkout] Failed to hydrate editing order", error);
+  }
+}
 
 async function fetchStockLimits() {
   stockLoading.value = true;
@@ -743,11 +1141,16 @@ async function submitOrder() {
         price_per_unit: item.priceRub,
         product_title: item.productTitle || item.title,
         variant_name: item.variantName || null,
+        loyalty_units_applied: Number(item.loyaltyUnitsApplied || 0),
       })),
     };
 
-    const response = await fetch("/api/orders", {
-      method: "POST",
+    const response = await fetch(
+      isEditingOrder.value && cartStore.editingOrderId
+        ? `/api/orders/${cartStore.editingOrderId}/modify-by-customer`
+        : "/api/orders",
+      {
+      method: isEditingOrder.value ? "PUT" : "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(orderData),
     });
@@ -760,6 +1163,10 @@ async function submitOrder() {
     }
 
     if (!response.ok) {
+      if (result?.error === "active_order_exists") {
+        await router.push("/my-order");
+        return;
+      }
       if (result?.error === "min_delivery_amount_not_met") {
         showMinDeliveryBanner.value = true;
         form.deliveryType = "pickup";
@@ -767,37 +1174,24 @@ async function submitOrder() {
           result.message || "Сумма заказа меньше минимальной для доставки",
         );
       }
+      if (isEditingOrder.value && result?.error === "not_found") {
+        cartStore.clearOrderEdit();
+        await router.push("/my-order");
+        return;
+      }
+      if (
+        result?.error === "promo_and_loyalty_conflict" ||
+        result?.error === "loyalty_balance_not_enough" ||
+        result?.error === "loyalty_category_not_available"
+      ) {
+        throw new Error("Не удалось применить скидку за покупки. Обновите корзину и попробуйте снова.");
+      }
       throw new Error(result?.message || "Не удалось создать заказ");
     }
 
     cartStore.clearCart();
-
-    const showSuccessAlert = (message: string, callback: () => void) => {
-      const tg = window.Telegram?.WebApp;
-      if (
-        tg &&
-        typeof tg.showAlert === "function" &&
-        tg.version &&
-        parseFloat(tg.version) >= 6.2
-      ) {
-        try {
-          tg.showAlert(message, callback);
-        } catch {
-          alert(message);
-          callback();
-        }
-      } else {
-        alert(message);
-        callback();
-      }
-    };
-
-    showSuccessAlert(
-      "Заказ отправлен. Ожидайте, с вами свяжутся.",
-      () => {
-        window.location.href = "/";
-      },
-    );
+    cartStore.finishOrderEdit();
+    await router.push("/my-order");
   } catch (error: any) {
     console.error("[Checkout] Submit error", error);
     submitError.value =
@@ -1154,10 +1548,65 @@ async function submitOrder() {
   color: #aab2be;
 }
 
+.editing-order-card {
+  background: linear-gradient(145deg, #191919 0%, #363636 100%);
+  border-radius: 20px;
+  padding: 18px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: #ffffff;
+}
+
+.editing-order-kicker {
+  margin: 0;
+  font-family: -apple-system, "SF Pro Display", sans-serif;
+  font-size: 12px;
+  line-height: 14px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.58);
+}
+
+.editing-order-title {
+  margin: 0;
+  font-family: "Montserrat", sans-serif;
+  font-weight: 700;
+  font-size: 18px;
+  line-height: 22px;
+}
+
+.editing-order-text {
+  margin: 0;
+  font-family: -apple-system, "SF Pro Display", sans-serif;
+  font-size: 14px;
+  line-height: 19px;
+  color: rgba(255, 255, 255, 0.78);
+}
+
 .promo-card {
   background: #ffffff;
   border-radius: 20px;
   padding: 24px 16px;
+  transition: border-color 0.2s ease;
+  border: 1px solid transparent;
+}
+
+.promo-card-applied {
+  border-color: #34c759;
+}
+
+.promo-card-error {
+  border-color: #dc2626;
+}
+
+.promo-error-text {
+  font-family: -apple-system, "SF Pro Display", sans-serif;
+  font-weight: 400;
+  font-size: 14px;
+  line-height: 18px;
+  color: #dc2626;
+  margin: 12px 0 0;
 }
 
 .promo-label {
@@ -1297,6 +1746,120 @@ async function submitOrder() {
   line-height: 14px;
   color: #34c759;
   margin: 12px 0 0;
+}
+
+.loyalty-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.loyalty-card {
+  padding: 18px;
+  border-radius: 22px;
+  background: linear-gradient(135deg, #191919 0%, #353535 100%);
+  color: #ffffff;
+  box-shadow: 0 18px 42px rgba(25, 25, 25, 0.12);
+}
+
+.loyalty-card-head,
+.loyalty-line-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.loyalty-card-title {
+  margin: 0 0 4px;
+  font-family: "Montserrat", sans-serif;
+  font-size: 18px;
+  line-height: 22px;
+  font-weight: 700;
+}
+
+.loyalty-card-copy {
+  margin: 0;
+  font-size: 13px;
+  line-height: 18px;
+  color: rgba(255, 255, 255, 0.78);
+}
+
+.loyalty-card-copy--secondary {
+  margin-top: 12px;
+}
+
+.loyalty-card-badge {
+  flex-shrink: 0;
+  padding: 8px 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+  font-size: 12px;
+  line-height: 14px;
+}
+
+.loyalty-disabled-note {
+  margin-top: 14px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.1);
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.loyalty-line-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.loyalty-line-item {
+  padding: 10px 12px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.loyalty-line-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.loyalty-line-title {
+  font-size: 14px;
+  line-height: 18px;
+  font-weight: 600;
+}
+
+.loyalty-line-meta {
+  font-size: 12px;
+  line-height: 14px;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.loyalty-line-select {
+  min-width: 78px;
+  min-height: 36px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.08);
+  color: #ffffff;
+  padding: 0 10px;
+}
+
+.loyalty-rules-btn {
+  margin-top: 14px;
+  width: 100%;
+  min-height: 42px;
+  border: none;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.12);
+  color: #ffffff;
+  font-family: "Montserrat", sans-serif;
+  font-size: 13px;
+  font-weight: 700;
 }
 
 .summary-row {

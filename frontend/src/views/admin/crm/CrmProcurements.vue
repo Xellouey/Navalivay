@@ -1101,6 +1101,7 @@ const productSearch = ref("");
 const productResults = ref<CrmProductSummary[]>([]);
 const isSearchingProducts = ref(false);
 const searchError = ref("");
+const productSearchRequestId = ref(0);
 const lowStockLoading = ref(false);
 const creatingProcurement = ref(false);
 
@@ -1202,6 +1203,21 @@ const showSearchHint = computed(() => {
 
 let searchDebounce: ReturnType<typeof setTimeout> | null = null;
 
+function invalidateProductSearch() {
+  productSearchRequestId.value += 1;
+  isSearchingProducts.value = false;
+}
+
+function clearProductSearchState() {
+  if (searchDebounce) {
+    clearTimeout(searchDebounce);
+    searchDebounce = null;
+  }
+  invalidateProductSearch();
+  searchError.value = "";
+  productResults.value = [];
+}
+
 onMounted(async () => {
   if (profitUnlocked.value) {
     await crmStore.fetchProcurements();
@@ -1224,7 +1240,11 @@ watch(profitUnlocked, async (unlocked) => {
 
 // Автообновление списка товаров с низким остатком при открытии модального окна
 watch(showCreateModal, async (isOpen) => {
-  if (isOpen && profitUnlocked.value) {
+  if (!isOpen) {
+    clearProductSearchState();
+    return;
+  }
+  if (profitUnlocked.value) {
     // Обновляем список каждый раз при открытии
     await refreshLowStock();
   }
@@ -1240,8 +1260,7 @@ watch(productSearch, (query) => {
       return;
     }
     if (trimmed.length < 2) {
-      searchError.value = "";
-      productResults.value = [];
+      clearProductSearchState();
       return;
     }
     void loadProducts(trimmed);
@@ -1311,20 +1330,26 @@ function convertAdminProductToCrmSummary(product: any): CrmProductSummary {
 }
 
 async function loadProducts(search?: string) {
+  const requestId = ++productSearchRequestId.value;
   isSearchingProducts.value = true;
   searchError.value = "";
   try {
-    productResults.value = await crmStore.searchCrmProducts({
+    const results = await crmStore.searchCrmProducts({
       search,
       limit: 100,
     });
+    if (requestId !== productSearchRequestId.value) return;
+    productResults.value = results;
   } catch (error) {
+    if (requestId !== productSearchRequestId.value) return;
     console.error("[CRM] search products error", error);
     searchError.value =
       "Не удалось загрузить список товаров. Попробуйте обновить страницу.";
     productResults.value = [];
   } finally {
-    isSearchingProducts.value = false;
+    if (requestId === productSearchRequestId.value) {
+      isSearchingProducts.value = false;
+    }
   }
 }
 
@@ -1367,6 +1392,7 @@ async function openCreateModal() {
   draftNotes.value = "";
   draftItems.value = [];
   productSearch.value = "";
+  clearProductSearchState();
   showCreateModal.value = true;
   quickProductError.value = "";
   await loadProducts();
@@ -1376,6 +1402,7 @@ async function openCreateModal() {
 function closeCreateModal() {
   showCreateModal.value = false;
   editingProcurementId.value = null;
+  clearProductSearchState();
 }
 
 async function refreshLowStock() {
@@ -1454,7 +1481,7 @@ async function startEditProcurement(id: string, existing?: Procurement | null) {
     }));
 
     productSearch.value = "";
-    searchError.value = "";
+    clearProductSearchState();
     showCreateModal.value = true;
     quickProductError.value = "";
     if (!lowStockProducts.value.length) {

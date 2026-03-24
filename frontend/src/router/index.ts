@@ -37,6 +37,26 @@ const router = createRouter({
       component: () => import("../views/CheckoutView.vue"),
     },
     {
+      path: "/my-order",
+      name: "my-order",
+      component: () => import("../views/MyOrderView.vue"),
+    },
+    {
+      path: "/profile",
+      name: "profile",
+      component: () => import("../views/ProfileView.vue"),
+    },
+    {
+      path: "/section-2",
+      name: "section-2",
+      component: () => import("../views/PlaceholderView.vue"),
+    },
+    {
+      path: "/section-3",
+      name: "section-3",
+      component: () => import("../views/PlaceholderView.vue"),
+    },
+    {
       path: "/admin",
       name: "Admin",
       component: () => import("@/views/AdminView.vue"),
@@ -111,6 +131,12 @@ const router = createRouter({
           path: "crm/message-templates",
           name: "CrmMessageTemplates",
           component: () => import("@/views/admin/crm/CrmMessageTemplates.vue"),
+          beforeEnter: requireAdminAuth,
+        },
+        {
+          path: "crm/loyalty",
+          name: "CrmLoyalty",
+          component: () => import("@/views/admin/crm/CrmLoyalty.vue"),
           beforeEnter: requireAdminAuth,
         },
       ],

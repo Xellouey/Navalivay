@@ -15,6 +15,8 @@ import { crmRouter } from './routes/crm.js';
 import { crmOperationsRouter } from './routes/crm-operations.js';
 import { crmFinanceRouter } from './routes/crm-finance.js';
 import { posRouter } from './routes/pos.js';
+import { promoRouter } from './routes/promo.js';
+import { loyaltyRouter } from './routes/loyalty.js';
 import { archiveOldDeliveredOrders, scheduleArchiving } from './cleanup-delivered-orders.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -72,6 +74,10 @@ app.use(crmOperationsRouter);
 app.use(crmFinanceRouter);
 // POS API
 app.use(posRouter);
+// Promo API
+app.use(promoRouter);
+// Loyalty API
+app.use(loyaltyRouter);
 
 
 app.listen(PORT, () => {

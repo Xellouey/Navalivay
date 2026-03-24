@@ -15,6 +15,23 @@
     </div>
 
     <div class="main-content-wrapper">
+      <section v-if="activeOrder && !cartStore.editingOrderId" class="active-order-section">
+        <button class="active-order-banner" @click="router.push('/my-order')">
+          <div class="active-order-copy">
+            <span class="active-order-kicker">Активный заказ</span>
+            <strong class="active-order-title">Заказ №{{ activeOrder.order_number }} уже оформлен</strong>
+            <span class="active-order-text">
+              {{
+                activeOrder.status === "in_progress"
+                  ? "Он уже собран. Откройте заказ, чтобы посмотреть статус или отменить его."
+                  : "Откройте заказ, чтобы изменить состав или посмотреть статус."
+              }}
+            </span>
+          </div>
+          <span class="active-order-action">Открыть</span>
+        </button>
+      </section>
+
       <section class="category-section">
         <!-- Сетка категорий -->
         <div class="category-grid">
@@ -75,20 +92,37 @@
       </div>
     </Transition>
   </div>
+
+  <LoyaltyBonusPopup
+    :open="showLoyaltyPopup"
+    :categories="loyaltyStore.availableCategories"
+    @close="showLoyaltyPopup = false"
+    @open-profile="openProfileFromPopup"
+  />
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted } from "vue";
+import { computed, onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
 
 import { useCatalogStore, type Category } from "@/stores/catalog";
 import { useCartStore } from "@/stores/cart";
+import { useLoyaltyStore } from "@/stores/loyalty";
 import SmokeParticles from "@/components/SmokeParticles.vue";
 import BannerCarousel from "@/components/BannerCarousel.vue";
+import LoyaltyBonusPopup from "@/components/LoyaltyBonusPopup.vue";
+import {
+  fetchMyActiveOrder,
+  getTelegramIdentity,
+  type CustomerActiveOrder,
+} from "@/utils/customerOrders";
 
 const catalogStore = useCatalogStore();
 const cartStore = useCartStore();
+const loyaltyStore = useLoyaltyStore();
 const router = useRouter();
+const activeOrder = ref<CustomerActiveOrder | null>(null);
+const showLoyaltyPopup = ref(false);
 
 const PLACEHOLDER_IMAGE = "/placeholder-category.png";
 
@@ -122,12 +156,37 @@ function goToCheckout() {
   router.push("/checkout");
 }
 
+async function openProfileFromPopup() {
+  showLoyaltyPopup.value = false;
+  await router.push("/profile");
+}
+
 onMounted(async () => {
   await catalogStore.initialize();
+
+  if (!cartStore.editingOrderId) {
+    try {
+      activeOrder.value = await fetchMyActiveOrder(getTelegramIdentity());
+    } catch (error) {
+      console.warn("[Home] Failed to fetch active order", error);
+    }
+  } else {
+    activeOrder.value = null;
+  }
 
   if (window.Telegram?.WebApp) {
     window.Telegram.WebApp.ready();
     window.Telegram.WebApp.expand();
+  }
+
+  try {
+    await loyaltyStore.fetchSnapshot(getTelegramIdentity());
+    if (loyaltyStore.canShowAvailableBonusPopup()) {
+      loyaltyStore.markPopupSeen();
+      showLoyaltyPopup.value = true;
+    }
+  } catch (error) {
+    console.warn("[Home] Failed to fetch loyalty snapshot", error);
   }
 });
 </script>
@@ -142,6 +201,72 @@ onMounted(async () => {
 
 .banner-container {
   position: relative;
+}
+
+.active-order-section {
+  padding: 12px 16px 0;
+}
+
+.active-order-banner {
+  width: 100%;
+  border: none;
+  border-radius: 22px;
+  padding: 18px 18px 20px;
+  background: linear-gradient(135deg, #191919 0%, #353535 100%);
+  color: #ffffff;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  text-align: left;
+  cursor: pointer;
+  box-shadow: 0 18px 42px rgba(25, 25, 25, 0.18);
+}
+
+.active-order-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.active-order-kicker {
+  font-family: -apple-system, "SF Pro Display", sans-serif;
+  font-size: 12px;
+  line-height: 14px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.58);
+}
+
+.active-order-title {
+  font-family: "Montserrat", sans-serif;
+  font-size: 18px;
+  line-height: 22px;
+  font-weight: 700;
+}
+
+.active-order-text {
+  font-family: -apple-system, "SF Pro Display", sans-serif;
+  font-size: 14px;
+  line-height: 19px;
+  color: rgba(255, 255, 255, 0.78);
+  max-width: 270px;
+}
+
+.active-order-action {
+  flex-shrink: 0;
+  min-width: 92px;
+  min-height: 48px;
+  padding: 0 18px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(90deg, #f50302 0%, #a90f0e 100%);
+  color: #ffffff;
+  font-family: "Montserrat", sans-serif;
+  font-size: 14px;
+  font-weight: 700;
 }
 
 /* Category card wrapper - transparent, holds box + title */
@@ -228,6 +353,16 @@ onMounted(async () => {
 }
 
 @media (max-width: 360px) {
+  .active-order-banner {
+    padding: 16px;
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .active-order-action {
+    width: 100%;
+  }
+
   /* 360px экраны */
   .category-grid {
     grid-template-columns: repeat(3, 97px);
