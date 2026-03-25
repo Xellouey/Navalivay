@@ -1092,13 +1092,15 @@ crmFinanceRouter.get('/api/admin/crm/products/search', authMiddleware, (req, res
     
     allProducts = allProducts.slice(0, Number(limit));
     
-    // Убираем тяжёлые поля из ответа, но оставляем нужные изображения
+    // Убираем тяжёлые служебные поля из ответа, но сохраняем одно итоговое изображение.
+    // Иначе group/category cover_image дублируются в каждом элементе поиска и сильно раздувают payload.
     const cleanProducts = allProducts.map(p => {
-      const { first_image, variant_color_image, ...rest } = p;
+      const { first_image, variant_color_image, group_image, category_image, imageUrl, ...rest } = p;
       return {
         ...rest,
+        imageUrl: imageUrl || null,
         // Приоритет: фото товара > фото линейки > фото категории
-        image: p.imageUrl || p.group_image || p.category_image || null
+        image: imageUrl || group_image || category_image || null
       };
     });
     
