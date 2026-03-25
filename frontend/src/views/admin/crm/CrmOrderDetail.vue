@@ -153,27 +153,39 @@
           <svg class="h-6 w-6 flex-shrink-0" :class="currentOrder.manager_action_type === 'cancelled_by_customer' ? 'text-red-500' : 'text-orange-500'" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
           </svg>
-          <div class="flex-1">
-            <p class="text-sm font-semibold" :class="currentOrder.manager_action_type === 'cancelled_by_customer' ? 'text-red-800' : 'text-orange-800'">
-              {{ currentOrder.manager_action_type === 'cancelled_by_customer' ? 'Заказ отменен покупателем' : 'Заказ изменен покупателем' }}
-            </p>
-            <p v-if="currentOrder.manager_action_note" class="mt-1 text-sm" :class="currentOrder.manager_action_type === 'cancelled_by_customer' ? 'text-red-700' : 'text-orange-700'">
-              {{ currentOrder.manager_action_note }}
-            </p>
+          <div class="min-w-0 flex-1">
+            <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div class="min-w-0 flex-1">
+                <p class="text-sm font-semibold" :class="currentOrder.manager_action_type === 'cancelled_by_customer' ? 'text-red-800' : 'text-orange-800'">
+                  {{ currentOrder.manager_action_type === 'cancelled_by_customer' ? 'Заказ отменен покупателем' : 'Заказ изменен покупателем' }}
+                </p>
+                <div
+                  v-if="currentOrder.manager_action_note"
+                  class="mt-2"
+                >
+                  <ManagerActionSummary
+                    :note="currentOrder.manager_action_note"
+                    :show-heading="false"
+                    :items="currentOrder.items"
+                    size="xs"
+                  />
+                </div>
+              </div>
+              <button
+                @click="resolveAction"
+                :disabled="isResolvingAction"
+                class="inline-flex shrink-0 self-start items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold text-white shadow-sm transition disabled:opacity-60"
+                :class="currentOrder.manager_action_type === 'cancelled_by_customer'
+                  ? 'bg-red-600 hover:bg-red-700'
+                  : 'bg-orange-600 hover:bg-orange-700'"
+              >
+                <svg v-if="isResolvingAction" class="h-4 w-4 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+                <span>{{ isResolvingAction ? 'Обработка...' : (currentOrder.manager_action_type === 'cancelled_by_customer' ? 'Разобрать' : 'Принять изменения') }}</span>
+              </button>
+            </div>
           </div>
-          <button
-            @click="resolveAction"
-            :disabled="isResolvingAction"
-            class="inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold text-white shadow-sm transition disabled:opacity-60"
-            :class="currentOrder.manager_action_type === 'cancelled_by_customer'
-              ? 'bg-red-600 hover:bg-red-700'
-              : 'bg-orange-600 hover:bg-orange-700'"
-          >
-            <svg v-if="isResolvingAction" class="h-4 w-4 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-            </svg>
-            <span>{{ isResolvingAction ? 'Обработка...' : (currentOrder.manager_action_type === 'cancelled_by_customer' ? 'Разобрать' : 'Принять изменения') }}</span>
-          </button>
         </div>
       </div>
 
@@ -511,6 +523,7 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useCrmStore, type CrmProductSummary, type Order } from '@/stores/crm'
+import ManagerActionSummary from '@/components/crm/ManagerActionSummary.vue'
 
 const props = defineProps<{ id: string }>()
 
@@ -919,11 +932,13 @@ async function saveChanges() {
 
   const discountAmount = Math.max(0, Number(form.discountAmount) || 0)
   const discountPercent = Math.min(100, Math.max(0, Number(form.discountPercent) || 0))
+  const trimmedDeliveryAddress = form.deliveryAddress.trim()
+  const trimmedNotes = form.notes.trim()
 
   const payload = {
     status: editableStatus.value,
-    delivery_address: form.deliveryAddress.trim() || undefined,
-    notes: form.notes.trim() || undefined,
+    delivery_address: trimmedDeliveryAddress ? trimmedDeliveryAddress : null,
+    notes: trimmedNotes ? trimmedNotes : null,
     discount_amount: Math.min(discountAmount, itemsDiscountedSubtotal.value),
     discount_percent: discountPercent,
     items: sanitizedItems

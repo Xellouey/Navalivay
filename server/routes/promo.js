@@ -36,8 +36,19 @@ promoRouter.get('/api/admin/crm/promo-codes', authMiddleware, (req, res) => {
     }
 
     const promoCodes = db.prepare(`
-      SELECT pc.*
+      SELECT
+        pc.*,
+        COALESCE(stats.reserved_uses, 0) as reserved_uses,
+        COALESCE(stats.consumed_uses, 0) as consumed_uses
       FROM promo_codes pc
+      LEFT JOIN (
+        SELECT
+          promo_code_id,
+          SUM(CASE WHEN status = 'reserved' THEN 1 ELSE 0 END) as reserved_uses,
+          SUM(CASE WHEN status = 'consumed' THEN 1 ELSE 0 END) as consumed_uses
+        FROM promo_usage
+        GROUP BY promo_code_id
+      ) stats ON stats.promo_code_id = pc.id
       WHERE ${whereClause}
       ORDER BY pc.created_at DESC
       LIMIT ? OFFSET ?
@@ -79,6 +90,7 @@ promoRouter.get('/api/admin/crm/promo-codes/:id', authMiddleware, (req, res) => 
       LEFT JOIN orders o ON o.id = pu.order_id
       LEFT JOIN customers c ON c.id = pu.customer_id
       WHERE pu.promo_code_id = ?
+        AND pu.status = 'consumed'
       ORDER BY pu.used_at DESC
     `).all(id);
 
@@ -105,6 +117,7 @@ promoRouter.get('/api/admin/crm/promo-codes/:id/usage', authMiddleware, (req, re
       LEFT JOIN orders o ON o.id = pu.order_id
       LEFT JOIN customers c ON c.id = pu.customer_id
       WHERE pu.promo_code_id = ?
+        AND pu.status = 'consumed'
       ORDER BY pu.used_at DESC
     `).all(id);
 

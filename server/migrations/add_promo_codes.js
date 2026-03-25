@@ -28,6 +28,7 @@ export function migratePromoCodes() {
         order_id TEXT NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
         customer_id TEXT REFERENCES customers(id),
         discount_applied REAL NOT NULL,
+        status TEXT NOT NULL DEFAULT 'reserved',
         used_at TEXT DEFAULT (DATETIME('now'))
       )
     `);
@@ -36,6 +37,7 @@ export function migratePromoCodes() {
     db.exec(`CREATE INDEX IF NOT EXISTS idx_promo_codes_code ON promo_codes(code)`);
     db.exec(`CREATE INDEX IF NOT EXISTS idx_promo_usage_order ON promo_usage(order_id)`);
     db.exec(`CREATE INDEX IF NOT EXISTS idx_promo_usage_promo ON promo_usage(promo_code_id)`);
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_promo_usage_status ON promo_usage(status)`);
 
     // Add promo fields to orders
     const columns = db.prepare(`PRAGMA table_info(orders)`).all();
@@ -50,6 +52,59 @@ export function migratePromoCodes() {
       console.log('[migration] Adding promo_code_text column to orders table');
       db.exec(`ALTER TABLE orders ADD COLUMN promo_code_text TEXT`);
     }
+
+    const usageColumns = db.prepare(`PRAGMA table_info(promo_usage)`).all();
+    const usageColumnNames = usageColumns.map((col) => col.name);
+
+    if (!usageColumnNames.includes('status')) {
+      console.log('[migration] Adding status column to promo_usage table');
+      db.exec(`ALTER TABLE promo_usage ADD COLUMN status TEXT NOT NULL DEFAULT 'reserved'`);
+    }
+
+    db.exec(`
+      UPDATE promo_usage
+      SET status = CASE
+        WHEN EXISTS (
+          SELECT 1
+          FROM orders o
+          WHERE o.id = promo_usage.order_id
+            AND o.status IN ('completed', 'delivered')
+        ) THEN 'consumed'
+        ELSE 'reserved'
+      END
+      WHERE status IS NULL
+         OR status NOT IN ('reserved', 'consumed')
+    `);
+
+    db.exec(`
+      UPDATE promo_usage
+      SET used_at = NULL
+      WHERE status = 'reserved'
+    `);
+
+    db.exec(`
+      UPDATE promo_usage
+      SET used_at = COALESCE(
+        (
+          SELECT o.completed_at
+          FROM orders o
+          WHERE o.id = promo_usage.order_id
+        ),
+        used_at,
+        DATETIME('now')
+      )
+      WHERE status = 'consumed'
+    `);
+
+    db.exec(`
+      UPDATE promo_codes
+      SET current_uses = COALESCE((
+        SELECT COUNT(*)
+        FROM promo_usage pu
+        WHERE pu.promo_code_id = promo_codes.id
+          AND pu.status IN ('reserved', 'consumed')
+      ), 0)
+    `);
 
     console.log('[migration] Promo codes migration completed successfully');
   } catch (error) {

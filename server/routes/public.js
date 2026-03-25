@@ -7,6 +7,12 @@ import {
   releaseOrderLoyaltyReservations,
   resetCustomerLoyaltyOnUsernameChange,
 } from "../loyalty.js";
+import {
+  normalizePromoCode,
+  releasePromoUsageForOrder,
+  reservePromoUsageForOrder,
+  validatePromoCode as validatePromoCodeForOrder,
+} from "../promo-code-service.js";
 
 export const publicRouter = express.Router();
 
@@ -227,24 +233,19 @@ function restoreStockForOrderItems(orderItems) {
 }
 
 function clearPromoUsageForOrder(order) {
-  if (!order?.promo_code_id) {
-    return;
-  }
-
-  db.prepare(
-    "UPDATE promo_codes SET current_uses = MAX(current_uses - 1, 0) WHERE id = ?",
-  ).run(order.promo_code_id);
-  db.prepare("DELETE FROM promo_usage WHERE order_id = ?").run(order.id);
+  releasePromoUsageForOrder(order);
 }
 
 function describeOrderItem(item) {
+  const lineName = item.group_name || item.groupName || null;
   const baseTitle =
     item.base_product_title ||
     item.product_title ||
     item.title ||
     item.product_id ||
     "товар";
-  return item.variant_name ? `${baseTitle} (${item.variant_name})` : baseTitle;
+  const titledItem = item.variant_name ? `${baseTitle} (${item.variant_name})` : baseTitle;
+  return lineName ? `${lineName} - ${titledItem}` : titledItem;
 }
 
 function buildManagerActionNote({
@@ -1371,7 +1372,7 @@ publicRouter.post("/api/orders/:id/cancel-by-customer", (req, res) => {
       ];
       const updateValues = [order.status];
 
-      clearPromoUsageForOrder(order);
+      releasePromoUsageForOrder(order);
 
       if (order.status === "in_progress") {
         const orderItems = db
@@ -1511,10 +1512,7 @@ publicRouter.put("/api/orders/:id/modify-by-customer", (req, res) => {
         });
       }
 
-      const normalizedPromoCode =
-        promo_code && String(promo_code).trim()
-          ? String(promo_code).trim().toUpperCase()
-          : null;
+      const normalizedPromoCode = normalizePromoCode(promo_code);
       const orderBuild = buildPublicOrderItems({
         items,
         customerId: order.customer_id || null,
@@ -1525,8 +1523,13 @@ publicRouter.put("/api/orders/:id/modify-by-customer", (req, res) => {
       let nextPromoCodeId = null;
       let nextPromoResult = null;
       if (normalizedPromoCode) {
-        nextPromoResult = validatePromoCode(normalizedPromoCode, orderBuild.totalAmount);
+        nextPromoResult = validatePromoCodeForOrder(
+          normalizedPromoCode,
+          orderBuild.totalAmount,
+          { excludeOrderId: id },
+        );
         if (!nextPromoResult.valid) {
+          throwPromoValidationError(nextPromoResult);
           throw new Error(
             nextPromoResult.message || "РќРµРґРµР№СЃС‚РІРёС‚РµР»СЊРЅС‹Р№ РїСЂРѕРјРѕРєРѕРґ",
           );
@@ -1652,21 +1655,13 @@ publicRouter.put("/api/orders/:id/modify-by-customer", (req, res) => {
       }
 
       if (nextPromoCodeId && nextPromoResult) {
-        db.prepare(
-          `
-          INSERT INTO promo_usage (id, promo_code_id, order_id, customer_id, discount_applied)
-          VALUES (?, ?, ?, ?, ?)
-        `,
-        ).run(
-          generateId("pu"),
-          nextPromoCodeId,
-          id,
-          order.customer_id || null,
-          nextPromoDiscount,
-        );
-        db.prepare(
-          "UPDATE promo_codes SET current_uses = current_uses + 1 WHERE id = ?",
-        ).run(nextPromoCodeId);
+        reservePromoUsageForOrder({
+          promoCodeId: nextPromoCodeId,
+          orderId: id,
+          customerId: order.customer_id || null,
+          discountApplied: nextPromoDiscount,
+          idFactory: () => generateId("pu"),
+        });
       }
 
       return;
@@ -1761,6 +1756,7 @@ publicRouter.put("/api/orders/:id/modify-by-customer", (req, res) => {
       if (promo_code && String(promo_code).trim()) {
         promoResult = validatePromoCode(String(promo_code), totalAmount);
         if (!promoResult.valid) {
+          throwPromoValidationError(promoResult);
           throw new Error(
             promoResult.message || "Недействительный промокод",
           );
@@ -1915,6 +1911,12 @@ publicRouter.put("/api/orders/:id/modify-by-customer", (req, res) => {
       [
         "invalid_item",
         "invalid_item_quantity",
+        "not_found",
+        "inactive",
+        "not_started",
+        "expired",
+        "max_uses_reached",
+        "min_amount_not_met",
         "promo_and_loyalty_conflict",
         "loyalty_category_not_available",
         "loyalty_balance_not_enough",
@@ -1922,7 +1924,7 @@ publicRouter.put("/api/orders/:id/modify-by-customer", (req, res) => {
     ) {
       return res.status(400).json({
         error: error.message,
-        message: error.message,
+        message: error.userMessage || error.message,
       });
     }
     return res.status(500).json({
@@ -1940,6 +1942,12 @@ function generateId(prefix) {
 function getNextNumber(table, field) {
   const row = db.prepare(`SELECT MAX(${field}) as maxNum FROM ${table}`).get();
   return (row?.maxNum || 0) + 1;
+}
+
+function throwPromoValidationError(result) {
+  const error = new Error(result?.error || "invalid_promo");
+  error.userMessage = result?.message || "Недействительный промокод";
+  throw error;
 }
 
 // Validate promo code helper
@@ -1997,8 +2005,15 @@ function validatePromoCode(code, orderAmount) {
 // Validate promo code (public endpoint)
 publicRouter.post("/api/promo/validate", (req, res) => {
   try {
-    const { code, order_amount = 0 } = req.body;
-    const result = validatePromoCode(code, Number(order_amount));
+    const { code, order_amount = 0, order_id, editing_order_id } = req.body;
+    const result = validatePromoCodeForOrder(code, Number(order_amount), {
+      excludeOrderId:
+        typeof editing_order_id === "string" && editing_order_id.trim()
+          ? editing_order_id.trim()
+          : typeof order_id === "string" && order_id.trim()
+            ? order_id.trim()
+            : null,
+    });
 
     if (result.valid) {
       res.json({
@@ -2348,10 +2363,7 @@ publicRouter.post("/api/orders", async (req, res) => {
 
       const createdOrderId = generateId("order");
       const createdOrderNumber = getNextNumber("orders", "order_number");
-      const normalizedPromoCode =
-        promo_code && String(promo_code).trim()
-          ? String(promo_code).trim().toUpperCase()
-          : null;
+      const normalizedPromoCode = normalizePromoCode(promo_code);
 
       const orderBuild = buildPublicOrderItems({
         items,
@@ -2363,8 +2375,12 @@ publicRouter.post("/api/orders", async (req, res) => {
       let createdPromoCodeId = null;
       let createdPromoResult = null;
       if (normalizedPromoCode) {
-        createdPromoResult = validatePromoCode(normalizedPromoCode, orderBuild.totalAmount);
+        createdPromoResult = validatePromoCodeForOrder(
+          normalizedPromoCode,
+          orderBuild.totalAmount,
+        );
         if (!createdPromoResult.valid) {
+          throwPromoValidationError(createdPromoResult);
           throw new Error(
             createdPromoResult.message || "РќРµРґРµР№СЃС‚РІРёС‚РµР»СЊРЅС‹Р№ РїСЂРѕРјРѕРєРѕРґ",
           );
@@ -2441,20 +2457,13 @@ publicRouter.post("/api/orders", async (req, res) => {
       });
 
       if (createdPromoCodeId && createdPromoResult) {
-        db.prepare(`
-          INSERT INTO promo_usage (id, promo_code_id, order_id, customer_id, discount_applied)
-          VALUES (?, ?, ?, ?, ?)
-        `).run(
-          generateId("pu"),
-          createdPromoCodeId,
-          createdOrderId,
-          resolvedCustomerId || null,
-          createdPromoDiscount,
-        );
-
-        db.prepare(
-          "UPDATE promo_codes SET current_uses = current_uses + 1 WHERE id = ?",
-        ).run(createdPromoCodeId);
+        reservePromoUsageForOrder({
+          promoCodeId: createdPromoCodeId,
+          orderId: createdOrderId,
+          customerId: resolvedCustomerId || null,
+          discountApplied: createdPromoDiscount,
+          idFactory: () => generateId("pu"),
+        });
       }
 
       if (resolvedCustomerId) {
@@ -2606,7 +2615,7 @@ publicRouter.post("/api/orders", async (req, res) => {
       let promoResult = null;
 
       if (promo_code && promo_code.trim()) {
-        promoResult = validatePromoCode(promo_code, totalAmount);
+        promoResult = validatePromoCodeForOrder(promo_code, totalAmount);
         if (!promoResult.valid) {
           throw new Error(promoResult.message || 'Недействительный промокод');
         }
@@ -2679,18 +2688,13 @@ publicRouter.post("/api/orders", async (req, res) => {
 
       // Record promo usage and increment counter
       if (promoCodeId && promoResult) {
-        db.prepare(`
-          INSERT INTO promo_usage (id, promo_code_id, order_id, customer_id, discount_applied)
-          VALUES (?, ?, ?, ?, ?)
-        `).run(
-          generateId('pu'),
+        reservePromoUsageForOrder({
           promoCodeId,
           orderId,
-          customerId || null,
-          promoDiscount,
-        );
-
-        db.prepare('UPDATE promo_codes SET current_uses = current_uses + 1 WHERE id = ?').run(promoCodeId);
+          customerId: customerId || null,
+          discountApplied: promoDiscount,
+          idFactory: () => generateId("pu"),
+        });
       }
 
       // Update customer stats
@@ -2723,6 +2727,12 @@ publicRouter.post("/api/orders", async (req, res) => {
     if (
       [
         "invalid_item_quantity",
+        "not_found",
+        "inactive",
+        "not_started",
+        "expired",
+        "max_uses_reached",
+        "min_amount_not_met",
         "promo_and_loyalty_conflict",
         "loyalty_category_not_available",
         "loyalty_balance_not_enough",
@@ -2730,7 +2740,7 @@ publicRouter.post("/api/orders", async (req, res) => {
     ) {
       return res.status(400).json({
         error: error.message,
-        message: error.message,
+        message: error.userMessage || error.message,
       });
     }
     res.status(500).json({

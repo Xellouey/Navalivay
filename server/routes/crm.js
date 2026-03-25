@@ -2,6 +2,14 @@ import express from 'express';
 import bcrypt from 'bcryptjs';
 import { db } from '../db.js';
 import { authMiddleware } from '../auth.js';
+import {
+  getBusinessCalendarDayRange,
+  getBusinessCalendarMonthRange,
+  getBusinessDayLabel,
+  getBusinessPeriodRange,
+  shiftBusinessCalendarDate,
+  toSqliteUtcString,
+} from '../utils/business-time.js';
 
 export const crmRouter = express.Router();
 
@@ -24,49 +32,11 @@ crmRouter.get('/api/admin/crm/dashboard', authMiddleware, (req, res) => {
     const { period = 'today' } = req.query;
     const offset = Number(req.query.offset || 0) || 0;
 
-    function getPeriodRange(p, off) {
-      const now = new Date();
-      // Use UTC boundaries to match ISO timestamps stored in DB
-      function startOfUTCDay(d) {
-        return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
-      }
-      if (p === 'today') {
-        const base = startOfUTCDay(now);
-        const start = new Date(base.getTime() + off * 24 * 60 * 60 * 1000);
-        const end = new Date(start.getTime() + 24 * 60 * 60 * 1000);
-        return { start, end };
-      }
-      if (p === 'week') {
-        const d = startOfUTCDay(now);
-        // ISO week starts on Monday
-        const day = d.getUTCDay() || 7; // 1..7
-        const monday = new Date(d.getTime() - (day - 1) * 24 * 60 * 60 * 1000);
-        const start = new Date(monday.getTime() + off * 7 * 24 * 60 * 60 * 1000);
-        const end = new Date(start.getTime() + 7 * 24 * 60 * 60 * 1000);
-        return { start, end };
-      }
-      if (p === 'month') {
-        const y = now.getUTCFullYear();
-        const m = now.getUTCMonth();
-        const start = new Date(Date.UTC(y, m + off, 1));
-        const end = new Date(Date.UTC(y, m + off + 1, 1));
-        return { start, end };
-      }
-      if (p === 'year') {
-        const y = now.getUTCFullYear();
-        const start = new Date(Date.UTC(y + off, 0, 1));
-        const end = new Date(Date.UTC(y + off + 1, 0, 1));
-        return { start, end };
-      }
-      const base = startOfUTCDay(now);
-      return { start: base, end: new Date(base.getTime() + 24 * 60 * 60 * 1000) };
-    }
-
-    const { start, end } = getPeriodRange(period, offset);
+    const { start, end } = getBusinessPeriodRange(period, offset);
     
     // Функция для форматирования даты в SQLite-совместимый формат (YYYY-MM-DD HH:MM:SS)
     function toSqliteDate(date) {
-      return date.toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, '');
+      return toSqliteUtcString(date);
     }
     
     // Для статистики заказов используем created_at
@@ -246,12 +216,17 @@ crmRouter.get('/api/admin/crm/dashboard-timeseries', authMiddleware, (req, res) 
       return { start: base, end: new Date(base.getTime() + 24 * 60 * 60 * 1000), granularity: 'day' };
     }
 
-    const { start, end, granularity } = getPeriodRange(period, offset, year);
+    const {
+      start,
+      end,
+      granularity,
+      calendarStart,
+    } = getBusinessPeriodRange(period, offset, year);
     const data = [];
     
     // Функция для форматирования даты в SQLite-совместимый формат (YYYY-MM-DD HH:MM:SS)
     function toSqliteDate(date) {
-      return date.toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, '');
+      return toSqliteUtcString(date);
     }
 
     if (granularity === 'month') {
@@ -259,8 +234,10 @@ crmRouter.get('/api/admin/crm/dashboard-timeseries', authMiddleware, (req, res) 
       const monthNames = ['Янв', 'Фев', 'Мар', 'Апр', 'Май', 'Июн', 'Июл', 'Авг', 'Сен', 'Окт', 'Ноя', 'Дек'];
       
       for (let i = 0; i < 12; i++) {
-        const monthStart = new Date(Date.UTC(start.getUTCFullYear(), i, 1));
-        const monthEnd = new Date(Date.UTC(start.getUTCFullYear(), i + 1, 1));
+        const { start: monthStart, end: monthEnd } = getBusinessCalendarMonthRange(
+          Number(year || calendarStart.year),
+          i + 1,
+        );
         
         const stats = db.prepare(`
           SELECT 
@@ -295,11 +272,16 @@ crmRouter.get('/api/admin/crm/dashboard-timeseries', authMiddleware, (req, res) 
       }
     } else if (granularity === 'day') {
       // По дням для месяца
-      const daysInPeriod = Math.ceil((end - start) / (24 * 60 * 60 * 1000));
-      
-      for (let i = 0; i < daysInPeriod; i++) {
-        const dayStart = new Date(start.getTime() + i * 24 * 60 * 60 * 1000);
-        const dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
+      for (let i = 0; ; i++) {
+        const dayParts = shiftBusinessCalendarDate(calendarStart, i);
+        const { start: dayStart, end: dayEnd } = getBusinessCalendarDayRange(
+          dayParts.year,
+          dayParts.month,
+          dayParts.day,
+        );
+        if (dayStart >= end) {
+          break;
+        }
         
         const stats = db.prepare(`
           SELECT 
@@ -326,7 +308,7 @@ crmRouter.get('/api/admin/crm/dashboard-timeseries', authMiddleware, (req, res) 
         `).get(toSqliteDate(dayStart), toSqliteDate(dayEnd));
         
         data.push({
-          label: String(dayStart.getUTCDate()),
+          label: getBusinessDayLabel(dayStart),
           orders: (stats?.orders || 0) + (posStats?.orders || 0),
           revenue: (stats?.revenue || 0) + (posStats?.revenue || 0),
           profit: (stats?.profit || 0) + (posStats?.profit || 0)

@@ -3,11 +3,20 @@ import { db } from "../db.js";
 import { authMiddleware } from "../auth.js";
 import { archiveOldDeliveredOrders } from "../cleanup-delivered-orders.js";
 import {
+  getBusinessPeriodRange,
+  toSqliteUtcString,
+} from "../utils/business-time.js";
+import {
   applyOrderLoyaltyReservations,
   awardLoyaltyForOrder,
   buildLoyaltyApplication,
   releaseOrderLoyaltyReservations,
 } from "../loyalty.js";
+import {
+  consumePromoUsageForOrder,
+  releasePromoUsageForOrder,
+  reservePromoUsageForOrder,
+} from "../promo-code-service.js";
 
 export const crmOperationsRouter = express.Router();
 
@@ -432,7 +441,11 @@ crmOperationsRouter.get(
 
       // Серверная фильтрация по периоду
       if (period === "today") {
-        whereClauses.push("DATE(COALESCE(o.completed_at, o.paid_at, o.updated_at, o.created_at)) = DATE('now')");
+        const { start, end } = getBusinessPeriodRange("today");
+        whereClauses.push(
+          "datetime(COALESCE(o.completed_at, o.paid_at, o.updated_at, o.created_at)) >= ? AND datetime(COALESCE(o.completed_at, o.paid_at, o.updated_at, o.created_at)) < ?",
+        );
+        params.push(toSqliteUtcString(start), toSqliteUtcString(end));
       } else if (period === "week") {
         whereClauses.push("COALESCE(o.completed_at, o.paid_at, o.updated_at, o.created_at) >= DATETIME('now', '-7 days')");
       } else if (period === "month") {
@@ -1045,8 +1058,7 @@ crmOperationsRouter.patch(
 
             // ОТКАТ ПРОМОКОДА: При отмене заказа возвращаем использование промокода
             if (order.promo_code_id) {
-              db.prepare('UPDATE promo_codes SET current_uses = MAX(current_uses - 1, 0) WHERE id = ?').run(order.promo_code_id);
-              db.prepare('DELETE FROM promo_usage WHERE order_id = ?').run(id);
+              releasePromoUsageForOrder(id);
             }
           } else if (desiredStatus !== "cancelled") {
             updateFields.push("previous_status = NULL");
@@ -1118,7 +1130,10 @@ crmOperationsRouter.patch(
           // Возвращаем старый сток ТОЛЬКО если позиции изменились И сток был ранее списан
           // Сохраняем информацию о старых позициях для правильной проверки стока
           const oldItemsMap = new Map();
-          if (order.stock_deducted && itemsChanged) {
+          const shouldRestoreDeductedStock =
+            order.stock_deducted &&
+            (itemsChanged || !workingStatuses.includes(desiredStatus));
+          if (shouldRestoreDeductedStock) {
             for (const oldItem of oldItems) {
               // Сохраняем количество для каждого варианта/товара
               const key = oldItem.variant_id || oldItem.product_id;
@@ -1143,9 +1158,15 @@ crmOperationsRouter.patch(
             promoCodeText: order.promo_code_text || null,
           });
           const rebuiltItems = orderBuild.items;
+          const shouldKeepExistingDeduction =
+            workingStatuses.includes(desiredStatus) &&
+            order.stock_deducted &&
+            !itemsChanged;
           const shouldDeductUpdatedItems =
             workingStatuses.includes(desiredStatus) &&
             (!order.stock_deducted || itemsChanged);
+          const nextStockDeducted =
+            shouldKeepExistingDeduction || shouldDeductUpdatedItems ? 1 : 0;
 
           db.prepare("DELETE FROM order_items WHERE order_id = ?").run(id);
 
@@ -1310,7 +1331,7 @@ crmOperationsRouter.patch(
           );
           db.prepare(
             `UPDATE orders SET stock_deducted = ?, updated_at = DATETIME('now') WHERE id = ?`,
-          ).run(shouldDeductUpdatedItems ? 1 : 0, id);
+          ).run(nextStockDeducted, id);
         } else if (shouldUpdateDiscount) {
           const totals = db
             .prepare(
@@ -1345,6 +1366,36 @@ crmOperationsRouter.patch(
             profit,
             id,
           );
+        }
+
+        if (order.promo_code_id) {
+          const updatedPromoOrder = db
+            .prepare("SELECT discount_amount, completed_at FROM orders WHERE id = ?")
+            .get(id);
+
+          if (desiredStatus === "cancelled") {
+            releasePromoUsageForOrder(id);
+          } else if (["completed", "delivered"].includes(desiredStatus)) {
+            consumePromoUsageForOrder({
+              orderId: id,
+              promoCodeId: order.promo_code_id,
+              customerId: order.customer_id || null,
+              discountApplied: Number(updatedPromoOrder?.discount_amount || 0),
+              consumedAt: updatedPromoOrder?.completed_at || new Date().toISOString(),
+              idFactory: () => generateId("pu"),
+            });
+          } else if (
+            order.status === "cancelled" ||
+            ["completed", "delivered"].includes(order.status)
+          ) {
+            reservePromoUsageForOrder({
+              promoCodeId: order.promo_code_id,
+              orderId: id,
+              customerId: order.customer_id || null,
+              discountApplied: Number(updatedPromoOrder?.discount_amount || 0),
+              idFactory: () => generateId("pu"),
+            });
+          }
         }
 
         if (["completed", "delivered"].includes(desiredStatus)) {
@@ -1608,6 +1659,15 @@ crmOperationsRouter.post(
           "UPDATE cash_accounts SET balance = balance + ? WHERE id = ?",
         ).run(parsedAmount, payment_account_id);
 
+        consumePromoUsageForOrder({
+          orderId: id,
+          promoCodeId: order.promo_code_id || null,
+          customerId: order.customer_id || null,
+          discountApplied: Number(order.discount_amount || 0),
+          consumedAt: completedAt,
+          idFactory: () => generateId("pu"),
+        });
+
         awardLoyaltyForOrder(id);
       });
 
@@ -1716,6 +1776,26 @@ crmOperationsRouter.delete(
         WHERE id = ?
       `,
         ).run(restoredStatus, id);
+
+        if (order.promo_code_id) {
+          if (["completed", "delivered"].includes(restoredStatus)) {
+            consumePromoUsageForOrder({
+              orderId: id,
+              promoCodeId: order.promo_code_id,
+              customerId: order.customer_id || null,
+              discountApplied: Number(order.discount_amount || 0),
+              idFactory: () => generateId("pu"),
+            });
+          } else {
+            reservePromoUsageForOrder({
+              promoCodeId: order.promo_code_id,
+              orderId: id,
+              customerId: order.customer_id || null,
+              discountApplied: Number(order.discount_amount || 0),
+              idFactory: () => generateId("pu"),
+            });
+          }
+        }
       });
 
       tx();
@@ -2375,9 +2455,7 @@ crmOperationsRouter.get(
   (req, res) => {
     try {
       const now = new Date();
-      const startOfToday = new Date(
-        Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()),
-      );
+      const { start: startOfToday } = getBusinessPeriodRange("today");
 
       const orders = db
         .prepare(

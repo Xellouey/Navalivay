@@ -132,6 +132,44 @@ function resolveCategoryDisplayMode(category: Category): 'default' | 'liquid' | 
 }
 ```
 
+## Storefront Price Visibility Rules
+
+Price visibility in the storefront is based on the group tree shape, not on category slug.
+
+### Header/Card Rules
+
+| UI element | Show price? | Price source |
+|------|---------|---------|
+| Category header (`Устройства`, `Расходники`, etc.) | No | Never show category-level prices |
+| Parent group / container group with child groups | No | Never inherit or aggregate prices from child groups |
+| Leaf group / leaf line without child groups | Yes | Minimum positive price from the group's direct `products` only |
+| Single product card outside groups (for example cross-sell or standalone product like `Никобустер`) | Yes | Product price / selected variant price |
+
+### Important Examples
+
+- `VAPORESSO XROS` with nested child lines: no header price
+- `PODONKI` with child subgroups: no header price
+- `SMOANT PASITO MINI` as a leaf line with direct products: show header price
+- `CHAPPMAN` as a leaf liquid line: show header price
+- `Картриджи` / `Испарители` / `Баки`: show price only if they are leaf groups with direct products and no child groups
+
+### Expanded Content Rules
+
+- Inside an expanded leaf group, final products and variants remain the place where the customer can confirm the exact price.
+- A repeated row price may be hidden if it exactly duplicates the already visible leaf-group header price.
+- If a product or variant price differs from the leaf-group header price, the row must show its own price explicitly.
+
+### Implementation Notes
+
+- `frontend/src/components/product/GroupLineItem.vue`
+  - Card/header price is allowed only when `node.children.length === 0`
+  - Header price is calculated from `node.products` only
+- `frontend/src/components/product/liquid/LiquidLineCard.vue`
+  - Card/header price is allowed only when `subgroups.length === 0`
+  - Header price is calculated from `props.products` only
+- `frontend/src/components/product/groupPrice.ts`
+  - Shared helper for minimum positive direct price calculation
+
 ### Group Expansion State
 
 ```typescript
@@ -235,9 +273,17 @@ Layout of product image containers (padding, img fill) in GroupLineItem and Liqu
 | `frontend/src/views/HomeView.vue` | Group tree building, expansion state |
 | `frontend/src/components/product/GroupLineItem.vue` | Single group row component |
 | `frontend/src/components/product/liquid/LiquidLineTree.vue` | Liquid mode tree |
+| `frontend/src/components/product/liquid/LiquidLineCard.vue` | Liquid leaf/header price rules |
+| `frontend/src/components/product/groupPrice.ts` | Shared direct-price helper for leaf groups |
 | `docs/PRODUCT_CARD_LAYOUT.md` | Image container padding/sizing in cards |
 
 ## Changelog
+
+### March 25, 2026 (price visibility)
+- Added storefront rules for category/group price visibility
+- Declared that parent/container groups never show prices from child groups
+- Declared that only leaf groups with direct products show a header price
+- Declared that expanded rows may hide only duplicate prices, but not differing ones
 
 ### January 2026 (image areas)
 - Added: `docs/PRODUCT_CARD_LAYOUT.md` - product image container padding/sizing in GroupLineItem, LiquidLineCard, SingleProductCard; for AI agents see that doc.

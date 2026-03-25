@@ -619,7 +619,11 @@ async function handlePromoApply() {
     const response = await fetch('/api/promo/validate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ code, order_amount: cartStore.totalAmount }),
+      body: JSON.stringify({
+        code,
+        order_amount: cartStore.totalAmount,
+        editing_order_id: isEditingOrder.value ? cartStore.editingOrderId : undefined,
+      }),
     });
 
     const data = await response.json();

@@ -180,6 +180,7 @@ describe("CheckoutView order flows", () => {
 
   it("uses modify endpoint in edit mode", async () => {
     const cartStore = useCartStore();
+    let promoValidateBody: any = null;
     cartStore.replaceItemsFromOrder([
       {
         productId: "p-1",
@@ -214,6 +215,7 @@ describe("CheckoutView order flows", () => {
         return createJsonResponse(buildLoyaltyPreview(applied));
       }
       if (url === "/api/promo/validate") {
+        promoValidateBody = JSON.parse(String(init?.body || "{}"));
         return createJsonResponse({
           valid: true,
           discount_type: "fixed",
@@ -252,6 +254,7 @@ describe("CheckoutView order flows", () => {
         method: "PUT",
       }),
     );
+    expect(promoValidateBody?.editing_order_id).toBe("order-1");
     expect(cartStore.editingOrderId).toBeNull();
     expect(routerPush).toHaveBeenCalledWith("/my-order");
 
@@ -380,11 +383,9 @@ describe("CheckoutView order flows", () => {
     });
 
     await flushPromises();
+    await flushPromises();
 
-    const select = wrapper.find(".loyalty-line-select");
-    expect(select.exists()).toBe(true);
-
-    await select.setValue("1");
+    cartStore.setLoyaltyUnits("p-1", 1, null);
     await flushPromises();
     await wrapper.find(".submit-button").trigger("click");
     await flushPromises();

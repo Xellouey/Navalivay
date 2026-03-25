@@ -218,24 +218,28 @@ import {
   type CrmLoyaltyCustomer,
 } from '@/stores/crm'
 
+type LoyaltyCategoryForm = {
+  threshold: number
+  discount_amount: number
+  title: string
+  description: string
+  active: boolean
+}
+
+type LoyaltyMappingForm = {
+  categoryIds: string[]
+  groupIds: string[]
+}
+
 const crmStore = useCrmStore()
 const catalogStore = useCatalogStore()
 const search = ref('')
 const expandedCustomerId = ref<string | null>(null)
 const ledgerLoading = ref(false)
 
-const forms = reactive<Record<string, {
-  threshold: number
-  discount_amount: number
-  title: string
-  description: string
-  active: boolean
-}>>({})
+const forms = reactive<Record<string, LoyaltyCategoryForm>>({})
 
-const mappingForms = reactive<Record<string, {
-  categoryIds: string[]
-  groupIds: string[]
-}>>({})
+const mappingForms = reactive<Record<string, LoyaltyMappingForm>>({})
 
 const categories = computed(() => crmStore.loyaltyCategories)
 const loyaltyCustomers = computed(() => crmStore.loyaltyCustomers)
@@ -243,22 +247,45 @@ const allGroups = computed(() =>
   catalogStore.categories.flatMap((category) => category.groups),
 )
 
+function createCategoryForm(category: CrmLoyaltyCategory): LoyaltyCategoryForm {
+  return {
+    threshold: Number(category.threshold || 1),
+    discount_amount: Number(category.discount_amount || 0),
+    title: category.title,
+    description: category.description || '',
+    active: Boolean(category.active),
+  }
+}
+
+function createMappingForm(category: CrmLoyaltyCategory): LoyaltyMappingForm {
+  return {
+    categoryIds: category.mappings
+      .filter((mapping) => !!mapping.category_id)
+      .map((mapping) => String(mapping.category_id)),
+    groupIds: category.mappings
+      .filter((mapping) => !!mapping.group_id)
+      .map((mapping) => String(mapping.group_id)),
+  }
+}
+
 function syncForms() {
+  const activeIds = new Set<string>()
+
   for (const category of crmStore.loyaltyCategories) {
-    forms[category.id] = {
-      threshold: Number(category.threshold || 1),
-      discount_amount: Number(category.discount_amount || 0),
-      title: category.title,
-      description: category.description || '',
-      active: Boolean(category.active),
+    activeIds.add(category.id)
+    forms[category.id] = createCategoryForm(category)
+    mappingForms[category.id] = createMappingForm(category)
+  }
+
+  for (const categoryId of Object.keys(forms)) {
+    if (!activeIds.has(categoryId)) {
+      delete forms[categoryId]
     }
-    mappingForms[category.id] = {
-      categoryIds: category.mappings
-        .filter((mapping) => !!mapping.category_id)
-        .map((mapping) => String(mapping.category_id)),
-      groupIds: category.mappings
-        .filter((mapping) => !!mapping.group_id)
-        .map((mapping) => String(mapping.group_id)),
+  }
+
+  for (const categoryId of Object.keys(mappingForms)) {
+    if (!activeIds.has(categoryId)) {
+      delete mappingForms[categoryId]
     }
   }
 }
@@ -267,9 +294,9 @@ async function bootstrap() {
   await Promise.all([
     catalogStore.initialize(),
     crmStore.fetchLoyaltyCategories(),
-    crmStore.fetchLoyaltyCustomers(search.value),
   ])
   syncForms()
+  await crmStore.fetchLoyaltyCustomers(search.value)
 }
 
 async function saveCategory(categoryId: string) {
@@ -354,7 +381,7 @@ function formatLedgerReason(reason: string) {
 watch(
   () => crmStore.loyaltyCategories,
   () => syncForms(),
-  { deep: true },
+  { deep: true, immediate: true },
 )
 
 watch(search, async (value) => {

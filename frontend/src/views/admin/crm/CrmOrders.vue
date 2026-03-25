@@ -674,9 +674,13 @@
                   <!-- Примечание об изменениях (для action_required) -->
                   <div
                     v-if="order.needs_manager_action && order.manager_action_note"
-                    class="rounded-md bg-gray-50 px-3 py-2 text-xs text-gray-600"
+                    class="rounded-xl bg-slate-50/90 px-3 py-2.5 ring-1 ring-inset ring-slate-100"
                   >
-                    <span class="font-medium">Изменения:</span> {{ order.manager_action_note }}
+                    <ManagerActionSummary
+                      :note="order.manager_action_note"
+                      :items="order.items"
+                      size="xs"
+                    />
                   </div>
                   <!-- Сумма и скидка -->
                   <div>
@@ -1214,6 +1218,7 @@ import { storeToRefs } from "pinia";
 import type { Order } from "@/stores/crm";
 import { useCrmStore } from "@/stores/crm";
 import OrderCreateModal from "@/components/crm/OrderCreateModal.vue";
+import ManagerActionSummary from "@/components/crm/ManagerActionSummary.vue";
 import AdminModal from "@/components/AdminModal.vue";
 import { LockClosedIcon } from "@heroicons/vue/24/outline";
 
