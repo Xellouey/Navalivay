@@ -1,0 +1,1218 @@
+2026-03-24 19:29:45: Error: listen EADDRINUSE: address already in use :::8082
+2026-03-24 19:29:45:     at Server.setupListenHandle [as _listen2] (node:net:1908:16)
+2026-03-24 19:29:45:     at listenInCluster (node:net:1965:12)
+2026-03-24 19:29:45:     at Server.listen (node:net:2067:7)
+2026-03-24 19:29:45:     at Function.listen (/var/www/NAVALIVAY/server/node_modules/express/lib/application.js:635:24)
+2026-03-24 19:29:45:     at file:///var/www/NAVALIVAY/server/index.js:83:5
+2026-03-24 19:29:45:     at ModuleJob.run (node:internal/modules/esm/module_job:325:25)
+2026-03-24 19:29:45:     at async ModuleLoader.import (node:internal/modules/esm/loader:606:24) {
+2026-03-24 19:29:45:   code: 'EADDRINUSE',
+2026-03-24 19:29:45:   errno: -98,
+2026-03-24 19:29:45:   syscall: 'listen',
+2026-03-24 19:29:45:   address: '::',
+2026-03-24 19:29:45:   port: 8082
+2026-03-24 19:29:45: }
+2026-03-24 19:29:45: Error: listen EADDRINUSE: address already in use :::8082
+2026-03-24 19:29:45:     at Server.setupListenHandle [as _listen2] (node:net:1908:16)
+2026-03-24 19:29:45:     at listenInCluster (node:net:1965:12)
+2026-03-24 19:29:45:     at Server.listen (node:net:2067:7)
+2026-03-24 19:29:45:     at Function.listen (/var/www/NAVALIVAY/server/node_modules/express/lib/application.js:635:24)
+2026-03-24 19:29:45:     at file:///var/www/NAVALIVAY/server/index.js:83:5
+2026-03-24 19:29:45:     at ModuleJob.run (node:internal/modules/esm/module_job:325:25)
+2026-03-24 19:29:45:     at async ModuleLoader.import (node:internal/modules/esm/loader:606:24) {
+2026-03-24 19:29:45:   code: 'EADDRINUSE',
+2026-03-24 19:29:45:   errno: -98,
+2026-03-24 19:29:45:   syscall: 'listen',
+2026-03-24 19:29:45:   address: '::',
+2026-03-24 19:29:45:   port: 8082
+2026-03-24 19:29:45: }
+2026-03-24 19:29:46: Error: listen EADDRINUSE: address already in use :::8082
+2026-03-24 19:29:46:     at Server.setupListenHandle [as _listen2] (node:net:1908:16)
+2026-03-24 19:29:46:     at listenInCluster (node:net:1965:12)
+2026-03-24 19:29:46:     at Server.listen (node:net:2067:7)
+2026-03-24 19:29:46:     at Function.listen (/var/www/NAVALIVAY/server/node_modules/express/lib/application.js:635:24)
+2026-03-24 19:29:46:     at file:///var/www/NAVALIVAY/server/index.js:83:5
+2026-03-24 19:29:46:     at ModuleJob.run (node:internal/modules/esm/module_job:325:25)
+2026-03-24 19:29:46:     at async ModuleLoader.import (node:internal/modules/esm/loader:606:24) {
+2026-03-24 19:29:46:   code: 'EADDRINUSE',
+2026-03-24 19:29:46:   errno: -98,
+2026-03-24 19:29:46:   syscall: 'listen',
+2026-03-24 19:29:46:   address: '::',
+2026-03-24 19:29:46:   port: 8082
+2026-03-24 19:29:46: }
+2026-03-24 19:29:46: Error: listen EADDRINUSE: address already in use :::8082
+2026-03-24 19:29:46:     at Server.setupListenHandle [as _listen2] (node:net:1908:16)
+2026-03-24 19:29:46:     at listenInCluster (node:net:1965:12)
+2026-03-24 19:29:46:     at Server.listen (node:net:2067:7)
+2026-03-24 19:29:46:     at Function.listen (/var/www/NAVALIVAY/server/node_modules/express/lib/application.js:635:24)
+2026-03-24 19:29:46:     at file:///var/www/NAVALIVAY/server/index.js:83:5
+2026-03-24 19:29:46:     at ModuleJob.run (node:internal/modules/esm/module_job:325:25)
+2026-03-24 19:29:46:     at async ModuleLoader.import (node:internal/modules/esm/loader:606:24) {
+2026-03-24 19:29:46:   code: 'EADDRINUSE',
+2026-03-24 19:29:46:   errno: -98,
+2026-03-24 19:29:46:   syscall: 'listen',
+2026-03-24 19:29:46:   address: '::',
+2026-03-24 19:29:46:   port: 8082
+2026-03-24 19:29:46: }
+2026-03-24 19:29:47: Error: listen EADDRINUSE: address already in use :::8082
+2026-03-24 19:29:47:     at Server.setupListenHandle [as _listen2] (node:net:1908:16)
+2026-03-24 19:29:47:     at listenInCluster (node:net:1965:12)
+2026-03-24 19:29:47:     at Server.listen (node:net:2067:7)
+2026-03-24 19:29:47:     at Function.listen (/var/www/NAVALIVAY/server/node_modules/express/lib/application.js:635:24)
+2026-03-24 19:29:47:     at file:///var/www/NAVALIVAY/server/index.js:83:5
+2026-03-24 19:29:47:     at ModuleJob.run (node:internal/modules/esm/module_job:325:25)
+2026-03-24 19:29:47:     at async ModuleLoader.import (node:internal/modules/esm/loader:606:24) {
+2026-03-24 19:29:47:   code: 'EADDRINUSE',
+2026-03-24 19:29:47:   errno: -98,
+2026-03-24 19:29:47:   syscall: 'listen',
+2026-03-24 19:29:47:   address: '::',
+2026-03-24 19:29:47:   port: 8082
+2026-03-24 19:29:47: }
+2026-03-24 19:29:47: Error: listen EADDRINUSE: address already in use :::8082
+2026-03-24 19:29:47:     at Server.setupListenHandle [as _listen2] (node:net:1908:16)
+2026-03-24 19:29:47:     at listenInCluster (node:net:1965:12)
+2026-03-24 19:29:47:     at Server.listen (node:net:2067:7)
+2026-03-24 19:29:47:     at Function.listen (/var/www/NAVALIVAY/server/node_modules/express/lib/application.js:635:24)
+2026-03-24 19:29:47:     at file:///var/www/NAVALIVAY/server/index.js:83:5
+2026-03-24 19:29:47:     at ModuleJob.run (node:internal/modules/esm/module_job:325:25)
+2026-03-24 19:29:47:     at async ModuleLoader.import (node:internal/modules/esm/loader:606:24) {
+2026-03-24 19:29:47:   code: 'EADDRINUSE',
+2026-03-24 19:29:47:   errno: -98,
+2026-03-24 19:29:47:   syscall: 'listen',
+2026-03-24 19:29:47:   address: '::',
+2026-03-24 19:29:47:   port: 8082
+2026-03-24 19:29:47: }
+2026-03-24 19:29:48: Error: listen EADDRINUSE: address already in use :::8082
+2026-03-24 19:29:48:     at Server.setupListenHandle [as _listen2] (node:net:1908:16)
+2026-03-24 19:29:48:     at listenInCluster (node:net:1965:12)
+2026-03-24 19:29:48:     at Server.listen (node:net:2067:7)
+2026-03-24 19:29:48:     at Function.listen (/var/www/NAVALIVAY/server/node_modules/express/lib/application.js:635:24)
+2026-03-24 19:29:48:     at file:///var/www/NAVALIVAY/server/index.js:83:5
+2026-03-24 19:29:48:     at ModuleJob.run (node:internal/modules/esm/module_job:325:25)
+2026-03-24 19:29:48:     at async ModuleLoader.import (node:internal/modules/esm/loader:606:24) {
+2026-03-24 19:29:48:   code: 'EADDRINUSE',
+2026-03-24 19:29:48:   errno: -98,
+2026-03-24 19:29:48:   syscall: 'listen',
+2026-03-24 19:29:48:   address: '::',
+2026-03-24 19:29:48:   port: 8082
+2026-03-24 19:29:48: }
+2026-03-24 19:29:48: Error: listen EADDRINUSE: address already in use :::8082
+2026-03-24 19:29:48:     at Server.setupListenHandle [as _listen2] (node:net:1908:16)
+2026-03-24 19:29:48:     at listenInCluster (node:net:1965:12)
+2026-03-24 19:29:48:     at Server.listen (node:net:2067:7)
+2026-03-24 19:29:48:     at Function.listen (/var/www/NAVALIVAY/server/node_modules/express/lib/application.js:635:24)
+2026-03-24 19:29:48:     at file:///var/www/NAVALIVAY/server/index.js:83:5
+2026-03-24 19:29:48:     at ModuleJob.run (node:internal/modules/esm/module_job:325:25)
+2026-03-24 19:29:48:     at async ModuleLoader.import (node:internal/modules/esm/loader:606:24) {
+2026-03-24 19:29:48:   code: 'EADDRINUSE',
+2026-03-24 19:29:48:   errno: -98,
+2026-03-24 19:29:48:   syscall: 'listen',
+2026-03-24 19:29:48:   address: '::',
+2026-03-24 19:29:48:   port: 8082
+2026-03-24 19:29:48: }
+2026-03-24 19:29:49: Error: listen EADDRINUSE: address already in use :::8082
+2026-03-24 19:29:49:     at Server.setupListenHandle [as _listen2] (node:net:1908:16)
+2026-03-24 19:29:49:     at listenInCluster (node:net:1965:12)
+2026-03-24 19:29:49:     at Server.listen (node:net:2067:7)
+2026-03-24 19:29:49:     at Function.listen (/var/www/NAVALIVAY/server/node_modules/express/lib/application.js:635:24)
+2026-03-24 19:29:49:     at file:///var/www/NAVALIVAY/server/index.js:83:5
+2026-03-24 19:29:49:     at ModuleJob.run (node:internal/modules/esm/module_job:325:25)
+2026-03-24 19:29:49:     at async ModuleLoader.import (node:internal/modules/esm/loader:606:24) {
+2026-03-24 19:29:49:   code: 'EADDRINUSE',
+2026-03-24 19:29:49:   errno: -98,
+2026-03-24 19:29:49:   syscall: 'listen',
+2026-03-24 19:29:49:   address: '::',
+2026-03-24 19:29:49:   port: 8082
+2026-03-24 19:29:49: }
+2026-03-24 19:29:49: Error: listen EADDRINUSE: address already in use :::8082
+2026-03-24 19:29:49:     at Server.setupListenHandle [as _listen2] (node:net:1908:16)
+2026-03-24 19:29:49:     at listenInCluster (node:net:1965:12)
+2026-03-24 19:29:49:     at Server.listen (node:net:2067:7)
+2026-03-24 19:29:49:     at Function.listen (/var/www/NAVALIVAY/server/node_modules/express/lib/application.js:635:24)
+2026-03-24 19:29:49:     at file:///var/www/NAVALIVAY/server/index.js:83:5
+2026-03-24 19:29:49:     at ModuleJob.run (node:internal/modules/esm/module_job:325:25)
+2026-03-24 19:29:49:     at async ModuleLoader.import (node:internal/modules/esm/loader:606:24) {
+2026-03-24 19:29:49:   code: 'EADDRINUSE',
+2026-03-24 19:29:49:   errno: -98,
+2026-03-24 19:29:49:   syscall: 'listen',
+2026-03-24 19:29:49:   address: '::',
+2026-03-24 19:29:49:   port: 8082
+2026-03-24 19:29:49: }
+2026-03-24 19:29:50: Error: listen EADDRINUSE: address already in use :::8082
+2026-03-24 19:29:50:     at Server.setupListenHandle [as _listen2] (node:net:1908:16)
+2026-03-24 19:29:50:     at listenInCluster (node:net:1965:12)
+2026-03-24 19:29:50:     at Server.listen (node:net:2067:7)
+2026-03-24 19:29:50:     at Function.listen (/var/www/NAVALIVAY/server/node_modules/express/lib/application.js:635:24)
+2026-03-24 19:29:50:     at file:///var/www/NAVALIVAY/server/index.js:83:5
+2026-03-24 19:29:50:     at ModuleJob.run (node:internal/modules/esm/module_job:325:25)
+2026-03-24 19:29:50:     at async ModuleLoader.import (node:internal/modules/esm/loader:606:24) {
+2026-03-24 19:29:50:   code: 'EADDRINUSE',
+2026-03-24 19:29:50:   errno: -98,
+2026-03-24 19:29:50:   syscall: 'listen',
+2026-03-24 19:29:50:   address: '::',
+2026-03-24 19:29:50:   port: 8082
+2026-03-24 19:29:50: }
+2026-03-24 19:29:50: Error: listen EADDRINUSE: address already in use :::8082
+2026-03-24 19:29:50:     at Server.setupListenHandle [as _listen2] (node:net:1908:16)
+2026-03-24 19:29:50:     at listenInCluster (node:net:1965:12)
+2026-03-24 19:29:50:     at Server.listen (node:net:2067:7)
+2026-03-24 19:29:50:     at Function.listen (/var/www/NAVALIVAY/server/node_modules/express/lib/application.js:635:24)
+2026-03-24 19:29:50:     at file:///var/www/NAVALIVAY/server/index.js:83:5
+2026-03-24 19:29:50:     at ModuleJob.run (node:internal/modules/esm/module_job:325:25)
+2026-03-24 19:29:50:     at async ModuleLoader.import (node:internal/modules/esm/loader:606:24) {
+2026-03-24 19:29:50:   code: 'EADDRINUSE',
+2026-03-24 19:29:50:   errno: -98,
+2026-03-24 19:29:50:   syscall: 'listen',
+2026-03-24 19:29:50:   address: '::',
+2026-03-24 19:29:50:   port: 8082
+2026-03-24 19:29:50: }
+2026-03-24 19:29:51: Error: listen EADDRINUSE: address already in use :::8082
+2026-03-24 19:29:51:     at Server.setupListenHandle [as _listen2] (node:net:1908:16)
+2026-03-24 19:29:51:     at listenInCluster (node:net:1965:12)
+2026-03-24 19:29:51:     at Server.listen (node:net:2067:7)
+2026-03-24 19:29:51:     at Function.listen (/var/www/NAVALIVAY/server/node_modules/express/lib/application.js:635:24)
+2026-03-24 19:29:51:     at file:///var/www/NAVALIVAY/server/index.js:83:5
+2026-03-24 19:29:51:     at ModuleJob.run (node:internal/modules/esm/module_job:325:25)
+2026-03-24 19:29:51:     at async ModuleLoader.import (node:internal/modules/esm/loader:606:24) {
+2026-03-24 19:29:51:   code: 'EADDRINUSE',
+2026-03-24 19:29:51:   errno: -98,
+2026-03-24 19:29:51:   syscall: 'listen',
+2026-03-24 19:29:51:   address: '::',
+2026-03-24 19:29:51:   port: 8082
+2026-03-24 19:29:51: }
+2026-03-24 19:29:51: Error: listen EADDRINUSE: address already in use :::8082
+2026-03-24 19:29:51:     at Server.setupListenHandle [as _listen2] (node:net:1908:16)
+2026-03-24 19:29:51:     at listenInCluster (node:net:1965:12)
+2026-03-24 19:29:51:     at Server.listen (node:net:2067:7)
+2026-03-24 19:29:51:     at Function.listen (/var/www/NAVALIVAY/server/node_modules/express/lib/application.js:635:24)
+2026-03-24 19:29:51:     at file:///var/www/NAVALIVAY/server/index.js:83:5
+2026-03-24 19:29:51:     at ModuleJob.run (node:internal/modules/esm/module_job:325:25)
+2026-03-24 19:29:51:     at async ModuleLoader.import (node:internal/modules/esm/loader:606:24) {
+2026-03-24 19:29:51:   code: 'EADDRINUSE',
+2026-03-24 19:29:51:   errno: -98,
+2026-03-24 19:29:51:   syscall: 'listen',
+2026-03-24 19:29:51:   address: '::',
+2026-03-24 19:29:51:   port: 8082
+2026-03-24 19:29:51: }
+2026-03-24 19:29:52: Error: listen EADDRINUSE: address already in use :::8082
+2026-03-24 19:29:52:     at Server.setupListenHandle [as _listen2] (node:net:1908:16)
+2026-03-24 19:29:52:     at listenInCluster (node:net:1965:12)
+2026-03-24 19:29:52:     at Server.listen (node:net:2067:7)
+2026-03-24 19:29:52:     at Function.listen (/var/www/NAVALIVAY/server/node_modules/express/lib/application.js:635:24)
+2026-03-24 19:29:52:     at file:///var/www/NAVALIVAY/server/index.js:83:5
+2026-03-24 19:29:52:     at ModuleJob.run (node:internal/modules/esm/module_job:325:25)
+2026-03-24 19:29:52:     at async ModuleLoader.import (node:internal/modules/esm/loader:606:24) {
+2026-03-24 19:29:52:   code: 'EADDRINUSE',
+2026-03-24 19:29:52:   errno: -98,
+2026-03-24 19:29:52:   syscall: 'listen',
+2026-03-24 19:29:52:   address: '::',
+2026-03-24 19:29:52:   port: 8082
+2026-03-24 19:29:52: }
+2026-03-24 19:29:52: Error: listen EADDRINUSE: address already in use :::8082
+2026-03-24 19:29:52:     at Server.setupListenHandle [as _listen2] (node:net:1908:16)
+2026-03-24 19:29:52:     at listenInCluster (node:net:1965:12)
+2026-03-24 19:29:52:     at Server.listen (node:net:2067:7)
+2026-03-24 19:29:52:     at Function.listen (/var/www/NAVALIVAY/server/node_modules/express/lib/application.js:635:24)
+2026-03-24 19:29:52:     at file:///var/www/NAVALIVAY/server/index.js:83:5
+2026-03-24 19:29:52:     at ModuleJob.run (node:internal/modules/esm/module_job:325:25)
+2026-03-24 19:29:52:     at async ModuleLoader.import (node:internal/modules/esm/loader:606:24) {
+2026-03-24 19:29:52:   code: 'EADDRINUSE',
+2026-03-24 19:29:52:   errno: -98,
+2026-03-24 19:29:52:   syscall: 'listen',
+2026-03-24 19:29:52:   address: '::',
+2026-03-24 19:29:52:   port: 8082
+2026-03-24 19:29:52: }
+2026-03-24 19:37:30: Error: listen EADDRINUSE: address already in use :::8082
+2026-03-24 19:37:30:     at Server.setupListenHandle [as _listen2] (node:net:1908:16)
+2026-03-24 19:37:30:     at listenInCluster (node:net:1965:12)
+2026-03-24 19:37:30:     at Server.listen (node:net:2067:7)
+2026-03-24 19:37:30:     at Function.listen (/var/www/NAVALIVAY/server/node_modules/express/lib/application.js:635:24)
+2026-03-24 19:37:30:     at file:///var/www/NAVALIVAY/server/index.js:83:5
+2026-03-24 19:37:30:     at ModuleJob.run (node:internal/modules/esm/module_job:325:25)
+2026-03-24 19:37:30:     at async ModuleLoader.import (node:internal/modules/esm/loader:606:24) {
+2026-03-24 19:37:30:   code: 'EADDRINUSE',
+2026-03-24 19:37:30:   errno: -98,
+2026-03-24 19:37:30:   syscall: 'listen',
+2026-03-24 19:37:30:   address: '::',
+2026-03-24 19:37:30:   port: 8082
+2026-03-24 19:37:30: }
+2026-03-24 19:37:30: Error: listen EADDRINUSE: address already in use :::8082
+2026-03-24 19:37:30:     at Server.setupListenHandle [as _listen2] (node:net:1908:16)
+2026-03-24 19:37:30:     at listenInCluster (node:net:1965:12)
+2026-03-24 19:37:30:     at Server.listen (node:net:2067:7)
+2026-03-24 19:37:30:     at Function.listen (/var/www/NAVALIVAY/server/node_modules/express/lib/application.js:635:24)
+2026-03-24 19:37:30:     at file:///var/www/NAVALIVAY/server/index.js:83:5
+2026-03-24 19:37:30:     at ModuleJob.run (node:internal/modules/esm/module_job:325:25)
+2026-03-24 19:37:30:     at async ModuleLoader.import (node:internal/modules/esm/loader:606:24) {
+2026-03-24 19:37:30:   code: 'EADDRINUSE',
+2026-03-24 19:37:30:   errno: -98,
+2026-03-24 19:37:30:   syscall: 'listen',
+2026-03-24 19:37:30:   address: '::',
+2026-03-24 19:37:30:   port: 8082
+2026-03-24 19:37:30: }
+2026-03-24 19:37:31: Error: listen EADDRINUSE: address already in use :::8082
+2026-03-24 19:37:31:     at Server.setupListenHandle [as _listen2] (node:net:1908:16)
+2026-03-24 19:37:31:     at listenInCluster (node:net:1965:12)
+2026-03-24 19:37:31:     at Server.listen (node:net:2067:7)
+2026-03-24 19:37:31:     at Function.listen (/var/www/NAVALIVAY/server/node_modules/express/lib/application.js:635:24)
+2026-03-24 19:37:31:     at file:///var/www/NAVALIVAY/server/index.js:83:5
+2026-03-24 19:37:31:     at ModuleJob.run (node:internal/modules/esm/module_job:325:25)
+2026-03-24 19:37:31:     at async ModuleLoader.import (node:internal/modules/esm/loader:606:24) {
+2026-03-24 19:37:31:   code: 'EADDRINUSE',
+2026-03-24 19:37:31:   errno: -98,
+2026-03-24 19:37:31:   syscall: 'listen',
+2026-03-24 19:37:31:   address: '::',
+2026-03-24 19:37:31:   port: 8082
+2026-03-24 19:37:31: }
+2026-03-24 19:37:32: Error: listen EADDRINUSE: address already in use :::8082
+2026-03-24 19:37:32:     at Server.setupListenHandle [as _listen2] (node:net:1908:16)
+2026-03-24 19:37:32:     at listenInCluster (node:net:1965:12)
+2026-03-24 19:37:32:     at Server.listen (node:net:2067:7)
+2026-03-24 19:37:32:     at Function.listen (/var/www/NAVALIVAY/server/node_modules/express/lib/application.js:635:24)
+2026-03-24 19:37:32:     at file:///var/www/NAVALIVAY/server/index.js:83:5
+2026-03-24 19:37:32:     at ModuleJob.run (node:internal/modules/esm/module_job:325:25)
+2026-03-24 19:37:32:     at async ModuleLoader.import (node:internal/modules/esm/loader:606:24) {
+2026-03-24 19:37:32:   code: 'EADDRINUSE',
+2026-03-24 19:37:32:   errno: -98,
+2026-03-24 19:37:32:   syscall: 'listen',
+2026-03-24 19:37:32:   address: '::',
+2026-03-24 19:37:32:   port: 8082
+2026-03-24 19:37:32: }
+2026-03-24 19:37:32: Error: listen EADDRINUSE: address already in use :::8082
+2026-03-24 19:37:32:     at Server.setupListenHandle [as _listen2] (node:net:1908:16)
+2026-03-24 19:37:32:     at listenInCluster (node:net:1965:12)
+2026-03-24 19:37:32:     at Server.listen (node:net:2067:7)
+2026-03-24 19:37:32:     at Function.listen (/var/www/NAVALIVAY/server/node_modules/express/lib/application.js:635:24)
+2026-03-24 19:37:32:     at file:///var/www/NAVALIVAY/server/index.js:83:5
+2026-03-24 19:37:32:     at ModuleJob.run (node:internal/modules/esm/module_job:325:25)
+2026-03-24 19:37:32:     at async ModuleLoader.import (node:internal/modules/esm/loader:606:24) {
+2026-03-24 19:37:32:   code: 'EADDRINUSE',
+2026-03-24 19:37:32:   errno: -98,
+2026-03-24 19:37:32:   syscall: 'listen',
+2026-03-24 19:37:32:   address: '::',
+2026-03-24 19:37:32:   port: 8082
+2026-03-24 19:37:32: }
+2026-03-24 19:37:33: Error: listen EADDRINUSE: address already in use :::8082
+2026-03-24 19:37:33:     at Server.setupListenHandle [as _listen2] (node:net:1908:16)
+2026-03-24 19:37:33:     at listenInCluster (node:net:1965:12)
+2026-03-24 19:37:33:     at Server.listen (node:net:2067:7)
+2026-03-24 19:37:33:     at Function.listen (/var/www/NAVALIVAY/server/node_modules/express/lib/application.js:635:24)
+2026-03-24 19:37:33:     at file:///var/www/NAVALIVAY/server/index.js:83:5
+2026-03-24 19:37:33:     at ModuleJob.run (node:internal/modules/esm/module_job:325:25)
+2026-03-24 19:37:33:     at async ModuleLoader.import (node:internal/modules/esm/loader:606:24) {
+2026-03-24 19:37:33:   code: 'EADDRINUSE',
+2026-03-24 19:37:33:   errno: -98,
+2026-03-24 19:37:33:   syscall: 'listen',
+2026-03-24 19:37:33:   address: '::',
+2026-03-24 19:37:33:   port: 8082
+2026-03-24 19:37:33: }
+2026-03-24 19:37:33: Error: listen EADDRINUSE: address already in use :::8082
+2026-03-24 19:37:33:     at Server.setupListenHandle [as _listen2] (node:net:1908:16)
+2026-03-24 19:37:33:     at listenInCluster (node:net:1965:12)
+2026-03-24 19:37:33:     at Server.listen (node:net:2067:7)
+2026-03-24 19:37:33:     at Function.listen (/var/www/NAVALIVAY/server/node_modules/express/lib/application.js:635:24)
+2026-03-24 19:37:33:     at file:///var/www/NAVALIVAY/server/index.js:83:5
+2026-03-24 19:37:33:     at ModuleJob.run (node:internal/modules/esm/module_job:325:25)
+2026-03-24 19:37:33:     at async ModuleLoader.import (node:internal/modules/esm/loader:606:24) {
+2026-03-24 19:37:33:   code: 'EADDRINUSE',
+2026-03-24 19:37:33:   errno: -98,
+2026-03-24 19:37:33:   syscall: 'listen',
+2026-03-24 19:37:33:   address: '::',
+2026-03-24 19:37:33:   port: 8082
+2026-03-24 19:37:33: }
+2026-03-24 19:37:34: Error: listen EADDRINUSE: address already in use :::8082
+2026-03-24 19:37:34:     at Server.setupListenHandle [as _listen2] (node:net:1908:16)
+2026-03-24 19:37:34:     at listenInCluster (node:net:1965:12)
+2026-03-24 19:37:34:     at Server.listen (node:net:2067:7)
+2026-03-24 19:37:34:     at Function.listen (/var/www/NAVALIVAY/server/node_modules/express/lib/application.js:635:24)
+2026-03-24 19:37:34:     at file:///var/www/NAVALIVAY/server/index.js:83:5
+2026-03-24 19:37:34:     at ModuleJob.run (node:internal/modules/esm/module_job:325:25)
+2026-03-24 19:37:34:     at async ModuleLoader.import (node:internal/modules/esm/loader:606:24) {
+2026-03-24 19:37:34:   code: 'EADDRINUSE',
+2026-03-24 19:37:34:   errno: -98,
+2026-03-24 19:37:34:   syscall: 'listen',
+2026-03-24 19:37:34:   address: '::',
+2026-03-24 19:37:34:   port: 8082
+2026-03-24 19:37:34: }
+2026-03-24 19:37:35: Error: listen EADDRINUSE: address already in use :::8082
+2026-03-24 19:37:35:     at Server.setupListenHandle [as _listen2] (node:net:1908:16)
+2026-03-24 19:37:35:     at listenInCluster (node:net:1965:12)
+2026-03-24 19:37:35:     at Server.listen (node:net:2067:7)
+2026-03-24 19:37:35:     at Function.listen (/var/www/NAVALIVAY/server/node_modules/express/lib/application.js:635:24)
+2026-03-24 19:37:35:     at file:///var/www/NAVALIVAY/server/index.js:83:5
+2026-03-24 19:37:35:     at ModuleJob.run (node:internal/modules/esm/module_job:325:25)
+2026-03-24 19:37:35:     at async ModuleLoader.import (node:internal/modules/esm/loader:606:24) {
+2026-03-24 19:37:35:   code: 'EADDRINUSE',
+2026-03-24 19:37:35:   errno: -98,
+2026-03-24 19:37:35:   syscall: 'listen',
+2026-03-24 19:37:35:   address: '::',
+2026-03-24 19:37:35:   port: 8082
+2026-03-24 19:37:35: }
+2026-03-24 19:37:35: Error: listen EADDRINUSE: address already in use :::8082
+2026-03-24 19:37:35:     at Server.setupListenHandle [as _listen2] (node:net:1908:16)
+2026-03-24 19:37:35:     at listenInCluster (node:net:1965:12)
+2026-03-24 19:37:35:     at Server.listen (node:net:2067:7)
+2026-03-24 19:37:35:     at Function.listen (/var/www/NAVALIVAY/server/node_modules/express/lib/application.js:635:24)
+2026-03-24 19:37:35:     at file:///var/www/NAVALIVAY/server/index.js:83:5
+2026-03-24 19:37:35:     at ModuleJob.run (node:internal/modules/esm/module_job:325:25)
+2026-03-24 19:37:35:     at async ModuleLoader.import (node:internal/modules/esm/loader:606:24) {
+2026-03-24 19:37:35:   code: 'EADDRINUSE',
+2026-03-24 19:37:35:   errno: -98,
+2026-03-24 19:37:35:   syscall: 'listen',
+2026-03-24 19:37:35:   address: '::',
+2026-03-24 19:37:35:   port: 8082
+2026-03-24 19:37:35: }
+2026-03-24 19:37:36: Error: listen EADDRINUSE: address already in use :::8082
+2026-03-24 19:37:36:     at Server.setupListenHandle [as _listen2] (node:net:1908:16)
+2026-03-24 19:37:36:     at listenInCluster (node:net:1965:12)
+2026-03-24 19:37:36:     at Server.listen (node:net:2067:7)
+2026-03-24 19:37:36:     at Function.listen (/var/www/NAVALIVAY/server/node_modules/express/lib/application.js:635:24)
+2026-03-24 19:37:36:     at file:///var/www/NAVALIVAY/server/index.js:83:5
+2026-03-24 19:37:36:     at ModuleJob.run (node:internal/modules/esm/module_job:325:25)
+2026-03-24 19:37:36:     at async ModuleLoader.import (node:internal/modules/esm/loader:606:24) {
+2026-03-24 19:37:36:   code: 'EADDRINUSE',
+2026-03-24 19:37:36:   errno: -98,
+2026-03-24 19:37:36:   syscall: 'listen',
+2026-03-24 19:37:36:   address: '::',
+2026-03-24 19:37:36:   port: 8082
+2026-03-24 19:37:36: }
+2026-03-24 19:37:36: Error: listen EADDRINUSE: address already in use :::8082
+2026-03-24 19:37:36:     at Server.setupListenHandle [as _listen2] (node:net:1908:16)
+2026-03-24 19:37:36:     at listenInCluster (node:net:1965:12)
+2026-03-24 19:37:36:     at Server.listen (node:net:2067:7)
+2026-03-24 19:37:36:     at Function.listen (/var/www/NAVALIVAY/server/node_modules/express/lib/application.js:635:24)
+2026-03-24 19:37:36:     at file:///var/www/NAVALIVAY/server/index.js:83:5
+2026-03-24 19:37:36:     at ModuleJob.run (node:internal/modules/esm/module_job:325:25)
+2026-03-24 19:37:36:     at async ModuleLoader.import (node:internal/modules/esm/loader:606:24) {
+2026-03-24 19:37:36:   code: 'EADDRINUSE',
+2026-03-24 19:37:36:   errno: -98,
+2026-03-24 19:37:36:   syscall: 'listen',
+2026-03-24 19:37:36:   address: '::',
+2026-03-24 19:37:36:   port: 8082
+2026-03-24 19:37:36: }
+2026-03-24 19:37:37: Error: listen EADDRINUSE: address already in use :::8082
+2026-03-24 19:37:37:     at Server.setupListenHandle [as _listen2] (node:net:1908:16)
+2026-03-24 19:37:37:     at listenInCluster (node:net:1965:12)
+2026-03-24 19:37:37:     at Server.listen (node:net:2067:7)
+2026-03-24 19:37:37:     at Function.listen (/var/www/NAVALIVAY/server/node_modules/express/lib/application.js:635:24)
+2026-03-24 19:37:37:     at file:///var/www/NAVALIVAY/server/index.js:83:5
+2026-03-24 19:37:37:     at ModuleJob.run (node:internal/modules/esm/module_job:325:25)
+2026-03-24 19:37:37:     at async ModuleLoader.import (node:internal/modules/esm/loader:606:24) {
+2026-03-24 19:37:37:   code: 'EADDRINUSE',
+2026-03-24 19:37:37:   errno: -98,
+2026-03-24 19:37:37:   syscall: 'listen',
+2026-03-24 19:37:37:   address: '::',
+2026-03-24 19:37:37:   port: 8082
+2026-03-24 19:37:37: }
+2026-03-24 19:37:37: Error: listen EADDRINUSE: address already in use :::8082
+2026-03-24 19:37:37:     at Server.setupListenHandle [as _listen2] (node:net:1908:16)
+2026-03-24 19:37:37:     at listenInCluster (node:net:1965:12)
+2026-03-24 19:37:37:     at Server.listen (node:net:2067:7)
+2026-03-24 19:37:37:     at Function.listen (/var/www/NAVALIVAY/server/node_modules/express/lib/application.js:635:24)
+2026-03-24 19:37:37:     at file:///var/www/NAVALIVAY/server/index.js:83:5
+2026-03-24 19:37:37:     at ModuleJob.run (node:internal/modules/esm/module_job:325:25)
+2026-03-24 19:37:37:     at async ModuleLoader.import (node:internal/modules/esm/loader:606:24) {
+2026-03-24 19:37:37:   code: 'EADDRINUSE',
+2026-03-24 19:37:37:   errno: -98,
+2026-03-24 19:37:37:   syscall: 'listen',
+2026-03-24 19:37:37:   address: '::',
+2026-03-24 19:37:37:   port: 8082
+2026-03-24 19:37:37: }
+2026-03-24 19:37:38: Error: listen EADDRINUSE: address already in use :::8082
+2026-03-24 19:37:38:     at Server.setupListenHandle [as _listen2] (node:net:1908:16)
+2026-03-24 19:37:38:     at listenInCluster (node:net:1965:12)
+2026-03-24 19:37:38:     at Server.listen (node:net:2067:7)
+2026-03-24 19:37:38:     at Function.listen (/var/www/NAVALIVAY/server/node_modules/express/lib/application.js:635:24)
+2026-03-24 19:37:38:     at file:///var/www/NAVALIVAY/server/index.js:83:5
+2026-03-24 19:37:38:     at ModuleJob.run (node:internal/modules/esm/module_job:325:25)
+2026-03-24 19:37:38:     at async ModuleLoader.import (node:internal/modules/esm/loader:606:24) {
+2026-03-24 19:37:38:   code: 'EADDRINUSE',
+2026-03-24 19:37:38:   errno: -98,
+2026-03-24 19:37:38:   syscall: 'listen',
+2026-03-24 19:37:38:   address: '::',
+2026-03-24 19:37:38:   port: 8082
+2026-03-24 19:37:38: }
+2026-03-24 19:37:38: Error: listen EADDRINUSE: address already in use :::8082
+2026-03-24 19:37:38:     at Server.setupListenHandle [as _listen2] (node:net:1908:16)
+2026-03-24 19:37:38:     at listenInCluster (node:net:1965:12)
+2026-03-24 19:37:38:     at Server.listen (node:net:2067:7)
+2026-03-24 19:37:38:     at Function.listen (/var/www/NAVALIVAY/server/node_modules/express/lib/application.js:635:24)
+2026-03-24 19:37:38:     at file:///var/www/NAVALIVAY/server/index.js:83:5
+2026-03-24 19:37:38:     at ModuleJob.run (node:internal/modules/esm/module_job:325:25)
+2026-03-24 19:37:38:     at async ModuleLoader.import (node:internal/modules/esm/loader:606:24) {
+2026-03-24 19:37:38:   code: 'EADDRINUSE',
+2026-03-24 19:37:38:   errno: -98,
+2026-03-24 19:37:38:   syscall: 'listen',
+2026-03-24 19:37:38:   address: '::',
+2026-03-24 19:37:38:   port: 8082
+2026-03-24 19:37:38: }
+2026-03-24 19:44:00: Error: listen EADDRINUSE: address already in use :::8082
+2026-03-24 19:44:00:     at Server.setupListenHandle [as _listen2] (node:net:1908:16)
+2026-03-24 19:44:00:     at listenInCluster (node:net:1965:12)
+2026-03-24 19:44:00:     at Server.listen (node:net:2067:7)
+2026-03-24 19:44:00:     at Function.listen (/var/www/NAVALIVAY/server/node_modules/express/lib/application.js:635:24)
+2026-03-24 19:44:00:     at file:///var/www/NAVALIVAY/server/index.js:83:5
+2026-03-24 19:44:00:     at ModuleJob.run (node:internal/modules/esm/module_job:325:25)
+2026-03-24 19:44:00:     at async ModuleLoader.import (node:internal/modules/esm/loader:606:24) {
+2026-03-24 19:44:00:   code: 'EADDRINUSE',
+2026-03-24 19:44:00:   errno: -98,
+2026-03-24 19:44:00:   syscall: 'listen',
+2026-03-24 19:44:00:   address: '::',
+2026-03-24 19:44:00:   port: 8082
+2026-03-24 19:44:00: }
+2026-03-24 19:44:01: Error: listen EADDRINUSE: address already in use :::8082
+2026-03-24 19:44:01:     at Server.setupListenHandle [as _listen2] (node:net:1908:16)
+2026-03-24 19:44:01:     at listenInCluster (node:net:1965:12)
+2026-03-24 19:44:01:     at Server.listen (node:net:2067:7)
+2026-03-24 19:44:01:     at Function.listen (/var/www/NAVALIVAY/server/node_modules/express/lib/application.js:635:24)
+2026-03-24 19:44:01:     at file:///var/www/NAVALIVAY/server/index.js:83:5
+2026-03-24 19:44:01:     at ModuleJob.run (node:internal/modules/esm/module_job:325:25)
+2026-03-24 19:44:01:     at async ModuleLoader.import (node:internal/modules/esm/loader:606:24) {
+2026-03-24 19:44:01:   code: 'EADDRINUSE',
+2026-03-24 19:44:01:   errno: -98,
+2026-03-24 19:44:01:   syscall: 'listen',
+2026-03-24 19:44:01:   address: '::',
+2026-03-24 19:44:01:   port: 8082
+2026-03-24 19:44:01: }
+2026-03-24 19:44:01: Error: listen EADDRINUSE: address already in use :::8082
+2026-03-24 19:44:01:     at Server.setupListenHandle [as _listen2] (node:net:1908:16)
+2026-03-24 19:44:01:     at listenInCluster (node:net:1965:12)
+2026-03-24 19:44:01:     at Server.listen (node:net:2067:7)
+2026-03-24 19:44:01:     at Function.listen (/var/www/NAVALIVAY/server/node_modules/express/lib/application.js:635:24)
+2026-03-24 19:44:01:     at file:///var/www/NAVALIVAY/server/index.js:83:5
+2026-03-24 19:44:01:     at ModuleJob.run (node:internal/modules/esm/module_job:325:25)
+2026-03-24 19:44:01:     at async ModuleLoader.import (node:internal/modules/esm/loader:606:24) {
+2026-03-24 19:44:01:   code: 'EADDRINUSE',
+2026-03-24 19:44:01:   errno: -98,
+2026-03-24 19:44:01:   syscall: 'listen',
+2026-03-24 19:44:01:   address: '::',
+2026-03-24 19:44:01:   port: 8082
+2026-03-24 19:44:01: }
+2026-03-24 19:44:02: Error: listen EADDRINUSE: address already in use :::8082
+2026-03-24 19:44:02:     at Server.setupListenHandle [as _listen2] (node:net:1908:16)
+2026-03-24 19:44:02:     at listenInCluster (node:net:1965:12)
+2026-03-24 19:44:02:     at Server.listen (node:net:2067:7)
+2026-03-24 19:44:02:     at Function.listen (/var/www/NAVALIVAY/server/node_modules/express/lib/application.js:635:24)
+2026-03-24 19:44:02:     at file:///var/www/NAVALIVAY/server/index.js:83:5
+2026-03-24 19:44:02:     at ModuleJob.run (node:internal/modules/esm/module_job:325:25)
+2026-03-24 19:44:02:     at async ModuleLoader.import (node:internal/modules/esm/loader:606:24) {
+2026-03-24 19:44:02:   code: 'EADDRINUSE',
+2026-03-24 19:44:02:   errno: -98,
+2026-03-24 19:44:02:   syscall: 'listen',
+2026-03-24 19:44:02:   address: '::',
+2026-03-24 19:44:02:   port: 8082
+2026-03-24 19:44:02: }
+2026-03-24 19:44:02: Error: listen EADDRINUSE: address already in use :::8082
+2026-03-24 19:44:02:     at Server.setupListenHandle [as _listen2] (node:net:1908:16)
+2026-03-24 19:44:02:     at listenInCluster (node:net:1965:12)
+2026-03-24 19:44:02:     at Server.listen (node:net:2067:7)
+2026-03-24 19:44:02:     at Function.listen (/var/www/NAVALIVAY/server/node_modules/express/lib/application.js:635:24)
+2026-03-24 19:44:02:     at file:///var/www/NAVALIVAY/server/index.js:83:5
+2026-03-24 19:44:02:     at ModuleJob.run (node:internal/modules/esm/module_job:325:25)
+2026-03-24 19:44:02:     at async ModuleLoader.import (node:internal/modules/esm/loader:606:24) {
+2026-03-24 19:44:02:   code: 'EADDRINUSE',
+2026-03-24 19:44:02:   errno: -98,
+2026-03-24 19:44:02:   syscall: 'listen',
+2026-03-24 19:44:02:   address: '::',
+2026-03-24 19:44:02:   port: 8082
+2026-03-24 19:44:02: }
+2026-03-24 19:44:03: Error: listen EADDRINUSE: address already in use :::8082
+2026-03-24 19:44:03:     at Server.setupListenHandle [as _listen2] (node:net:1908:16)
+2026-03-24 19:44:03:     at listenInCluster (node:net:1965:12)
+2026-03-24 19:44:03:     at Server.listen (node:net:2067:7)
+2026-03-24 19:44:03:     at Function.listen (/var/www/NAVALIVAY/server/node_modules/express/lib/application.js:635:24)
+2026-03-24 19:44:03:     at file:///var/www/NAVALIVAY/server/index.js:83:5
+2026-03-24 19:44:03:     at ModuleJob.run (node:internal/modules/esm/module_job:325:25)
+2026-03-24 19:44:03:     at async ModuleLoader.import (node:internal/modules/esm/loader:606:24) {
+2026-03-24 19:44:03:   code: 'EADDRINUSE',
+2026-03-24 19:44:03:   errno: -98,
+2026-03-24 19:44:03:   syscall: 'listen',
+2026-03-24 19:44:03:   address: '::',
+2026-03-24 19:44:03:   port: 8082
+2026-03-24 19:44:03: }
+2026-03-24 19:44:03: Error: listen EADDRINUSE: address already in use :::8082
+2026-03-24 19:44:03:     at Server.setupListenHandle [as _listen2] (node:net:1908:16)
+2026-03-24 19:44:03:     at listenInCluster (node:net:1965:12)
+2026-03-24 19:44:03:     at Server.listen (node:net:2067:7)
+2026-03-24 19:44:03:     at Function.listen (/var/www/NAVALIVAY/server/node_modules/express/lib/application.js:635:24)
+2026-03-24 19:44:03:     at file:///var/www/NAVALIVAY/server/index.js:83:5
+2026-03-24 19:44:03:     at ModuleJob.run (node:internal/modules/esm/module_job:325:25)
+2026-03-24 19:44:03:     at async ModuleLoader.import (node:internal/modules/esm/loader:606:24) {
+2026-03-24 19:44:03:   code: 'EADDRINUSE',
+2026-03-24 19:44:03:   errno: -98,
+2026-03-24 19:44:03:   syscall: 'listen',
+2026-03-24 19:44:03:   address: '::',
+2026-03-24 19:44:03:   port: 8082
+2026-03-24 19:44:03: }
+2026-03-24 19:44:04: Error: listen EADDRINUSE: address already in use :::8082
+2026-03-24 19:44:04:     at Server.setupListenHandle [as _listen2] (node:net:1908:16)
+2026-03-24 19:44:04:     at listenInCluster (node:net:1965:12)
+2026-03-24 19:44:04:     at Server.listen (node:net:2067:7)
+2026-03-24 19:44:04:     at Function.listen (/var/www/NAVALIVAY/server/node_modules/express/lib/application.js:635:24)
+2026-03-24 19:44:04:     at file:///var/www/NAVALIVAY/server/index.js:83:5
+2026-03-24 19:44:04:     at ModuleJob.run (node:internal/modules/esm/module_job:325:25)
+2026-03-24 19:44:04:     at async ModuleLoader.import (node:internal/modules/esm/loader:606:24) {
+2026-03-24 19:44:04:   code: 'EADDRINUSE',
+2026-03-24 19:44:04:   errno: -98,
+2026-03-24 19:44:04:   syscall: 'listen',
+2026-03-24 19:44:04:   address: '::',
+2026-03-24 19:44:04:   port: 8082
+2026-03-24 19:44:04: }
+2026-03-24 19:44:04: Error: listen EADDRINUSE: address already in use :::8082
+2026-03-24 19:44:04:     at Server.setupListenHandle [as _listen2] (node:net:1908:16)
+2026-03-24 19:44:04:     at listenInCluster (node:net:1965:12)
+2026-03-24 19:44:04:     at Server.listen (node:net:2067:7)
+2026-03-24 19:44:04:     at Function.listen (/var/www/NAVALIVAY/server/node_modules/express/lib/application.js:635:24)
+2026-03-24 19:44:04:     at file:///var/www/NAVALIVAY/server/index.js:83:5
+2026-03-24 19:44:04:     at ModuleJob.run (node:internal/modules/esm/module_job:325:25)
+2026-03-24 19:44:04:     at async ModuleLoader.import (node:internal/modules/esm/loader:606:24) {
+2026-03-24 19:44:04:   code: 'EADDRINUSE',
+2026-03-24 19:44:04:   errno: -98,
+2026-03-24 19:44:04:   syscall: 'listen',
+2026-03-24 19:44:04:   address: '::',
+2026-03-24 19:44:04:   port: 8082
+2026-03-24 19:44:04: }
+2026-03-24 19:44:05: Error: listen EADDRINUSE: address already in use :::8082
+2026-03-24 19:44:05:     at Server.setupListenHandle [as _listen2] (node:net:1908:16)
+2026-03-24 19:44:05:     at listenInCluster (node:net:1965:12)
+2026-03-24 19:44:05:     at Server.listen (node:net:2067:7)
+2026-03-24 19:44:05:     at Function.listen (/var/www/NAVALIVAY/server/node_modules/express/lib/application.js:635:24)
+2026-03-24 19:44:05:     at file:///var/www/NAVALIVAY/server/index.js:83:5
+2026-03-24 19:44:05:     at ModuleJob.run (node:internal/modules/esm/module_job:325:25)
+2026-03-24 19:44:05:     at async ModuleLoader.import (node:internal/modules/esm/loader:606:24) {
+2026-03-24 19:44:05:   code: 'EADDRINUSE',
+2026-03-24 19:44:05:   errno: -98,
+2026-03-24 19:44:05:   syscall: 'listen',
+2026-03-24 19:44:05:   address: '::',
+2026-03-24 19:44:05:   port: 8082
+2026-03-24 19:44:05: }
+2026-03-24 19:44:06: Error: listen EADDRINUSE: address already in use :::8082
+2026-03-24 19:44:06:     at Server.setupListenHandle [as _listen2] (node:net:1908:16)
+2026-03-24 19:44:06:     at listenInCluster (node:net:1965:12)
+2026-03-24 19:44:06:     at Server.listen (node:net:2067:7)
+2026-03-24 19:44:06:     at Function.listen (/var/www/NAVALIVAY/server/node_modules/express/lib/application.js:635:24)
+2026-03-24 19:44:06:     at file:///var/www/NAVALIVAY/server/index.js:83:5
+2026-03-24 19:44:06:     at ModuleJob.run (node:internal/modules/esm/module_job:325:25)
+2026-03-24 19:44:06:     at async ModuleLoader.import (node:internal/modules/esm/loader:606:24) {
+2026-03-24 19:44:06:   code: 'EADDRINUSE',
+2026-03-24 19:44:06:   errno: -98,
+2026-03-24 19:44:06:   syscall: 'listen',
+2026-03-24 19:44:06:   address: '::',
+2026-03-24 19:44:06:   port: 8082
+2026-03-24 19:44:06: }
+2026-03-24 19:44:06: Error: listen EADDRINUSE: address already in use :::8082
+2026-03-24 19:44:06:     at Server.setupListenHandle [as _listen2] (node:net:1908:16)
+2026-03-24 19:44:06:     at listenInCluster (node:net:1965:12)
+2026-03-24 19:44:06:     at Server.listen (node:net:2067:7)
+2026-03-24 19:44:06:     at Function.listen (/var/www/NAVALIVAY/server/node_modules/express/lib/application.js:635:24)
+2026-03-24 19:44:06:     at file:///var/www/NAVALIVAY/server/index.js:83:5
+2026-03-24 19:44:06:     at ModuleJob.run (node:internal/modules/esm/module_job:325:25)
+2026-03-24 19:44:06:     at async ModuleLoader.import (node:internal/modules/esm/loader:606:24) {
+2026-03-24 19:44:06:   code: 'EADDRINUSE',
+2026-03-24 19:44:06:   errno: -98,
+2026-03-24 19:44:06:   syscall: 'listen',
+2026-03-24 19:44:06:   address: '::',
+2026-03-24 19:44:06:   port: 8082
+2026-03-24 19:44:06: }
+2026-03-24 19:44:07: Error: listen EADDRINUSE: address already in use :::8082
+2026-03-24 19:44:07:     at Server.setupListenHandle [as _listen2] (node:net:1908:16)
+2026-03-24 19:44:07:     at listenInCluster (node:net:1965:12)
+2026-03-24 19:44:07:     at Server.listen (node:net:2067:7)
+2026-03-24 19:44:07:     at Function.listen (/var/www/NAVALIVAY/server/node_modules/express/lib/application.js:635:24)
+2026-03-24 19:44:07:     at file:///var/www/NAVALIVAY/server/index.js:83:5
+2026-03-24 19:44:07:     at ModuleJob.run (node:internal/modules/esm/module_job:325:25)
+2026-03-24 19:44:07:     at async ModuleLoader.import (node:internal/modules/esm/loader:606:24) {
+2026-03-24 19:44:07:   code: 'EADDRINUSE',
+2026-03-24 19:44:07:   errno: -98,
+2026-03-24 19:44:07:   syscall: 'listen',
+2026-03-24 19:44:07:   address: '::',
+2026-03-24 19:44:07:   port: 8082
+2026-03-24 19:44:07: }
+2026-03-24 19:44:07: Error: listen EADDRINUSE: address already in use :::8082
+2026-03-24 19:44:07:     at Server.setupListenHandle [as _listen2] (node:net:1908:16)
+2026-03-24 19:44:07:     at listenInCluster (node:net:1965:12)
+2026-03-24 19:44:07:     at Server.listen (node:net:2067:7)
+2026-03-24 19:44:07:     at Function.listen (/var/www/NAVALIVAY/server/node_modules/express/lib/application.js:635:24)
+2026-03-24 19:44:07:     at file:///var/www/NAVALIVAY/server/index.js:83:5
+2026-03-24 19:44:07:     at ModuleJob.run (node:internal/modules/esm/module_job:325:25)
+2026-03-24 19:44:07:     at async ModuleLoader.import (node:internal/modules/esm/loader:606:24) {
+2026-03-24 19:44:07:   code: 'EADDRINUSE',
+2026-03-24 19:44:07:   errno: -98,
+2026-03-24 19:44:07:   syscall: 'listen',
+2026-03-24 19:44:07:   address: '::',
+2026-03-24 19:44:07:   port: 8082
+2026-03-24 19:44:07: }
+2026-03-24 19:44:08: Error: listen EADDRINUSE: address already in use :::8082
+2026-03-24 19:44:08:     at Server.setupListenHandle [as _listen2] (node:net:1908:16)
+2026-03-24 19:44:08:     at listenInCluster (node:net:1965:12)
+2026-03-24 19:44:08:     at Server.listen (node:net:2067:7)
+2026-03-24 19:44:08:     at Function.listen (/var/www/NAVALIVAY/server/node_modules/express/lib/application.js:635:24)
+2026-03-24 19:44:08:     at file:///var/www/NAVALIVAY/server/index.js:83:5
+2026-03-24 19:44:08:     at ModuleJob.run (node:internal/modules/esm/module_job:325:25)
+2026-03-24 19:44:08:     at async ModuleLoader.import (node:internal/modules/esm/loader:606:24) {
+2026-03-24 19:44:08:   code: 'EADDRINUSE',
+2026-03-24 19:44:08:   errno: -98,
+2026-03-24 19:44:08:   syscall: 'listen',
+2026-03-24 19:44:08:   address: '::',
+2026-03-24 19:44:08:   port: 8082
+2026-03-24 19:44:08: }
+2026-03-24 19:44:08: Error: listen EADDRINUSE: address already in use :::8082
+2026-03-24 19:44:08:     at Server.setupListenHandle [as _listen2] (node:net:1908:16)
+2026-03-24 19:44:08:     at listenInCluster (node:net:1965:12)
+2026-03-24 19:44:08:     at Server.listen (node:net:2067:7)
+2026-03-24 19:44:08:     at Function.listen (/var/www/NAVALIVAY/server/node_modules/express/lib/application.js:635:24)
+2026-03-24 19:44:08:     at file:///var/www/NAVALIVAY/server/index.js:83:5
+2026-03-24 19:44:08:     at ModuleJob.run (node:internal/modules/esm/module_job:325:25)
+2026-03-24 19:44:08:     at async ModuleLoader.import (node:internal/modules/esm/loader:606:24) {
+2026-03-24 19:44:08:   code: 'EADDRINUSE',
+2026-03-24 19:44:08:   errno: -98,
+2026-03-24 19:44:08:   syscall: 'listen',
+2026-03-24 19:44:08:   address: '::',
+2026-03-24 19:44:08:   port: 8082
+2026-03-24 19:44:08: }
+2026-03-24 19:50:26: Error: listen EADDRINUSE: address already in use :::8082
+2026-03-24 19:50:26:     at Server.setupListenHandle [as _listen2] (node:net:1908:16)
+2026-03-24 19:50:26:     at listenInCluster (node:net:1965:12)
+2026-03-24 19:50:26:     at Server.listen (node:net:2067:7)
+2026-03-24 19:50:26:     at Function.listen (/var/www/NAVALIVAY/server/node_modules/express/lib/application.js:635:24)
+2026-03-24 19:50:26:     at file:///var/www/NAVALIVAY/server/index.js:83:5
+2026-03-24 19:50:26:     at ModuleJob.run (node:internal/modules/esm/module_job:325:25)
+2026-03-24 19:50:26:     at async ModuleLoader.import (node:internal/modules/esm/loader:606:24) {
+2026-03-24 19:50:26:   code: 'EADDRINUSE',
+2026-03-24 19:50:26:   errno: -98,
+2026-03-24 19:50:26:   syscall: 'listen',
+2026-03-24 19:50:26:   address: '::',
+2026-03-24 19:50:26:   port: 8082
+2026-03-24 19:50:26: }
+2026-03-24 19:50:26: Error: listen EADDRINUSE: address already in use :::8082
+2026-03-24 19:50:26:     at Server.setupListenHandle [as _listen2] (node:net:1908:16)
+2026-03-24 19:50:26:     at listenInCluster (node:net:1965:12)
+2026-03-24 19:50:26:     at Server.listen (node:net:2067:7)
+2026-03-24 19:50:26:     at Function.listen (/var/www/NAVALIVAY/server/node_modules/express/lib/application.js:635:24)
+2026-03-24 19:50:26:     at file:///var/www/NAVALIVAY/server/index.js:83:5
+2026-03-24 19:50:26:     at ModuleJob.run (node:internal/modules/esm/module_job:325:25)
+2026-03-24 19:50:26:     at async ModuleLoader.import (node:internal/modules/esm/loader:606:24) {
+2026-03-24 19:50:26:   code: 'EADDRINUSE',
+2026-03-24 19:50:26:   errno: -98,
+2026-03-24 19:50:26:   syscall: 'listen',
+2026-03-24 19:50:26:   address: '::',
+2026-03-24 19:50:26:   port: 8082
+2026-03-24 19:50:26: }
+2026-03-24 19:50:27: Error: listen EADDRINUSE: address already in use :::8082
+2026-03-24 19:50:27:     at Server.setupListenHandle [as _listen2] (node:net:1908:16)
+2026-03-24 19:50:27:     at listenInCluster (node:net:1965:12)
+2026-03-24 19:50:27:     at Server.listen (node:net:2067:7)
+2026-03-24 19:50:27:     at Function.listen (/var/www/NAVALIVAY/server/node_modules/express/lib/application.js:635:24)
+2026-03-24 19:50:27:     at file:///var/www/NAVALIVAY/server/index.js:83:5
+2026-03-24 19:50:27:     at ModuleJob.run (node:internal/modules/esm/module_job:325:25)
+2026-03-24 19:50:27:     at async ModuleLoader.import (node:internal/modules/esm/loader:606:24) {
+2026-03-24 19:50:27:   code: 'EADDRINUSE',
+2026-03-24 19:50:27:   errno: -98,
+2026-03-24 19:50:27:   syscall: 'listen',
+2026-03-24 19:50:27:   address: '::',
+2026-03-24 19:50:27:   port: 8082
+2026-03-24 19:50:27: }
+2026-03-24 19:50:27: Error: listen EADDRINUSE: address already in use :::8082
+2026-03-24 19:50:27:     at Server.setupListenHandle [as _listen2] (node:net:1908:16)
+2026-03-24 19:50:27:     at listenInCluster (node:net:1965:12)
+2026-03-24 19:50:27:     at Server.listen (node:net:2067:7)
+2026-03-24 19:50:27:     at Function.listen (/var/www/NAVALIVAY/server/node_modules/express/lib/application.js:635:24)
+2026-03-24 19:50:27:     at file:///var/www/NAVALIVAY/server/index.js:83:5
+2026-03-24 19:50:27:     at ModuleJob.run (node:internal/modules/esm/module_job:325:25)
+2026-03-24 19:50:27:     at async ModuleLoader.import (node:internal/modules/esm/loader:606:24) {
+2026-03-24 19:50:27:   code: 'EADDRINUSE',
+2026-03-24 19:50:27:   errno: -98,
+2026-03-24 19:50:27:   syscall: 'listen',
+2026-03-24 19:50:27:   address: '::',
+2026-03-24 19:50:27:   port: 8082
+2026-03-24 19:50:27: }
+2026-03-24 19:50:28: Error: listen EADDRINUSE: address already in use :::8082
+2026-03-24 19:50:28:     at Server.setupListenHandle [as _listen2] (node:net:1908:16)
+2026-03-24 19:50:28:     at listenInCluster (node:net:1965:12)
+2026-03-24 19:50:28:     at Server.listen (node:net:2067:7)
+2026-03-24 19:50:28:     at Function.listen (/var/www/NAVALIVAY/server/node_modules/express/lib/application.js:635:24)
+2026-03-24 19:50:28:     at file:///var/www/NAVALIVAY/server/index.js:83:5
+2026-03-24 19:50:28:     at ModuleJob.run (node:internal/modules/esm/module_job:325:25)
+2026-03-24 19:50:28:     at async ModuleLoader.import (node:internal/modules/esm/loader:606:24) {
+2026-03-24 19:50:28:   code: 'EADDRINUSE',
+2026-03-24 19:50:28:   errno: -98,
+2026-03-24 19:50:28:   syscall: 'listen',
+2026-03-24 19:50:28:   address: '::',
+2026-03-24 19:50:28:   port: 8082
+2026-03-24 19:50:28: }
+2026-03-24 19:50:28: Error: listen EADDRINUSE: address already in use :::8082
+2026-03-24 19:50:28:     at Server.setupListenHandle [as _listen2] (node:net:1908:16)
+2026-03-24 19:50:28:     at listenInCluster (node:net:1965:12)
+2026-03-24 19:50:28:     at Server.listen (node:net:2067:7)
+2026-03-24 19:50:28:     at Function.listen (/var/www/NAVALIVAY/server/node_modules/express/lib/application.js:635:24)
+2026-03-24 19:50:28:     at file:///var/www/NAVALIVAY/server/index.js:83:5
+2026-03-24 19:50:28:     at ModuleJob.run (node:internal/modules/esm/module_job:325:25)
+2026-03-24 19:50:28:     at async ModuleLoader.import (node:internal/modules/esm/loader:606:24) {
+2026-03-24 19:50:28:   code: 'EADDRINUSE',
+2026-03-24 19:50:28:   errno: -98,
+2026-03-24 19:50:28:   syscall: 'listen',
+2026-03-24 19:50:28:   address: '::',
+2026-03-24 19:50:28:   port: 8082
+2026-03-24 19:50:28: }
+2026-03-24 19:50:29: Error: listen EADDRINUSE: address already in use :::8082
+2026-03-24 19:50:29:     at Server.setupListenHandle [as _listen2] (node:net:1908:16)
+2026-03-24 19:50:29:     at listenInCluster (node:net:1965:12)
+2026-03-24 19:50:29:     at Server.listen (node:net:2067:7)
+2026-03-24 19:50:29:     at Function.listen (/var/www/NAVALIVAY/server/node_modules/express/lib/application.js:635:24)
+2026-03-24 19:50:29:     at file:///var/www/NAVALIVAY/server/index.js:83:5
+2026-03-24 19:50:29:     at ModuleJob.run (node:internal/modules/esm/module_job:325:25)
+2026-03-24 19:50:29:     at async ModuleLoader.import (node:internal/modules/esm/loader:606:24) {
+2026-03-24 19:50:29:   code: 'EADDRINUSE',
+2026-03-24 19:50:29:   errno: -98,
+2026-03-24 19:50:29:   syscall: 'listen',
+2026-03-24 19:50:29:   address: '::',
+2026-03-24 19:50:29:   port: 8082
+2026-03-24 19:50:29: }
+2026-03-24 19:50:29: Error: listen EADDRINUSE: address already in use :::8082
+2026-03-24 19:50:29:     at Server.setupListenHandle [as _listen2] (node:net:1908:16)
+2026-03-24 19:50:29:     at listenInCluster (node:net:1965:12)
+2026-03-24 19:50:29:     at Server.listen (node:net:2067:7)
+2026-03-24 19:50:29:     at Function.listen (/var/www/NAVALIVAY/server/node_modules/express/lib/application.js:635:24)
+2026-03-24 19:50:29:     at file:///var/www/NAVALIVAY/server/index.js:83:5
+2026-03-24 19:50:29:     at ModuleJob.run (node:internal/modules/esm/module_job:325:25)
+2026-03-24 19:50:29:     at async ModuleLoader.import (node:internal/modules/esm/loader:606:24) {
+2026-03-24 19:50:29:   code: 'EADDRINUSE',
+2026-03-24 19:50:29:   errno: -98,
+2026-03-24 19:50:29:   syscall: 'listen',
+2026-03-24 19:50:29:   address: '::',
+2026-03-24 19:50:29:   port: 8082
+2026-03-24 19:50:29: }
+2026-03-24 19:50:29: Error: listen EADDRINUSE: address already in use :::8082
+2026-03-24 19:50:29:     at Server.setupListenHandle [as _listen2] (node:net:1908:16)
+2026-03-24 19:50:29:     at listenInCluster (node:net:1965:12)
+2026-03-24 19:50:29:     at Server.listen (node:net:2067:7)
+2026-03-24 19:50:29:     at Function.listen (/var/www/NAVALIVAY/server/node_modules/express/lib/application.js:635:24)
+2026-03-24 19:50:29:     at file:///var/www/NAVALIVAY/server/index.js:83:5
+2026-03-24 19:50:29:     at ModuleJob.run (node:internal/modules/esm/module_job:325:25)
+2026-03-24 19:50:29:     at async ModuleLoader.import (node:internal/modules/esm/loader:606:24) {
+2026-03-24 19:50:29:   code: 'EADDRINUSE',
+2026-03-24 19:50:29:   errno: -98,
+2026-03-24 19:50:29:   syscall: 'listen',
+2026-03-24 19:50:29:   address: '::',
+2026-03-24 19:50:29:   port: 8082
+2026-03-24 19:50:29: }
+2026-03-24 19:50:30: Error: listen EADDRINUSE: address already in use :::8082
+2026-03-24 19:50:30:     at Server.setupListenHandle [as _listen2] (node:net:1908:16)
+2026-03-24 19:50:30:     at listenInCluster (node:net:1965:12)
+2026-03-24 19:50:30:     at Server.listen (node:net:2067:7)
+2026-03-24 19:50:30:     at Function.listen (/var/www/NAVALIVAY/server/node_modules/express/lib/application.js:635:24)
+2026-03-24 19:50:30:     at file:///var/www/NAVALIVAY/server/index.js:83:5
+2026-03-24 19:50:30:     at ModuleJob.run (node:internal/modules/esm/module_job:325:25)
+2026-03-24 19:50:30:     at async ModuleLoader.import (node:internal/modules/esm/loader:606:24) {
+2026-03-24 19:50:30:   code: 'EADDRINUSE',
+2026-03-24 19:50:30:   errno: -98,
+2026-03-24 19:50:30:   syscall: 'listen',
+2026-03-24 19:50:30:   address: '::',
+2026-03-24 19:50:30:   port: 8082
+2026-03-24 19:50:30: }
+2026-03-24 19:50:30: Error: listen EADDRINUSE: address already in use :::8082
+2026-03-24 19:50:30:     at Server.setupListenHandle [as _listen2] (node:net:1908:16)
+2026-03-24 19:50:30:     at listenInCluster (node:net:1965:12)
+2026-03-24 19:50:30:     at Server.listen (node:net:2067:7)
+2026-03-24 19:50:30:     at Function.listen (/var/www/NAVALIVAY/server/node_modules/express/lib/application.js:635:24)
+2026-03-24 19:50:30:     at file:///var/www/NAVALIVAY/server/index.js:83:5
+2026-03-24 19:50:30:     at ModuleJob.run (node:internal/modules/esm/module_job:325:25)
+2026-03-24 19:50:30:     at async ModuleLoader.import (node:internal/modules/esm/loader:606:24) {
+2026-03-24 19:50:30:   code: 'EADDRINUSE',
+2026-03-24 19:50:30:   errno: -98,
+2026-03-24 19:50:30:   syscall: 'listen',
+2026-03-24 19:50:30:   address: '::',
+2026-03-24 19:50:30:   port: 8082
+2026-03-24 19:50:30: }
+2026-03-24 19:50:31: Error: listen EADDRINUSE: address already in use :::8082
+2026-03-24 19:50:31:     at Server.setupListenHandle [as _listen2] (node:net:1908:16)
+2026-03-24 19:50:31:     at listenInCluster (node:net:1965:12)
+2026-03-24 19:50:31:     at Server.listen (node:net:2067:7)
+2026-03-24 19:50:31:     at Function.listen (/var/www/NAVALIVAY/server/node_modules/express/lib/application.js:635:24)
+2026-03-24 19:50:31:     at file:///var/www/NAVALIVAY/server/index.js:83:5
+2026-03-24 19:50:31:     at ModuleJob.run (node:internal/modules/esm/module_job:325:25)
+2026-03-24 19:50:31:     at async ModuleLoader.import (node:internal/modules/esm/loader:606:24) {
+2026-03-24 19:50:31:   code: 'EADDRINUSE',
+2026-03-24 19:50:31:   errno: -98,
+2026-03-24 19:50:31:   syscall: 'listen',
+2026-03-24 19:50:31:   address: '::',
+2026-03-24 19:50:31:   port: 8082
+2026-03-24 19:50:31: }
+2026-03-24 19:50:31: Error: listen EADDRINUSE: address already in use :::8082
+2026-03-24 19:50:31:     at Server.setupListenHandle [as _listen2] (node:net:1908:16)
+2026-03-24 19:50:31:     at listenInCluster (node:net:1965:12)
+2026-03-24 19:50:31:     at Server.listen (node:net:2067:7)
+2026-03-24 19:50:31:     at Function.listen (/var/www/NAVALIVAY/server/node_modules/express/lib/application.js:635:24)
+2026-03-24 19:50:31:     at file:///var/www/NAVALIVAY/server/index.js:83:5
+2026-03-24 19:50:31:     at ModuleJob.run (node:internal/modules/esm/module_job:325:25)
+2026-03-24 19:50:31:     at async ModuleLoader.import (node:internal/modules/esm/loader:606:24) {
+2026-03-24 19:50:31:   code: 'EADDRINUSE',
+2026-03-24 19:50:31:   errno: -98,
+2026-03-24 19:50:31:   syscall: 'listen',
+2026-03-24 19:50:31:   address: '::',
+2026-03-24 19:50:31:   port: 8082
+2026-03-24 19:50:31: }
+2026-03-24 19:50:32: Error: listen EADDRINUSE: address already in use :::8082
+2026-03-24 19:50:32:     at Server.setupListenHandle [as _listen2] (node:net:1908:16)
+2026-03-24 19:50:32:     at listenInCluster (node:net:1965:12)
+2026-03-24 19:50:32:     at Server.listen (node:net:2067:7)
+2026-03-24 19:50:32:     at Function.listen (/var/www/NAVALIVAY/server/node_modules/express/lib/application.js:635:24)
+2026-03-24 19:50:32:     at file:///var/www/NAVALIVAY/server/index.js:83:5
+2026-03-24 19:50:32:     at ModuleJob.run (node:internal/modules/esm/module_job:325:25)
+2026-03-24 19:50:32:     at async ModuleLoader.import (node:internal/modules/esm/loader:606:24) {
+2026-03-24 19:50:32:   code: 'EADDRINUSE',
+2026-03-24 19:50:32:   errno: -98,
+2026-03-24 19:50:32:   syscall: 'listen',
+2026-03-24 19:50:32:   address: '::',
+2026-03-24 19:50:32:   port: 8082
+2026-03-24 19:50:32: }
+2026-03-24 19:50:32: Error: listen EADDRINUSE: address already in use :::8082
+2026-03-24 19:50:32:     at Server.setupListenHandle [as _listen2] (node:net:1908:16)
+2026-03-24 19:50:32:     at listenInCluster (node:net:1965:12)
+2026-03-24 19:50:32:     at Server.listen (node:net:2067:7)
+2026-03-24 19:50:32:     at Function.listen (/var/www/NAVALIVAY/server/node_modules/express/lib/application.js:635:24)
+2026-03-24 19:50:32:     at file:///var/www/NAVALIVAY/server/index.js:83:5
+2026-03-24 19:50:32:     at ModuleJob.run (node:internal/modules/esm/module_job:325:25)
+2026-03-24 19:50:32:     at async ModuleLoader.import (node:internal/modules/esm/loader:606:24) {
+2026-03-24 19:50:32:   code: 'EADDRINUSE',
+2026-03-24 19:50:32:   errno: -98,
+2026-03-24 19:50:32:   syscall: 'listen',
+2026-03-24 19:50:32:   address: '::',
+2026-03-24 19:50:32:   port: 8082
+2026-03-24 19:50:32: }
+2026-03-24 19:50:33: Error: listen EADDRINUSE: address already in use :::8082
+2026-03-24 19:50:33:     at Server.setupListenHandle [as _listen2] (node:net:1908:16)
+2026-03-24 19:50:33:     at listenInCluster (node:net:1965:12)
+2026-03-24 19:50:33:     at Server.listen (node:net:2067:7)
+2026-03-24 19:50:33:     at Function.listen (/var/www/NAVALIVAY/server/node_modules/express/lib/application.js:635:24)
+2026-03-24 19:50:33:     at file:///var/www/NAVALIVAY/server/index.js:83:5
+2026-03-24 19:50:33:     at ModuleJob.run (node:internal/modules/esm/module_job:325:25)
+2026-03-24 19:50:33:     at async ModuleLoader.import (node:internal/modules/esm/loader:606:24) {
+2026-03-24 19:50:33:   code: 'EADDRINUSE',
+2026-03-24 19:50:33:   errno: -98,
+2026-03-24 19:50:33:   syscall: 'listen',
+2026-03-24 19:50:33:   address: '::',
+2026-03-24 19:50:33:   port: 8082
+2026-03-24 19:50:33: }
+2026-03-24 19:55:14: Error: listen EADDRINUSE: address already in use :::8082
+2026-03-24 19:55:14:     at Server.setupListenHandle [as _listen2] (node:net:1908:16)
+2026-03-24 19:55:14:     at listenInCluster (node:net:1965:12)
+2026-03-24 19:55:14:     at Server.listen (node:net:2067:7)
+2026-03-24 19:55:14:     at Function.listen (/var/www/NAVALIVAY/server/node_modules/express/lib/application.js:635:24)
+2026-03-24 19:55:14:     at file:///var/www/NAVALIVAY/server/index.js:83:5
+2026-03-24 19:55:14:     at ModuleJob.run (node:internal/modules/esm/module_job:325:25)
+2026-03-24 19:55:14:     at async ModuleLoader.import (node:internal/modules/esm/loader:606:24) {
+2026-03-24 19:55:14:   code: 'EADDRINUSE',
+2026-03-24 19:55:14:   errno: -98,
+2026-03-24 19:55:14:   syscall: 'listen',
+2026-03-24 19:55:14:   address: '::',
+2026-03-24 19:55:14:   port: 8082
+2026-03-24 19:55:14: }
+2026-03-24 19:55:14: Error: listen EADDRINUSE: address already in use :::8082
+2026-03-24 19:55:14:     at Server.setupListenHandle [as _listen2] (node:net:1908:16)
+2026-03-24 19:55:14:     at listenInCluster (node:net:1965:12)
+2026-03-24 19:55:14:     at Server.listen (node:net:2067:7)
+2026-03-24 19:55:14:     at Function.listen (/var/www/NAVALIVAY/server/node_modules/express/lib/application.js:635:24)
+2026-03-24 19:55:14:     at file:///var/www/NAVALIVAY/server/index.js:83:5
+2026-03-24 19:55:14:     at ModuleJob.run (node:internal/modules/esm/module_job:325:25)
+2026-03-24 19:55:14:     at async ModuleLoader.import (node:internal/modules/esm/loader:606:24) {
+2026-03-24 19:55:14:   code: 'EADDRINUSE',
+2026-03-24 19:55:14:   errno: -98,
+2026-03-24 19:55:14:   syscall: 'listen',
+2026-03-24 19:55:14:   address: '::',
+2026-03-24 19:55:14:   port: 8082
+2026-03-24 19:55:14: }
+2026-03-24 19:55:15: Error: listen EADDRINUSE: address already in use :::8082
+2026-03-24 19:55:15:     at Server.setupListenHandle [as _listen2] (node:net:1908:16)
+2026-03-24 19:55:15:     at listenInCluster (node:net:1965:12)
+2026-03-24 19:55:15:     at Server.listen (node:net:2067:7)
+2026-03-24 19:55:15:     at Function.listen (/var/www/NAVALIVAY/server/node_modules/express/lib/application.js:635:24)
+2026-03-24 19:55:15:     at file:///var/www/NAVALIVAY/server/index.js:83:5
+2026-03-24 19:55:15:     at ModuleJob.run (node:internal/modules/esm/module_job:325:25)
+2026-03-24 19:55:15:     at async ModuleLoader.import (node:internal/modules/esm/loader:606:24) {
+2026-03-24 19:55:15:   code: 'EADDRINUSE',
+2026-03-24 19:55:15:   errno: -98,
+2026-03-24 19:55:15:   syscall: 'listen',
+2026-03-24 19:55:15:   address: '::',
+2026-03-24 19:55:15:   port: 8082
+2026-03-24 19:55:15: }
+2026-03-24 19:55:16: Error: listen EADDRINUSE: address already in use :::8082
+2026-03-24 19:55:16:     at Server.setupListenHandle [as _listen2] (node:net:1908:16)
+2026-03-24 19:55:16:     at listenInCluster (node:net:1965:12)
+2026-03-24 19:55:16:     at Server.listen (node:net:2067:7)
+2026-03-24 19:55:16:     at Function.listen (/var/www/NAVALIVAY/server/node_modules/express/lib/application.js:635:24)
+2026-03-24 19:55:16:     at file:///var/www/NAVALIVAY/server/index.js:83:5
+2026-03-24 19:55:16:     at ModuleJob.run (node:internal/modules/esm/module_job:325:25)
+2026-03-24 19:55:16:     at async ModuleLoader.import (node:internal/modules/esm/loader:606:24) {
+2026-03-24 19:55:16:   code: 'EADDRINUSE',
+2026-03-24 19:55:16:   errno: -98,
+2026-03-24 19:55:16:   syscall: 'listen',
+2026-03-24 19:55:16:   address: '::',
+2026-03-24 19:55:16:   port: 8082
+2026-03-24 19:55:16: }
+2026-03-24 19:55:16: Error: listen EADDRINUSE: address already in use :::8082
+2026-03-24 19:55:16:     at Server.setupListenHandle [as _listen2] (node:net:1908:16)
+2026-03-24 19:55:16:     at listenInCluster (node:net:1965:12)
+2026-03-24 19:55:16:     at Server.listen (node:net:2067:7)
+2026-03-24 19:55:16:     at Function.listen (/var/www/NAVALIVAY/server/node_modules/express/lib/application.js:635:24)
+2026-03-24 19:55:16:     at file:///var/www/NAVALIVAY/server/index.js:83:5
+2026-03-24 19:55:16:     at ModuleJob.run (node:internal/modules/esm/module_job:325:25)
+2026-03-24 19:55:16:     at async ModuleLoader.import (node:internal/modules/esm/loader:606:24) {
+2026-03-24 19:55:16:   code: 'EADDRINUSE',
+2026-03-24 19:55:16:   errno: -98,
+2026-03-24 19:55:16:   syscall: 'listen',
+2026-03-24 19:55:16:   address: '::',
+2026-03-24 19:55:16:   port: 8082
+2026-03-24 19:55:16: }
+2026-03-24 19:55:17: Error: listen EADDRINUSE: address already in use :::8082
+2026-03-24 19:55:17:     at Server.setupListenHandle [as _listen2] (node:net:1908:16)
+2026-03-24 19:55:17:     at listenInCluster (node:net:1965:12)
+2026-03-24 19:55:17:     at Server.listen (node:net:2067:7)
+2026-03-24 19:55:17:     at Function.listen (/var/www/NAVALIVAY/server/node_modules/express/lib/application.js:635:24)
+2026-03-24 19:55:17:     at file:///var/www/NAVALIVAY/server/index.js:83:5
+2026-03-24 19:55:17:     at ModuleJob.run (node:internal/modules/esm/module_job:325:25)
+2026-03-24 19:55:17:     at async ModuleLoader.import (node:internal/modules/esm/loader:606:24) {
+2026-03-24 19:55:17:   code: 'EADDRINUSE',
+2026-03-24 19:55:17:   errno: -98,
+2026-03-24 19:55:17:   syscall: 'listen',
+2026-03-24 19:55:17:   address: '::',
+2026-03-24 19:55:17:   port: 8082
+2026-03-24 19:55:17: }
+2026-03-24 19:55:17: Error: listen EADDRINUSE: address already in use :::8082
+2026-03-24 19:55:17:     at Server.setupListenHandle [as _listen2] (node:net:1908:16)
+2026-03-24 19:55:17:     at listenInCluster (node:net:1965:12)
+2026-03-24 19:55:17:     at Server.listen (node:net:2067:7)
+2026-03-24 19:55:17:     at Function.listen (/var/www/NAVALIVAY/server/node_modules/express/lib/application.js:635:24)
+2026-03-24 19:55:17:     at file:///var/www/NAVALIVAY/server/index.js:83:5
+2026-03-24 19:55:17:     at ModuleJob.run (node:internal/modules/esm/module_job:325:25)
+2026-03-24 19:55:17:     at async ModuleLoader.import (node:internal/modules/esm/loader:606:24) {
+2026-03-24 19:55:17:   code: 'EADDRINUSE',
+2026-03-24 19:55:17:   errno: -98,
+2026-03-24 19:55:17:   syscall: 'listen',
+2026-03-24 19:55:17:   address: '::',
+2026-03-24 19:55:17:   port: 8082
+2026-03-24 19:55:17: }
+2026-03-24 19:55:18: Error: listen EADDRINUSE: address already in use :::8082
+2026-03-24 19:55:18:     at Server.setupListenHandle [as _listen2] (node:net:1908:16)
+2026-03-24 19:55:18:     at listenInCluster (node:net:1965:12)
+2026-03-24 19:55:18:     at Server.listen (node:net:2067:7)
+2026-03-24 19:55:18:     at Function.listen (/var/www/NAVALIVAY/server/node_modules/express/lib/application.js:635:24)
+2026-03-24 19:55:18:     at file:///var/www/NAVALIVAY/server/index.js:83:5
+2026-03-24 19:55:18:     at ModuleJob.run (node:internal/modules/esm/module_job:325:25)
+2026-03-24 19:55:18:     at async ModuleLoader.import (node:internal/modules/esm/loader:606:24) {
+2026-03-24 19:55:18:   code: 'EADDRINUSE',
+2026-03-24 19:55:18:   errno: -98,
+2026-03-24 19:55:18:   syscall: 'listen',
+2026-03-24 19:55:18:   address: '::',
+2026-03-24 19:55:18:   port: 8082
+2026-03-24 19:55:18: }
+2026-03-24 19:55:18: Error: listen EADDRINUSE: address already in use :::8082
+2026-03-24 19:55:18:     at Server.setupListenHandle [as _listen2] (node:net:1908:16)
+2026-03-24 19:55:18:     at listenInCluster (node:net:1965:12)
+2026-03-24 19:55:18:     at Server.listen (node:net:2067:7)
+2026-03-24 19:55:18:     at Function.listen (/var/www/NAVALIVAY/server/node_modules/express/lib/application.js:635:24)
+2026-03-24 19:55:18:     at file:///var/www/NAVALIVAY/server/index.js:83:5
+2026-03-24 19:55:18:     at ModuleJob.run (node:internal/modules/esm/module_job:325:25)
+2026-03-24 19:55:18:     at async ModuleLoader.import (node:internal/modules/esm/loader:606:24) {
+2026-03-24 19:55:18:   code: 'EADDRINUSE',
+2026-03-24 19:55:18:   errno: -98,
+2026-03-24 19:55:18:   syscall: 'listen',
+2026-03-24 19:55:18:   address: '::',
+2026-03-24 19:55:18:   port: 8082
+2026-03-24 19:55:18: }
+2026-03-24 19:55:19: Error: listen EADDRINUSE: address already in use :::8082
+2026-03-24 19:55:19:     at Server.setupListenHandle [as _listen2] (node:net:1908:16)
+2026-03-24 19:55:19:     at listenInCluster (node:net:1965:12)
+2026-03-24 19:55:19:     at Server.listen (node:net:2067:7)
+2026-03-24 19:55:19:     at Function.listen (/var/www/NAVALIVAY/server/node_modules/express/lib/application.js:635:24)
+2026-03-24 19:55:19:     at file:///var/www/NAVALIVAY/server/index.js:83:5
+2026-03-24 19:55:19:     at ModuleJob.run (node:internal/modules/esm/module_job:325:25)
+2026-03-24 19:55:19:     at async ModuleLoader.import (node:internal/modules/esm/loader:606:24) {
+2026-03-24 19:55:19:   code: 'EADDRINUSE',
+2026-03-24 19:55:19:   errno: -98,
+2026-03-24 19:55:19:   syscall: 'listen',
+2026-03-24 19:55:19:   address: '::',
+2026-03-24 19:55:19:   port: 8082
+2026-03-24 19:55:19: }
+2026-03-24 19:55:19: Error: listen EADDRINUSE: address already in use :::8082
+2026-03-24 19:55:19:     at Server.setupListenHandle [as _listen2] (node:net:1908:16)
+2026-03-24 19:55:19:     at listenInCluster (node:net:1965:12)
+2026-03-24 19:55:19:     at Server.listen (node:net:2067:7)
+2026-03-24 19:55:19:     at Function.listen (/var/www/NAVALIVAY/server/node_modules/express/lib/application.js:635:24)
+2026-03-24 19:55:19:     at file:///var/www/NAVALIVAY/server/index.js:83:5
+2026-03-24 19:55:19:     at ModuleJob.run (node:internal/modules/esm/module_job:325:25)
+2026-03-24 19:55:19:     at async ModuleLoader.import (node:internal/modules/esm/loader:606:24) {
+2026-03-24 19:55:19:   code: 'EADDRINUSE',
+2026-03-24 19:55:19:   errno: -98,
+2026-03-24 19:55:19:   syscall: 'listen',
+2026-03-24 19:55:19:   address: '::',
+2026-03-24 19:55:19:   port: 8082
+2026-03-24 19:55:19: }
+2026-03-24 19:55:20: Error: listen EADDRINUSE: address already in use :::8082
+2026-03-24 19:55:20:     at Server.setupListenHandle [as _listen2] (node:net:1908:16)
+2026-03-24 19:55:20:     at listenInCluster (node:net:1965:12)
+2026-03-24 19:55:20:     at Server.listen (node:net:2067:7)
+2026-03-24 19:55:20:     at Function.listen (/var/www/NAVALIVAY/server/node_modules/express/lib/application.js:635:24)
+2026-03-24 19:55:20:     at file:///var/www/NAVALIVAY/server/index.js:83:5
+2026-03-24 19:55:20:     at ModuleJob.run (node:internal/modules/esm/module_job:325:25)
+2026-03-24 19:55:20:     at async ModuleLoader.import (node:internal/modules/esm/loader:606:24) {
+2026-03-24 19:55:20:   code: 'EADDRINUSE',
+2026-03-24 19:55:20:   errno: -98,
+2026-03-24 19:55:20:   syscall: 'listen',
+2026-03-24 19:55:20:   address: '::',
+2026-03-24 19:55:20:   port: 8082
+2026-03-24 19:55:20: }
+2026-03-24 19:55:20: Error: listen EADDRINUSE: address already in use :::8082
+2026-03-24 19:55:20:     at Server.setupListenHandle [as _listen2] (node:net:1908:16)
+2026-03-24 19:55:20:     at listenInCluster (node:net:1965:12)
+2026-03-24 19:55:20:     at Server.listen (node:net:2067:7)
+2026-03-24 19:55:20:     at Function.listen (/var/www/NAVALIVAY/server/node_modules/express/lib/application.js:635:24)
+2026-03-24 19:55:20:     at file:///var/www/NAVALIVAY/server/index.js:83:5
+2026-03-24 19:55:20:     at ModuleJob.run (node:internal/modules/esm/module_job:325:25)
+2026-03-24 19:55:20:     at async ModuleLoader.import (node:internal/modules/esm/loader:606:24) {
+2026-03-24 19:55:20:   code: 'EADDRINUSE',
+2026-03-24 19:55:20:   errno: -98,
+2026-03-24 19:55:20:   syscall: 'listen',
+2026-03-24 19:55:20:   address: '::',
+2026-03-24 19:55:20:   port: 8082
+2026-03-24 19:55:20: }
+2026-03-24 19:55:20: Error: listen EADDRINUSE: address already in use :::8082
+2026-03-24 19:55:20:     at Server.setupListenHandle [as _listen2] (node:net:1908:16)
+2026-03-24 19:55:20:     at listenInCluster (node:net:1965:12)
+2026-03-24 19:55:20:     at Server.listen (node:net:2067:7)
+2026-03-24 19:55:20:     at Function.listen (/var/www/NAVALIVAY/server/node_modules/express/lib/application.js:635:24)
+2026-03-24 19:55:20:     at file:///var/www/NAVALIVAY/server/index.js:83:5
+2026-03-24 19:55:20:     at ModuleJob.run (node:internal/modules/esm/module_job:325:25)
+2026-03-24 19:55:20:     at async ModuleLoader.import (node:internal/modules/esm/loader:606:24) {
+2026-03-24 19:55:20:   code: 'EADDRINUSE',
+2026-03-24 19:55:20:   errno: -98,
+2026-03-24 19:55:20:   syscall: 'listen',
+2026-03-24 19:55:20:   address: '::',
+2026-03-24 19:55:20:   port: 8082
+2026-03-24 19:55:20: }
+2026-03-24 19:55:21: Error: listen EADDRINUSE: address already in use :::8082
+2026-03-24 19:55:21:     at Server.setupListenHandle [as _listen2] (node:net:1908:16)
+2026-03-24 19:55:21:     at listenInCluster (node:net:1965:12)
+2026-03-24 19:55:21:     at Server.listen (node:net:2067:7)
+2026-03-24 19:55:21:     at Function.listen (/var/www/NAVALIVAY/server/node_modules/express/lib/application.js:635:24)
+2026-03-24 19:55:21:     at file:///var/www/NAVALIVAY/server/index.js:83:5
+2026-03-24 19:55:21:     at ModuleJob.run (node:internal/modules/esm/module_job:325:25)
+2026-03-24 19:55:21:     at async ModuleLoader.import (node:internal/modules/esm/loader:606:24) {
+2026-03-24 19:55:21:   code: 'EADDRINUSE',
+2026-03-24 19:55:21:   errno: -98,
+2026-03-24 19:55:21:   syscall: 'listen',
+2026-03-24 19:55:21:   address: '::',
+2026-03-24 19:55:21:   port: 8082
+2026-03-24 19:55:21: }
+2026-03-24 19:55:21: Error: listen EADDRINUSE: address already in use :::8082
+2026-03-24 19:55:21:     at Server.setupListenHandle [as _listen2] (node:net:1908:16)
+2026-03-24 19:55:21:     at listenInCluster (node:net:1965:12)
+2026-03-24 19:55:21:     at Server.listen (node:net:2067:7)
+2026-03-24 19:55:21:     at Function.listen (/var/www/NAVALIVAY/server/node_modules/express/lib/application.js:635:24)
+2026-03-24 19:55:21:     at file:///var/www/NAVALIVAY/server/index.js:83:5
+2026-03-24 19:55:21:     at ModuleJob.run (node:internal/modules/esm/module_job:325:25)
+2026-03-24 19:55:21:     at async ModuleLoader.import (node:internal/modules/esm/loader:606:24) {
+2026-03-24 19:55:21:   code: 'EADDRINUSE',
+2026-03-24 19:55:21:   errno: -98,
+2026-03-24 19:55:21:   syscall: 'listen',
+2026-03-24 19:55:21:   address: '::',
+2026-03-24 19:55:21:   port: 8082
+2026-03-24 19:55:21: }
+2026-03-24 20:08:58: [public] Modify by customer error: Error: Промокод уже использован максимальное количество раз
+2026-03-24 20:08:58:     at file:///var/www/NAVALIVAY/server/routes/public.js:1530:17
+2026-03-24 20:08:58:     at sqliteTransaction (/var/www/NAVALIVAY/server/node_modules/better-sqlite3/lib/methods/transaction.js:65:24)
+2026-03-24 20:08:58:     at file:///var/www/NAVALIVAY/server/routes/public.js:1894:5
+2026-03-24 20:08:58:     at Layer.handle [as handle_request] (/var/www/NAVALIVAY/server/node_modules/express/lib/router/layer.js:95:5)
+2026-03-24 20:08:58:     at next (/var/www/NAVALIVAY/server/node_modules/express/lib/router/route.js:149:13)
+2026-03-24 20:08:58:     at Route.dispatch (/var/www/NAVALIVAY/server/node_modules/express/lib/router/route.js:119:3)
+2026-03-24 20:08:58:     at Layer.handle [as handle_request] (/var/www/NAVALIVAY/server/node_modules/express/lib/router/layer.js:95:5)
+2026-03-24 20:08:58:     at /var/www/NAVALIVAY/server/node_modules/express/lib/router/index.js:284:15
+2026-03-24 20:08:58:     at param (/var/www/NAVALIVAY/server/node_modules/express/lib/router/index.js:365:14)
+2026-03-24 20:08:58:     at param (/var/www/NAVALIVAY/server/node_modules/express/lib/router/index.js:376:14)
+2026-03-24 20:09:00: [public] Modify by customer error: Error: Промокод уже использован максимальное количество раз
+2026-03-24 20:09:00:     at file:///var/www/NAVALIVAY/server/routes/public.js:1530:17
+2026-03-24 20:09:00:     at sqliteTransaction (/var/www/NAVALIVAY/server/node_modules/better-sqlite3/lib/methods/transaction.js:65:24)
+2026-03-24 20:09:00:     at file:///var/www/NAVALIVAY/server/routes/public.js:1894:5
+2026-03-24 20:09:00:     at Layer.handle [as handle_request] (/var/www/NAVALIVAY/server/node_modules/express/lib/router/layer.js:95:5)
+2026-03-24 20:09:00:     at next (/var/www/NAVALIVAY/server/node_modules/express/lib/router/route.js:149:13)
+2026-03-24 20:09:00:     at Route.dispatch (/var/www/NAVALIVAY/server/node_modules/express/lib/router/route.js:119:3)
+2026-03-24 20:09:00:     at Layer.handle [as handle_request] (/var/www/NAVALIVAY/server/node_modules/express/lib/router/layer.js:95:5)
+2026-03-24 20:09:00:     at /var/www/NAVALIVAY/server/node_modules/express/lib/router/index.js:284:15
+2026-03-24 20:09:00:     at param (/var/www/NAVALIVAY/server/node_modules/express/lib/router/index.js:365:14)
+2026-03-24 20:09:00:     at param (/var/www/NAVALIVAY/server/node_modules/express/lib/router/index.js:376:14)
+2026-03-24 20:09:00: [public] Modify by customer error: Error: Промокод уже использован максимальное количество раз
+2026-03-24 20:09:00:     at file:///var/www/NAVALIVAY/server/routes/public.js:1530:17
+2026-03-24 20:09:00:     at sqliteTransaction (/var/www/NAVALIVAY/server/node_modules/better-sqlite3/lib/methods/transaction.js:65:24)
+2026-03-24 20:09:00:     at file:///var/www/NAVALIVAY/server/routes/public.js:1894:5
+2026-03-24 20:09:00:     at Layer.handle [as handle_request] (/var/www/NAVALIVAY/server/node_modules/express/lib/router/layer.js:95:5)
+2026-03-24 20:09:00:     at next (/var/www/NAVALIVAY/server/node_modules/express/lib/router/route.js:149:13)
+2026-03-24 20:09:00:     at Route.dispatch (/var/www/NAVALIVAY/server/node_modules/express/lib/router/route.js:119:3)
+2026-03-24 20:09:00:     at Layer.handle [as handle_request] (/var/www/NAVALIVAY/server/node_modules/express/lib/router/layer.js:95:5)
+2026-03-24 20:09:00:     at /var/www/NAVALIVAY/server/node_modules/express/lib/router/index.js:284:15
+2026-03-24 20:09:00:     at param (/var/www/NAVALIVAY/server/node_modules/express/lib/router/index.js:365:14)
+2026-03-24 20:09:00:     at param (/var/www/NAVALIVAY/server/node_modules/express/lib/router/index.js:376:14)
+2026-03-24 20:09:02: [public] Modify by customer error: Error: Промокод уже использован максимальное количество раз
+2026-03-24 20:09:02:     at file:///var/www/NAVALIVAY/server/routes/public.js:1530:17
+2026-03-24 20:09:02:     at sqliteTransaction (/var/www/NAVALIVAY/server/node_modules/better-sqlite3/lib/methods/transaction.js:65:24)
+2026-03-24 20:09:02:     at file:///var/www/NAVALIVAY/server/routes/public.js:1894:5
+2026-03-24 20:09:02:     at Layer.handle [as handle_request] (/var/www/NAVALIVAY/server/node_modules/express/lib/router/layer.js:95:5)
+2026-03-24 20:09:02:     at next (/var/www/NAVALIVAY/server/node_modules/express/lib/router/route.js:149:13)
+2026-03-24 20:09:02:     at Route.dispatch (/var/www/NAVALIVAY/server/node_modules/express/lib/router/route.js:119:3)
+2026-03-24 20:09:02:     at Layer.handle [as handle_request] (/var/www/NAVALIVAY/server/node_modules/express/lib/router/layer.js:95:5)
+2026-03-24 20:09:02:     at /var/www/NAVALIVAY/server/node_modules/express/lib/router/index.js:284:15
+2026-03-24 20:09:02:     at param (/var/www/NAVALIVAY/server/node_modules/express/lib/router/index.js:365:14)
+2026-03-24 20:09:02:     at param (/var/www/NAVALIVAY/server/node_modules/express/lib/router/index.js:376:14)
+2026-03-24 20:09:02: [public] Modify by customer error: Error: Промокод уже использован максимальное количество раз
+2026-03-24 20:09:02:     at file:///var/www/NAVALIVAY/server/routes/public.js:1530:17
+2026-03-24 20:09:02:     at sqliteTransaction (/var/www/NAVALIVAY/server/node_modules/better-sqlite3/lib/methods/transaction.js:65:24)
+2026-03-24 20:09:02:     at file:///var/www/NAVALIVAY/server/routes/public.js:1894:5
+2026-03-24 20:09:02:     at Layer.handle [as handle_request] (/var/www/NAVALIVAY/server/node_modules/express/lib/router/layer.js:95:5)
+2026-03-24 20:09:02:     at next (/var/www/NAVALIVAY/server/node_modules/express/lib/router/route.js:149:13)
+2026-03-24 20:09:02:     at Route.dispatch (/var/www/NAVALIVAY/server/node_modules/express/lib/router/route.js:119:3)
+2026-03-24 20:09:02:     at Layer.handle [as handle_request] (/var/www/NAVALIVAY/server/node_modules/express/lib/router/layer.js:95:5)
+2026-03-24 20:09:02:     at /var/www/NAVALIVAY/server/node_modules/express/lib/router/index.js:284:15
+2026-03-24 20:09:02:     at param (/var/www/NAVALIVAY/server/node_modules/express/lib/router/index.js:365:14)
+2026-03-24 20:09:02:     at param (/var/www/NAVALIVAY/server/node_modules/express/lib/router/index.js:376:14)
+2026-03-24 20:09:02: [public] Modify by customer error: Error: Промокод уже использован максимальное количество раз
+2026-03-24 20:09:02:     at file:///var/www/NAVALIVAY/server/routes/public.js:1530:17
+2026-03-24 20:09:02:     at sqliteTransaction (/var/www/NAVALIVAY/server/node_modules/better-sqlite3/lib/methods/transaction.js:65:24)
+2026-03-24 20:09:02:     at file:///var/www/NAVALIVAY/server/routes/public.js:1894:5
+2026-03-24 20:09:02:     at Layer.handle [as handle_request] (/var/www/NAVALIVAY/server/node_modules/express/lib/router/layer.js:95:5)
+2026-03-24 20:09:02:     at next (/var/www/NAVALIVAY/server/node_modules/express/lib/router/route.js:149:13)
+2026-03-24 20:09:02:     at Route.dispatch (/var/www/NAVALIVAY/server/node_modules/express/lib/router/route.js:119:3)
+2026-03-24 20:09:02:     at Layer.handle [as handle_request] (/var/www/NAVALIVAY/server/node_modules/express/lib/router/layer.js:95:5)
+2026-03-24 20:09:02:     at /var/www/NAVALIVAY/server/node_modules/express/lib/router/index.js:284:15
+2026-03-24 20:09:02:     at param (/var/www/NAVALIVAY/server/node_modules/express/lib/router/index.js:365:14)
+2026-03-24 20:09:02:     at param (/var/www/NAVALIVAY/server/node_modules/express/lib/router/index.js:376:14)
+2026-03-24 20:09:02: [public] Modify by customer error: Error: Промокод уже использован максимальное количество раз
+2026-03-24 20:09:02:     at file:///var/www/NAVALIVAY/server/routes/public.js:1530:17
+2026-03-24 20:09:02:     at sqliteTransaction (/var/www/NAVALIVAY/server/node_modules/better-sqlite3/lib/methods/transaction.js:65:24)
+2026-03-24 20:09:02:     at file:///var/www/NAVALIVAY/server/routes/public.js:1894:5
+2026-03-24 20:09:02:     at Layer.handle [as handle_request] (/var/www/NAVALIVAY/server/node_modules/express/lib/router/layer.js:95:5)
+2026-03-24 20:09:02:     at next (/var/www/NAVALIVAY/server/node_modules/express/lib/router/route.js:149:13)
+2026-03-24 20:09:02:     at Route.dispatch (/var/www/NAVALIVAY/server/node_modules/express/lib/router/route.js:119:3)
+2026-03-24 20:09:02:     at Layer.handle [as handle_request] (/var/www/NAVALIVAY/server/node_modules/express/lib/router/layer.js:95:5)
+2026-03-24 20:09:02:     at /var/www/NAVALIVAY/server/node_modules/express/lib/router/index.js:284:15
+2026-03-24 20:09:02:     at param (/var/www/NAVALIVAY/server/node_modules/express/lib/router/index.js:365:14)
+2026-03-24 20:09:02:     at param (/var/www/NAVALIVAY/server/node_modules/express/lib/router/index.js:376:14)
+2026-03-24 20:09:14: [public] Modify by customer error: Error: Промокод уже использован максимальное количество раз
+2026-03-24 20:09:14:     at file:///var/www/NAVALIVAY/server/routes/public.js:1530:17
+2026-03-24 20:09:14:     at sqliteTransaction (/var/www/NAVALIVAY/server/node_modules/better-sqlite3/lib/methods/transaction.js:65:24)
+2026-03-24 20:09:14:     at file:///var/www/NAVALIVAY/server/routes/public.js:1894:5
+2026-03-24 20:09:14:     at Layer.handle [as handle_request] (/var/www/NAVALIVAY/server/node_modules/express/lib/router/layer.js:95:5)
+2026-03-24 20:09:14:     at next (/var/www/NAVALIVAY/server/node_modules/express/lib/router/route.js:149:13)
+2026-03-24 20:09:14:     at Route.dispatch (/var/www/NAVALIVAY/server/node_modules/express/lib/router/route.js:119:3)
+2026-03-24 20:09:14:     at Layer.handle [as handle_request] (/var/www/NAVALIVAY/server/node_modules/express/lib/router/layer.js:95:5)
+2026-03-24 20:09:14:     at /var/www/NAVALIVAY/server/node_modules/express/lib/router/index.js:284:15
+2026-03-24 20:09:14:     at param (/var/www/NAVALIVAY/server/node_modules/express/lib/router/index.js:365:14)
+2026-03-24 20:09:14:     at param (/var/www/NAVALIVAY/server/node_modules/express/lib/router/index.js:376:14)
+2026-03-25 09:22:31: SyntaxError: Missing catch or finally after try
+2026-03-25 09:22:31:     at compileSourceTextModule (node:internal/modules/esm/utils:346:16)
+2026-03-25 09:22:31:     at ModuleLoader.moduleStrategy (node:internal/modules/esm/translators:146:18)
+2026-03-25 09:22:31:     at #translate (node:internal/modules/esm/loader:497:12)
+2026-03-25 09:22:31:     at ModuleLoader.loadAndTranslate (node:internal/modules/esm/loader:544:27)
+2026-03-25 09:28:37: SyntaxError: Missing catch or finally after try
+2026-03-25 09:28:37:     at compileSourceTextModule (node:internal/modules/esm/utils:346:16)
+2026-03-25 09:28:37:     at ModuleLoader.moduleStrategy (node:internal/modules/esm/translators:146:18)
+2026-03-25 09:28:37:     at #translate (node:internal/modules/esm/loader:497:12)
+2026-03-25 09:28:37:     at ModuleLoader.loadAndTranslate (node:internal/modules/esm/loader:544:27)

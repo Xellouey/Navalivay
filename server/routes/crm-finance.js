@@ -878,52 +878,49 @@ crmFinanceRouter.get('/api/admin/crm/visit-logs', authMiddleware, (req, res) => 
 // =========================
 crmFinanceRouter.get('/api/admin/crm/products/search', authMiddleware, (req, res) => {
   try {
+    const requestStartedAt = Date.now();
     const { search, limit = 25 } = req.query;
+    const trimmedSearch = typeof search === 'string' ? search.trim() : '';
+    const searchWords = trimmedSearch.split(/\s+/).filter(w => w.length >= 2);
     let whereClauses = [];
     let params = [];
     
     let variantParams = [];
     let variantWhereClauses = [];
     
-    if (search && typeof search === 'string' && search.trim()) {
-      // Разбиваем запрос на слова и ищем товары, содержащие ВСЕ слова
-      const trimmed = search.trim();
-      const words = trimmed.split(/\s+/).filter(w => w.length >= 2); // Только слова от 2 символов
+    if (searchWords.length > 0) {
+      // Для каждого слова создаём условие поиска по title, description и group name
+      // SQLite's LOWER() не работает с кириллицей, поэтому ищем по разным вариантам регистра
+      // Слово должно быть найдено в ЛЮБОМ из полей (title OR description OR group_name)
+      const wordConditions = searchWords.map(word => {
+        const lowerPattern = `%${word.toLowerCase()}%`;
+        const upperPattern = `%${word.toUpperCase()}%`;
+        const titlePattern = `%${word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()}%`;
+        
+        // Добавляем параметры для этого слова (9 параметров на слово для обычных товаров)
+        params.push(lowerPattern, upperPattern, titlePattern, lowerPattern, upperPattern, titlePattern, lowerPattern, upperPattern, titlePattern);
+        
+        return '(p.title LIKE ? OR p.title LIKE ? OR p.title LIKE ? OR p.description LIKE ? OR p.description LIKE ? OR p.description LIKE ? OR g.name LIKE ? OR g.name LIKE ? OR g.name LIKE ?)';
+      });
       
-      if (words.length > 0) {
-        // Для каждого слова создаём условие поиска по title, description и group name
-        // SQLite's LOWER() не работает с кириллицей, поэтому ищем по разным вариантам регистра
-        // Слово должно быть найдено в ЛЮБОМ из полей (title OR description OR group_name)
-        const wordConditions = words.map(word => {
-          const lowerPattern = `%${word.toLowerCase()}%`;
-          const upperPattern = `%${word.toUpperCase()}%`;
-          const titlePattern = `%${word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()}%`;
-          
-          // Добавляем параметры для этого слова (9 параметров на слово для обычных товаров)
-          params.push(lowerPattern, upperPattern, titlePattern, lowerPattern, upperPattern, titlePattern, lowerPattern, upperPattern, titlePattern);
-          
-          return '(p.title LIKE ? OR p.title LIKE ? OR p.title LIKE ? OR p.description LIKE ? OR p.description LIKE ? OR p.description LIKE ? OR g.name LIKE ? OR g.name LIKE ? OR g.name LIKE ?)';
-        });
+      // Объединяем условия через AND — найдём товары со ВСЕМИ словами
+      // Каждое слово должно присутствовать (в title, description или group_name)
+      whereClauses.push(`(${wordConditions.join(' AND ')})`);
+      
+      // Для вариантов добавляем поиск по variant_name (v.name)
+      // Каждое слово должно быть найдено в title, description, group_name ИЛИ variant_name
+      const variantWordConditions = searchWords.map(word => {
+        const lowerPattern = `%${word.toLowerCase()}%`;
+        const upperPattern = `%${word.toUpperCase()}%`;
+        const titlePattern = `%${word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()}%`;
         
-        // Объединяем условия через AND — найдём товары со ВСЕМИ словами
-        // Каждое слово должно присутствовать (в title, description или group_name)
-        whereClauses.push(`(${wordConditions.join(' AND ')})`);
+        // Добавляем параметры для вариантов (12 параметров на слово: 9 для товара + 3 для варианта)
+        variantParams.push(lowerPattern, upperPattern, titlePattern, lowerPattern, upperPattern, titlePattern, lowerPattern, upperPattern, titlePattern, lowerPattern, upperPattern, titlePattern);
         
-        // Для вариантов добавляем поиск по variant_name (v.name)
-        // Каждое слово должно быть найдено в title, description, group_name ИЛИ variant_name
-        const variantWordConditions = words.map(word => {
-          const lowerPattern = `%${word.toLowerCase()}%`;
-          const upperPattern = `%${word.toUpperCase()}%`;
-          const titlePattern = `%${word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()}%`;
-          
-          // Добавляем параметры для вариантов (12 параметров на слово: 9 для товара + 3 для варианта)
-          variantParams.push(lowerPattern, upperPattern, titlePattern, lowerPattern, upperPattern, titlePattern, lowerPattern, upperPattern, titlePattern, lowerPattern, upperPattern, titlePattern);
-          
-          return '(p.title LIKE ? OR p.title LIKE ? OR p.title LIKE ? OR p.description LIKE ? OR p.description LIKE ? OR p.description LIKE ? OR g.name LIKE ? OR g.name LIKE ? OR g.name LIKE ? OR v.name LIKE ? OR v.name LIKE ? OR v.name LIKE ?)';
-        });
-        
-        variantWhereClauses.push(`(${variantWordConditions.join(' AND ')})`);
-      }
+        return '(p.title LIKE ? OR p.title LIKE ? OR p.title LIKE ? OR p.description LIKE ? OR p.description LIKE ? OR p.description LIKE ? OR g.name LIKE ? OR g.name LIKE ? OR g.name LIKE ? OR v.name LIKE ? OR v.name LIKE ? OR v.name LIKE ?)';
+      });
+      
+      variantWhereClauses.push(`(${variantWordConditions.join(' AND ')})`);
     }
     
     const searchCondition = whereClauses.length > 0 ? whereClauses.join(' AND ') : '';
@@ -945,10 +942,11 @@ crmFinanceRouter.get('/api/admin/crm/products/search', authMiddleware, (req, res
       LIMIT ?
     `;
     
-    const regularProducts = params.length > 0 
+    const regularQueryStartedAt = Date.now();
+    const regularProducts = params.length > 0
       ? db.prepare(regularQuery).all(...params, Number(limit))
       : db.prepare(`
-          SELECT 
+          SELECT
             p.*,
             c.name as category_name,
             c.cover_image as category_image,
@@ -961,6 +959,7 @@ crmFinanceRouter.get('/api/admin/crm/products/search', authMiddleware, (req, res
           WHERE p.has_variants = 0
           LIMIT ?
         `).all(Number(limit));
+    const regularQueryMs = Date.now() - regularQueryStartedAt;
     
     // Получаем варианты как отдельные товары (с изображением варианта или товара)
     const variantsQuery = `
@@ -990,10 +989,11 @@ crmFinanceRouter.get('/api/admin/crm/products/search', authMiddleware, (req, res
       LIMIT ?
     `;
     
+    const variantsQueryStartedAt = Date.now();
     const variants = variantParams.length > 0
       ? db.prepare(variantsQuery).all(...variantParams, Number(limit))
       : db.prepare(`
-          SELECT 
+          SELECT
             v.id,
             v.product_id,
             v.name as variant_name,
@@ -1018,6 +1018,7 @@ crmFinanceRouter.get('/api/admin/crm/products/search', authMiddleware, (req, res
           WHERE p.has_variants = 1
           LIMIT ?
         `).all(Number(limit));
+    const variantsQueryMs = Date.now() - variantsQueryStartedAt;
     
     // Преобразуем варианты в формат товаров
     const variantsAsProducts = variants.map(v => ({
@@ -1054,9 +1055,8 @@ crmFinanceRouter.get('/api/admin/crm/products/search', authMiddleware, (req, res
     let allProducts = [...regularWithImages, ...variantsAsProducts];
     
     // Сортировка по релевантности если есть поисковый запрос
-    if (search && typeof search === 'string' && search.trim()) {
-      const searchLower = search.trim().toLowerCase();
-      const searchWords = searchLower.split(/\s+/).filter(w => w.length >= 2);
+    if (trimmedSearch) {
+      const searchLower = trimmedSearch.toLowerCase();
       
       allProducts.sort((a, b) => {
         const titleA = (a.title || '').toLowerCase();
@@ -1101,6 +1101,23 @@ crmFinanceRouter.get('/api/admin/crm/products/search', authMiddleware, (req, res
         image: p.imageUrl || p.group_image || p.category_image || null
       };
     });
+    
+    if (trimmedSearch) {
+      const totalMs = Date.now() - requestStartedAt;
+      console.info('[crm] product search timing', {
+        search: trimmedSearch,
+        wordCount: searchWords.length,
+        limit: Number(limit),
+        regularCount: regularProducts.length,
+        variantCount: variants.length,
+        resultCount: cleanProducts.length,
+        regularQueryMs,
+        variantsQueryMs,
+        totalMs,
+        searchConditionLength: searchCondition.length,
+        variantSearchConditionLength: variantSearchCondition.length,
+      });
+    }
     
     res.json(cleanProducts);
   } catch (error) {

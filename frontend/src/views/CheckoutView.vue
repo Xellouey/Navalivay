@@ -222,7 +222,7 @@
           <span class="summary-discount">-{{ formatPrice(promoResult.calculated_discount) }} BYN</span>
         </div>
 
-        <div v-if="loyaltyStore.previewCategories.length" class="loyalty-stack">
+        <div v-if="shouldShowCheckoutLoyaltyCards" class="loyalty-stack">
           <article
             v-for="category in loyaltyStore.previewCategories"
             :key="category.category_id"
@@ -506,6 +506,14 @@ const deliveryConditionsShown = ref(false);
 const editingOrderDetails = ref<CustomerActiveOrder | null>(null);
 const activeLoyaltyRulesCategory = ref<LoyaltySnapshotCategory | null>(null);
 const showLoyaltyPopup = ref(false);
+
+// Временное скрытие плашек бонусов по категориям в корзине.
+// Чтобы вернуть их обратно, достаточно переключить флаг в false.
+const HIDE_CHECKOUT_LOYALTY_CARDS = true;
+
+const shouldShowCheckoutLoyaltyCards = computed(() => {
+  return !HIDE_CHECKOUT_LOYALTY_CARDS && loyaltyStore.previewCategories.length > 0;
+});
 
 const isEditingOrder = computed(() => Boolean(cartStore.editingOrderId));
 const checkoutTitle = computed(() =>

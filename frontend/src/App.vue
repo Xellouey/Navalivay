@@ -3,12 +3,17 @@ import { RouterView } from "vue-router";
 import { computed, onMounted } from "vue";
 import { useRoute } from "vue-router";
 import VapeSmoke from "@/components/VapeSmoke.vue";
-import TelegramDebugPanel from "@/components/TelegramDebugPanel.vue";
 import BottomTabBar from "@/components/BottomTabBar.vue";
 
 const route = useRoute();
 
+// Временное скрытие нижних кнопок в production UI.
+// Чтобы вернуть панель, достаточно переключить флаг в false.
+const HIDE_BOTTOM_TAB_BAR = true;
+
 const showTabBar = computed(() => {
+  if (HIDE_BOTTOM_TAB_BAR) return false;
+
   const path = route.path;
   if (path.startsWith("/admin")) return false;
   if (path === "/checkout") return false;
@@ -33,7 +38,6 @@ onMounted(() => {
       </Transition>
     </RouterView>
     <VapeSmoke />
-    <TelegramDebugPanel />
     <BottomTabBar v-if="showTabBar" />
   </div>
 </template>
@@ -61,3 +65,4 @@ body,
   opacity: 0;
 }
 </style>
+

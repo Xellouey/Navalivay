@@ -122,9 +122,11 @@ const activeRulesCategory = computed(() =>
 )
 
 onMounted(async () => {
+  const identity = getTelegramIdentity()
+
   await Promise.allSettled([
     userStore.fetchProfile(),
-    loyaltyStore.fetchSnapshot(getTelegramIdentity()),
+    loyaltyStore.fetchSnapshot(identity),
   ])
 
   if (loyaltyStore.canShowAvailableBonusPopup()) {

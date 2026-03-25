@@ -11,6 +11,40 @@ const requireAdminAuth = (to: any, from: any, next: any) => {
   }
 };
 
+const DYNAMIC_IMPORT_RELOAD_KEY = "navalivay_dynamic_import_reload";
+const DYNAMIC_IMPORT_ERROR_PATTERNS = [
+  /Failed to fetch dynamically imported module/i,
+  /Importing a module script failed/i,
+  /error loading dynamically imported module/i,
+  /Unable to preload CSS/i,
+];
+
+function clearDynamicImportReloadGuard() {
+  if (typeof window === "undefined") return;
+  sessionStorage.removeItem(DYNAMIC_IMPORT_RELOAD_KEY);
+}
+
+function isDynamicImportError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  return DYNAMIC_IMPORT_ERROR_PATTERNS.some((pattern) => pattern.test(message));
+}
+
+function reloadRouteOnce(targetPath: string) {
+  if (typeof window === "undefined") return false;
+
+  const normalizedTargetPath = targetPath || window.location.pathname || "/";
+  const previousAttempt = sessionStorage.getItem(DYNAMIC_IMPORT_RELOAD_KEY);
+
+  if (previousAttempt === normalizedTargetPath) {
+    sessionStorage.removeItem(DYNAMIC_IMPORT_RELOAD_KEY);
+    return false;
+  }
+
+  sessionStorage.setItem(DYNAMIC_IMPORT_RELOAD_KEY, normalizedTargetPath);
+  window.location.assign(normalizedTargetPath);
+  return true;
+}
+
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
   routes: [
@@ -151,12 +185,28 @@ const router = createRouter({
 
 const visitLogger = typeof window !== "undefined" ? createVisitLogger() : null;
 
+router.onError((error, to) => {
+  const fallbackPath = typeof window !== "undefined" ? window.location.pathname : "/";
+  const targetPath = to?.fullPath || fallbackPath;
+
+  if (isDynamicImportError(error) && reloadRouteOnce(targetPath)) {
+    return;
+  }
+
+  console.error("[router] Navigation error", error);
+});
+
+router.afterEach(() => {
+  clearDynamicImportReloadGuard();
+});
+
 if (visitLogger) {
   router.afterEach((to) => {
     visitLogger.log(to);
   });
 
   router.isReady().then(() => {
+    clearDynamicImportReloadGuard();
     visitLogger.log(router.currentRoute.value);
   });
 }

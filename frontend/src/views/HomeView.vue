@@ -91,14 +91,13 @@
         </button>
       </div>
     </Transition>
+    <LoyaltyBonusPopup
+      :open="showLoyaltyPopup"
+      :categories="loyaltyStore.availableCategories"
+      @close="showLoyaltyPopup = false"
+      @open-profile="openProfileFromPopup"
+    />
   </div>
-
-  <LoyaltyBonusPopup
-    :open="showLoyaltyPopup"
-    :categories="loyaltyStore.availableCategories"
-    @close="showLoyaltyPopup = false"
-    @open-profile="openProfileFromPopup"
-  />
 </template>
 
 <script setup lang="ts">
