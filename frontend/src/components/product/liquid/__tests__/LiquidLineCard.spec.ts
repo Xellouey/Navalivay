@@ -35,7 +35,14 @@ describe("LiquidLineCard", () => {
       props: {
         groupId: "g-1",
         title: "CHAPPMAN",
-        products: [makeProduct()],
+        products: [
+          makeProduct({
+            hasVariants: true,
+            variants: [
+              { id: "v-1", name: "20 мг", priceRub: 15, stock: 5, images: [] },
+            ],
+          }),
+        ],
         expanded: false,
         coverImage: null,
         fallbackImage: "/placeholder-category.png",
@@ -48,7 +55,7 @@ describe("LiquidLineCard", () => {
     expect(wrapper.find(".liquid-line-price").text()).toBe("15 BYN");
   });
 
-  it("does not show a price for a parent line without direct products", () => {
+  it("does not show a price for a parent line with subgroups", () => {
     const wrapper = mount(LiquidLineCard, {
       global: {
         plugins: [pinia],
@@ -59,7 +66,7 @@ describe("LiquidLineCard", () => {
       props: {
         groupId: "g-2",
         title: "PODONKI",
-        products: [],
+        products: [makeProduct({ id: "p-2", priceRub: 12 })],
         expanded: false,
         coverImage: null,
         fallbackImage: "/placeholder-category.png",

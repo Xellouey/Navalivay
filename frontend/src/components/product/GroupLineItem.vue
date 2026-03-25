@@ -159,7 +159,10 @@ const totalProductCount = computed(() => {
   }, 0);
 });
 
-const firstProductPrice = computed(() => getMinPriceForProducts(props.node.products));
+const firstProductPrice = computed(() => {
+  if (props.node.children.length > 0) return null;
+  return getMinPriceForProducts(props.node.products);
+});
 
 const metaText = computed(() => {
   const label = (props.node.metaLabel ?? "").trim();

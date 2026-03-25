@@ -108,7 +108,13 @@ describe("GroupLineItem", () => {
               ],
             },
           ],
-          products: [],
+          products: [
+            makeProduct({
+              id: "p-root",
+              title: "VAPORESSO XROS",
+              priceRub: 80,
+            }),
+          ],
         },
       },
     });

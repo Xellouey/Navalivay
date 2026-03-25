@@ -389,14 +389,12 @@ const summaryPreview = computed(() => {
 });
 
 const minPriceLabel = computed(() => {
+  if (props.subgroups && props.subgroups.length > 0) return null;
+
   const minPrice = getMinPriceForProducts(props.products);
   if (minPrice === null) return null;
 
-  const hasVariants = props.products.some(
-    (p) => p.hasVariants && p.variants && p.variants.length > 0,
-  );
-
-  return hasVariants ? `от ${formatPrice(minPrice)}` : formatPrice(minPrice);
+  return formatPrice(minPrice);
 });
 
 const metaText = computed(() => {
