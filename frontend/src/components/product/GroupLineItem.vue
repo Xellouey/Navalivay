@@ -32,9 +32,6 @@
         <span class="group-line-info">
           <span class="group-line-title">{{ node.name }}</span>
           <span v-if="metaText" class="group-line-meta">{{ metaText }}</span>
-          <span v-if="firstProductPrice" class="group-line-price">
-            {{ formatPrice(firstProductPrice) }} BYN
-          </span>
           <span
             v-if="!isExpanded && totalProductCount > 0"
             class="group-line-count-badge"
@@ -107,7 +104,6 @@ import {
 import { ChevronDownIcon } from "@heroicons/vue/24/outline";
 import { useCatalogStore, type Product } from "@/stores/catalog";
 import GroupLineItemContent from "@/components/product/GroupLineItemContent.vue";
-import { getMinPriceForGroupTree } from "@/components/product/groupPrice";
 
 const GroupLineItem = defineAsyncComponent(
   () => import("@/components/product/GroupLineItem.vue"),
@@ -158,8 +154,6 @@ const totalProductCount = computed(() => {
     return count + (child.totalProductCount ?? child.productCount ?? 0);
   }, 0);
 });
-
-const firstProductPrice = computed(() => getMinPriceForGroupTree(props.node));
 
 const metaText = computed(() => {
   const label = (props.node.metaLabel ?? "").trim();
@@ -309,11 +303,6 @@ function forwardToast(
   type: "error" | "success" | "info",
 ) {
   emit("showToast", message, type);
-}
-
-function formatPrice(value?: number | null) {
-  if (value === null || value === undefined) return "—";
-  return value.toLocaleString("ru-RU");
 }
 
 onBeforeUnmount(() => {

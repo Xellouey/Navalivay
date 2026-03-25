@@ -23,7 +23,7 @@ describe("GroupLineItem", () => {
     setActivePinia(pinia);
   });
 
-  it("shows the minimum price from nested child groups", () => {
+  it("does not show group price even when nested child products have prices", () => {
     const wrapper = mount(GroupLineItem, {
       global: {
         plugins: [pinia],
@@ -113,6 +113,6 @@ describe("GroupLineItem", () => {
       },
     });
 
-    expect(wrapper.find(".group-line-price").text()).toBe("55 BYN");
+    expect(wrapper.find(".group-line-price").exists()).toBe(false);
   });
 });

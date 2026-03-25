@@ -6,6 +6,7 @@ The CRM product search endpoint (`/api/admin/crm/products/search`) is used in:
 - Procurements (Закупки) - `CrmProcurements.vue`
 - Write-offs (Списания) - `CrmWriteOffs.vue`
 - Order editing - `CrmOrderDetail.vue`
+- Order creation - `OrderCreateModal.vue`
 
 There is also a separate search in the **Admin Products Table** (`/admin?tab=products`) which uses `/api/admin/products` endpoint.
 
@@ -128,6 +129,8 @@ GET /api/admin/crm/products/search
 
 **Note:** `imageUrl` contains only the image URL path, NOT base64 data. This keeps response size small (~50-100 KB instead of 4-12 MB).
 
+The endpoint may also return a final `image` field for UI cards, but it must not expose raw `group_image` / `category_image` blobs in every result row. Those source fields are only used server-side to compose the final fallback image.
+
 ## Search Logic
 
 ### AND Logic (All Words Must Match)
@@ -194,6 +197,26 @@ When a search query is provided, results are sorted by relevance:
    - Exact matches appear first
    - Users find products faster
 
+### Regression Fix (March 2026)
+
+**Symptom**
+- In order editing / order creation, product search could show `Ищем товары…` for a long time even when SQL itself was fast.
+- This was most visible in flows using `limit=100` (`CrmOrderDetail.vue`, `OrderCreateModal.vue`).
+
+**Root cause**
+- The endpoint still returned duplicated raw image sources (`group_image`, `category_image`) for every search result.
+- At the same time it also built the final `image` field, so the response kept both the final image and the source blobs.
+- In logs this could inflate a single response to ~13.7 MB for a wide search like `last`.
+
+**Fix**
+- Keep product images in search results.
+- Strip duplicated raw image fields from the JSON response.
+- Return only the fields needed by the frontend: `imageUrl` and the final fallback `image`.
+
+**Expected result after fix**
+- Search still shows images in CRM.
+- Order edit/create search no longer stalls because the browser downloads and parses a much smaller payload.
+
 ## Frontend Usage
 
 ### In Procurements (`CrmProcurements.vue`)
@@ -240,8 +263,19 @@ whereClauses.push(`(${wordConditions.join(' AND ')})`);  // Should be AND
 Check response size in server logs:
 ```bash
 cat /tmp/server.log | grep "products/search"
-# Look for size > 1MB - indicates base64 images in response
+# Look for size > 1MB - usually indicates oversized image fields in response
 ```
+
+Expected response shape:
+- keep `imageUrl`
+- keep final `image`
+- do not return raw `group_image` / `category_image` blobs to the client
+
+If timing logs are enabled in `crm-finance.js`, also check:
+- `regularQueryMs` / `variantsQueryMs` - SQL time
+- `totalMs` - total route time
+
+If SQL is fast but payload size is huge, the bottleneck is response serialization / download / browser parsing, not the search query itself.
 
 ### Products Not Found
 
