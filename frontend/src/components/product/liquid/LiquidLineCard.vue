@@ -294,6 +294,7 @@ import {
 import { useCartStore } from "@/stores/cart";
 import { useCatalogStore, type Product, type ProductVariant } from "@/stores/catalog";
 import ColorPreviewModal from "@/components/product/ColorPreviewModal.vue";
+import { getMinPriceForProducts } from "@/components/product/groupPrice";
 
 interface SubgroupInfo {
   id: string;
@@ -388,39 +389,9 @@ const summaryPreview = computed(() => {
 });
 
 const minPriceLabel = computed(() => {
-  const prices: number[] = [];
+  const minPrice = getMinPriceForProducts(props.products);
+  if (minPrice === null) return null;
 
-  props.products.forEach((product) => {
-    // Для товаров с вариантами берем цены из вариантов
-    if (
-      product.hasVariants &&
-      product.variants &&
-      product.variants.length > 0
-    ) {
-      product.variants.forEach((variant) => {
-        if (
-          variant.priceRub &&
-          typeof variant.priceRub === "number" &&
-          !Number.isNaN(variant.priceRub)
-        ) {
-          prices.push(variant.priceRub);
-        }
-      });
-    } else {
-      // Для обычных товаров берем основную цену
-      if (
-        typeof product.priceRub === "number" &&
-        !Number.isNaN(product.priceRub)
-      ) {
-        prices.push(product.priceRub);
-      }
-    }
-  });
-
-  if (!prices.length) return null;
-  const minPrice = Math.min(...prices);
-
-  // Проверяем, есть ли товары с вариантами
   const hasVariants = props.products.some(
     (p) => p.hasVariants && p.variants && p.variants.length > 0,
   );

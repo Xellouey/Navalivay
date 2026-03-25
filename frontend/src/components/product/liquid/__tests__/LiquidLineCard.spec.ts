@@ -1,0 +1,74 @@
+import { beforeEach, describe, expect, it } from "vitest";
+import { mount } from "@vue/test-utils";
+import { createPinia, setActivePinia } from "pinia";
+import LiquidLineCard from "@/components/product/liquid/LiquidLineCard.vue";
+import type { Product } from "@/stores/catalog";
+
+const makeProduct = (overrides: Partial<Product> = {}): Product => ({
+  id: "p-1",
+  categoryId: "c-1",
+  title: "CHAPPMAN",
+  priceRub: 15,
+  description: "",
+  images: [],
+  createdAt: "2025-01-01T00:00:00.000Z",
+  ...overrides,
+});
+
+describe("LiquidLineCard", () => {
+  let pinia: ReturnType<typeof createPinia>;
+
+  beforeEach(() => {
+    pinia = createPinia();
+    setActivePinia(pinia);
+    localStorage.clear();
+  });
+
+  it("shows a price in the header for a line with direct products", () => {
+    const wrapper = mount(LiquidLineCard, {
+      global: {
+        plugins: [pinia],
+        stubs: {
+          ColorPreviewModal: true,
+        },
+      },
+      props: {
+        groupId: "g-1",
+        title: "CHAPPMAN",
+        products: [makeProduct()],
+        expanded: false,
+        coverImage: null,
+        fallbackImage: "/placeholder-category.png",
+        subgroups: [],
+        metaLabel: "Крепость",
+        metaValue: "20 мг",
+      },
+    });
+
+    expect(wrapper.find(".liquid-line-price").text()).toBe("15 BYN");
+  });
+
+  it("does not show a price for a parent line without direct products", () => {
+    const wrapper = mount(LiquidLineCard, {
+      global: {
+        plugins: [pinia],
+        stubs: {
+          ColorPreviewModal: true,
+        },
+      },
+      props: {
+        groupId: "g-2",
+        title: "PODONKI",
+        products: [],
+        expanded: false,
+        coverImage: null,
+        fallbackImage: "/placeholder-category.png",
+        subgroups: [{ id: "child-1", name: "PODONKI V1", productCount: 3 }],
+        metaLabel: null,
+        metaValue: null,
+      },
+    });
+
+    expect(wrapper.find(".liquid-line-price").exists()).toBe(false);
+  });
+});

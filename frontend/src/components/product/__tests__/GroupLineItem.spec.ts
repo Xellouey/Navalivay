@@ -115,4 +115,42 @@ describe("GroupLineItem", () => {
 
     expect(wrapper.find(".group-line-price").exists()).toBe(false);
   });
+
+  it("shows the direct group price when the group has its own products", () => {
+    const wrapper = mount(GroupLineItem, {
+      global: {
+        plugins: [pinia],
+        stubs: {
+          Transition: false,
+          GroupLineItemContent: true,
+        },
+      },
+      props: {
+        categoryImage: null,
+        expandedGroups: {},
+        node: {
+          id: "g-leaf",
+          name: "SMOANT PASITO MINI",
+          slug: "smoant-pasito-mini",
+          order: 0,
+          productCount: 1,
+          totalProductCount: 1,
+          depth: 0,
+          parentId: null,
+          metaLabel: null,
+          metaValue: null,
+          children: [],
+          products: [
+            makeProduct({
+              id: "p-leaf",
+              title: "SMOANT PASITO MINI",
+              priceRub: 90,
+            }),
+          ],
+        },
+      },
+    });
+
+    expect(wrapper.find(".group-line-price").text()).toBe("90 BYN");
+  });
 });
