@@ -48,6 +48,88 @@ const DEFAULT_CATEGORIES = [
   },
 ];
 
+const DEFAULT_CATEGORY_MAPPING_RULES = [
+  {
+    loyaltyCategoryId: "loyalty_liquids",
+    candidates: [
+      "c_liquids_salt",
+      "c_liquids_freebase",
+      "zhidkosti",
+      "Жидкости",
+      "Liquids",
+      "snyus-i-plastiny",
+      "Снюс и пластины",
+      "Снюс",
+      "Snus",
+    ],
+  },
+  {
+    loyaltyCategoryId: "loyalty_disposables",
+    candidates: [
+      "c_disposables",
+      "odnorazki",
+      "Одноразки",
+      "Disposables",
+    ],
+  },
+  {
+    loyaltyCategoryId: "loyalty_devices",
+    candidates: [
+      "c_pods",
+      "ustrojstva",
+      "Устройства",
+      "Devices",
+    ],
+  },
+];
+
+function normalizeComparable(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/ё/g, "е");
+}
+
+function collectDefaultCategoryMappings() {
+  const categories = db
+    .prepare("SELECT id, slug, name FROM categories")
+    .all()
+    .map((row) => ({
+      id: row.id,
+      slug: row.slug,
+      name: row.name,
+      comparable: new Set(
+        [row.id, row.slug, row.name]
+          .map((value) => normalizeComparable(value))
+          .filter(Boolean),
+      ),
+    }));
+
+  const mappings = [];
+
+  for (const rule of DEFAULT_CATEGORY_MAPPING_RULES) {
+    const candidates = new Set(
+      rule.candidates
+        .map((value) => normalizeComparable(value))
+        .filter(Boolean),
+    );
+
+    for (const category of categories) {
+      const matches = [...category.comparable].some((value) => candidates.has(value));
+      if (!matches) {
+        continue;
+      }
+
+      mappings.push({
+        loyaltyCategoryId: rule.loyaltyCategoryId,
+        categoryId: category.id,
+      });
+    }
+  }
+
+  return mappings;
+}
+
 export function migrateLoyaltyTables() {
   try {
     if (!tableExists("loyalty_categories")) {
@@ -187,38 +269,51 @@ export function seedDefaultLoyaltyData() {
       );
     }
 
-    const mappingCount = db
-      .prepare("SELECT COUNT(*) AS count FROM loyalty_category_mappings")
-      .get()?.count;
+    const existingMappings = db
+      .prepare(
+        `
+        SELECT loyalty_category_id, category_id
+        FROM loyalty_category_mappings
+        WHERE category_id IS NOT NULL
+      `,
+      )
+      .all();
 
-    if (Number(mappingCount || 0) > 0) {
-      return;
-    }
-
-    const existingCategoryIds = new Set(
-      db.prepare("SELECT id FROM categories").all().map((row) => row.id),
+    const mappedCategoryIds = new Set(
+      existingMappings.map((row) => String(row.category_id || "")).filter(Boolean),
+    );
+    const existingPairs = new Set(
+      existingMappings
+        .map((row) => {
+          const loyaltyCategoryId = String(row.loyalty_category_id || "");
+          const categoryId = String(row.category_id || "");
+          return loyaltyCategoryId && categoryId
+            ? `${loyaltyCategoryId}::${categoryId}`
+            : "";
+        })
+        .filter(Boolean),
     );
 
-    const defaultMappings = [
-      { loyaltyCategoryId: "loyalty_liquids", categoryId: "c_liquids_salt" },
-      { loyaltyCategoryId: "loyalty_liquids", categoryId: "c_liquids_freebase" },
-      { loyaltyCategoryId: "loyalty_disposables", categoryId: "c_disposables" },
-      { loyaltyCategoryId: "loyalty_devices", categoryId: "c_pods" },
-    ].filter((row) => existingCategoryIds.has(row.categoryId));
+    const defaultMappings = collectDefaultCategoryMappings();
 
     const insertMapping = db.prepare(`
       INSERT INTO loyalty_category_mappings (id, loyalty_category_id, category_id, group_id)
       VALUES (?, ?, ?, NULL)
     `);
 
-    let counter = 0;
     for (const mapping of defaultMappings) {
-      counter += 1;
+      const pairKey = `${mapping.loyaltyCategoryId}::${mapping.categoryId}`;
+      if (existingPairs.has(pairKey) || mappedCategoryIds.has(mapping.categoryId)) {
+        continue;
+      }
+
       insertMapping.run(
-        `loyalty_map_seed_${counter}`,
+        `loyalty_map_seed_${mapping.loyaltyCategoryId}_${mapping.categoryId}`,
         mapping.loyaltyCategoryId,
         mapping.categoryId,
       );
+      existingPairs.add(pairKey);
+      mappedCategoryIds.add(mapping.categoryId);
     }
   } catch (error) {
     console.error("[migration] Failed to seed loyalty defaults:", error);

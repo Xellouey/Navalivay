@@ -141,6 +141,266 @@ function buildLoyaltyPreview(appliedUnits = 0) {
   };
 }
 
+function buildMultiCategoryLoyaltyPreview() {
+  return {
+    customer_id: "customer-1",
+    promo_blocked: false,
+    total_loyalty_discount: 0,
+    categories: [
+      {
+        category_id: "loyalty-liquids",
+        category_key: "liquids",
+        title: "Жидкости и снюс",
+        description: null,
+        threshold: 10,
+        discount_amount: 10,
+        current_balance: 0,
+        current_available_bonus_count: 0,
+        items_in_cart: 2,
+        eligible_purchase_units: 2,
+        loyalty_units_applied: 0,
+        spent_now: 0,
+        earned_after_fulfillment: 2,
+        projected_balance: 2,
+        available_bonus_count: 0,
+        remaining_to_next: 8,
+        line_items: [
+          {
+            key: "p-1::",
+            product_id: "p-1",
+            variant_id: null,
+            quantity: 1,
+            loyalty_units_applied: 0,
+            max_redeemable_units: 1,
+            product_title: "Liquid Cherry",
+          },
+          {
+            key: "p-2::",
+            product_id: "p-2",
+            variant_id: null,
+            quantity: 1,
+            loyalty_units_applied: 0,
+            max_redeemable_units: 1,
+            product_title: "Snus Mint",
+          },
+        ],
+      },
+      {
+        category_id: "loyalty-disposables",
+        category_key: "disposables",
+        title: "Одноразки",
+        description: null,
+        threshold: 5,
+        discount_amount: 15,
+        current_balance: 0,
+        current_available_bonus_count: 0,
+        items_in_cart: 1,
+        eligible_purchase_units: 1,
+        loyalty_units_applied: 0,
+        spent_now: 0,
+        earned_after_fulfillment: 1,
+        projected_balance: 1,
+        available_bonus_count: 0,
+        remaining_to_next: 4,
+        line_items: [
+          {
+            key: "p-3::",
+            product_id: "p-3",
+            variant_id: null,
+            quantity: 1,
+            loyalty_units_applied: 0,
+            max_redeemable_units: 1,
+            product_title: "Disposable Mint",
+          },
+        ],
+      },
+      {
+        category_id: "loyalty-devices",
+        category_key: "devices",
+        title: "Устройства",
+        description: null,
+        threshold: 4,
+        discount_amount: 25,
+        current_balance: 0,
+        current_available_bonus_count: 0,
+        items_in_cart: 1,
+        eligible_purchase_units: 1,
+        loyalty_units_applied: 0,
+        spent_now: 0,
+        earned_after_fulfillment: 1,
+        projected_balance: 1,
+        available_bonus_count: 0,
+        remaining_to_next: 3,
+        line_items: [
+          {
+            key: "p-4::",
+            product_id: "p-4",
+            variant_id: null,
+            quantity: 1,
+            loyalty_units_applied: 0,
+            max_redeemable_units: 1,
+            product_title: "Device X",
+          },
+        ],
+      },
+    ],
+  };
+}
+
+function buildSingleBonusChoicePreview() {
+  return {
+    customer_id: "customer-1",
+    promo_blocked: false,
+    total_loyalty_discount: 0,
+    categories: [
+      {
+        category_id: "loyalty-liquids",
+        category_key: "liquids",
+        title: "Жидкости и снюс",
+        description: null,
+        threshold: 10,
+        discount_amount: 10,
+        current_balance: 10,
+        current_available_bonus_count: 1,
+        items_in_cart: 2,
+        eligible_purchase_units: 2,
+        loyalty_units_applied: 0,
+        spent_now: 0,
+        earned_after_fulfillment: 1,
+        projected_balance: 1,
+        available_bonus_count: 0,
+        remaining_to_next: 9,
+        line_items: [
+          {
+            key: "p-1::",
+            product_id: "p-1",
+            variant_id: null,
+            quantity: 1,
+            loyalty_units_applied: 0,
+            max_redeemable_units: 1,
+            product_title: "Liquid Cherry",
+          },
+          {
+            key: "p-2::",
+            product_id: "p-2",
+            variant_id: null,
+            quantity: 1,
+            loyalty_units_applied: 0,
+            max_redeemable_units: 1,
+            product_title: "Snus Mint",
+          },
+        ],
+      },
+      {
+        category_id: "loyalty-devices",
+        category_key: "devices",
+        title: "Устройства",
+        description: null,
+        threshold: 4,
+        discount_amount: 25,
+        current_balance: 0,
+        current_available_bonus_count: 0,
+        items_in_cart: 1,
+        eligible_purchase_units: 1,
+        loyalty_units_applied: 0,
+        spent_now: 0,
+        earned_after_fulfillment: 1,
+        projected_balance: 1,
+        available_bonus_count: 0,
+        remaining_to_next: 3,
+        line_items: [
+          {
+            key: "p-3::",
+            product_id: "p-3",
+            variant_id: null,
+            quantity: 1,
+            loyalty_units_applied: 0,
+            max_redeemable_units: 1,
+            product_title: "Device X",
+          },
+        ],
+      },
+    ],
+  };
+}
+
+function buildCrossCategoryMultiBonusPreview() {
+  return {
+    customer_id: "customer-1",
+    promo_blocked: false,
+    total_loyalty_discount: 0,
+    categories: [
+      {
+        category_id: "loyalty-liquids",
+        category_key: "liquids",
+        title: "Жидкости и снюс",
+        description: null,
+        threshold: 10,
+        discount_amount: 10,
+        current_balance: 20,
+        current_available_bonus_count: 1,
+        items_in_cart: 2,
+        eligible_purchase_units: 2,
+        loyalty_units_applied: 0,
+        spent_now: 0,
+        earned_after_fulfillment: 2,
+        projected_balance: 22,
+        available_bonus_count: 2,
+        remaining_to_next: 8,
+        line_items: [
+          {
+            key: "p-1::",
+            product_id: "p-1",
+            variant_id: null,
+            quantity: 1,
+            loyalty_units_applied: 0,
+            max_redeemable_units: 1,
+            product_title: "Liquid Cherry",
+          },
+          {
+            key: "p-2::",
+            product_id: "p-2",
+            variant_id: null,
+            quantity: 1,
+            loyalty_units_applied: 0,
+            max_redeemable_units: 1,
+            product_title: "Snus Mint",
+          },
+        ],
+      },
+      {
+        category_id: "loyalty-devices",
+        category_key: "devices",
+        title: "Устройства",
+        description: null,
+        threshold: 4,
+        discount_amount: 25,
+        current_balance: 8,
+        current_available_bonus_count: 1,
+        items_in_cart: 1,
+        eligible_purchase_units: 1,
+        loyalty_units_applied: 0,
+        spent_now: 0,
+        earned_after_fulfillment: 1,
+        projected_balance: 9,
+        available_bonus_count: 2,
+        remaining_to_next: 3,
+        line_items: [
+          {
+            key: "p-3::",
+            product_id: "p-3",
+            variant_id: null,
+            quantity: 1,
+            loyalty_units_applied: 0,
+            max_redeemable_units: 1,
+            product_title: "Device X",
+          },
+        ],
+      },
+    ],
+  };
+}
+
 describe("CheckoutView order flows", () => {
   beforeEach(() => {
     setActivePinia(createPinia());
@@ -149,6 +409,7 @@ describe("CheckoutView order flows", () => {
 
     (window as any).Telegram = {
       WebApp: {
+        initData: "signed_init_data",
         initDataUnsafe: {
           user: {
             id: 1,
@@ -237,6 +498,7 @@ describe("CheckoutView order flows", () => {
           MinDeliveryBanner: { template: "<div />" },
           DeliveryConditionsBanner: { template: "<div />" },
           AdminModal: { template: "<div><slot /></div>" },
+          CustomerModalShell: { template: "<div><slot /><slot name='footer' /></div>" },
           LoyaltyBonusPopup: { template: "<div />" },
         },
       },
@@ -311,6 +573,7 @@ describe("CheckoutView order flows", () => {
           MinDeliveryBanner: { template: "<div />" },
           DeliveryConditionsBanner: { template: "<div />" },
           AdminModal: { template: "<div><slot /></div>" },
+          CustomerModalShell: { template: "<div><slot /><slot name='footer' /></div>" },
           LoyaltyBonusPopup: { template: "<div />" },
         },
       },
@@ -377,6 +640,7 @@ describe("CheckoutView order flows", () => {
           MinDeliveryBanner: { template: "<div />" },
           DeliveryConditionsBanner: { template: "<div />" },
           AdminModal: { template: "<div><slot /></div>" },
+          CustomerModalShell: { template: "<div><slot /><slot name='footer' /></div>" },
           LoyaltyBonusPopup: { template: "<div />" },
         },
       },
@@ -392,6 +656,360 @@ describe("CheckoutView order flows", () => {
 
     expect(submittedBody?.items?.[0]?.loyalty_units_applied).toBe(1);
     expect(routerPush).toHaveBeenCalledWith("/my-order");
+
+    wrapper.unmount();
+  });
+
+  it("shows loyalty preview widget in browser without Telegram", async () => {
+    const cartStore = useCartStore();
+    cartStore.replaceItemsFromOrder([
+      {
+        productId: "p-1",
+        title: "Liquid Cherry",
+        productTitle: "Liquid Cherry",
+        groupName: "Liquids",
+        priceRub: 15,
+        quantity: 1,
+        image: "/img/liquid.png",
+        variantId: null,
+        variantName: null,
+        groupId: "group-1",
+        categoryId: "c_liquids_salt",
+      },
+    ]);
+
+    (window as any).Telegram = undefined;
+
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.startsWith("/api/product/")) {
+        return createJsonResponse({ id: "p-1", hasVariants: false, stock: 10 });
+      }
+      if (url.startsWith("/api/loyalty/me")) {
+        return createJsonResponse(buildLoyaltySnapshot());
+      }
+      if (url === "/api/loyalty/checkout-preview") {
+        return createJsonResponse(buildLoyaltyPreview(0));
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const wrapper = mount(CheckoutView, {
+      global: {
+        stubs: {
+          MinDeliveryBanner: { template: "<div />" },
+          DeliveryConditionsBanner: { template: "<div />" },
+          AdminModal: { template: "<div><slot /></div>" },
+          CustomerModalShell: { template: "<div><slot /><slot name='footer' /></div>" },
+          LoyaltyBonusPopup: { template: "<div />" },
+        },
+      },
+    });
+
+    await flushPromises();
+    await flushPromises();
+
+    expect(wrapper.find(".loyalty-card").exists()).toBe(true);
+    expect(wrapper.findAll(".loyalty-tab")).toHaveLength(1);
+    expect(wrapper.find(".loyalty-card-title-main").text()).toContain("Бонусная система");
+    expect(wrapper.find(".user-info-input").exists()).toBe(true);
+
+    wrapper.unmount();
+  });
+
+  it("renders one loyalty widget with tabs for preview categories", async () => {
+    const cartStore = useCartStore();
+    cartStore.replaceItemsFromOrder([
+      {
+        productId: "p-1",
+        title: "Liquid Cherry",
+        productTitle: "Liquid Cherry",
+        groupName: "Жидкости",
+        priceRub: 15,
+        quantity: 1,
+        image: "/img/liquid.png",
+        variantId: null,
+        variantName: null,
+        groupId: "group-1",
+        categoryId: "c_liquids_salt",
+      },
+      {
+        productId: "p-2",
+        title: "Snus Mint",
+        productTitle: "Snus Mint",
+        groupName: "Снюс",
+        priceRub: 8,
+        quantity: 1,
+        image: "/img/snus.png",
+        variantId: null,
+        variantName: null,
+        groupId: "group-2",
+        categoryId: "c_snus",
+      },
+      {
+        productId: "p-3",
+        title: "Disposable Mint",
+        productTitle: "Disposable Mint",
+        groupName: "Одноразки",
+        priceRub: 25,
+        quantity: 1,
+        image: "/img/disposable.png",
+        variantId: null,
+        variantName: null,
+        groupId: "group-3",
+        categoryId: "c_disposables",
+      },
+      {
+        productId: "p-4",
+        title: "Device X",
+        productTitle: "Device X",
+        groupName: "Устройства",
+        priceRub: 55,
+        quantity: 1,
+        image: "/img/device.png",
+        variantId: null,
+        variantName: null,
+        groupId: "group-4",
+        categoryId: "c_devices",
+      },
+    ]);
+
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.startsWith("/api/product/")) {
+        return createJsonResponse({ id: "p-1", hasVariants: false, stock: 10 });
+      }
+      if (url.startsWith("/api/loyalty/me")) {
+        return createJsonResponse(buildLoyaltySnapshot());
+      }
+      if (url === "/api/loyalty/checkout-preview") {
+        return createJsonResponse(buildMultiCategoryLoyaltyPreview());
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const wrapper = mount(CheckoutView, {
+      global: {
+        stubs: {
+          MinDeliveryBanner: { template: "<div />" },
+          DeliveryConditionsBanner: { template: "<div />" },
+          AdminModal: { template: "<div><slot /></div>" },
+          CustomerModalShell: { template: "<div><slot /><slot name='footer' /></div>" },
+          LoyaltyBonusPopup: { template: "<div />" },
+        },
+      },
+    });
+
+    await flushPromises();
+    await flushPromises();
+
+    expect(wrapper.findAll(".loyalty-card")).toHaveLength(1);
+    expect(wrapper.findAll(".loyalty-tab")).toHaveLength(3);
+    expect(wrapper.find(".loyalty-tab--active").exists()).toBe(true);
+
+    const tabs = wrapper.findAll(".loyalty-tab");
+    const initialActiveLabel = wrapper.find(".loyalty-tab--active").text();
+
+    await tabs[1].trigger("click");
+    await flushPromises();
+    expect(wrapper.find(".loyalty-tab--active").text()).not.toBe(initialActiveLabel);
+
+    expect(wrapper.find(".loyalty-progress-value").text()).toBe("1 / 5");
+    expect(wrapper.find(".loyalty-copy").text()).toContain("15 BYN");
+
+    expect(wrapper.text()).not.toContain("Жидкости и снюс");
+    expect(wrapper.text()).toContain("Одноразки");
+    expect(wrapper.text()).toContain("Устройства");
+
+    wrapper.unmount();
+  });
+
+  it("lets user choose only one bonus unit inside the earned category", async () => {
+    const cartStore = useCartStore();
+    cartStore.replaceItemsFromOrder([
+      {
+        productId: "p-1",
+        title: "Liquid Cherry",
+        productTitle: "Liquid Cherry",
+        groupName: "Жидкости",
+        priceRub: 15,
+        quantity: 1,
+        image: "/img/liquid.png",
+        variantId: null,
+        variantName: null,
+        groupId: "group-1",
+        categoryId: "c_liquids_salt",
+      },
+      {
+        productId: "p-2",
+        title: "Snus Mint",
+        productTitle: "Snus Mint",
+        groupName: "Снюс",
+        priceRub: 8,
+        quantity: 1,
+        image: "/img/snus.png",
+        variantId: null,
+        variantName: null,
+        groupId: "group-2",
+        categoryId: "c_snus",
+      },
+      {
+        productId: "p-3",
+        title: "Device X",
+        productTitle: "Device X",
+        groupName: "Устройства",
+        priceRub: 55,
+        quantity: 1,
+        image: "/img/device.png",
+        variantId: null,
+        variantName: null,
+        groupId: "group-3",
+        categoryId: "c_devices",
+      },
+    ]);
+
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.startsWith("/api/product/")) {
+        return createJsonResponse({ id: "p-1", hasVariants: false, stock: 10 });
+      }
+      if (url.startsWith("/api/loyalty/me")) {
+        return createJsonResponse(buildLoyaltySnapshot());
+      }
+      if (url === "/api/loyalty/checkout-preview") {
+        return createJsonResponse(buildSingleBonusChoicePreview());
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const wrapper = mount(CheckoutView, {
+      global: {
+        stubs: {
+          MinDeliveryBanner: { template: "<div />" },
+          DeliveryConditionsBanner: { template: "<div />" },
+          AdminModal: { template: "<div><slot /></div>" },
+          CustomerModalShell: { template: "<div><slot /><slot name='footer' /></div>" },
+          LoyaltyBonusPopup: { template: "<div />" },
+        },
+      },
+    });
+
+    await flushPromises();
+    await flushPromises();
+
+    expect(wrapper.text()).toContain("Liquid Cherry");
+    expect(wrapper.text()).toContain("Snus Mint");
+    expect(wrapper.text()).not.toContain("Device X");
+
+    const selects = wrapper.findAll(".loyalty-line-select");
+    expect(selects).toHaveLength(2);
+
+    await selects[0].setValue("1");
+    await flushPromises();
+
+    const refreshedSelects = wrapper.findAll(".loyalty-line-select");
+    const secondOptions = refreshedSelects[1].findAll("option").map((option) => option.text());
+    expect(secondOptions).toEqual(["0 шт."]);
+
+    const tabs = wrapper.findAll(".loyalty-tab");
+    await tabs[1].trigger("click");
+    await flushPromises();
+
+    expect(wrapper.find(".loyalty-tab--active").text()).toContain("Устройства");
+    expect(wrapper.find(".loyalty-progress-value").text()).toBe("1 / 4");
+    expect(wrapper.findAll(".loyalty-line-select")).toHaveLength(0);
+    expect(wrapper.find(".loyalty-copy--secondary").exists()).toBe(true);
+    expect(wrapper.text()).not.toContain("Snus Mint");
+
+    wrapper.unmount();
+  });
+
+  it("allows bonus selection in different categories within one order", async () => {
+    const cartStore = useCartStore();
+    cartStore.replaceItemsFromOrder([
+      {
+        productId: "p-1",
+        title: "Liquid Cherry",
+        productTitle: "Liquid Cherry",
+        groupName: "Жидкости",
+        priceRub: 15,
+        quantity: 1,
+        image: "/img/liquid.png",
+        variantId: null,
+        variantName: null,
+        groupId: "group-1",
+        categoryId: "c_liquids_salt",
+      },
+      {
+        productId: "p-2",
+        title: "Snus Mint",
+        productTitle: "Snus Mint",
+        groupName: "Снюс",
+        priceRub: 8,
+        quantity: 1,
+        image: "/img/snus.png",
+        variantId: null,
+        variantName: null,
+        groupId: "group-2",
+        categoryId: "c_snus",
+      },
+      {
+        productId: "p-3",
+        title: "Device X",
+        productTitle: "Device X",
+        groupName: "Устройства",
+        priceRub: 55,
+        quantity: 1,
+        image: "/img/device.png",
+        variantId: null,
+        variantName: null,
+        groupId: "group-3",
+        categoryId: "c_devices",
+      },
+    ]);
+
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.startsWith("/api/product/")) {
+        return createJsonResponse({ id: "p-1", hasVariants: false, stock: 10 });
+      }
+      if (url.startsWith("/api/loyalty/me")) {
+        return createJsonResponse(buildLoyaltySnapshot());
+      }
+      if (url === "/api/loyalty/checkout-preview") {
+        return createJsonResponse(buildCrossCategoryMultiBonusPreview());
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const wrapper = mount(CheckoutView, {
+      global: {
+        stubs: {
+          MinDeliveryBanner: { template: "<div />" },
+          DeliveryConditionsBanner: { template: "<div />" },
+          AdminModal: { template: "<div><slot /></div>" },
+          CustomerModalShell: { template: "<div><slot /><slot name='footer' /></div>" },
+          LoyaltyBonusPopup: { template: "<div />" },
+        },
+      },
+    });
+
+    await flushPromises();
+    await flushPromises();
+
+    await wrapper.findAll(".loyalty-line-select")[0].setValue("1");
+    await flushPromises();
+
+    await wrapper.findAll(".loyalty-tab")[1].trigger("click");
+    await flushPromises();
+
+    const deviceSelect = wrapper.find(".loyalty-line-select");
+    expect(deviceSelect.exists()).toBe(true);
+    expect(deviceSelect.findAll("option").map((option) => option.text())).toEqual(["0 шт.", "1 шт."]);
 
     wrapper.unmount();
   });

@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
+import { withTelegramAuthHeaders } from '@/utils/telegramAuth'
 
 export interface UserProfile {
   id: string | null
@@ -65,7 +66,9 @@ export const useUserStore = defineStore('user', () => {
     error.value = null
 
     try {
-      const response = await fetch(`/api/customer/me?telegram_id=${encodeURIComponent(id)}`)
+      const response = await fetch(`/api/customer/me?telegram_id=${encodeURIComponent(id)}`, {
+        headers: withTelegramAuthHeaders(),
+      })
 
       if (!response.ok) {
         throw new Error('Не удалось загрузить профиль')

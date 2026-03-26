@@ -3,13 +3,15 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import express from "express";
+import { telegramHeaders } from "./helpers/telegram-auth.js";
 
 const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "navalivay-promo-lifecycle-"));
 const tempDbPath = path.join(tempDir, "test.db");
 
 process.env.DATABASE_FILE = tempDbPath;
-process.env.BOT_TOKEN = "";
+process.env.BOT_TOKEN = "test-bot-token";
 process.env.SESSION_SECRET = "promo-lifecycle-secret";
+process.env.NODE_ENV = "test";
 
 const { initDb, db } = await import("../db.js");
 const { issueToken } = await import("../auth.js");
@@ -113,7 +115,7 @@ async function createOrder(identity, overrides = {}) {
 
   return requestJson("/api/orders", {
     method: "POST",
-    headers: jsonHeaders(),
+    headers: telegramHeaders(identity),
     body: JSON.stringify(payload),
   });
 }
@@ -138,7 +140,7 @@ async function modifyOrder(orderId, identity, overrides = {}) {
 
   return requestJson(`/api/orders/${orderId}/modify-by-customer`, {
     method: "PUT",
-    headers: jsonHeaders(),
+    headers: telegramHeaders(identity),
     body: JSON.stringify(payload),
   });
 }
@@ -215,7 +217,7 @@ async function testPromoReservationCanBeReusedBySameOrder() {
 
   const cancelled = await requestJson(`/api/orders/${orderId}/cancel-by-customer`, {
     method: "POST",
-    headers: jsonHeaders(),
+    headers: telegramHeaders(identity),
     body: JSON.stringify(identity),
   });
   assert.equal(cancelled.response.status, 200);

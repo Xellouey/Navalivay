@@ -21,6 +21,7 @@ describe("ProfileView loyalty section", () => {
 
     (window as any).Telegram = {
       WebApp: {
+        initData: "signed_init_data",
         initDataUnsafe: {
           user: {
             id: 11,
@@ -33,7 +34,7 @@ describe("ProfileView loyalty section", () => {
     };
   });
 
-  it("renders loyalty cards and shows popup when a bonus is available", async () => {
+  it("renders loyalty showcase card and shows popup when a bonus is available", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url.startsWith("/api/customer/me")) {
@@ -89,8 +90,19 @@ describe("ProfileView loyalty section", () => {
     await flushPromises();
 
     expect(wrapper.findAll(".loyalty-card")).toHaveLength(1);
-    expect(wrapper.text()).toContain("Liquids");
+    expect(wrapper.text()).toContain("Бонусная система");
+    expect(wrapper.find(".loyalty-tab--active").text()).toContain("Жидкости");
+    expect(wrapper.find(".loyalty-progress-value").text()).toContain("2 / 10");
     expect(wrapper.find(".bonus-popup-stub").exists()).toBe(true);
+
+    await wrapper.find(".loyalty-rules-link").trigger("click");
+
+    expect(wrapper.find(".rules-modal-overlay").exists()).toBe(true);
+    expect(wrapper.text()).toContain("Как получить скидку?");
+
+    await wrapper.find(".rules-modal-close").trigger("click");
+
+    expect(wrapper.find(".rules-modal-overlay").exists()).toBe(false);
 
     wrapper.unmount();
   });

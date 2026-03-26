@@ -7,13 +7,7 @@ import BottomTabBar from "@/components/BottomTabBar.vue";
 
 const route = useRoute();
 
-// Временное скрытие нижних кнопок в production UI.
-// Чтобы вернуть панель, достаточно переключить флаг в false.
-const HIDE_BOTTOM_TAB_BAR = true;
-
 const showTabBar = computed(() => {
-  if (HIDE_BOTTOM_TAB_BAR) return false;
-
   const path = route.path;
   if (path.startsWith("/admin")) return false;
   if (path === "/checkout") return false;
@@ -31,24 +25,46 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="min-h-screen" style="background: #ffffff">
-    <RouterView v-slot="{ Component, route: viewRoute }">
-      <Transition name="page-fade" mode="out-in">
-        <component :is="Component" :key="viewRoute.fullPath" />
-      </Transition>
-    </RouterView>
+  <div
+    class="app-shell"
+    :class="{ 'app-shell--with-tab-bar': showTabBar }"
+    style="background: var(--app-page-background, #ffffff)"
+  >
+    <div class="app-shell__content">
+      <RouterView v-slot="{ Component, route: viewRoute }">
+        <Transition name="page-fade" mode="out-in">
+          <component :is="Component" :key="viewRoute.fullPath" />
+        </Transition>
+      </RouterView>
+    </div>
     <VapeSmoke />
     <BottomTabBar v-if="showTabBar" />
   </div>
 </template>
 
 <style>
+:root {
+  --app-screen-max-width: 393px;
+  --app-bottom-tab-bar-height: 130px;
+  --app-page-background: #f5f7fa;
+}
+
 html,
 body,
 #app {
   margin: 0;
   padding: 0;
   min-height: 100%;
+}
+
+.app-shell {
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+.app-shell--with-tab-bar {
+  padding-bottom: var(--app-bottom-tab-bar-height, 130px);
+  box-sizing: border-box;
 }
 
 /* Плавные переходы между страницами - fade */

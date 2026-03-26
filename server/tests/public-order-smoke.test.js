@@ -3,12 +3,14 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import express from "express";
+import { buildTelegramInitData, telegramHeaders } from "./helpers/telegram-auth.js";
 
 const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "navalivay-public-order-"));
 const tempDbPath = path.join(tempDir, "test.db");
 
 process.env.DATABASE_FILE = tempDbPath;
-process.env.BOT_TOKEN = "";
+process.env.BOT_TOKEN = "test-bot-token";
+process.env.NODE_ENV = "test";
 
 const { initDb, db } = await import("../db.js");
 const { publicRouter } = await import("../routes/public.js");
@@ -78,13 +80,17 @@ async function createOrder(identity, overrides = {}) {
 
   return requestJson("/api/orders", {
     method: "POST",
-    headers: jsonHeaders(),
+    headers: telegramHeaders(identity),
     body: JSON.stringify(payload),
   });
 }
 
 function getOrderById(orderId) {
   return db.prepare("SELECT * FROM orders WHERE id = ?").get(orderId);
+}
+
+function getCustomerById(customerId) {
+  return db.prepare("SELECT * FROM customers WHERE id = ?").get(customerId);
 }
 
 function getOrderItems(orderId) {
@@ -140,7 +146,7 @@ async function testModifyNewOrder() {
 
   const updated = await requestJson(`/api/orders/${orderId}/modify-by-customer`, {
     method: "PUT",
-    headers: jsonHeaders(),
+    headers: telegramHeaders(identity),
     body: JSON.stringify({
       ...identity,
       delivery_type: "pickup",
@@ -182,7 +188,7 @@ async function testModifyInProgressOrderRestoresStock() {
 
   const updated = await requestJson(`/api/orders/${orderId}/modify-by-customer`, {
     method: "PUT",
-    headers: jsonHeaders(),
+    headers: telegramHeaders(identity),
     body: JSON.stringify({
       ...identity,
       delivery_type: "pickup",
@@ -223,7 +229,7 @@ async function testCancelNewOrder() {
 
   const cancelled = await requestJson(`/api/orders/${orderId}/cancel-by-customer`, {
     method: "POST",
-    headers: jsonHeaders(),
+    headers: telegramHeaders(identity),
     body: JSON.stringify(identity),
   });
 
@@ -248,7 +254,7 @@ async function testCancelInProgressOrder() {
 
   const cancelled = await requestJson(`/api/orders/${orderId}/cancel-by-customer`, {
     method: "POST",
-    headers: jsonHeaders(),
+    headers: telegramHeaders(identity),
     body: JSON.stringify(identity),
   });
 
@@ -262,6 +268,164 @@ async function testCancelInProgressOrder() {
   assert.equal(getProductStock(), 10);
 }
 
+async function testClientPriceIsIgnored() {
+  const identity = {
+    telegram_id: "1006",
+    telegram_username: "customer_price_guard",
+  };
+
+  const created = await createOrder(identity, {
+    items: [
+      {
+        product_id: "product-1",
+        variant_id: null,
+        quantity: 2,
+        price_per_unit: 1,
+        product_title: "Liquid Cherry",
+        variant_name: null,
+      },
+    ],
+  });
+
+  assert.equal(created.response.status, 200);
+  const order = getOrderById(created.data.order_id);
+  const items = getOrderItems(created.data.order_id);
+
+  assert.equal(Number(order.total_amount || 0), 30);
+  assert.equal(Number(items[0].price_per_unit || 0), 15);
+}
+
+async function testMissingTelegramAuthIsRejected() {
+  const created = await requestJson("/api/orders", {
+    method: "POST",
+    headers: jsonHeaders(),
+    body: JSON.stringify({
+      telegram_id: "1007",
+      telegram_username: "customer_without_auth",
+      delivery_type: "pickup",
+      items: [
+        {
+          product_id: "product-1",
+          variant_id: null,
+          quantity: 1,
+          price_per_unit: 15,
+          product_title: "Liquid Cherry",
+          variant_name: null,
+        },
+      ],
+    }),
+  });
+
+  assert.equal(created.response.status, 401);
+  assert.equal(created.data.error, "telegram_auth_required");
+}
+
+async function testInvalidTelegramSignatureIsRejected() {
+  const identity = {
+    telegram_id: "1008",
+    telegram_username: "customer_bad_signature",
+  };
+
+  const created = await requestJson("/api/orders", {
+    method: "POST",
+    headers: {
+      ...jsonHeaders(),
+      "X-Telegram-Init-Data": buildTelegramInitData(identity, "wrong-test-bot-token"),
+    },
+    body: JSON.stringify({
+      ...identity,
+      delivery_type: "pickup",
+      items: [
+        {
+          product_id: "product-1",
+          variant_id: null,
+          quantity: 1,
+          price_per_unit: 15,
+          product_title: "Liquid Cherry",
+          variant_name: null,
+        },
+      ],
+    }),
+  });
+
+  assert.equal(created.response.status, 401);
+  assert.equal(created.data.error, "telegram_auth_invalid");
+}
+
+async function testBodyIdentitySpoofIsIgnored() {
+  const identity = {
+    telegram_id: "1009",
+    telegram_username: "customer_header_identity",
+  };
+
+  const created = await createOrder(identity, {
+    telegram_id: "9999",
+    telegram_username: "spoofed_body_identity",
+  });
+
+  assert.equal(created.response.status, 200);
+
+  const order = getOrderById(created.data.order_id);
+  const customer = getCustomerById(order.customer_id);
+  assert.equal(customer.telegram_id, "1009");
+  assert.equal(customer.telegram_username, "customer_header_identity");
+  assert.equal(order.telegram_username, "customer_header_identity");
+}
+
+async function testForeignOrderAccessIsRejected() {
+  const owner = {
+    telegram_id: "1010",
+    telegram_username: "customer_owner",
+  };
+  const attacker = {
+    telegram_id: "1011",
+    telegram_username: "customer_attacker",
+  };
+
+  const created = await createOrder(owner);
+  assert.equal(created.response.status, 200);
+  const orderId = created.data.order_id;
+
+  const activeForAttacker = await requestJson(`/api/orders/my-active?telegram_id=${owner.telegram_id}`, {
+    headers: telegramHeaders(attacker),
+  });
+  assert.equal(activeForAttacker.response.status, 200);
+  assert.equal(activeForAttacker.data.found, false);
+
+  const modifyAttempt = await requestJson(`/api/orders/${orderId}/modify-by-customer`, {
+    method: "PUT",
+    headers: telegramHeaders(attacker),
+    body: JSON.stringify({
+      telegram_id: owner.telegram_id,
+      telegram_username: owner.telegram_username,
+      delivery_type: "pickup",
+      items: [
+        {
+          product_id: "product-1",
+          variant_id: null,
+          quantity: 2,
+          price_per_unit: 15,
+          product_title: "Liquid Cherry",
+          variant_name: null,
+        },
+      ],
+    }),
+  });
+  assert.equal(modifyAttempt.response.status, 404);
+  assert.equal(modifyAttempt.data.error, "not_found");
+
+  const cancelAttempt = await requestJson(`/api/orders/${orderId}/cancel-by-customer`, {
+    method: "POST",
+    headers: telegramHeaders(attacker),
+    body: JSON.stringify({
+      telegram_id: owner.telegram_id,
+      telegram_username: owner.telegram_username,
+    }),
+  });
+  assert.equal(cancelAttempt.response.status, 404);
+  assert.equal(cancelAttempt.data.error, "not_found");
+}
+
 async function main() {
   seedProduct();
 
@@ -270,6 +434,11 @@ async function main() {
   await testModifyInProgressOrderRestoresStock();
   await testCancelNewOrder();
   await testCancelInProgressOrder();
+  await testClientPriceIsIgnored();
+  await testMissingTelegramAuthIsRejected();
+  await testInvalidTelegramSignatureIsRejected();
+  await testBodyIdentitySpoofIsIgnored();
+  await testForeignOrderAccessIsRejected();
 
   console.log("[public-order-smoke] OK");
 }

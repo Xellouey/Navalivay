@@ -77,6 +77,7 @@ describe("MyOrderView", () => {
     vi.stubGlobal("fetch", vi.fn(async () => createJsonResponse(buildOrder("new"))));
     (window as any).Telegram = {
       WebApp: {
+        initData: "signed_init_data",
         initDataUnsafe: {
           user: {
             id: 1,

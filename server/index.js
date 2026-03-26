@@ -26,6 +26,24 @@ const app = express();
 const PORT = process.env.PORT || 8082;
 app.set('trust proxy', 1);
 
+function sanitizeRequestUrl(originalUrl = '') {
+  if (!originalUrl || !originalUrl.includes('?')) {
+    return originalUrl;
+  }
+
+  const [pathname, queryString] = originalUrl.split('?', 2);
+  const params = new URLSearchParams(queryString);
+  ['telegram_id', 'telegram_username'].forEach((key) => {
+    if (params.has(key)) {
+      params.set(key, '[redacted]');
+    }
+  });
+  const sanitizedQuery = params.toString();
+  return sanitizedQuery ? `${pathname}?${sanitizedQuery}` : pathname;
+}
+
+morgan.token('safe-url', (req) => sanitizeRequestUrl(req.originalUrl || req.url || ''));
+
 // Init DB (tables + seed)
 initDb();
 
@@ -36,7 +54,7 @@ archiveOldDeliveredOrders();
 scheduleArchiving();
 
 // Middlewares
-app.use(morgan('dev'));
+app.use(morgan(':method :safe-url :status :response-time ms - :res[content-length]'));
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());

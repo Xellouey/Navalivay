@@ -139,7 +139,14 @@ function getProductContextMap(productIds) {
   const rows = db
     .prepare(
       `
-      SELECT id, categoryId AS category_id, groupId AS group_id, title
+      SELECT
+        id,
+        categoryId AS category_id,
+        groupId AS group_id,
+        title,
+        priceRub AS price_rub,
+        stock,
+        has_variants
       FROM products
       WHERE id IN (${placeholders})
     `,
@@ -153,6 +160,43 @@ function getProductContextMap(productIds) {
         category_id: row.category_id || null,
         group_id: row.group_id || null,
         title: row.title || row.id,
+        price_rub: row.price_rub ?? 0,
+        stock: row.stock ?? null,
+        has_variants: Number(row.has_variants || 0) === 1,
+      },
+    ]),
+  );
+}
+
+function getVariantContextMap(variantIds) {
+  if (!Array.isArray(variantIds) || variantIds.length === 0) {
+    return new Map();
+  }
+
+  const uniqueIds = [...new Set(variantIds.filter(Boolean))];
+  if (!uniqueIds.length) {
+    return new Map();
+  }
+
+  const placeholders = uniqueIds.map(() => "?").join(",");
+  const rows = db
+    .prepare(
+      `
+      SELECT id, product_id, price_rub, stock
+      FROM product_variants
+      WHERE id IN (${placeholders})
+    `,
+    )
+    .all(...uniqueIds);
+
+  return new Map(
+    rows.map((row) => [
+      row.id,
+      {
+        id: row.id,
+        product_id: row.product_id || null,
+        price_rub: row.price_rub ?? null,
+        stock: row.stock ?? null,
       },
     ]),
   );
@@ -312,6 +356,7 @@ export function buildLoyaltyApplication({
   const categoryById = new Map(categories.map((category) => [category.id, category]));
   const mappingLookup = getMappings();
   const productContextMap = getProductContextMap(items.map((item) => item.product_id));
+  const variantContextMap = getVariantContextMap(items.map((item) => item.variant_id));
   const baseBalances = getCustomerBalanceMap(customerId);
   const restoredBalances = getReservedSpendingByOrder(existingOrderId);
   const effectiveBalances = new Map(baseBalances);
@@ -330,12 +375,22 @@ export function buildLoyaltyApplication({
 
   for (const rawItem of items) {
     const quantity = Math.max(0, Math.floor(toNumber(rawItem.quantity, 0)));
-    const pricePerUnit = Math.max(0, toNumber(rawItem.price_per_unit, 0));
     const manualDiscountAmount = Math.max(
       0,
       toNumber(rawItem.manual_discount_amount ?? rawItem.discount_amount, 0),
     );
     const productContext = productContextMap.get(rawItem.product_id) || null;
+    const variantContext = rawItem.variant_id
+      ? variantContextMap.get(rawItem.variant_id) || null
+      : null;
+    const variantMatchesProduct =
+      !variantContext ||
+      !productContext ||
+      String(variantContext.product_id || "") === String(rawItem.product_id || "");
+    const resolvedPricePerUnit = variantMatchesProduct
+      ? variantContext?.price_rub ?? productContext?.price_rub ?? rawItem.price_per_unit
+      : productContext?.price_rub ?? rawItem.price_per_unit;
+    const pricePerUnit = Math.max(0, toNumber(resolvedPricePerUnit, 0));
     const loyaltyCategoryId = resolveLoyaltyCategoryId(productContext, mappingLookup);
     const category = loyaltyCategoryId ? categoryById.get(loyaltyCategoryId) || null : null;
     const requestedUnits = Math.max(
@@ -383,7 +438,7 @@ export function buildLoyaltyApplication({
     const totalPrice = Math.max(0, pricePerUnit * quantity - totalDiscountAmount);
 
     if (preview) {
-      const maxRedeemableUnits = lineCanApplyBonus ? quantity : 0;
+      const maxRedeemableUnits = lineCanApplyBonus ? Math.min(quantity, 1) : 0;
       const earnedAfterFulfillment =
         promoBlocked || manualDiscountAmount > 0 || !category?.active
           ? 0
@@ -434,6 +489,12 @@ export function buildLoyaltyApplication({
       const threshold = Number(category?.threshold || 0);
       if (!category || threshold <= 0) {
         throw new Error("loyalty_category_not_available");
+      }
+
+      if (requestedUnits > 1) {
+        const error = new Error("loyalty_category_limit_exceeded");
+        error.userMessage = "За один заказ можно применить только один бонус на категорию";
+        throw error;
       }
 
       const availableUnits = Math.floor(balance / threshold);

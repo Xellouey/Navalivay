@@ -114,6 +114,7 @@ import {
   getTelegramIdentity,
   type CustomerActiveOrder,
 } from "@/utils/customerOrders";
+import { withTelegramAuthHeaders } from "@/utils/telegramAuth";
 
 const router = useRouter();
 const cartStore = useCartStore();
@@ -194,7 +195,7 @@ async function handleCancelOrder() {
     const identity = getTelegramIdentity();
     const response = await fetch(`/api/orders/${order.value.id}/cancel-by-customer`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: withTelegramAuthHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify({
         telegram_id: identity.telegramId || undefined,
         telegram_username: identity.telegramUsername || undefined,

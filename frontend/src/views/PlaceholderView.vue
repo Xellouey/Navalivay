@@ -15,7 +15,7 @@
   align-items: center;
   justify-content: center;
   padding: 16px;
-  padding-bottom: calc(64px + env(safe-area-inset-bottom, 0px) + 16px);
+  padding-bottom: 16px;
 }
 
 .placeholder-content {

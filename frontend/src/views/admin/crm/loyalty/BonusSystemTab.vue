@@ -167,29 +167,31 @@
               <td class="py-3">
                 <button
                   class="rounded-lg bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-200"
-                  @click="toggleLedger(customer.id)"
+                  @click="openLedgerModal(customer)"
                 >
-                  {{ expandedCustomerId === customer.id ? 'Скрыть' : 'Показать' }}
+                  Показать
                 </button>
               </td>
             </tr>
           </tbody>
         </table>
       </div>
-
-      <div v-if="expandedCustomerId" class="mt-5 rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
-        <div class="mb-3 flex items-center justify-between gap-3">
-          <h3 class="text-base font-semibold text-slate-900">История начислений и списаний</h3>
-          <span class="text-xs text-slate-500">Последние 200 записей</span>
-        </div>
-
-        <div v-if="ledgerLoading" class="text-sm text-slate-500">Загрузка истории...</div>
-        <div v-else-if="!crmStore.loyaltyLedger.length" class="text-sm text-slate-500">Записей пока нет.</div>
+      <AdminModal
+        :isOpen="Boolean(activeLedgerCustomerId)"
+        :title="ledgerModalTitle"
+        :description="ledgerModalDescription"
+        size="xl"
+        :showActions="false"
+        @close="closeLedgerModal"
+        @cancel="closeLedgerModal"
+      >
+        <div v-if="ledgerLoading" class="text-sm text-slate-500">{{ ledgerLoadingText }}</div>
+        <div v-else-if="!ledgerEntries.length" class="text-sm text-slate-500">{{ ledgerEmptyText }}</div>
         <div v-else class="space-y-2">
           <div
-            v-for="entry in crmStore.loyaltyLedger"
+            v-for="entry in ledgerEntries"
             :key="entry.id"
-            class="flex flex-col gap-1 rounded-xl bg-white px-4 py-3 sm:flex-row sm:items-center sm:justify-between"
+            class="flex flex-col gap-1 rounded-xl bg-slate-50 px-4 py-3 sm:flex-row sm:items-center sm:justify-between"
           >
             <div>
               <div class="font-medium text-slate-900">{{ entry.category_title }}</div>
@@ -199,23 +201,25 @@
               <span :class="entry.delta >= 0 ? 'text-emerald-600' : 'text-rose-600'">
                 {{ entry.delta > 0 ? '+' : '' }}{{ entry.delta }}
               </span>
-              <span class="ml-2 text-slate-500">Баланс: {{ entry.balance_after }}</span>
+              <span class="ml-2 text-slate-500">{{ ledgerBalanceLabel }}: {{ entry.balance_after }}</span>
               <span class="ml-2 text-slate-400">{{ formatDateTime(entry.created_at) }}</span>
             </div>
           </div>
         </div>
-      </div>
+      </AdminModal>
     </section>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue'
+import AdminModal from '@/components/AdminModal.vue'
 import { useCatalogStore } from '@/stores/catalog'
 import {
   useCrmStore,
   type CrmLoyaltyCategory,
   type CrmLoyaltyCustomer,
+  type CrmLoyaltyLedgerEntry,
 } from '@/stores/crm'
 
 type LoyaltyCategoryForm = {
@@ -234,8 +238,16 @@ type LoyaltyMappingForm = {
 const crmStore = useCrmStore()
 const catalogStore = useCatalogStore()
 const search = ref('')
-const expandedCustomerId = ref<string | null>(null)
+const activeLedgerCustomerId = ref<string | null>(null)
 const ledgerLoading = ref(false)
+const ledgerEntries = ref<CrmLoyaltyLedgerEntry[]>([])
+let ledgerRequestId = 0
+const ledgerModalTitle = '\u0418\u0441\u0442\u043e\u0440\u0438\u044f \u043d\u0430\u0447\u0438\u0441\u043b\u0435\u043d\u0438\u0439 \u0438 \u0441\u043f\u0438\u0441\u0430\u043d\u0438\u0439'
+const ledgerRecentEntriesLabel = '\u043f\u043e\u0441\u043b\u0435\u0434\u043d\u0438\u0435 200 \u0437\u0430\u043f\u0438\u0441\u0435\u0439'
+const ledgerLoadingText = '\u0417\u0430\u0433\u0440\u0443\u0437\u043a\u0430 \u0438\u0441\u0442\u043e\u0440\u0438\u0438...'
+const ledgerEmptyText = '\u0417\u0430\u043f\u0438\u0441\u0435\u0439 \u043f\u043e\u043a\u0430 \u043d\u0435\u0442.'
+const ledgerBalanceLabel = '\u0411\u0430\u043b\u0430\u043d\u0441'
+const noUsernameLabel = '\u0431\u0435\u0437 username'
 
 const forms = reactive<Record<string, LoyaltyCategoryForm>>({})
 
@@ -243,6 +255,20 @@ const mappingForms = reactive<Record<string, LoyaltyMappingForm>>({})
 
 const categories = computed(() => crmStore.loyaltyCategories)
 const loyaltyCustomers = computed(() => crmStore.loyaltyCustomers)
+const selectedLedgerCustomer = computed(
+  () => loyaltyCustomers.value.find((customer) => customer.id === activeLedgerCustomerId.value) ?? null,
+)
+const ledgerModalDescription = computed(() => {
+  if (!selectedLedgerCustomer.value) {
+    return ledgerRecentEntriesLabel
+  }
+
+  const username = selectedLedgerCustomer.value.telegram_username
+    ? `@${selectedLedgerCustomer.value.telegram_username}`
+    : noUsernameLabel
+
+  return `${customerLabel(selectedLedgerCustomer.value)} | ${username} | ${ledgerRecentEntriesLabel}`
+})
 const allGroups = computed(() =>
   catalogStore.categories.flatMap((category) => category.groups),
 )
@@ -340,18 +366,28 @@ function toggleGroupMapping(categoryId: string, targetId: string) {
   }
 }
 
-async function toggleLedger(customerId: string) {
-  if (expandedCustomerId.value === customerId) {
-    expandedCustomerId.value = null
-    return
-  }
-  expandedCustomerId.value = customerId
+async function openLedgerModal(customer: CrmLoyaltyCustomer) {
+  activeLedgerCustomerId.value = customer.id
+  ledgerEntries.value = []
+  const requestId = ++ledgerRequestId
   ledgerLoading.value = true
   try {
-    await crmStore.fetchLoyaltyLedger(customerId)
+    const entries = await crmStore.fetchLoyaltyLedger(customer.id)
+    if (requestId === ledgerRequestId) {
+      ledgerEntries.value = entries
+    }
   } finally {
-    ledgerLoading.value = false
+    if (requestId === ledgerRequestId) {
+      ledgerLoading.value = false
+    }
   }
+}
+
+function closeLedgerModal() {
+  ledgerRequestId += 1
+  activeLedgerCustomerId.value = null
+  ledgerEntries.value = []
+  ledgerLoading.value = false
 }
 
 function customerLabel(customer: CrmLoyaltyCustomer) {

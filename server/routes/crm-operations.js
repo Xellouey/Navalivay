@@ -825,6 +825,7 @@ crmOperationsRouter.post(
         "promo_and_loyalty_conflict",
         "loyalty_category_not_available",
         "loyalty_balance_not_enough",
+        "loyalty_category_limit_exceeded",
       ]);
       const isClientError =
         clientErrors.has(error.message) ||
@@ -1439,6 +1440,7 @@ crmOperationsRouter.patch(
         "promo_and_loyalty_conflict",
         "loyalty_category_not_available",
         "loyalty_balance_not_enough",
+        "loyalty_category_limit_exceeded",
       ]);
 
       // Проверяем клиентские ошибки (которые должны вернуть 400, а не 500)

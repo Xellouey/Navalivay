@@ -1,6 +1,7 @@
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 import { getTelegramIdentity, type CustomerIdentity } from '@/utils/customerOrders'
+import { withTelegramAuthHeaders } from '@/utils/telegramAuth'
 
 export interface LoyaltySnapshotCategory {
   id: string
@@ -99,10 +100,10 @@ const POPUP_SESSION_KEY = 'navalivay_loyalty_popup_seen'
 async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
   const response = await fetch(url, {
     ...options,
-    headers: {
+    headers: withTelegramAuthHeaders({
       'Content-Type': 'application/json',
       ...(options?.headers || {}),
-    },
+    }),
     credentials: options?.credentials ?? 'include',
   })
 

@@ -3,17 +3,20 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import express from "express";
+import { buildTelegramInitData, telegramHeaders } from "./helpers/telegram-auth.js";
 
 const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "navalivay-loyalty-"));
 const tempDbPath = path.join(tempDir, "test.db");
 
 process.env.DATABASE_FILE = tempDbPath;
-process.env.BOT_TOKEN = "";
+process.env.BOT_TOKEN = "test-bot-token";
+process.env.NODE_ENV = "test";
 
 const { initDb, db } = await import("../db.js");
 const { publicRouter } = await import("../routes/public.js");
 const { loyaltyRouter } = await import("../routes/loyalty.js");
 const { awardLoyaltyForOrder } = await import("../loyalty.js");
+const { seedDefaultLoyaltyData } = await import("../migrations/add_loyalty_tables.js");
 
 initDb();
 
@@ -46,9 +49,10 @@ function seedLoyaltyCatalog() {
     `
     INSERT OR IGNORE INTO categories (id, slug, name, [order], hide_empty, display_mode)
     VALUES
-      ('c_liquids_salt', 'c-liquids-salt', 'Liquids', 0, 0, 'default'),
-      ('c_disposables', 'c-disposables', 'Disposables', 1, 0, 'default'),
-      ('c_pods', 'c-pods', 'Devices', 2, 0, 'default')
+      ('c_liquids_salt', 'zhidkosti', 'Жидкости', 0, 0, 'default'),
+      ('c_dynamic_disposables', 'odnorazki', 'Одноразки', 1, 0, 'default'),
+      ('c_dynamic_devices', 'ustrojstva', 'Устройства', 2, 0, 'default'),
+      ('c_dynamic_snus', 'snyus-i-plastiny', 'Снюс и пластины', 3, 0, 'default')
   `,
   ).run();
 
@@ -59,7 +63,19 @@ function seedLoyaltyCatalog() {
       createdAt, cost_price, stock, min_stock, has_variants
     ) VALUES
       ('liquid-1', 'c_liquids_salt', NULL, 'Liquid Cherry', 15, '', 0, DATETIME('now'), 5, 50, 0, 0),
-      ('disposable-1', 'c_disposables', NULL, 'Disposable Mint', 25, '', 0, DATETIME('now'), 10, 50, 0, 0)
+      ('disposable-1', 'c_dynamic_disposables', NULL, 'Disposable Mint', 25, '', 0, DATETIME('now'), 10, 50, 0, 0),
+      ('device-1', 'c_dynamic_devices', NULL, 'Device X', 55, '', 0, DATETIME('now'), 20, 50, 0, 0),
+      ('snus-1', 'c_dynamic_snus', NULL, 'Snus Mint', 8, '', 0, DATETIME('now'), 3, 50, 0, 0)
+  `,
+  ).run();
+}
+
+function resetMappingsToLiquidsOnly() {
+  db.prepare("DELETE FROM loyalty_category_mappings").run();
+  db.prepare(
+    `
+    INSERT INTO loyalty_category_mappings (id, loyalty_category_id, category_id, group_id)
+    VALUES ('manual_liquids_only', 'loyalty_liquids', 'c_liquids_salt', NULL)
   `,
   ).run();
 }
@@ -166,7 +182,7 @@ async function createPublicOrder(identity, overrides = {}) {
 
   return requestJson("/api/orders", {
     method: "POST",
-    headers: jsonHeaders(),
+    headers: telegramHeaders(identity),
     body: JSON.stringify(payload),
   });
 }
@@ -182,7 +198,10 @@ async function testPreviewReserveAndAward() {
 
   const preview = await requestJson("/api/loyalty/checkout-preview", {
     method: "POST",
-    headers: jsonHeaders(),
+    headers: telegramHeaders({
+      id: 2001,
+      username: "loyalty_user",
+    }),
     body: JSON.stringify({
       telegram_id: "2001",
       telegram_username: "loyalty_user",
@@ -251,6 +270,74 @@ async function testPreviewReserveAndAward() {
   ]);
 }
 
+async function testSeedRepairsPartialMappings() {
+  resetMappingsToLiquidsOnly();
+  seedDefaultLoyaltyData();
+
+  const mappings = db
+    .prepare(
+      `
+      SELECT loyalty_category_id, category_id
+      FROM loyalty_category_mappings
+      WHERE category_id IS NOT NULL
+      ORDER BY loyalty_category_id ASC, category_id ASC
+    `,
+    )
+    .all();
+
+  const mappingPairs = new Set(
+    mappings.map((mapping) => `${mapping.loyalty_category_id}::${mapping.category_id}`),
+  );
+
+  assert.equal(mappingPairs.has("loyalty_liquids::c_liquids_salt"), true);
+  assert.equal(mappingPairs.has("loyalty_liquids::c_dynamic_snus"), true);
+  assert.equal(mappingPairs.has("loyalty_disposables::c_dynamic_disposables"), true);
+  assert.equal(mappingPairs.has("loyalty_devices::c_dynamic_devices"), true);
+
+  const preview = await requestJson("/api/loyalty/checkout-preview", {
+    method: "POST",
+    headers: telegramHeaders({
+      id: 2999,
+      username: "preview_user",
+    }),
+    body: JSON.stringify({
+      items: [
+        {
+          product_id: "liquid-1",
+          quantity: 1,
+          price_per_unit: 15,
+          product_title: "Liquid Cherry",
+        },
+        {
+          product_id: "snus-1",
+          quantity: 1,
+          price_per_unit: 8,
+          product_title: "Snus Mint",
+        },
+        {
+          product_id: "disposable-1",
+          quantity: 1,
+          price_per_unit: 25,
+          product_title: "Disposable Mint",
+        },
+        {
+          product_id: "device-1",
+          quantity: 1,
+          price_per_unit: 55,
+          product_title: "Device X",
+        },
+      ],
+    }),
+  });
+
+  assert.equal(preview.response.status, 200);
+  assert.deepEqual(
+    preview.data.categories.map((category) => category.category_key),
+    ["liquids", "disposables", "devices"],
+  );
+  assert.equal(preview.data.categories[0].items_in_cart, 2);
+}
+
 async function testCancelReturnsReservedBalance() {
   const customerId = createCustomer({
     id: "cust-loyalty-2",
@@ -273,7 +360,7 @@ async function testCancelReturnsReservedBalance() {
           quantity: 2,
           price_per_unit: 15,
           product_title: "Liquid Cherry",
-          loyalty_units_applied: 2,
+          loyalty_units_applied: 1,
         },
       ],
     },
@@ -281,11 +368,14 @@ async function testCancelReturnsReservedBalance() {
 
   assert.equal(created.response.status, 200);
   const orderId = created.data.order_id;
-  assert.equal(getBalance(customerId, liquidsCategoryId), 0);
+  assert.equal(getBalance(customerId, liquidsCategoryId), 10);
 
   const cancelled = await requestJson(`/api/orders/${orderId}/cancel-by-customer`, {
     method: "POST",
-    headers: jsonHeaders(),
+    headers: telegramHeaders({
+      id: 2002,
+      username: "loyalty_cancel",
+    }),
     body: JSON.stringify({
       telegram_id: "2002",
       telegram_username: "loyalty_cancel",
@@ -350,7 +440,7 @@ async function testAwardSkipsDiscountedItems() {
   assert.equal(getBalance(customerId, liquidsCategoryId), 0);
 }
 
-async function testUsernameResetClearsBalance() {
+async function testSnapshotIsReadOnly() {
   const customerId = createCustomer({
     id: "cust-loyalty-4",
     telegramId: "2004",
@@ -359,23 +449,212 @@ async function testUsernameResetClearsBalance() {
   const liquidsCategoryId = getLoyaltyCategoryId("liquids");
   setBalance(customerId, liquidsCategoryId, 12);
 
-  const snapshot = await requestJson(
-    "/api/loyalty/me?telegram_id=2004&telegram_username=after_reset",
-  );
+  const snapshot = await requestJson("/api/loyalty/me?telegram_id=2004&telegram_username=after_reset", {
+    headers: telegramHeaders({
+      id: 2004,
+      username: "after_reset",
+    }),
+  });
 
   assert.equal(snapshot.response.status, 200);
   const liquids = snapshot.data.categories.find((category) => category.key === "liquids");
-  assert.equal(liquids.balance, 0);
-  assert.ok(getLedgerReasons(customerId).includes("username_reset"));
+  assert.equal(liquids.balance, 12);
+  assert.equal(getLedgerReasons(customerId).includes("username_reset"), false);
+}
+
+async function testUsernameChangeDoesNotResetBalanceOnOrderCreate() {
+  const customerId = createCustomer({
+    id: "cust-loyalty-username-keep",
+    telegramId: "2010",
+    telegramUsername: "before_reset",
+  });
+  const liquidsCategoryId = getLoyaltyCategoryId("liquids");
+  setBalance(customerId, liquidsCategoryId, 14);
+
+  const created = await createPublicOrder(
+    {
+      telegram_id: "2010",
+      telegram_username: "after_reset",
+    },
+    {
+      items: [
+        {
+          product_id: "liquid-1",
+          quantity: 1,
+          price_per_unit: 15,
+          product_title: "Liquid Cherry",
+        },
+      ],
+    },
+  );
+
+  assert.equal(created.response.status, 200);
+  assert.equal(getBalance(customerId, liquidsCategoryId), 14);
+  assert.equal(getLedgerReasons(customerId).includes("username_reset"), false);
+  assert.equal(getCustomerByTelegramId("2010").telegram_username, "after_reset");
+}
+
+async function testOnlyOneBonusUnitCanBeAppliedPerCategory() {
+  const customerId = createCustomer({
+    id: "cust-loyalty-5",
+    telegramId: "2005",
+    telegramUsername: "loyalty_one_bonus",
+  });
+  const liquidsCategoryId = getLoyaltyCategoryId("liquids");
+  setBalance(customerId, liquidsCategoryId, 20);
+
+  const preview = await requestJson("/api/loyalty/checkout-preview", {
+    method: "POST",
+    headers: telegramHeaders({
+      id: 2005,
+      username: "loyalty_one_bonus",
+    }),
+    body: JSON.stringify({
+      telegram_id: "2005",
+      telegram_username: "loyalty_one_bonus",
+      items: [
+        {
+          product_id: "liquid-1",
+          quantity: 1,
+          price_per_unit: 15,
+          product_title: "Liquid Cherry",
+          loyalty_units_applied: 1,
+        },
+        {
+          product_id: "snus-1",
+          quantity: 1,
+          price_per_unit: 8,
+          product_title: "Snus Mint",
+          loyalty_units_applied: 1,
+        },
+      ],
+    }),
+  });
+
+  assert.equal(preview.response.status, 400);
+  assert.equal(preview.data.error, "loyalty_category_limit_exceeded");
+
+  const created = await createPublicOrder(
+    {
+      telegram_id: "2005",
+      telegram_username: "loyalty_one_bonus",
+    },
+    {
+      items: [
+        {
+          product_id: "liquid-1",
+          quantity: 1,
+          price_per_unit: 15,
+          product_title: "Liquid Cherry",
+          loyalty_units_applied: 1,
+        },
+        {
+          product_id: "snus-1",
+          quantity: 1,
+          price_per_unit: 8,
+          product_title: "Snus Mint",
+          loyalty_units_applied: 1,
+        },
+      ],
+    },
+  );
+
+  assert.equal(created.response.status, 400);
+  assert.equal(created.data.error, "loyalty_category_limit_exceeded");
+}
+
+async function testBonusesCanBeAppliedAcrossDifferentCategories() {
+  const customerId = createCustomer({
+    id: "cust-loyalty-6",
+    telegramId: "2006",
+    telegramUsername: "loyalty_multi_category",
+  });
+  const liquidsCategoryId = getLoyaltyCategoryId("liquids");
+  const devicesCategoryId = getLoyaltyCategoryId("devices");
+  setBalance(customerId, liquidsCategoryId, 10);
+  setBalance(customerId, devicesCategoryId, 4);
+
+  const preview = await requestJson("/api/loyalty/checkout-preview", {
+    method: "POST",
+    headers: telegramHeaders({
+      id: 2006,
+      username: "loyalty_multi_category",
+    }),
+    body: JSON.stringify({
+      telegram_id: "2006",
+      telegram_username: "loyalty_multi_category",
+      items: [
+        {
+          product_id: "liquid-1",
+          quantity: 1,
+          price_per_unit: 15,
+          product_title: "Liquid Cherry",
+          loyalty_units_applied: 1,
+        },
+        {
+          product_id: "device-1",
+          quantity: 1,
+          price_per_unit: 55,
+          product_title: "Device X",
+          loyalty_units_applied: 1,
+        },
+      ],
+    }),
+  });
+
+  assert.equal(preview.response.status, 200);
+  assert.equal(preview.data.total_loyalty_discount, 35);
+
+  const created = await createPublicOrder(
+    {
+      telegram_id: "2006",
+      telegram_username: "loyalty_multi_category",
+    },
+    {
+      items: [
+        {
+          product_id: "liquid-1",
+          quantity: 1,
+          price_per_unit: 15,
+          product_title: "Liquid Cherry",
+          loyalty_units_applied: 1,
+        },
+        {
+          product_id: "device-1",
+          quantity: 1,
+          price_per_unit: 55,
+          product_title: "Device X",
+          loyalty_units_applied: 1,
+        },
+      ],
+    },
+  );
+
+  assert.equal(created.response.status, 200);
+  assert.equal(getBalance(customerId, liquidsCategoryId), 0);
+  assert.equal(getBalance(customerId, devicesCategoryId), 0);
+  assert.equal(getRedemptions(created.data.order_id).length, 2);
+}
+
+async function testMissingTelegramAuthRejectedForSnapshot() {
+  const snapshot = await requestJson("/api/loyalty/me?telegram_id=2004");
+  assert.equal(snapshot.response.status, 401);
+  assert.equal(snapshot.data.error, "telegram_auth_required");
 }
 
 async function main() {
   seedLoyaltyCatalog();
+  seedDefaultLoyaltyData();
 
+  await testSeedRepairsPartialMappings();
   await testPreviewReserveAndAward();
   await testCancelReturnsReservedBalance();
   await testAwardSkipsDiscountedItems();
-  await testUsernameResetClearsBalance();
+  await testSnapshotIsReadOnly();
+  await testUsernameChangeDoesNotResetBalanceOnOrderCreate();
+  await testOnlyOneBonusUnitCanBeAppliedPerCategory();
+  await testBonusesCanBeAppliedAcrossDifferentCategories();
+  await testMissingTelegramAuthRejectedForSnapshot();
 
   console.log("[loyalty-smoke] OK");
 }

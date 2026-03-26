@@ -222,43 +222,67 @@
           <span class="summary-discount">-{{ formatPrice(promoResult.calculated_discount) }} BYN</span>
         </div>
 
-        <div v-if="shouldShowCheckoutLoyaltyCards" class="loyalty-stack">
-          <article
-            v-for="category in loyaltyStore.previewCategories"
-            :key="category.category_id"
-            class="loyalty-card"
-          >
-            <div class="loyalty-card-head">
-              <div>
-                <p class="loyalty-card-title">{{ category.title }}</p>
-                <p class="loyalty-card-copy">
-                  {{ category.current_balance }} -> {{ category.projected_balance }} покупок
-                </p>
+        <section v-if="selectedCheckoutLoyaltyCategory" class="loyalty-section">
+          <article class="loyalty-card loyalty-card--checkout">
+            <div class="loyalty-card-header">
+              <h2 class="loyalty-card-title-main">Бонусная система</h2>
+            </div>
+
+            <div class="loyalty-tabs" role="tablist" aria-label="Категории бонусов">
+              <button
+                v-for="tabCategory in orderedCheckoutLoyaltyCategories"
+                :key="tabCategory.category_id"
+                type="button"
+                class="loyalty-tab"
+                :class="{ 'loyalty-tab--active': tabCategory.category_key === activeCheckoutLoyaltyKey }"
+                @click="activeCheckoutLoyaltyKey = tabCategory.category_key"
+              >
+                {{ checkoutLoyaltyCategoryLabel(tabCategory) }}
+              </button>
+            </div>
+
+            <div class="loyalty-progress-row">
+              <div class="loyalty-progress-track">
+                <div
+                  class="loyalty-progress-fill"
+                  :style="{ width: `${checkoutProgressPercent(selectedCheckoutLoyaltyCategory)}%` }"
+                ></div>
               </div>
-              <span class="loyalty-card-badge">
-                {{ category.current_available_bonus_count }} скидок
+              <span class="loyalty-progress-value">
+                {{ checkoutProgressLabel(selectedCheckoutLoyaltyCategory) }}
               </span>
             </div>
 
-            <p class="loyalty-card-copy loyalty-card-copy--secondary">
-              <template v-if="category.current_available_bonus_count > 0">
-                Можно применить скидку {{ formatPrice(category.discount_amount) }} BYN к {{ category.title.toLowerCase() }}.
-              </template>
-              <template v-else>
-                До скидки {{ formatPrice(category.discount_amount) }} BYN осталось {{ category.remaining_to_next }} покупок.
-              </template>
-            </p>
+            <div class="loyalty-copy-row">
+              <p class="loyalty-copy">
+                <template
+                  v-for="(line, index) in selectedCheckoutLoyaltyDescriptionLines"
+                  :key="`${selectedCheckoutLoyaltyCategory.category_key}-${index}`"
+                >
+                  <span class="loyalty-copy-line">
+                    {{ line }}
+                    <span
+                      v-if="index === selectedCheckoutLoyaltyDescriptionLines.length - 1"
+                      class="loyalty-discount"
+                    >
+                      {{ formatPrice(selectedCheckoutLoyaltyCategory.discount_amount) }} BYN
+                    </span>
+                  </span>
+                  <br v-if="index < selectedCheckoutLoyaltyDescriptionLines.length - 1" />
+                </template>
+              </p>
+            </div>
 
             <div v-if="promoResult" class="loyalty-disabled-note">
               При активном промокоде скидки за покупки недоступны.
             </div>
 
             <div
-              v-else-if="category.current_available_bonus_count > 0"
+              v-else-if="selectedCheckoutLoyaltyCategory.current_available_bonus_count > 0"
               class="loyalty-line-list"
             >
               <div
-                v-for="line in category.line_items"
+                v-for="line in selectedCheckoutLoyaltyCategory.line_items"
                 :key="line.key"
                 class="loyalty-line-item"
               >
@@ -269,10 +293,10 @@
                 <select
                   class="loyalty-line-select"
                   :value="getItemLoyaltyUnits(line.product_id, line.variant_id)"
-                  @change="handleLoyaltyUnitsChange(category, line, $event)"
+                  @change="handleLoyaltyUnitsChange(selectedCheckoutLoyaltyCategory, line, $event)"
                 >
                   <option
-                    v-for="units in loyaltyOptionsForLine(category, line)"
+                    v-for="units in loyaltyOptionsForLine(selectedCheckoutLoyaltyCategory, line)"
                     :key="`${line.key}-${units}`"
                     :value="units"
                   >
@@ -282,11 +306,29 @@
               </div>
             </div>
 
-            <button class="loyalty-rules-btn" @click="openLoyaltyRules(category.category_key)">
-              Как работают скидки за покупки?
+            <p v-else class="loyalty-copy loyalty-copy--secondary">
+              До скидки {{ formatPrice(selectedCheckoutLoyaltyCategory.discount_amount) }} BYN осталось
+              {{ selectedCheckoutLoyaltyCategory.remaining_to_next }} покупок.
+            </p>
+
+            <button
+              type="button"
+              class="loyalty-rules-link loyalty-rules-link--static"
+              @click="openLoyaltyRules(selectedCheckoutLoyaltyCategory.category_key)"
+            >
+              <span>Как работают скидки за покупки</span>
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+                <path
+                  d="M3 1.5L7.5 6L3 10.5"
+                  stroke="white"
+                  stroke-width="1.6"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+              </svg>
             </button>
           </article>
-        </div>
+        </section>
 
         <div v-if="loyaltyDiscountAmount > 0" class="summary-row">
           <span class="summary-label">Скидка за покупки</span>
@@ -373,50 +415,53 @@
       @close="showDeliveryConditionsBanner = false"
     />
 
-    <AdminModal
-      :isOpen="showUsernameRequiredModal"
+    <CustomerModalShell
+      :open="showUsernameRequiredModal"
       title="Нужен Telegram username"
-      description="Без username оформление заказа недоступно."
-      size="sm"
-      :showActions="false"
+      close-label="Закрыть окно"
       @close="closeUsernameRequiredModal"
-      @cancel="closeUsernameRequiredModal"
     >
-      <div class="username-modal">
-        <ol class="username-modal-steps">
+      <div class="checkout-modal-copy">
+        <p>Без username оформление заказа недоступно.</p>
+        <ol class="checkout-modal-list">
           <li>Зайдите в настройки профиля Telegram.</li>
           <li>Найдите поле «@Имя Пользователя» и установите его.</li>
           <li>Вернитесь сюда и нажмите «Закрыть и перезайти».</li>
         </ol>
-        <div class="username-modal-actions">
-          <button
-            type="button"
-            class="username-warning-primary"
-            @click="closeMiniApp"
-          >
-            Закрыть и перезайти
-          </button>
-        </div>
       </div>
-    </AdminModal>
+      <template #footer>
+        <button
+          type="button"
+          class="checkout-modal-cta"
+          @click="closeMiniApp"
+        >
+          Закрыть и перезайти
+        </button>
+      </template>
+    </CustomerModalShell>
 
-    <AdminModal
-      :isOpen="Boolean(activeLoyaltyRulesCategory)"
+    <CustomerModalShell
+      :open="Boolean(activeLoyaltyRulesCategory)"
       title="Как работают скидки"
-      :description="activeLoyaltyRulesCategory ? loyaltyRulesDescription(activeLoyaltyRulesCategory) : ''"
-      size="sm"
-      :showActions="false"
+      close-label="Закрыть окно"
       @close="activeLoyaltyRulesCategory = null"
-      @cancel="activeLoyaltyRulesCategory = null"
     >
-      <div v-if="activeLoyaltyRulesCategory" class="username-modal">
-        <ol class="username-modal-steps">
-          <li>{{ loyaltyRulesHeadline(activeLoyaltyRulesCategory) }}</li>
-          <li>За покупку по промокоду, бонусу или ручной скидке покупки не начисляются.</li>
-          <li>Если username изменится, накопленные покупки сбросятся.</li>
-        </ol>
+      <div v-if="activeLoyaltyRulesCategory" class="checkout-modal-copy">
+        <p>{{ loyaltyRulesDescription(activeLoyaltyRulesCategory) }}</p>
+        <p>{{ loyaltyRulesHeadline(activeLoyaltyRulesCategory) }}</p>
+        <p>За покупку по промокоду, бонусу или ручной скидке покупки не начисляются.</p>
+        <p>Если username изменится, накопленные покупки сбросятся.</p>
       </div>
-    </AdminModal>
+      <template #footer>
+        <button
+          type="button"
+          class="checkout-modal-cta"
+          @click="activeLoyaltyRulesCategory = null"
+        >
+          Понятно
+        </button>
+      </template>
+    </CustomerModalShell>
 
     <LoyaltyBonusPopup
       :open="showLoyaltyPopup"
@@ -441,13 +486,14 @@ import {
 import { useSettingsStore } from "@/stores/settings";
 import MinDeliveryBanner from "@/components/MinDeliveryBanner.vue";
 import DeliveryConditionsBanner from "@/components/DeliveryConditionsBanner.vue";
-import AdminModal from "@/components/AdminModal.vue";
+import CustomerModalShell from "@/components/CustomerModalShell.vue";
 import LoyaltyBonusPopup from "@/components/LoyaltyBonusPopup.vue";
 import {
   fetchMyActiveOrder,
   getTelegramIdentity,
   type CustomerActiveOrder,
 } from "@/utils/customerOrders";
+import { withTelegramAuthHeaders } from "@/utils/telegramAuth";
 
 interface TelegramMiniAppUser {
   id: number;
@@ -464,6 +510,14 @@ const cartStore = useCartStore();
 const settingsStore = useSettingsStore();
 const catalogStore = useCatalogStore();
 const loyaltyStore = useLoyaltyStore();
+const activeCheckoutLoyaltyKey = ref<string | null>(null);
+
+const LOYALTY_CATEGORY_ORDER = ["liquids", "disposables", "devices"];
+const LOYALTY_CATEGORY_LABELS: Record<string, string> = {
+  liquids: "Жидкости",
+  disposables: "Одноразки",
+  devices: "Устройства",
+};
 
 const isItemsExpanded = ref(false);
 const promoCode = ref("");
@@ -507,12 +561,39 @@ const editingOrderDetails = ref<CustomerActiveOrder | null>(null);
 const activeLoyaltyRulesCategory = ref<LoyaltySnapshotCategory | null>(null);
 const showLoyaltyPopup = ref(false);
 
-// Временное скрытие плашек бонусов по категориям в корзине.
-// Чтобы вернуть их обратно, достаточно переключить флаг в false.
-const HIDE_CHECKOUT_LOYALTY_CARDS = true;
+const orderedCheckoutLoyaltyCategories = computed(() => {
+  return [...loyaltyStore.previewCategories].sort((left, right) => {
+    const leftIndex = LOYALTY_CATEGORY_ORDER.indexOf(left.category_key);
+    const rightIndex = LOYALTY_CATEGORY_ORDER.indexOf(right.category_key);
+    const normalizedLeft = leftIndex === -1 ? Number.MAX_SAFE_INTEGER : leftIndex;
+    const normalizedRight = rightIndex === -1 ? Number.MAX_SAFE_INTEGER : rightIndex;
 
-const shouldShowCheckoutLoyaltyCards = computed(() => {
-  return !HIDE_CHECKOUT_LOYALTY_CARDS && loyaltyStore.previewCategories.length > 0;
+    if (normalizedLeft !== normalizedRight) {
+      return normalizedLeft - normalizedRight;
+    }
+
+    return left.title.localeCompare(right.title, "ru");
+  });
+});
+
+const selectedCheckoutLoyaltyCategory = computed(() => {
+  if (!orderedCheckoutLoyaltyCategories.value.length) {
+    return null;
+  }
+
+  return (
+    orderedCheckoutLoyaltyCategories.value.find(
+      (category) => category.category_key === activeCheckoutLoyaltyKey.value,
+    ) || orderedCheckoutLoyaltyCategories.value[0]
+  );
+});
+
+const selectedCheckoutLoyaltyDescriptionLines = computed(() => {
+  if (!selectedCheckoutLoyaltyCategory.value) {
+    return [];
+  }
+
+  return checkoutLoyaltyDescriptionLines(selectedCheckoutLoyaltyCategory.value);
 });
 
 const isEditingOrder = computed(() => Boolean(cartStore.editingOrderId));
@@ -597,6 +678,64 @@ const finalTotal = computed(() => {
 const loyaltyDiscountAmount = computed(() =>
   promoResult.value ? 0 : Number(loyaltyStore.totalLoyaltyDiscount || 0),
 );
+
+function checkoutLoyaltyCategoryLabel(category: LoyaltyPreviewCategory) {
+  return LOYALTY_CATEGORY_LABELS[category.category_key] || category.title;
+}
+
+function checkoutProgressCurrentValue(category: LoyaltyPreviewCategory) {
+  const threshold = Number(category.threshold || 0);
+  if (!threshold) return 0;
+
+  const remaining = Math.max(0, Number(category.remaining_to_next || 0));
+  if (remaining === 0) {
+    return threshold;
+  }
+
+  return Math.max(0, Math.min(threshold, threshold - remaining));
+}
+
+function checkoutProgressLabel(category: LoyaltyPreviewCategory) {
+  return `${checkoutProgressCurrentValue(category)} / ${category.threshold}`;
+}
+
+function checkoutProgressPercent(category: LoyaltyPreviewCategory) {
+  const threshold = Number(category.threshold || 0);
+  if (!threshold) return 0;
+  return Math.round((checkoutProgressCurrentValue(category) / threshold) * 100);
+}
+
+function checkoutLoyaltyDescriptionLines(category: LoyaltyPreviewCategory) {
+  const threshold = Number(category.threshold || 0);
+
+  if (category.category_key === "liquids") {
+    return [
+      `За каждую ${threshold}-ую купленную`,
+      "жидкость/снюс вы получите",
+      "скидку на товар",
+    ];
+  }
+
+  if (category.category_key === "disposables") {
+    return [
+      `За каждую ${threshold}-ую купленную одноразку`,
+      "вы получите скидку на товар",
+    ];
+  }
+
+  if (category.category_key === "devices") {
+    return [
+      `За каждое ${threshold}-ое купленное устройство`,
+      "вы получите скидку на товар",
+    ];
+  }
+
+  return [
+    `За каждые ${threshold} покупок в категории`,
+    `${checkoutLoyaltyCategoryLabel(category).toLowerCase()} вы получите`,
+    "скидку на товар",
+  ];
+}
 
 function toggleItemsExpanded() {
   isItemsExpanded.value = !isItemsExpanded.value;
@@ -695,20 +834,6 @@ async function refreshLoyaltyPreview() {
   }
 }
 
-function findPreviewLine(
-  category: LoyaltyPreviewCategory,
-  productId: string | null,
-  variantId: string | null,
-) {
-  return (
-    category.line_items.find(
-      (line) =>
-        line.product_id === productId &&
-        (line.variant_id || null) === (variantId || null),
-    ) || null
-  );
-}
-
 function getItemLoyaltyUnits(productId: string | null, variantId: string | null) {
   const item = cartStore.items.find(
     (cartItem) =>
@@ -728,7 +853,8 @@ function loyaltyOptionsForLine(category: LoyaltyPreviewCategory, line: LoyaltyPr
     0,
     Math.min(
       Number(line.max_redeemable_units || 0),
-      Number(category.current_available_bonus_count || 0) - usedByOtherLines + currentUnits,
+      Number(category.current_available_bonus_count || 0),
+      1 - usedByOtherLines + currentUnits,
     ),
   );
 
@@ -756,7 +882,7 @@ function openLoyaltyRules(categoryKey: string) {
 }
 
 function loyaltyRulesHeadline(category: LoyaltySnapshotCategory) {
-  return `Одна покупка в категории = одна отметка. За каждые ${category.threshold} покупок можно применить скидку ${formatPrice(category.discount_amount)} BYN к одной позиции этой категории.`;
+  return `Одна покупка в категории = одна отметка. За каждые ${category.threshold} покупок можно применить скидку ${formatPrice(category.discount_amount)} BYN к одной позиции этой категории. В одном заказе можно применить по одной бонусной скидке на каждую бонусную категорию.`;
 }
 
 function loyaltyRulesDescription(category: LoyaltySnapshotCategory) {
@@ -914,6 +1040,21 @@ onMounted(async () => {
     showUsernameRequiredModal.value = true;
   }
 });
+
+watch(
+  orderedCheckoutLoyaltyCategories,
+  (categories) => {
+    if (!categories.length) {
+      activeCheckoutLoyaltyKey.value = null;
+      return;
+    }
+
+    if (!categories.some((category) => category.category_key === activeCheckoutLoyaltyKey.value)) {
+      activeCheckoutLoyaltyKey.value = categories[0].category_key;
+    }
+  },
+  { immediate: true },
+);
 
 watch(
   () =>
@@ -1163,7 +1304,7 @@ async function submitOrder() {
         : "/api/orders",
       {
       method: isEditingOrder.value ? "PUT" : "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: withTelegramAuthHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify(orderData),
     });
 
@@ -1760,7 +1901,7 @@ async function submitOrder() {
   margin: 12px 0 0;
 }
 
-.loyalty-stack {
+.loyalty-section {
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -1768,54 +1909,161 @@ async function submitOrder() {
 }
 
 .loyalty-card {
-  padding: 18px;
-  border-radius: 22px;
-  background: linear-gradient(135deg, #191919 0%, #353535 100%);
+  position: relative;
+  overflow: hidden;
+  padding: 22px 24px 20px;
+  border-radius: 32px;
+  background: linear-gradient(106.76deg, #f50302 -2.64%, #a90f0e 85.78%);
   color: #ffffff;
-  box-shadow: 0 18px 42px rgba(25, 25, 25, 0.12);
+  box-shadow: 0 8px 16px rgba(97, 1, 0, 0.16);
 }
 
-.loyalty-card-head,
-.loyalty-line-item {
+.loyalty-card--checkout {
+  min-height: 0;
+}
+
+.loyalty-card-header,
+.loyalty-tabs,
+.loyalty-progress-row,
+.loyalty-copy-row,
+.loyalty-rules-link,
+.loyalty-cart-meta,
+.loyalty-disabled-note,
+.loyalty-line-list {
+  position: relative;
+  z-index: 1;
+}
+
+.loyalty-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-start;
+}
+
+.loyalty-card-title-main {
+  margin: 0;
+  font-family: "Montserrat", sans-serif;
+  font-weight: 700;
+  font-size: 20px;
+  line-height: 24px;
+  color: #ffffff;
+}
+
+.loyalty-tabs {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 12px;
+  margin-top: 9px;
+  flex-wrap: nowrap;
 }
 
-.loyalty-card-title {
-  margin: 0 0 4px;
-  font-family: "Montserrat", sans-serif;
-  font-size: 18px;
-  line-height: 22px;
-  font-weight: 700;
-}
-
-.loyalty-card-copy {
-  margin: 0;
-  font-size: 13px;
-  line-height: 18px;
-  color: rgba(255, 255, 255, 0.78);
-}
-
-.loyalty-card-copy--secondary {
-  margin-top: 12px;
-}
-
-.loyalty-card-badge {
-  flex-shrink: 0;
+.loyalty-tab {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 33px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
   padding: 8px 10px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.12);
+  border-radius: 123px;
+  background: transparent;
+  font-family: -apple-system, "SF Pro Display", sans-serif;
+  font-weight: 500;
+  font-size: 14px;
+  line-height: 17px;
+  color: #ffffff;
+  text-align: center;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background-color 0.2s ease,
+    color 0.2s ease;
+}
+
+.loyalty-tab--active {
+  background: #ffffff;
+  color: #191919;
+}
+
+.loyalty-progress-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 15px;
+}
+
+.loyalty-progress-track {
+  position: relative;
+  flex: 1;
+  height: 12px;
+  border-radius: 123px;
+  background: rgba(230, 233, 237, 0.24);
+  overflow: hidden;
+}
+
+.loyalty-progress-fill {
+  height: 100%;
+  min-width: 0;
+  border-radius: inherit;
+  background: linear-gradient(90deg, rgba(255, 227, 226, 0.72) 0%, #ffffff 100%);
+  transition: width 0.24s ease;
+}
+
+.loyalty-progress-value {
+  min-width: 29px;
+  font-family: -apple-system, "SF Pro Display", sans-serif;
+  font-weight: 400;
   font-size: 12px;
   line-height: 14px;
+  text-align: right;
+  color: #ffffff;
+}
+
+.loyalty-copy-row {
+  margin-top: 16px;
+}
+
+.loyalty-copy {
+  max-width: 282px;
+  margin: 0;
+  font-family: -apple-system, "SF Pro Display", sans-serif;
+  font-weight: 400;
+  font-size: 14px;
+  line-height: 17px;
+  color: #e9bbbb;
+}
+
+.loyalty-copy-line {
+  display: inline;
+}
+
+.loyalty-copy--secondary {
+  margin-top: 14px;
+  color: rgba(255, 255, 255, 0.88);
+}
+
+.loyalty-discount {
+  display: inline;
+  margin-left: 6px;
+  font-weight: 700;
+  color: #ffffff;
+  white-space: nowrap;
+}
+
+.loyalty-cart-meta {
+  margin: 14px 0 0;
+  font-family: -apple-system, "SF Pro Display", sans-serif;
+  font-size: 13px;
+  line-height: 18px;
+  color: rgba(255, 255, 255, 0.88);
 }
 
 .loyalty-disabled-note {
   margin-top: 14px;
   padding: 12px 14px;
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.1);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.14);
   font-size: 13px;
   line-height: 18px;
 }
@@ -1828,9 +2076,13 @@ async function submitOrder() {
 }
 
 .loyalty-line-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   padding: 10px 12px;
   border-radius: 16px;
-  background: rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.12);
 }
 
 .loyalty-line-copy {
@@ -1848,30 +2100,40 @@ async function submitOrder() {
 .loyalty-line-meta {
   font-size: 12px;
   line-height: 14px;
-  color: rgba(255, 255, 255, 0.7);
+  color: rgba(255, 255, 255, 0.82);
 }
 
 .loyalty-line-select {
   min-width: 78px;
   min-height: 36px;
   border-radius: 12px;
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.12);
   color: #ffffff;
   padding: 0 10px;
 }
 
-.loyalty-rules-btn {
-  margin-top: 14px;
-  width: 100%;
-  min-height: 42px;
+.loyalty-rules-link {
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   border: none;
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.12);
+  background: transparent;
+  font-family: -apple-system, "SF Pro Display", sans-serif;
+  font-weight: 400;
+  font-size: 12px;
+  line-height: 14px;
   color: #ffffff;
-  font-family: "Montserrat", sans-serif;
-  font-size: 13px;
-  font-weight: 700;
+  cursor: pointer;
+}
+
+.loyalty-rules-link--static {
+  margin-top: 16px;
+}
+
+.loyalty-rules-link svg {
+  flex-shrink: 0;
 }
 
 .summary-row {
@@ -2040,8 +2302,7 @@ async function submitOrder() {
   margin: 0;
 }
 
-.username-warning-actions,
-.username-modal-actions {
+.username-warning-actions {
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -2090,23 +2351,42 @@ async function submitOrder() {
   transform: scale(0.99);
 }
 
-.username-modal {
+.checkout-modal-copy {
   display: flex;
   flex-direction: column;
   gap: 14px;
+  color: #191919;
+  font-family: -apple-system, "SF Pro Display", sans-serif;
+  font-weight: 500;
+  font-size: 16px;
+  line-height: 19px;
 }
 
-.username-modal-steps {
+.checkout-modal-copy p {
+  margin: 0;
+}
+
+.checkout-modal-list {
   margin: 0;
   padding-left: 20px;
-  color: #7c2d12;
-  font-family: -apple-system, "SF Pro Display", sans-serif;
-  font-size: 14px;
-  line-height: 20px;
 }
 
-.username-modal-steps li + li {
-  margin-top: 8px;
+.checkout-modal-list li + li {
+  margin-top: 10px;
+}
+
+.checkout-modal-cta {
+  width: 100%;
+  min-height: 64px;
+  border: none;
+  border-radius: 528px;
+  background: linear-gradient(90deg, #f50302 0%, #a90f0e 100%);
+  color: #ffffff;
+  font-family: "Montserrat", sans-serif;
+  font-weight: 500;
+  font-size: 16px;
+  line-height: 20px;
+  cursor: pointer;
 }
 
 @media (max-width: 768px) {
@@ -2162,6 +2442,10 @@ async function submitOrder() {
 }
 
 @media (max-width: 360px) {
+  .checkout-container {
+    padding: 0 12px;
+  }
+
   .cart-item-image {
     width: 72px;
     height: 88px;
@@ -2209,6 +2493,20 @@ async function submitOrder() {
     font-size: 15px;
     line-height: 18px;
   }
+
+  .loyalty-card--checkout {
+    padding: 20px 20px 16px;
+  }
+
+  .loyalty-tabs {
+    gap: 8px;
+  }
+
+  .loyalty-tab {
+    padding: 8px 6px;
+    font-size: 13px;
+    line-height: 16px;
+  }
 }
 
 .fade-btn-enter-active,
@@ -2235,3 +2533,4 @@ async function submitOrder() {
   transform: translateY(-10px);
 }
 </style>
+

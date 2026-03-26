@@ -1,4 +1,5 @@
 import express from "express";
+import rateLimit from "express-rate-limit";
 import { db } from "../db.js";
 import { authMiddleware } from "../auth.js";
 import {
@@ -6,11 +7,26 @@ import {
   getCustomerLoyaltySnapshot,
   getLoyaltyCategories,
   normalizeTelegramUsername,
-  resetCustomerLoyaltyOnUsernameChange,
   serializeLoyaltySnapshot,
 } from "../loyalty.js";
+import { requireTelegramMiniAppAuth } from "../telegram-miniapp-auth.js";
 
 export const loyaltyRouter = express.Router();
+const allowInsecureTelegramFallback =
+  !["production", "test"].includes(String(process.env.NODE_ENV || "").toLowerCase()) &&
+  process.env.ALLOW_INSECURE_TELEGRAM_AUTH !== "0";
+const loyaltyReadLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 120,
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+const loyaltyMutationLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+});
 
 function generateId(prefix) {
   return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
@@ -44,36 +60,6 @@ function findCustomerByIdentity({ telegramId = "", telegramUsername = "" }) {
       .get(normalizedUsername);
   }
 
-  if (
-    customer &&
-    telegramId &&
-    normalizedUsername &&
-    String(customer.telegram_id || "") === String(telegramId)
-  ) {
-    resetCustomerLoyaltyOnUsernameChange({
-      customerId: customer.id,
-      previousUsername: customer.telegram_username,
-      nextUsername: normalizedUsername,
-    });
-
-    if (normalizeTelegramUsername(customer.telegram_username) !== normalizedUsername) {
-      db.prepare(
-        `
-        UPDATE customers
-        SET telegram_username = ?,
-            updated_at = DATETIME('now'),
-            last_visit_at = DATETIME('now')
-        WHERE id = ?
-      `,
-      ).run(normalizedUsername || null, customer.id);
-
-      customer = {
-        ...customer,
-        telegram_username: normalizedUsername || null,
-      };
-    }
-  }
-
   return customer || null;
 }
 
@@ -101,14 +87,14 @@ function loadAdminLoyaltyCategoriesPayload() {
   }));
 }
 
-loyaltyRouter.get("/api/loyalty/me", (req, res) => {
+loyaltyRouter.get(
+  "/api/loyalty/me",
+  loyaltyReadLimiter,
+  requireTelegramMiniAppAuth({ allowInsecureFallback: allowInsecureTelegramFallback }),
+  (req, res) => {
   try {
-    const telegramId =
-      typeof req.query.telegram_id === "string" ? req.query.telegram_id.trim() : "";
-    const telegramUsername =
-      typeof req.query.telegram_username === "string"
-        ? req.query.telegram_username.trim()
-        : "";
+    const telegramId = String(req.telegramAuth?.telegramId || "").trim();
+    const telegramUsername = normalizeTelegramUsername(req.telegramAuth?.telegramUsername);
 
     const customer = findCustomerByIdentity({
       telegramId,
@@ -129,13 +115,16 @@ loyaltyRouter.get("/api/loyalty/me", (req, res) => {
       message: "Failed to load loyalty balances",
     });
   }
-});
+},
+);
 
-loyaltyRouter.post("/api/loyalty/checkout-preview", (req, res) => {
+loyaltyRouter.post(
+  "/api/loyalty/checkout-preview",
+  loyaltyMutationLimiter,
+  requireTelegramMiniAppAuth({ allowInsecureFallback: allowInsecureTelegramFallback }),
+  (req, res) => {
   try {
     const {
-      telegram_id,
-      telegram_username,
       promo_code,
       editing_order_id,
       items = [],
@@ -149,9 +138,8 @@ loyaltyRouter.post("/api/loyalty/checkout-preview", (req, res) => {
     }
 
     const customer = findCustomerByIdentity({
-      telegramId: typeof telegram_id === "string" ? telegram_id.trim() : "",
-      telegramUsername:
-        typeof telegram_username === "string" ? telegram_username.trim() : "",
+      telegramId: String(req.telegramAuth?.telegramId || "").trim(),
+      telegramUsername: normalizeTelegramUsername(req.telegramAuth?.telegramUsername),
     });
 
     const application = buildLoyaltyApplication({
@@ -177,24 +165,26 @@ loyaltyRouter.post("/api/loyalty/checkout-preview", (req, res) => {
       categories: application.categories,
     });
   } catch (error) {
-    console.error("[loyalty] Failed to build checkout preview:", error);
     const knownErrors = new Set([
       "promo_and_loyalty_conflict",
       "loyalty_category_not_available",
       "loyalty_balance_not_enough",
+      "loyalty_category_limit_exceeded",
     ]);
     if (knownErrors.has(error.message)) {
       return res.status(400).json({
         error: error.message,
-        message: error.message,
+        message: error.userMessage || error.message,
       });
     }
+    console.error("[loyalty] Failed to build checkout preview:", error);
     res.status(500).json({
       error: "checkout_preview_failed",
       message: "Failed to build loyalty preview",
     });
   }
-});
+},
+);
 
 loyaltyRouter.get("/api/admin/crm/loyalty/categories", authMiddleware, (req, res) => {
   try {

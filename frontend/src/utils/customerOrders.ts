@@ -1,3 +1,5 @@
+import { withTelegramAuthHeaders } from "@/utils/telegramAuth";
+
 export interface CustomerOrderCartItem {
   productId: string;
   title: string;
@@ -99,11 +101,15 @@ export async function fetchMyActiveOrder(
   identity: CustomerIdentity = getTelegramIdentity(),
 ): Promise<CustomerActiveOrder | null> {
   const query = buildCustomerIdentityQuery(identity);
-  if (!query.toString()) {
+  const hasTelegramAuth = Boolean(window.Telegram?.WebApp?.initData);
+  if (!query.toString() && !hasTelegramAuth) {
     return null;
   }
 
-  const response = await fetch(`/api/orders/my-active?${query.toString()}`);
+  const suffix = query.toString() ? `?${query.toString()}` : "";
+  const response = await fetch(`/api/orders/my-active${suffix}`, {
+    headers: withTelegramAuthHeaders(),
+  });
   if (!response.ok) {
     throw new Error("Не удалось загрузить активный заказ");
   }

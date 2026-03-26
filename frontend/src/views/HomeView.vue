@@ -209,9 +209,9 @@ onMounted(async () => {
 .active-order-banner {
   width: 100%;
   border: none;
-  border-radius: 22px;
-  padding: 18px 18px 20px;
-  background: linear-gradient(135deg, #191919 0%, #353535 100%);
+  border-radius: 24px;
+  padding: 20px 20px 22px;
+  background: linear-gradient(106.76deg, #f50302 -2.64%, #a90f0e 85.78%);
   color: #ffffff;
   display: flex;
   align-items: flex-end;
@@ -219,13 +219,15 @@ onMounted(async () => {
   gap: 16px;
   text-align: left;
   cursor: pointer;
-  box-shadow: 0 18px 42px rgba(25, 25, 25, 0.18);
+  box-shadow: 0 8px 16px rgba(97, 1, 0, 0.16);
 }
 
 .active-order-copy {
+  flex: 1 1 auto;
+  min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
 }
 
 .active-order-kicker {
@@ -234,7 +236,7 @@ onMounted(async () => {
   line-height: 14px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: rgba(255, 255, 255, 0.58);
+  color: rgba(255, 227, 226, 0.78);
 }
 
 .active-order-title {
@@ -248,7 +250,7 @@ onMounted(async () => {
   font-family: -apple-system, "SF Pro Display", sans-serif;
   font-size: 14px;
   line-height: 19px;
-  color: rgba(255, 255, 255, 0.78);
+  color: #ffd8d7;
   max-width: 270px;
 }
 
@@ -261,11 +263,11 @@ onMounted(async () => {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(90deg, #f50302 0%, #a90f0e 100%);
-  color: #ffffff;
+  background: #ffffff;
+  color: #191919;
   font-family: "Montserrat", sans-serif;
   font-size: 14px;
-  font-weight: 700;
+  font-weight: 600;
 }
 
 /* Category card wrapper - transparent, holds box + title */
@@ -379,6 +381,14 @@ onMounted(async () => {
     font-size: 14px;
     line-height: 18px;
   }
+
+  .main-content-wrapper {
+    padding-bottom: 88px;
+  }
+
+  .cart-wrapper {
+    bottom: calc(var(--app-bottom-tab-bar-height, 130px) + 12px);
+  }
 }
 
 @media (max-width: 320px) {
@@ -405,7 +415,7 @@ onMounted(async () => {
 .main-content-wrapper {
   max-width: 1280px;
   margin: 0 auto;
-  padding: 0 16px 130px 16px;
+  padding: 0 16px 96px 16px;
   position: relative;
   z-index: 10;
 }
@@ -421,11 +431,11 @@ onMounted(async () => {
 /* ===== Cart Button Styles (Brutal Card Style) ===== */
 .cart-wrapper {
   position: fixed;
-  bottom: 40px; /* Подняли выше, чтобы не перекрывалось свайпом iPhone */
+  bottom: var(--app-bottom-tab-bar-height, 130px);
   left: 0;
   right: 0;
   z-index: 50;
-  padding: 1rem;
+  padding: 0 1rem;
   pointer-events: none;
 }
 
@@ -445,23 +455,18 @@ onMounted(async () => {
   background: linear-gradient(90deg, #f50302 0%, #a90f0e 100%);
   border: none;
   border-radius: 528px;
-  box-shadow: 0 8px 24px rgba(245, 3, 2, 0.3);
 
   cursor: pointer;
   pointer-events: auto;
-  transition:
-    transform 0.25s ease,
-    box-shadow 0.25s ease;
+  transition: transform 0.25s ease;
 }
 
 .cart-button:hover {
   transform: translateY(-2px);
-  box-shadow: 0 12px 32px rgba(245, 3, 2, 0.4);
 }
 
 .cart-button:active {
   transform: translateY(-1px);
-  box-shadow: 0 6px 20px rgba(245, 3, 2, 0.35);
 }
 
 .cart-icon {
@@ -503,7 +508,7 @@ onMounted(async () => {
 /* Mobile adjustments */
 @media (max-width: 768px) {
   .cart-wrapper {
-    padding: 0.75rem;
+    padding: 0 0.75rem;
   }
 
   .cart-button {
@@ -524,7 +529,7 @@ onMounted(async () => {
 
 @media (max-width: 480px) {
   .cart-wrapper {
-    padding: 0.5rem;
+    padding: 0 0.5rem;
   }
 
   .cart-button {

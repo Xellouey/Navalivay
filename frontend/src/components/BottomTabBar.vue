@@ -1,57 +1,111 @@
 <template>
-  <nav class="bottom-tab-bar" aria-label="Навигация">
-    <router-link
-      v-for="tab in tabs"
-      :key="tab.path"
-      :to="tab.path"
-      class="tab-item"
-      :class="{ 'tab-item--active': isActive(tab.path) }"
-      :aria-label="tab.label"
-    >
-      <div class="tab-icon-wrap">
-        <!-- Главная (домик) -->
-        <svg v-if="tab.id === 'home'" width="24" height="24" viewBox="0 0 24 24" fill="none">
-          <path
-            d="M3 10.5L12 3L21 10.5V20C21 20.5304 20.7893 21.0391 20.4142 21.4142C20.0391 21.7893 19.5304 22 19 22H5C4.46957 22 3.96086 21.7893 3.58579 21.4142C3.21071 21.0391 3 20.5304 3 20V10.5Z"
-            :stroke="isActive(tab.path) ? '#fff' : 'rgba(255,255,255,0.5)'"
-            stroke-width="1.8"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-          />
-        </svg>
+  <nav
+    ref="bottomTabBarRef"
+    class="bottom-tab-bar"
+    aria-label="Навигация"
+  >
+    <div class="bottom-tab-bar__surface" aria-hidden="true">
+      <svg
+        class="bottom-tab-bar__surface-shape"
+        viewBox="0 0 393 130"
+        preserveAspectRatio="none"
+      >
+        <defs>
+          <linearGradient
+            id="bottom-tab-bar-fill"
+            x1="196.5"
+            y1="0"
+            x2="196.5"
+            y2="130"
+            gradientUnits="userSpaceOnUse"
+          >
+            <stop offset="0" stop-color="#F50302" />
+            <stop offset="1" stop-color="#D30707" />
+          </linearGradient>
+        </defs>
+        <path
+          d="M0 10.26A24 24 0 0 0 24 34.26H369A24 24 0 0 0 393 10.26V130H0V10.26Z"
+          fill="url(#bottom-tab-bar-fill)"
+        />
+      </svg>
+      <div class="bottom-tab-bar__safe-area-fill"></div>
+    </div>
 
-        <!-- Placeholder квадратик (раздел 2 и 3) -->
-        <svg v-else-if="tab.id === 'section-2' || tab.id === 'section-3'" width="22" height="22" viewBox="0 0 22 22" fill="none">
-          <rect
-            x="1" y="1" width="20" height="20" rx="4"
-            :stroke="isActive(tab.path) ? '#fff' : 'rgba(255,255,255,0.5)'"
-            stroke-width="1.8"
-          />
-        </svg>
+    <div class="bottom-tab-bar__row">
+      <router-link
+        v-for="tab in tabs"
+        :key="tab.path"
+        :to="tab.path"
+        class="tab-item"
+        :class="{ 'tab-item--active': isActive(tab.path) }"
+        :aria-label="tab.label"
+      >
+        <div class="tab-icon-wrap">
+          <svg
+            v-if="tab.id === 'home'"
+            width="24"
+            height="24"
+            viewBox="0 0 24 24"
+            fill="none"
+          >
+            <path
+              d="M3 10.5L12 3L21 10.5V20C21 20.5304 20.7893 21.0391 20.4142 21.4142C20.0391 21.7893 19.5304 22 19 22H5C4.46957 22 3.96086 21.7893 3.58579 21.4142C3.21071 21.0391 3 20.5304 3 20V10.5Z"
+              :stroke="isActive(tab.path) ? '#fff' : 'rgba(255,255,255,0.64)'"
+              stroke-width="1.6"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+          </svg>
 
-        <!-- Профиль (человечек) -->
-        <svg v-else-if="tab.id === 'profile'" width="24" height="24" viewBox="0 0 24 24" fill="none">
-          <circle
-            cx="12" cy="8" r="4"
-            :stroke="isActive(tab.path) ? '#fff' : 'rgba(255,255,255,0.5)'"
-            stroke-width="1.8"
-          />
-          <path
-            d="M4 21C4 17.134 7.58172 14 12 14C16.4183 14 20 17.134 20 21"
-            :stroke="isActive(tab.path) ? '#fff' : 'rgba(255,255,255,0.5)'"
-            stroke-width="1.8"
-            stroke-linecap="round"
-          />
-        </svg>
+          <svg
+            v-else-if="tab.id === 'section-2' || tab.id === 'section-3'"
+            width="22"
+            height="22"
+            viewBox="0 0 22 22"
+            fill="none"
+          >
+            <rect
+              x="1"
+              y="1"
+              width="20"
+              height="20"
+              rx="4"
+              :stroke="isActive(tab.path) ? '#fff' : 'rgba(255,255,255,0.64)'"
+              stroke-width="1.6"
+            />
+          </svg>
 
-        <!-- Активный индикатор (точка) -->
-        <span v-if="isActive(tab.path)" class="tab-active-dot"></span>
-      </div>
-    </router-link>
+          <svg
+            v-else-if="tab.id === 'profile'"
+            width="24"
+            height="24"
+            viewBox="0 0 24 24"
+            fill="none"
+          >
+            <circle
+              cx="12"
+              cy="8"
+              r="4"
+              :stroke="isActive(tab.path) ? '#fff' : 'rgba(255,255,255,0.64)'"
+              stroke-width="1.6"
+            />
+            <path
+              d="M4 21C4 17.134 7.58172 14 12 14C16.4183 14 20 17.134 20 21"
+              :stroke="isActive(tab.path) ? '#fff' : 'rgba(255,255,255,0.64)'"
+              stroke-width="1.6"
+              stroke-linecap="round"
+            />
+          </svg>
+
+          <span v-if="isActive(tab.path)" class="tab-active-dot"></span>
+        </div>
+      </router-link>
+    </div>
   </nav>
 </template>
 
 <script setup lang="ts">
+import { nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 
 interface TabItem {
@@ -61,6 +115,8 @@ interface TabItem {
 }
 
 const route = useRoute()
+const bottomTabBarRef = ref<HTMLElement | null>(null)
+let resizeObserver: ResizeObserver | null = null
 
 const tabs: TabItem[] = [
   { id: 'home', path: '/', label: 'Главная' },
@@ -73,32 +129,94 @@ function isActive(path: string): boolean {
   if (path === '/') {
     return route.path === '/'
   }
+
   return route.path.startsWith(path)
 }
+
+function syncBottomTabBarHeight() {
+  if (typeof document === 'undefined' || !bottomTabBarRef.value) {
+    return
+  }
+
+  document.documentElement.style.setProperty(
+    '--app-bottom-tab-bar-height',
+    `${bottomTabBarRef.value.offsetHeight}px`,
+  )
+}
+
+onMounted(() => {
+  nextTick(syncBottomTabBarHeight)
+
+  if (typeof ResizeObserver !== 'undefined' && bottomTabBarRef.value) {
+    resizeObserver = new ResizeObserver(syncBottomTabBarHeight)
+    resizeObserver.observe(bottomTabBarRef.value)
+  }
+
+  window.addEventListener('resize', syncBottomTabBarHeight)
+})
+
+onBeforeUnmount(() => {
+  resizeObserver?.disconnect()
+  resizeObserver = null
+  window.removeEventListener('resize', syncBottomTabBarHeight)
+})
 </script>
 
 <style scoped>
 .bottom-tab-bar {
+  --bottom-tab-bar-base-height: clamp(108px, calc(100vw * 130 / 393), 130px);
   position: fixed;
-  bottom: 0;
   left: 0;
   right: 0;
+  bottom: 0;
   z-index: 100;
+  height: calc(var(--bottom-tab-bar-base-height) + env(safe-area-inset-bottom, 0px));
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.bottom-tab-bar__surface {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.bottom-tab-bar__surface-shape {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: env(safe-area-inset-bottom, 0px);
+  width: 100%;
+  height: var(--bottom-tab-bar-base-height);
+}
+
+.bottom-tab-bar__safe-area-fill {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: env(safe-area-inset-bottom, 0px);
+  background: #d30707;
+}
+
+.bottom-tab-bar__row {
+  position: absolute;
+  left: 50%;
+  top: clamp(60px, calc(100vw * 71 / 393), 71px);
+  transform: translateX(-50%);
+  width: min(calc(100% - 72px), clamp(208px, 59.03%, 320px));
   display: flex;
-  align-items: center;
-  justify-content: space-around;
-  height: 64px;
-  background: linear-gradient(90deg, #f50302 0%, #a90f0e 100%);
-  padding-bottom: env(safe-area-inset-bottom, 0px);
-  box-shadow: 0 -4px 24px rgba(0, 0, 0, 0.15);
+  align-items: flex-end;
+  justify-content: space-between;
+  pointer-events: auto;
 }
 
 .tab-item {
   display: flex;
   align-items: center;
   justify-content: center;
-  flex: 1;
-  height: 100%;
+  width: 24px;
+  height: 24px;
   text-decoration: none;
   -webkit-tap-highlight-color: transparent;
   transition: opacity 0.2s ease;
@@ -113,13 +231,18 @@ function isActive(path: string): boolean {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 40px;
-  height: 40px;
+  width: 24px;
+  height: 24px;
+}
+
+.tab-icon-wrap :deep(svg) {
+  width: clamp(15px, calc(100vw * 16 / 393), 16px);
+  height: clamp(15px, calc(100vw * 16 / 393), 16px);
 }
 
 .tab-active-dot {
   position: absolute;
-  bottom: -6px;
+  bottom: -10px;
   left: 50%;
   transform: translateX(-50%);
   width: 5px;
@@ -129,8 +252,9 @@ function isActive(path: string): boolean {
 }
 
 @media (max-width: 360px) {
-  .bottom-tab-bar {
-    height: 56px;
+  .bottom-tab-bar__row {
+    top: clamp(58px, calc(100vw * 71 / 393), 71px);
+    width: min(calc(100% - 56px), max(188px, 59.03%));
   }
 }
 </style>

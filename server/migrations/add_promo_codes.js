@@ -33,12 +33,6 @@ export function migratePromoCodes() {
       )
     `);
 
-    // Indexes
-    db.exec(`CREATE INDEX IF NOT EXISTS idx_promo_codes_code ON promo_codes(code)`);
-    db.exec(`CREATE INDEX IF NOT EXISTS idx_promo_usage_order ON promo_usage(order_id)`);
-    db.exec(`CREATE INDEX IF NOT EXISTS idx_promo_usage_promo ON promo_usage(promo_code_id)`);
-    db.exec(`CREATE INDEX IF NOT EXISTS idx_promo_usage_status ON promo_usage(status)`);
-
     // Add promo fields to orders
     const columns = db.prepare(`PRAGMA table_info(orders)`).all();
     const columnNames = columns.map((col) => col.name);
@@ -56,25 +50,47 @@ export function migratePromoCodes() {
     const usageColumns = db.prepare(`PRAGMA table_info(promo_usage)`).all();
     const usageColumnNames = usageColumns.map((col) => col.name);
 
+    let statusColumnAdded = false;
     if (!usageColumnNames.includes('status')) {
       console.log('[migration] Adding status column to promo_usage table');
       db.exec(`ALTER TABLE promo_usage ADD COLUMN status TEXT NOT NULL DEFAULT 'reserved'`);
+      statusColumnAdded = true;
     }
+    const hasStatusColumn = usageColumnNames.includes('status') || statusColumnAdded;
 
-    db.exec(`
-      UPDATE promo_usage
-      SET status = CASE
-        WHEN EXISTS (
-          SELECT 1
-          FROM orders o
-          WHERE o.id = promo_usage.order_id
-            AND o.status IN ('completed', 'delivered')
-        ) THEN 'consumed'
-        ELSE 'reserved'
-      END
-      WHERE status IS NULL
-         OR status NOT IN ('reserved', 'consumed')
-    `);
+    // Indexes
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_promo_codes_code ON promo_codes(code)`);
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_promo_usage_order ON promo_usage(order_id)`);
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_promo_usage_promo ON promo_usage(promo_code_id)`);
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_promo_usage_status ON promo_usage(status)`);
+
+    if (hasStatusColumn) {
+      db.exec(`
+        UPDATE promo_usage
+        SET status = CASE
+          WHEN EXISTS (
+            SELECT 1
+            FROM orders o
+            WHERE o.id = promo_usage.order_id
+              AND o.status IN ('completed', 'delivered')
+          ) THEN 'consumed'
+          ELSE 'reserved'
+        END
+        ${statusColumnAdded ? '' : `
+        WHERE status IS NULL
+           OR status NOT IN ('reserved', 'consumed')
+        `}
+      `);
+    } else {
+      db.exec(`
+        UPDATE promo_usage
+        SET status = COALESCE(NULLIF(status, ''), 'reserved')
+        ${statusColumnAdded ? '' : `
+        WHERE status IS NULL
+           OR status NOT IN ('reserved', 'consumed')
+        `}
+      `);
+    }
 
     db.exec(`
       UPDATE promo_usage
@@ -82,19 +98,27 @@ export function migratePromoCodes() {
       WHERE status = 'reserved'
     `);
 
-    db.exec(`
-      UPDATE promo_usage
-      SET used_at = COALESCE(
-        (
-          SELECT o.completed_at
-          FROM orders o
-          WHERE o.id = promo_usage.order_id
-        ),
-        used_at,
-        DATETIME('now')
-      )
-      WHERE status = 'consumed'
-    `);
+    if (columnNames.includes('completed_at')) {
+      db.exec(`
+        UPDATE promo_usage
+        SET used_at = COALESCE(
+          (
+            SELECT o.completed_at
+            FROM orders o
+            WHERE o.id = promo_usage.order_id
+          ),
+          used_at,
+          DATETIME('now')
+        )
+        WHERE status = 'consumed'
+      `);
+    } else {
+      db.exec(`
+        UPDATE promo_usage
+        SET used_at = COALESCE(used_at, DATETIME('now'))
+        WHERE status = 'consumed'
+      `);
+    }
 
     db.exec(`
       UPDATE promo_codes

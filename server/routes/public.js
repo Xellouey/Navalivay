@@ -1,12 +1,13 @@
 import express from "express";
 import fs from "fs";
+import rateLimit from "express-rate-limit";
 import { db } from "../db.js";
 import {
   applyOrderLoyaltyReservations,
   buildLoyaltyApplication,
   releaseOrderLoyaltyReservations,
-  resetCustomerLoyaltyOnUsernameChange,
 } from "../loyalty.js";
+import { requireTelegramMiniAppAuth } from "../telegram-miniapp-auth.js";
 import {
   normalizePromoCode,
   releasePromoUsageForOrder,
@@ -19,6 +20,36 @@ export const publicRouter = express.Router();
 
 const MAX_SQL_VARS = 900;
 const TELEGRAM_BOT_TOKEN = process.env.BOT_TOKEN || "";
+const allowInsecureTelegramFallback =
+  !["production", "test"].includes(String(process.env.NODE_ENV || "").toLowerCase()) &&
+  process.env.ALLOW_INSECURE_TELEGRAM_AUTH !== "0";
+const publicMiniAppReadLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 120,
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+const publicMiniAppMutationLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 40,
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+function generateId(prefix) {
+  return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function getNextNumber(table, field) {
+  const row = db.prepare(`SELECT MAX(${field}) as maxNum FROM ${table}`).get();
+  return (row?.maxNum || 0) + 1;
+}
+
+function throwPromoValidationError(result) {
+  const error = new Error(result?.error || "invalid_promo");
+  error.userMessage = result?.message || "Недействительный промокод";
+  throw error;
+}
 
 async function fetchTelegramChat(telegramId) {
   if (!TELEGRAM_BOT_TOKEN || !telegramId) {
@@ -139,6 +170,69 @@ function pushVariantImage(map, productId, variantId, url) {
   } else {
     byProduct.set(variantId, [url]);
   }
+}
+
+function getMinDeliveryAmount() {
+  const minDeliveryRow = db
+    .prepare("SELECT value FROM settings WHERE key = ?")
+    .get("min_delivery_amount");
+  return parseFloat(minDeliveryRow?.value || "0") || 0;
+}
+
+function ensureMinDeliveryAmountSatisfied(totalAmount) {
+  const minDeliveryAmount = getMinDeliveryAmount();
+  if (minDeliveryAmount <= 0) {
+    return null;
+  }
+
+  if (Number(totalAmount || 0) >= minDeliveryAmount) {
+    return null;
+  }
+
+  return {
+    error: "min_delivery_amount_not_met",
+    message: `Минимальная сумма заказа для доставки: ${minDeliveryAmount} BYN. Сейчас в корзине: ${Number(totalAmount || 0).toFixed(2)} BYN`,
+    min_amount: minDeliveryAmount,
+    current_amount: Number(totalAmount || 0),
+  };
+}
+
+async function resolveVerifiedOrderUsername(authIdentity, submittedUsername) {
+  const normalizedSubmitted = normalizeTelegramUsername(submittedUsername);
+  const verifiedFromAuth = normalizeTelegramUsername(authIdentity?.telegramUsername);
+
+  if (verifiedFromAuth) {
+    return verifiedFromAuth;
+  }
+
+  const telegramId = authIdentity?.telegramId ? String(authIdentity.telegramId).trim() : "";
+  if (telegramId) {
+    const usernameStatus = await resolveTelegramUsernameStatus(telegramId);
+
+    if (usernameStatus.status === "confirmed" && usernameStatus.username) {
+      return normalizeTelegramUsername(usernameStatus.username);
+    }
+
+    if (usernameStatus.status === "missing") {
+      const error = new Error(
+        usernameStatus.message || "Для оформления заказа нужен Telegram username",
+      );
+      error.code = "telegram_username_required";
+      throw error;
+    }
+
+    if (normalizedSubmitted && allowInsecureTelegramFallback) {
+      return normalizedSubmitted;
+    }
+
+    const error = new Error(
+      "Не удалось проверить username. Закройте магазин и откройте заново.",
+    );
+    error.code = "telegram_username_not_verified";
+    throw error;
+  }
+
+  return normalizedSubmitted;
 }
 
 const ACTIVE_CUSTOMER_ORDER_STATUSES = new Set(["new", "in_progress"]);
@@ -411,8 +505,8 @@ function serializeCustomerOrder(order) {
 }
 
 publicRouter.get("/api/categories", (req, res) => {
-  // ОПТИМИЗАЦИЯ: не загружаем cover_image в списке - экономит ~8MB трафика
-  // Фронтенд загружает обложки отдельно через /api/categories/:id/image
+  // РћРџРўРРњРР—РђР¦РРЇ: РЅРµ Р·Р°РіСЂСѓР¶Р°РµРј cover_image РІ СЃРїРёСЃРєРµ - СЌРєРѕРЅРѕРјРёС‚ ~8MB С‚СЂР°С„РёРєР°
+  // Р¤СЂРѕРЅС‚РµРЅРґ Р·Р°РіСЂСѓР¶Р°РµС‚ РѕР±Р»РѕР¶РєРё РѕС‚РґРµР»СЊРЅРѕ С‡РµСЂРµР· /api/categories/:id/image
   const categoriesRaw = db
     .prepare(
       `
@@ -425,7 +519,7 @@ publicRouter.get("/api/categories", (req, res) => {
     )
     .all();
 
-  // Для групп тоже не загружаем cover_image
+  // Р”Р»СЏ РіСЂСѓРїРї С‚РѕР¶Рµ РЅРµ Р·Р°РіСЂСѓР¶Р°РµРј cover_image
   const groupsRaw = db
     .prepare(
       `
@@ -444,10 +538,10 @@ publicRouter.get("/api/categories", (req, res) => {
     SELECT categoryId, COUNT(DISTINCT p.id) as total
     FROM products p
     WHERE (
-      -- Для товаров без вариантов проверяем stock товара
+      -- Р”Р»СЏ С‚РѕРІР°СЂРѕРІ Р±РµР· РІР°СЂРёР°РЅС‚РѕРІ РїСЂРѕРІРµСЂСЏРµРј stock С‚РѕРІР°СЂР°
       (p.has_variants = 0 AND (p.stock IS NULL OR p.stock > 0))
       OR
-      -- Для товаров с вариантами проверяем, есть ли варианты в наличии
+      -- Р”Р»СЏ С‚РѕРІР°СЂРѕРІ СЃ РІР°СЂРёР°РЅС‚Р°РјРё РїСЂРѕРІРµСЂСЏРµРј, РµСЃС‚СЊ Р»Рё РІР°СЂРёР°РЅС‚С‹ РІ РЅР°Р»РёС‡РёРё
       (p.has_variants = 1 AND EXISTS (
         SELECT 1 FROM product_variants pv 
         WHERE pv.product_id = p.id 
@@ -466,10 +560,10 @@ publicRouter.get("/api/categories", (req, res) => {
     FROM products p
     WHERE groupId IS NOT NULL 
       AND (
-        -- Для товаров без вариантов проверяем stock товара
+        -- Р”Р»СЏ С‚РѕРІР°СЂРѕРІ Р±РµР· РІР°СЂРёР°РЅС‚РѕРІ РїСЂРѕРІРµСЂСЏРµРј stock С‚РѕРІР°СЂР°
         (p.has_variants = 0 AND (p.stock IS NULL OR p.stock > 0))
         OR
-        -- Для товаров с вариантами проверяем, есть ли варианты в наличии
+        -- Р”Р»СЏ С‚РѕРІР°СЂРѕРІ СЃ РІР°СЂРёР°РЅС‚Р°РјРё РїСЂРѕРІРµСЂСЏРµРј, РµСЃС‚СЊ Р»Рё РІР°СЂРёР°РЅС‚С‹ РІ РЅР°Р»РёС‡РёРё
         (p.has_variants = 1 AND EXISTS (
           SELECT 1 FROM product_variants pv 
           WHERE pv.product_id = p.id 
@@ -610,7 +704,7 @@ publicRouter.get("/api/banners", (req, res) => {
   res.json(rows);
 });
 
-// Endpoint для получения обложки категории отдельно (оптимизация трафика)
+// Endpoint РґР»СЏ РїРѕР»СѓС‡РµРЅРёСЏ РѕР±Р»РѕР¶РєРё РєР°С‚РµРіРѕСЂРёРё РѕС‚РґРµР»СЊРЅРѕ (РѕРїС‚РёРјРёР·Р°С†РёСЏ С‚СЂР°С„РёРєР°)
 publicRouter.get("/api/categories/:id/image", (req, res) => {
   const { id } = req.params;
   const row = db
@@ -622,7 +716,7 @@ publicRouter.get("/api/categories/:id/image", (req, res) => {
   res.json({ image: row.cover_image });
 });
 
-// Endpoint для получения обложки группы категорий
+// Endpoint РґР»СЏ РїРѕР»СѓС‡РµРЅРёСЏ РѕР±Р»РѕР¶РєРё РіСЂСѓРїРїС‹ РєР°С‚РµРіРѕСЂРёР№
 publicRouter.get("/api/category-groups/:id/image", (req, res) => {
   const { id } = req.params;
   const row = db
@@ -638,7 +732,7 @@ publicRouter.get("/api/products", (req, res) => {
   const { category, group, sort } = req.query;
 
   // Pagination params (defaults aligned with frontend)
-  // Увеличен максимальный лимит до 1000 для загрузки всех товаров категории
+  // РЈРІРµР»РёС‡РµРЅ РјР°РєСЃРёРјР°Р»СЊРЅС‹Р№ Р»РёРјРёС‚ РґРѕ 1000 РґР»СЏ Р·Р°РіСЂСѓР·РєРё РІСЃРµС… С‚РѕРІР°СЂРѕРІ РєР°С‚РµРіРѕСЂРёРё
   const limit = Math.min(
     Math.max(parseInt(req.query.limit ?? "50", 10) || 50, 1),
     1000,
@@ -679,7 +773,7 @@ publicRouter.get("/api/products", (req, res) => {
   }
 
   // Hide products with zero stock for public storefront
-  // Для товаров без вариантов проверяем stock товара, для товаров с вариантами - stock вариантов
+  // Р”Р»СЏ С‚РѕРІР°СЂРѕРІ Р±РµР· РІР°СЂРёР°РЅС‚РѕРІ РїСЂРѕРІРµСЂСЏРµРј stock С‚РѕРІР°СЂР°, РґР»СЏ С‚РѕРІР°СЂРѕРІ СЃ РІР°СЂРёР°РЅС‚Р°РјРё - stock РІР°СЂРёР°РЅС‚РѕРІ
   whereClauses.unshift(`(
     (p.has_variants = 0 AND (p.stock IS NULL OR p.stock > 0))
     OR
@@ -715,8 +809,8 @@ publicRouter.get("/api/products", (req, res) => {
     : db.prepare(countSql).get().total;
 
   // Fetch products with pagination
-  // ОПТИМИЗАЦИЯ: не загружаем cover_image категории здесь - это экономит ~80MB трафика
-  // Фронтенд загружает обложки категорий отдельно через /api/categories/:id/image
+  // РћРџРўРРњРР—РђР¦РРЇ: РЅРµ Р·Р°РіСЂСѓР¶Р°РµРј cover_image РєР°С‚РµРіРѕСЂРёРё Р·РґРµСЃСЊ - СЌС‚Рѕ СЌРєРѕРЅРѕРјРёС‚ ~80MB С‚СЂР°С„РёРєР°
+  // Р¤СЂРѕРЅС‚РµРЅРґ Р·Р°РіСЂСѓР¶Р°РµС‚ РѕР±Р»РѕР¶РєРё РєР°С‚РµРіРѕСЂРёР№ РѕС‚РґРµР»СЊРЅРѕ С‡РµСЂРµР· /api/categories/:id/image
   const sql = `
     SELECT 
       p.id, 
@@ -844,30 +938,30 @@ publicRouter.get("/api/products", (req, res) => {
     };
 
     if (p.hasVariants) {
-      // Для товаров с вариантами получаем варианты и их изображения
+      // Р”Р»СЏ С‚РѕРІР°СЂРѕРІ СЃ РІР°СЂРёР°РЅС‚Р°РјРё РїРѕР»СѓС‡Р°РµРј РІР°СЂРёР°РЅС‚С‹ Рё РёС… РёР·РѕР±СЂР°Р¶РµРЅРёСЏ
       const variants = variantsByProduct.get(p.id) ?? [];
       result.variants = variants.map((v) => ({
         ...v,
         images: variantImagesByProduct.get(p.id)?.get(v.id) ?? [],
       }));
-      // Для обратной совместимости, показываем изображения первого варианта как изображения товара
+      // Р”Р»СЏ РѕР±СЂР°С‚РЅРѕР№ СЃРѕРІРјРµСЃС‚РёРјРѕСЃС‚Рё, РїРѕРєР°Р·С‹РІР°РµРј РёР·РѕР±СЂР°Р¶РµРЅРёСЏ РїРµСЂРІРѕРіРѕ РІР°СЂРёР°РЅС‚Р° РєР°Рє РёР·РѕР±СЂР°Р¶РµРЅРёСЏ С‚РѕРІР°СЂР°
       result.images =
         result.variants.length > 0 &&
         result.variants[0].images &&
         result.variants[0].images.length > 0
           ? result.variants[0].images
           : [];
-      // Обновляем доступность на основе вариантов
+      // РћР±РЅРѕРІР»СЏРµРј РґРѕСЃС‚СѓРїРЅРѕСЃС‚СЊ РЅР° РѕСЃРЅРѕРІРµ РІР°СЂРёР°РЅС‚РѕРІ
       result.isAvailable = result.variants.some(
         (v) => v.stock === null || v.stock > 0,
       );
     } else {
-      // Обычный товар без вариантов
+      // РћР±С‹С‡РЅС‹Р№ С‚РѕРІР°СЂ Р±РµР· РІР°СЂРёР°РЅС‚РѕРІ
       const productImages = baseImagesByProduct.get(p.id) ?? [];
       result.images = productImages;
-      // ОПТИМИЗАЦИЯ: если у товара нет своих изображений и useCategoryImage=1,
-      // фронтенд сам загрузит обложку категории через кэш
-      // Добавляем флаг needsCategoryImage для фронтенда
+      // РћРџРўРРњРР—РђР¦РРЇ: РµСЃР»Рё Сѓ С‚РѕРІР°СЂР° РЅРµС‚ СЃРІРѕРёС… РёР·РѕР±СЂР°Р¶РµРЅРёР№ Рё useCategoryImage=1,
+      // С„СЂРѕРЅС‚РµРЅРґ СЃР°Рј Р·Р°РіСЂСѓР·РёС‚ РѕР±Р»РѕР¶РєСѓ РєР°С‚РµРіРѕСЂРёРё С‡РµСЂРµР· РєСЌС€
+      // Р”РѕР±Р°РІР»СЏРµРј С„Р»Р°Рі needsCategoryImage РґР»СЏ С„СЂРѕРЅС‚РµРЅРґР°
       result.needsCategoryImage =
         p.useCategoryImage && productImages.length === 0;
     }
@@ -880,7 +974,7 @@ publicRouter.get("/api/products", (req, res) => {
 
 publicRouter.get("/api/product/:id", (req, res) => {
   const id = req.params.id;
-  // ОПТИМИЗАЦИЯ: не загружаем cover_image категории - фронтенд загрузит отдельно при необходимости
+  // РћРџРўРРњРР—РђР¦РРЇ: РЅРµ Р·Р°РіСЂСѓР¶Р°РµРј cover_image РєР°С‚РµРіРѕСЂРёРё - С„СЂРѕРЅС‚РµРЅРґ Р·Р°РіСЂСѓР·РёС‚ РѕС‚РґРµР»СЊРЅРѕ РїСЂРё РЅРµРѕР±С…РѕРґРёРјРѕСЃС‚Рё
   const p = db
     .prepare(
       `
@@ -945,7 +1039,7 @@ publicRouter.get("/api/product/:id", (req, res) => {
   };
 
   if (p.hasVariants) {
-    // Для товаров с вариантами получаем варианты и их изображения
+    // Р”Р»СЏ С‚РѕРІР°СЂРѕРІ СЃ РІР°СЂРёР°РЅС‚Р°РјРё РїРѕР»СѓС‡Р°РµРј РІР°СЂРёР°РЅС‚С‹ Рё РёС… РёР·РѕР±СЂР°Р¶РµРЅРёСЏ
     const variants = db
       .prepare(
         `
@@ -966,19 +1060,19 @@ publicRouter.get("/api/product/:id", (req, res) => {
         .all(id, v.id)
         .map((r) => r.url),
     }));
-    // Для обратной совместимости, показываем изображения первого варианта как изображения товара
+    // Р”Р»СЏ РѕР±СЂР°С‚РЅРѕР№ СЃРѕРІРјРµСЃС‚РёРјРѕСЃС‚Рё, РїРѕРєР°Р·С‹РІР°РµРј РёР·РѕР±СЂР°Р¶РµРЅРёСЏ РїРµСЂРІРѕРіРѕ РІР°СЂРёР°РЅС‚Р° РєР°Рє РёР·РѕР±СЂР°Р¶РµРЅРёСЏ С‚РѕРІР°СЂР°
     result.images =
       result.variants.length > 0 &&
       result.variants[0].images &&
       result.variants[0].images.length > 0
         ? result.variants[0].images
         : [];
-    // Обновляем доступность на основе вариантов
+    // РћР±РЅРѕРІР»СЏРµРј РґРѕСЃС‚СѓРїРЅРѕСЃС‚СЊ РЅР° РѕСЃРЅРѕРІРµ РІР°СЂРёР°РЅС‚РѕРІ
     result.isAvailable = result.variants.some(
       (v) => v.stock === null || v.stock > 0,
     );
   } else {
-    // Обычный товар без вариантов
+    // РћР±С‹С‡РЅС‹Р№ С‚РѕРІР°СЂ Р±РµР· РІР°СЂРёР°РЅС‚РѕРІ
     const productImages = db
       .prepare(
         "SELECT url FROM product_images WHERE productId = ? AND variant_id IS NULL ORDER BY position ASC",
@@ -986,7 +1080,7 @@ publicRouter.get("/api/product/:id", (req, res) => {
       .all(id)
       .map((r) => r.url);
     result.images = productImages;
-    // Флаг для фронтенда - нужно загрузить обложку категории
+    // Р¤Р»Р°Рі РґР»СЏ С„СЂРѕРЅС‚РµРЅРґР° - РЅСѓР¶РЅРѕ Р·Р°РіСЂСѓР·РёС‚СЊ РѕР±Р»РѕР¶РєСѓ РєР°С‚РµРіРѕСЂРёРё
     result.needsCategoryImage =
       p.useCategoryImage && productImages.length === 0;
   }
@@ -1009,7 +1103,7 @@ publicRouter.get("/api/cross-sells", (req, res) => {
 
   const maxItems = Math.min(Math.max(parseInt(limit ?? "6", 10) || 6, 1), 12);
 
-  // ОПТИМИЗАЦИЯ: не загружаем cover_image категории
+  // РћРџРўРРњРР—РђР¦РРЇ: РЅРµ Р·Р°РіСЂСѓР¶Р°РµРј cover_image РєР°С‚РµРіРѕСЂРёРё
   const rows = db
     .prepare(
       `
@@ -1103,28 +1197,28 @@ publicRouter.get("/api/cross-sells", (req, res) => {
     };
 
     if (row.hasVariants) {
-      // Для товаров с вариантами получаем варианты и их изображения
+      // Р”Р»СЏ С‚РѕРІР°СЂРѕРІ СЃ РІР°СЂРёР°РЅС‚Р°РјРё РїРѕР»СѓС‡Р°РµРј РІР°СЂРёР°РЅС‚С‹ Рё РёС… РёР·РѕР±СЂР°Р¶РµРЅРёСЏ
       const variants = variantStmt.all(row.productId);
       result.variants = variants.map((v) => ({
         ...v,
         images: variantImgStmt.all(row.productId, v.id).map((r) => r.url),
       }));
-      // Для обратной совместимости, показываем изображения первого варианта как изображения товара
+      // Р”Р»СЏ РѕР±СЂР°С‚РЅРѕР№ СЃРѕРІРјРµСЃС‚РёРјРѕСЃС‚Рё, РїРѕРєР°Р·С‹РІР°РµРј РёР·РѕР±СЂР°Р¶РµРЅРёСЏ РїРµСЂРІРѕРіРѕ РІР°СЂРёР°РЅС‚Р° РєР°Рє РёР·РѕР±СЂР°Р¶РµРЅРёСЏ С‚РѕРІР°СЂР°
       result.images =
         result.variants.length > 0 &&
         result.variants[0].images &&
         result.variants[0].images.length > 0
           ? result.variants[0].images
           : [];
-      // Обновляем доступность на основе вариантов
+      // РћР±РЅРѕРІР»СЏРµРј РґРѕСЃС‚СѓРїРЅРѕСЃС‚СЊ РЅР° РѕСЃРЅРѕРІРµ РІР°СЂРёР°РЅС‚РѕРІ
       result.isAvailable = result.variants.some(
         (v) => v.stock === null || v.stock > 0,
       );
     } else {
-      // Обычный товар без вариантов
+      // РћР±С‹С‡РЅС‹Р№ С‚РѕРІР°СЂ Р±РµР· РІР°СЂРёР°РЅС‚РѕРІ
       const productImages = imageStmt.all(row.productId).map((r) => r.url);
       result.images = productImages;
-      // Флаг для фронтенда
+      // Р¤Р»Р°Рі РґР»СЏ С„СЂРѕРЅС‚РµРЅРґР°
       result.needsCategoryImage =
         row.useCategoryImage && productImages.length === 0;
     }
@@ -1147,7 +1241,7 @@ publicRouter.get("/api/settings", (req, res) => {
 
     res.json({
       manager_telegram: getSettingValue("manager_telegram", "dmitriy_mityuk"),
-      // Минимальная сумма для доставки
+      // РњРёРЅРёРјР°Р»СЊРЅР°СЏ СЃСѓРјРјР° РґР»СЏ РґРѕСЃС‚Р°РІРєРё
       min_delivery_amount: getSettingValue("min_delivery_amount", "0"),
       min_delivery_banner_image: getSettingValue(
         "min_delivery_banner_image",
@@ -1161,12 +1255,12 @@ publicRouter.get("/api/settings", (req, res) => {
         "min_delivery_banner_button_color",
         "#FFD700",
       ),
-      // Баннер условий доставки (fullscreen)
+      // Р‘Р°РЅРЅРµСЂ СѓСЃР»РѕРІРёР№ РґРѕСЃС‚Р°РІРєРё (fullscreen)
       delivery_conditions_image: getSettingValue(
         "delivery_conditions_image",
         "",
       ),
-      // Редирект в Telegram после заказа
+      // Р РµРґРёСЂРµРєС‚ РІ Telegram РїРѕСЃР»Рµ Р·Р°РєР°Р·Р°
       order_redirect_telegram: getSettingValue("order_redirect_telegram", ""),
       order_redirect_text_template: getSettingValue(
         "order_redirect_text_template",
@@ -1175,7 +1269,7 @@ publicRouter.get("/api/settings", (req, res) => {
     });
   } catch (error) {
     console.error("[public] Failed to get settings:", error);
-    // Возвращаем дефолтные значения в случае ошибки
+    // Р’РѕР·РІСЂР°С‰Р°РµРј РґРµС„РѕР»С‚РЅС‹Рµ Р·РЅР°С‡РµРЅРёСЏ РІ СЃР»СѓС‡Р°Рµ РѕС€РёР±РєРё
     res.json({
       manager_telegram: "dmitriy_mityuk",
       min_delivery_amount: "0",
@@ -1188,6 +1282,7 @@ publicRouter.get("/api/settings", (req, res) => {
     });
   }
 });
+
 
 publicRouter.get("/api/telegram/username-status", async (req, res) => {
   try {
@@ -1212,795 +1307,749 @@ publicRouter.get("/api/telegram/username-status", async (req, res) => {
   }
 });
 
-// Get customer profile (public endpoint for Mini App)
-publicRouter.get("/api/customer/me", async (req, res) => {
-  try {
-    const telegramId = typeof req.query.telegram_id === "string" ? req.query.telegram_id.trim() : "";
+publicRouter.get(
+  "/api/customer/me",
+  publicMiniAppReadLimiter,
+  requireTelegramMiniAppAuth({ allowInsecureFallback: allowInsecureTelegramFallback }),
+  async (req, res) => {
+    try {
+      const telegramId = String(req.telegramAuth?.telegramId || "").trim();
+      const telegramUsername = normalizeTelegramUsername(req.telegramAuth?.telegramUsername);
 
-    if (!telegramId) {
-      return res.status(400).json({
-        error: "telegram_id_required",
-        message: "Не указан Telegram ID",
-      });
-    }
+      let customer = null;
+      if (telegramId) {
+        customer = db.prepare(`
+          SELECT id, telegram_id, telegram_username, first_name, last_name,
+                 phone, total_orders, total_spent, photo_url, photo_updated_at,
+                 created_at
+          FROM customers
+          WHERE telegram_id = ?
+        `).get(telegramId);
+      }
 
-    const customer = db.prepare(`
-      SELECT id, telegram_id, telegram_username, first_name, last_name,
-             phone, total_orders, total_spent, photo_url, photo_updated_at,
-             created_at
-      FROM customers
-      WHERE telegram_id = ?
-    `).get(telegramId);
+      if (!customer && telegramUsername) {
+        customer = db.prepare(`
+          SELECT id, telegram_id, telegram_username, first_name, last_name,
+                 phone, total_orders, total_spent, photo_url, photo_updated_at,
+                 created_at
+          FROM customers
+          WHERE LOWER(COALESCE(telegram_username, '')) = LOWER(?)
+          LIMIT 1
+        `).get(telegramUsername);
+      }
 
-    if (!customer) {
-      return res.json({
-        found: false,
-        telegram_id: telegramId,
-        first_name: null,
-        last_name: null,
-        telegram_username: null,
-        photo_url: null,
-        total_orders: 0,
-        total_spent: 0,
-        member_since: null,
-      });
-    }
+      if (!customer) {
+        return res.json({
+          found: false,
+          telegram_id: telegramId || null,
+          first_name: null,
+          last_name: null,
+          telegram_username: telegramUsername || null,
+          photo_url: null,
+          total_orders: 0,
+          total_spent: 0,
+          member_since: null,
+        });
+      }
 
-    // Try to fetch/update photo from Telegram
-    let photoUrl = customer.photo_url || null;
-    const photoAge = customer.photo_updated_at
-      ? Date.now() - new Date(customer.photo_updated_at).getTime()
-      : Infinity;
-    const PHOTO_CACHE_MS = 24 * 60 * 60 * 1000; // 24 hours
+      let photoUrl = customer.photo_url || null;
+      const photoAge = customer.photo_updated_at
+        ? Date.now() - new Date(customer.photo_updated_at).getTime()
+        : Infinity;
+      const PHOTO_CACHE_MS = 24 * 60 * 60 * 1000;
 
-    if (photoAge > PHOTO_CACHE_MS && TELEGRAM_BOT_TOKEN) {
-      try {
-        const chat = await fetchTelegramChat(telegramId);
-        if (chat?.photo?.big_file_id) {
-          const fileResp = await fetch(
-            `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getFile?file_id=${encodeURIComponent(chat.photo.big_file_id)}`
-          );
-          const fileData = await fileResp.json();
-          if (fileData?.ok && fileData.result?.file_path) {
-            photoUrl = `https://api.telegram.org/file/bot${TELEGRAM_BOT_TOKEN}/${fileData.result.file_path}`;
+      if (telegramId && photoAge > PHOTO_CACHE_MS && TELEGRAM_BOT_TOKEN) {
+        try {
+          const chat = await fetchTelegramChat(telegramId);
+          if (chat?.photo?.big_file_id) {
+            const fileResp = await fetch(
+              `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getFile?file_id=${encodeURIComponent(chat.photo.big_file_id)}`,
+            );
+            const fileData = await fileResp.json();
+            if (fileData?.ok && fileData.result?.file_path) {
+              photoUrl = `https://api.telegram.org/file/bot${TELEGRAM_BOT_TOKEN}/${fileData.result.file_path}`;
+            }
+          } else {
+            photoUrl = null;
           }
-        } else {
-          // User has no photo
-          photoUrl = null;
+
+          db.prepare(`
+            UPDATE customers
+            SET photo_url = ?,
+                photo_updated_at = DATETIME('now'),
+                updated_at = DATETIME('now')
+            WHERE id = ?
+          `).run(photoUrl, customer.id);
+        } catch (photoError) {
+          console.warn("[public] Failed to fetch Telegram photo:", photoError.message);
         }
-
-        db.prepare(`
-          UPDATE customers
-          SET photo_url = ?,
-              photo_updated_at = DATETIME('now'),
-              updated_at = DATETIME('now')
-          WHERE id = ?
-        `).run(photoUrl, customer.id);
-      } catch (photoError) {
-        console.warn("[public] Failed to fetch Telegram photo:", photoError.message);
-        // Keep existing cached photo
       }
-    }
 
-    res.json({
-      found: true,
-      id: customer.id,
-      telegram_id: customer.telegram_id,
-      telegram_username: customer.telegram_username || null,
-      first_name: customer.first_name || null,
-      last_name: customer.last_name || null,
-      photo_url: photoUrl,
-      total_orders: customer.total_orders || 0,
-      total_spent: customer.total_spent || 0,
-      member_since: customer.created_at || null,
-    });
-  } catch (error) {
-    console.error("[public] Failed to get customer profile:", error);
-    res.status(500).json({
-      error: "profile_failed",
-      message: "Не удалось загрузить профиль",
-    });
-  }
-});
-
-publicRouter.get("/api/orders/my-active", (req, res) => {
-  try {
-    const telegramId =
-      typeof req.query.telegram_id === "string" ? req.query.telegram_id.trim() : "";
-    const telegramUsername =
-      typeof req.query.telegram_username === "string"
-        ? req.query.telegram_username.trim()
-        : "";
-
-    if (!telegramId && !telegramUsername) {
-      return res.status(400).json({
-        error: "customer_identity_required",
-        message: "Нужен telegram_id или telegram_username",
+      res.json({
+        found: true,
+        id: customer.id,
+        telegram_id: customer.telegram_id,
+        telegram_username: customer.telegram_username || null,
+        first_name: customer.first_name || null,
+        last_name: customer.last_name || null,
+        photo_url: photoUrl,
+        total_orders: customer.total_orders || 0,
+        total_spent: customer.total_spent || 0,
+        member_since: customer.created_at || null,
+      });
+    } catch (error) {
+      console.error("[public] Failed to get customer profile:", error);
+      res.status(500).json({
+        error: "profile_failed",
+        message: "Не удалось загрузить профиль",
       });
     }
+  },
+);
 
-    const order = findOwnedActiveOrder({
-      telegramId,
-      telegramUsername,
-    });
+publicRouter.get(
+  "/api/orders/my-active",
+  publicMiniAppReadLimiter,
+  requireTelegramMiniAppAuth({ allowInsecureFallback: allowInsecureTelegramFallback }),
+  (req, res) => {
+    try {
+      const telegramId = String(req.telegramAuth?.telegramId || "").trim();
+      const telegramUsername = normalizeTelegramUsername(req.telegramAuth?.telegramUsername);
 
-    if (!order) {
-      return res.json({ found: false });
-    }
-
-    return res.json(serializeCustomerOrder(order));
-  } catch (error) {
-    console.error("[public] Failed to get active order:", error);
-    return res.status(500).json({
-      error: "active_order_failed",
-      message: "Не удалось загрузить активный заказ",
-    });
-  }
-});
-
-publicRouter.post("/api/orders/:id/cancel-by-customer", (req, res) => {
-  try {
-    const { id } = req.params;
-    const telegramId =
-      typeof req.body?.telegram_id === "string" ? req.body.telegram_id.trim() : "";
-    const telegramUsername =
-      typeof req.body?.telegram_username === "string"
-        ? req.body.telegram_username.trim()
-        : "";
-
-    const order = findOwnedActiveOrder({
-      orderId: id,
-      telegramId,
-      telegramUsername,
-    });
-
-    if (!order) {
-      return res.status(404).json({
-        error: "not_found",
-        message: "Активный заказ не найден",
-      });
-    }
-
-    const tx = db.transaction(() => {
-      releaseOrderLoyaltyReservations(id);
-
-      const updateFields = [
-        "status = 'cancelled'",
-        "previous_status = ?",
-        "cancelled_at = DATETIME('now')",
-        "updated_at = DATETIME('now')",
-      ];
-      const updateValues = [order.status];
-
-      releasePromoUsageForOrder(order);
-
-      if (order.status === "in_progress") {
-        const orderItems = db
-          .prepare("SELECT * FROM order_items WHERE order_id = ?")
-          .all(id);
-
-        if (order.stock_deducted) {
-          restoreStockForOrderItems(orderItems);
-          updateFields.push("stock_deducted = 0");
-        }
-        updateFields.push("needs_manager_action = 1");
-        updateFields.push("manager_action_type = 'cancelled_by_customer'");
-        updateFields.push("manager_action_note = 'Клиент отменил уже собранный заказ'");
-        updateFields.push("manager_action_resolved_at = NULL");
-      } else {
-        updateFields.push("needs_manager_action = 0");
-        updateFields.push("manager_action_type = NULL");
-        updateFields.push("manager_action_note = NULL");
-        updateFields.push("manager_action_resolved_at = NULL");
-      }
-
-      updateValues.push(id);
-
-      db.prepare(
-        `UPDATE orders SET ${updateFields.join(", ")} WHERE id = ?`,
-      ).run(...updateValues);
-    });
-
-    tx();
-    recordOrderStatusChange(id, order.status, "cancelled", "Клиент отменил заказ");
-
-    return res.json({
-      success: true,
-      order_id: id,
-      status: "cancelled",
-      needs_manager_action: order.status === "in_progress" ? 1 : 0,
-    });
-  } catch (error) {
-    console.error("[public] Cancel by customer error:", error);
-    return res.status(500).json({
-      error: "cancel_failed",
-      message: error.message || "Не удалось отменить заказ",
-    });
-  }
-});
-
-publicRouter.put("/api/orders/:id/modify-by-customer", (req, res) => {
-  try {
-    const { id } = req.params;
-    const {
-      telegram_id,
-      telegram_username,
-      first_name,
-      last_name,
-      phone,
-      delivery_type = "pickup",
-      delivery_address,
-      notes,
-      items,
-      promo_code,
-    } = req.body || {};
-
-    const telegramId = typeof telegram_id === "string" ? telegram_id.trim() : "";
-    const telegramUsername =
-      typeof telegram_username === "string" ? telegram_username.trim() : "";
-
-    if (!Array.isArray(items) || items.length === 0) {
-      return res.status(400).json({
-        error: "items_required",
-        message: "Товары обязательны",
-      });
-    }
-
-    const order = findOwnedActiveOrder({
-      orderId: id,
-      telegramId,
-      telegramUsername,
-    });
-
-    if (!order) {
-      return res.status(404).json({
-        error: "not_found",
-        message: "Активный заказ не найден",
-      });
-    }
-
-    const normalizedUsername = normalizeTelegramUsername(
-      telegramUsername || order.resolved_telegram_username || order.telegram_username,
-    );
-
-    if (!normalizedUsername) {
-      return res.status(400).json({
-        error: "telegram_username_required",
-        message: "Укажите Telegram username",
-      });
-    }
-
-    if (delivery_type === "delivery") {
-      if (!phone || !String(phone).trim()) {
-        return res.status(400).json({
-          error: "phone_required",
-          message: "Укажите телефон для доставки",
-        });
-      }
-      if (!delivery_address || !String(delivery_address).trim()) {
-        return res.status(400).json({
-          error: "address_required",
-          message: "Укажите адрес доставки",
-        });
-      }
-    }
-
-    const previousItems = db
-      .prepare(
-        `
-        SELECT *
-        FROM order_items
-        WHERE order_id = ?
-        ORDER BY rowid ASC
-      `,
-      )
-      .all(id);
-
-    const previousStatus = order.status;
-
-    const tx = db.transaction(() => {
-      if (order.stock_deducted) {
-        restoreStockForOrderItems(previousItems);
-      }
-      releaseOrderLoyaltyReservations(id);
-
-      if (order.customer_id) {
-        resetCustomerLoyaltyOnUsernameChange({
-          customerId: order.customer_id,
-          previousUsername: order.telegram_username,
-          nextUsername: normalizedUsername,
-        });
-      }
-
-      const normalizedPromoCode = normalizePromoCode(promo_code);
-      const orderBuild = buildPublicOrderItems({
-        items,
-        customerId: order.customer_id || null,
-        promoCodeText: normalizedPromoCode,
+      const order = findOwnedActiveOrder({
+        telegramId,
+        telegramUsername,
       });
 
-      let nextPromoDiscount = 0;
-      let nextPromoCodeId = null;
-      let nextPromoResult = null;
-      if (normalizedPromoCode) {
-        nextPromoResult = validatePromoCodeForOrder(
-          normalizedPromoCode,
-          orderBuild.totalAmount,
-          { excludeOrderId: id },
-        );
-        if (!nextPromoResult.valid) {
-          throwPromoValidationError(nextPromoResult);
-          throw new Error(
-            nextPromoResult.message || "РќРµРґРµР№СЃС‚РІРёС‚РµР»СЊРЅС‹Р№ РїСЂРѕРјРѕРєРѕРґ",
-          );
-        }
-        nextPromoDiscount = Number(nextPromoResult.calculated_discount || 0);
-        nextPromoCodeId = nextPromoResult.promo.id;
+      if (!order) {
+        return res.json({ found: false });
       }
 
-      const nextFinalAmount = Math.max(
-        0,
-        orderBuild.totalAmount -
-          nextPromoDiscount -
-          Number(orderBuild.totalLoyaltyDiscount || 0),
-      );
-      const nextProfit = nextFinalAmount - orderBuild.totalCost;
-      const nextManagerActionNote = buildManagerActionNote({
-        previousItems,
-        nextItems: orderBuild.items,
-        previousPromoCodeText: order.promo_code_text || null,
-        nextPromoCodeText: normalizedPromoCode,
+      return res.json(serializeCustomerOrder(order));
+    } catch (error) {
+      console.error("[public] Failed to get active order:", error);
+      return res.status(500).json({
+        error: "active_order_failed",
+        message: "Не удалось загрузить активный заказ",
       });
+    }
+  },
+);
 
-      clearPromoUsageForOrder(order);
-      db.prepare("DELETE FROM order_items WHERE order_id = ?").run(id);
+publicRouter.post(
+  "/api/orders/:id/cancel-by-customer",
+  publicMiniAppMutationLimiter,
+  requireTelegramMiniAppAuth({ allowInsecureFallback: allowInsecureTelegramFallback }),
+  (req, res) => {
+    try {
+      const { id } = req.params;
+      const telegramId = String(req.telegramAuth?.telegramId || "").trim();
+      const telegramUsername = normalizeTelegramUsername(req.telegramAuth?.telegramUsername);
 
-      const updatedItemStmt = db.prepare(`
-        INSERT INTO order_items (
-          id, order_id, product_id, product_title, group_name, base_product_title, base_product_id, variant_id, variant_name, quantity,
-          price_per_unit, cost_per_unit, manual_discount_amount, loyalty_discount_amount, loyalty_units_applied, discount_amount, total_price, total_cost
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `);
-
-      for (const item of orderBuild.items) {
-        updatedItemStmt.run(
-          item.id,
-          id,
-          item.product_id,
-          item.product_title,
-          item.group_name,
-          item.base_product_title,
-          item.base_product_id,
-          item.variant_id || null,
-          item.variant_name,
-          item.quantity,
-          item.price_per_unit,
-          item.cost_per_unit,
-          item.manual_discount_amount,
-          item.loyalty_discount_amount,
-          item.loyalty_units_applied,
-          item.discount_amount,
-          item.total_price,
-          item.total_cost,
-        );
-      }
-
-      applyOrderLoyaltyReservations({
-        customerId: order.customer_id || null,
+      const order = findOwnedActiveOrder({
         orderId: id,
-        application: orderBuild.application,
+        telegramId,
+        telegramUsername,
       });
 
-      db.prepare(
-        `
-        UPDATE orders
-        SET status = 'new',
-            previous_status = ?,
-            delivery_type = ?,
-            delivery_address = ?,
-            notes = ?,
-            phone = ?,
-            telegram_username = ?,
-            total_amount = ?,
-            discount_amount = ?,
-            discount_percent = 0,
-            final_amount = ?,
-            profit = ?,
-            promo_code_id = ?,
-            promo_code_text = ?,
-            needs_manager_action = 1,
-            manager_action_type = 'modified',
-            manager_action_note = ?,
-            manager_action_resolved_at = NULL,
-            stock_deducted = 0,
-            cancelled_at = NULL,
-            updated_at = DATETIME('now')
-        WHERE id = ?
-      `,
-      ).run(
-        previousStatus,
-        delivery_type,
-        delivery_type === "delivery" ? delivery_address || null : null,
-        notes || null,
-        delivery_type === "delivery" ? phone || null : null,
-        normalizedUsername,
-        orderBuild.totalAmount,
-        nextPromoDiscount,
-        nextFinalAmount,
-        nextProfit,
-        nextPromoCodeId,
-        normalizedPromoCode,
-        nextManagerActionNote,
-        id,
+      if (!order) {
+        return res.status(404).json({
+          error: "not_found",
+          message: "Активный заказ не найден",
+        });
+      }
+
+      const tx = db.transaction(() => {
+        releaseOrderLoyaltyReservations(id);
+
+        const updateFields = [
+          "status = 'cancelled'",
+          "previous_status = ?",
+          "cancelled_at = DATETIME('now')",
+          "updated_at = DATETIME('now')",
+        ];
+        const updateValues = [order.status];
+
+        releasePromoUsageForOrder(order);
+
+        if (order.status === "in_progress") {
+          const orderItems = db
+            .prepare("SELECT * FROM order_items WHERE order_id = ?")
+            .all(id);
+
+          if (order.stock_deducted) {
+            restoreStockForOrderItems(orderItems);
+            updateFields.push("stock_deducted = 0");
+          }
+          updateFields.push("needs_manager_action = 1");
+          updateFields.push("manager_action_type = 'cancelled_by_customer'");
+          updateFields.push("manager_action_note = 'Клиент отменил уже собранный заказ'");
+          updateFields.push("manager_action_resolved_at = NULL");
+        } else {
+          updateFields.push("needs_manager_action = 0");
+          updateFields.push("manager_action_type = NULL");
+          updateFields.push("manager_action_note = NULL");
+          updateFields.push("manager_action_resolved_at = NULL");
+        }
+
+        updateValues.push(id);
+
+        db.prepare(
+          `UPDATE orders SET ${updateFields.join(", ")} WHERE id = ?`,
+        ).run(...updateValues);
+      });
+
+      tx();
+      recordOrderStatusChange(id, order.status, "cancelled", "Клиент отменил заказ");
+
+      return res.json({
+        success: true,
+        order_id: id,
+        status: "cancelled",
+        needs_manager_action: order.status === "in_progress" ? 1 : 0,
+      });
+    } catch (error) {
+      console.error("[public] Cancel by customer error:", error);
+      return res.status(500).json({
+        error: "cancel_failed",
+        message: error.message || "Не удалось отменить заказ",
+      });
+    }
+  },
+);
+
+publicRouter.put(
+  "/api/orders/:id/modify-by-customer",
+  publicMiniAppMutationLimiter,
+  requireTelegramMiniAppAuth({ allowInsecureFallback: allowInsecureTelegramFallback }),
+  async (req, res) => {
+    try {
+      const { id } = req.params;
+      const {
+        telegram_username,
+        first_name,
+        last_name,
+        phone,
+        delivery_type = "pickup",
+        delivery_address,
+        notes,
+        items,
+        promo_code,
+      } = req.body || {};
+
+      if (!Array.isArray(items) || items.length === 0) {
+        return res.status(400).json({
+          error: "items_required",
+          message: "Товары обязательны",
+        });
+      }
+
+      const telegramId = String(req.telegramAuth?.telegramId || "").trim();
+      const authTelegramUsername = normalizeTelegramUsername(req.telegramAuth?.telegramUsername);
+      const order = findOwnedActiveOrder({
+        orderId: id,
+        telegramId,
+        telegramUsername: authTelegramUsername,
+      });
+
+      if (!order) {
+        return res.status(404).json({
+          error: "not_found",
+          message: "Активный заказ не найден",
+        });
+      }
+
+      const normalizedUsername = await resolveVerifiedOrderUsername(
+        req.telegramAuth,
+        telegram_username || order.resolved_telegram_username || order.telegram_username,
       );
 
-      if (order.customer_id) {
-        db.prepare(
+      if (!normalizedUsername) {
+        return res.status(400).json({
+          error: "telegram_username_required",
+          message: "Укажите Telegram username",
+        });
+      }
+
+      if (delivery_type === "delivery") {
+        if (!phone || !String(phone).trim()) {
+          return res.status(400).json({
+            error: "phone_required",
+            message: "Укажите телефон для доставки",
+          });
+        }
+        if (!delivery_address || !String(delivery_address).trim()) {
+          return res.status(400).json({
+            error: "address_required",
+            message: "Укажите адрес доставки",
+          });
+        }
+      }
+
+      const previousItems = db
+        .prepare(
           `
-          UPDATE customers
-          SET telegram_username = ?,
-              first_name = COALESCE(?, first_name),
-              last_name = COALESCE(?, last_name),
-              phone = COALESCE(?, phone),
-              updated_at = DATETIME('now')
-          WHERE id = ?
+          SELECT *
+          FROM order_items
+          WHERE order_id = ?
+          ORDER BY rowid ASC
         `,
-        ).run(
-          normalizedUsername,
-          first_name || null,
-          last_name || null,
-          delivery_type === "delivery" ? phone || null : null,
-          order.customer_id,
-        );
-      }
+        )
+        .all(id);
 
-      if (nextPromoCodeId && nextPromoResult) {
-        reservePromoUsageForOrder({
-          promoCodeId: nextPromoCodeId,
-          orderId: id,
+      const previousStatus = order.status;
+
+      const tx = db.transaction(() => {
+        if (order.stock_deducted) {
+          restoreStockForOrderItems(previousItems);
+        }
+        releaseOrderLoyaltyReservations(id);
+
+        const normalizedPromoCode = normalizePromoCode(promo_code);
+        const orderBuild = buildPublicOrderItems({
+          items,
           customerId: order.customer_id || null,
-          discountApplied: nextPromoDiscount,
-          idFactory: () => generateId("pu"),
+          promoCodeText: normalizedPromoCode,
+          existingOrderId: id,
         });
-      }
 
-      return;
-
-      let totalAmount = 0;
-      let totalCost = 0;
-      const nextItems = [];
-
-      for (const item of items) {
-        if (!item?.product_id) {
-          throw new Error("invalid_item");
-        }
-
-        const product = db
-          .prepare("SELECT * FROM products WHERE id = ?")
-          .get(item.product_id);
-
-        if (!product) {
-          throw new Error(`Товар не найден: ${item.product_id}`);
-        }
-
-        const quantity = Number(item.quantity || 0);
-        if (!Number.isFinite(quantity) || quantity <= 0) {
-          throw new Error("invalid_item_quantity");
-        }
-
-        let stockToCheck = product.stock;
-        let variantData = null;
-
-        if (item.variant_id) {
-          variantData = db
-            .prepare("SELECT * FROM product_variants WHERE id = ?")
-            .get(item.variant_id);
-          if (!variantData) {
-            throw new Error(`Вариант не найден: ${item.variant_id}`);
+        if (delivery_type === "delivery") {
+          const minDeliveryError = ensureMinDeliveryAmountSatisfied(orderBuild.totalAmount);
+          if (minDeliveryError) {
+            const error = new Error(minDeliveryError.message);
+            error.code = minDeliveryError.error;
+            error.payload = minDeliveryError;
+            throw error;
           }
-          stockToCheck = variantData.stock;
-        } else if (product.has_variants) {
-          stockToCheck = null;
         }
 
-        if (stockToCheck !== null && Number(stockToCheck) < quantity) {
-          const itemTitle = item.variant_name
-            ? `${product.title} (${item.variant_name})`
-            : product.title;
-          throw new Error(`Недостаточно товара: ${itemTitle}`);
+        let nextPromoDiscount = 0;
+        let nextPromoCodeId = null;
+        let nextPromoResult = null;
+        if (normalizedPromoCode) {
+          nextPromoResult = validatePromoCodeForOrder(
+            normalizedPromoCode,
+            orderBuild.totalAmount,
+            { excludeOrderId: id },
+          );
+          if (!nextPromoResult.valid) {
+            throwPromoValidationError(nextPromoResult);
+            throw new Error(
+              nextPromoResult.message || "Недействительный промокод",
+            );
+          }
+          nextPromoDiscount = Number(nextPromoResult.calculated_discount || 0);
+          nextPromoCodeId = nextPromoResult.promo.id;
         }
 
-        const pricePerUnit =
-          item.price_per_unit || variantData?.price_rub || product.priceRub;
-        const costPerUnit = Number(product.cost_price || 0);
-        const totalPrice = Number(pricePerUnit) * quantity;
-        const totalItemCost = costPerUnit * quantity;
-
-        totalAmount += totalPrice;
-        totalCost += totalItemCost;
-
-        const groupName = product.groupId
-          ? db
-              .prepare("SELECT name FROM category_groups WHERE id = ?")
-              .get(product.groupId)?.name || null
-          : null;
-
-        nextItems.push({
-          id: generateId("oi"),
-          product_id: item.product_id,
-          variant_id: item.variant_id || null,
-          product_title: item.variant_name
-            ? `${product.title} - ${item.variant_name}`
-            : product.title || "Без названия",
-          group_name: groupName,
-          base_product_title:
-            item.product_title || product.title || "Без названия",
-          base_product_id: item.product_id,
-          variant_name: item.variant_name || null,
-          quantity,
-          price_per_unit: Number(pricePerUnit),
-          cost_per_unit: costPerUnit,
-          discount_amount: 0,
-          total_price: totalPrice,
-          total_cost: totalItemCost,
+        const nextFinalAmount = Math.max(
+          0,
+          orderBuild.totalAmount -
+            nextPromoDiscount -
+            Number(orderBuild.totalLoyaltyDiscount || 0),
+        );
+        const nextProfit = nextFinalAmount - orderBuild.totalCost;
+        const nextManagerActionNote = buildManagerActionNote({
+          previousItems,
+          nextItems: orderBuild.items,
+          previousPromoCodeText: order.promo_code_text || null,
+          nextPromoCodeText: normalizedPromoCode,
         });
-      }
 
-      let promoDiscount = 0;
-      let promoCodeId = null;
-      let promoCodeText = null;
-      let promoResult = null;
+        clearPromoUsageForOrder(order);
+        db.prepare("DELETE FROM order_items WHERE order_id = ?").run(id);
 
-      clearPromoUsageForOrder(order);
+        const updatedItemStmt = db.prepare(`
+          INSERT INTO order_items (
+            id, order_id, product_id, product_title, group_name, base_product_title, base_product_id, variant_id, variant_name, quantity,
+            price_per_unit, cost_per_unit, manual_discount_amount, loyalty_discount_amount, loyalty_units_applied, discount_amount, total_price, total_cost
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `);
 
-      if (promo_code && String(promo_code).trim()) {
-        promoResult = validatePromoCode(String(promo_code), totalAmount);
-        if (!promoResult.valid) {
-          throwPromoValidationError(promoResult);
-          throw new Error(
-            promoResult.message || "Недействительный промокод",
+        for (const item of orderBuild.items) {
+          updatedItemStmt.run(
+            item.id,
+            id,
+            item.product_id,
+            item.product_title,
+            item.group_name,
+            item.base_product_title,
+            item.base_product_id,
+            item.variant_id || null,
+            item.variant_name,
+            item.quantity,
+            item.price_per_unit,
+            item.cost_per_unit,
+            item.manual_discount_amount,
+            item.loyalty_discount_amount,
+            item.loyalty_units_applied,
+            item.discount_amount,
+            item.total_price,
+            item.total_cost,
           );
         }
 
-        promoDiscount = Number(promoResult.calculated_discount || 0);
-        promoCodeId = promoResult.promo.id;
-        promoCodeText = String(promo_code).trim().toUpperCase();
-      }
+        applyOrderLoyaltyReservations({
+          customerId: order.customer_id || null,
+          orderId: id,
+          application: orderBuild.application,
+        });
 
-      const finalAmount = totalAmount - promoDiscount;
-      const profit = finalAmount - totalCost;
-      const managerActionNote = buildManagerActionNote({
-        previousItems,
-        nextItems,
-        previousPromoCodeText: order.promo_code_text || null,
-        nextPromoCodeText: promoCodeText,
-      });
-
-      db.prepare("DELETE FROM order_items WHERE order_id = ?").run(id);
-
-      const itemStmt = db.prepare(`
-        INSERT INTO order_items (
-          id, order_id, product_id, product_title, group_name, base_product_title, base_product_id, variant_id, variant_name, quantity,
-          price_per_unit, cost_per_unit, discount_amount, total_price, total_cost
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `);
-
-      for (const item of nextItems) {
-        itemStmt.run(
-          item.id,
-          id,
-          item.product_id,
-          item.product_title,
-          item.group_name,
-          item.base_product_title,
-          item.base_product_id,
-          item.variant_id || null,
-          item.variant_name,
-          item.quantity,
-          item.price_per_unit,
-          item.cost_per_unit,
-          item.discount_amount,
-          item.total_price,
-          item.total_cost,
-        );
-      }
-
-      db.prepare(
-        `
-        UPDATE orders
-        SET status = 'new',
-            previous_status = ?,
-            delivery_type = ?,
-            delivery_address = ?,
-            notes = ?,
-            phone = ?,
-            telegram_username = ?,
-            total_amount = ?,
-            discount_amount = ?,
-            discount_percent = 0,
-            final_amount = ?,
-            profit = ?,
-            promo_code_id = ?,
-            promo_code_text = ?,
-            needs_manager_action = 1,
-            manager_action_type = 'modified',
-            manager_action_note = ?,
-            manager_action_resolved_at = NULL,
-            stock_deducted = 0,
-            cancelled_at = NULL,
-            updated_at = DATETIME('now')
-        WHERE id = ?
-      `,
-      ).run(
-        previousStatus,
-        delivery_type,
-        delivery_type === "delivery" ? delivery_address || null : null,
-        notes || null,
-        delivery_type === "delivery" ? phone || null : null,
-        normalizedUsername,
-        totalAmount,
-        promoDiscount,
-        finalAmount,
-        profit,
-        promoCodeId,
-        promoCodeText,
-        managerActionNote,
-        id,
-      );
-
-      if (order.customer_id) {
         db.prepare(
           `
-          UPDATE customers
-          SET telegram_username = ?,
-              first_name = COALESCE(?, first_name),
-              last_name = COALESCE(?, last_name),
-              phone = COALESCE(?, phone),
+          UPDATE orders
+          SET status = 'new',
+              previous_status = ?,
+              delivery_type = ?,
+              delivery_address = ?,
+              notes = ?,
+              phone = ?,
+              telegram_username = ?,
+              total_amount = ?,
+              discount_amount = ?,
+              discount_percent = 0,
+              final_amount = ?,
+              profit = ?,
+              promo_code_id = ?,
+              promo_code_text = ?,
+              needs_manager_action = 1,
+              manager_action_type = 'modified',
+              manager_action_note = ?,
+              manager_action_resolved_at = NULL,
+              stock_deducted = 0,
+              cancelled_at = NULL,
               updated_at = DATETIME('now')
           WHERE id = ?
         `,
         ).run(
-          normalizedUsername,
-          first_name || null,
-          last_name || null,
+          previousStatus,
+          delivery_type,
+          delivery_type === "delivery" ? delivery_address || null : null,
+          notes || null,
           delivery_type === "delivery" ? phone || null : null,
-          order.customer_id,
-        );
-      }
-
-      if (promoCodeId && promoResult) {
-        db.prepare(
-          `
-          INSERT INTO promo_usage (id, promo_code_id, order_id, customer_id, discount_applied)
-          VALUES (?, ?, ?, ?, ?)
-        `,
-        ).run(
-          generateId("pu"),
-          promoCodeId,
+          normalizedUsername,
+          orderBuild.totalAmount,
+          nextPromoDiscount,
+          nextFinalAmount,
+          nextProfit,
+          nextPromoCodeId,
+          normalizedPromoCode,
+          nextManagerActionNote,
           id,
-          order.customer_id || null,
-          promoDiscount,
         );
-        db.prepare(
-          "UPDATE promo_codes SET current_uses = current_uses + 1 WHERE id = ?",
-        ).run(promoCodeId);
+
+        if (order.customer_id) {
+          db.prepare(
+            `
+            UPDATE customers
+            SET telegram_username = ?,
+                first_name = COALESCE(?, first_name),
+                last_name = COALESCE(?, last_name),
+                phone = COALESCE(?, phone),
+                updated_at = DATETIME('now')
+            WHERE id = ?
+          `,
+          ).run(
+            normalizedUsername,
+            req.telegramAuth?.firstName || first_name || null,
+            req.telegramAuth?.lastName || last_name || null,
+            delivery_type === "delivery" ? phone || null : null,
+            order.customer_id,
+          );
+        }
+
+        if (nextPromoCodeId && nextPromoResult) {
+          reservePromoUsageForOrder({
+            promoCodeId: nextPromoCodeId,
+            orderId: id,
+            customerId: order.customer_id || null,
+            discountApplied: nextPromoDiscount,
+            idFactory: () => generateId("pu"),
+          });
+        }
+      });
+
+      tx();
+      recordOrderStatusChange(id, previousStatus, "new", "Клиент изменил заказ");
+
+      return res.json({
+        success: true,
+        order_id: id,
+      });
+    } catch (error) {
+      const errorCode = String(error.code || error.message || "");
+      if (error.payload?.error === "min_delivery_amount_not_met") {
+        return res.status(400).json(error.payload);
       }
-    });
-
-    tx();
-
-    if (previousStatus !== "new") {
-      recordOrderStatusChange(
-        id,
-        previousStatus,
-        "new",
-        "Клиент изменил заказ, требуется пересборка",
-      );
-    }
-
-    const updatedOrder = findOwnedActiveOrder({
-      orderId: id,
-      telegramId,
-      telegramUsername: normalizedUsername,
-    });
-
-    return res.json(serializeCustomerOrder(updatedOrder || { ...order, id, status: "new" }));
-  } catch (error) {
-    console.error("[public] Modify by customer error:", error);
-    if (
-      [
-        "invalid_item",
-        "invalid_item_quantity",
-        "not_found",
-        "inactive",
-        "not_started",
-        "expired",
-        "max_uses_reached",
-        "min_amount_not_met",
-        "promo_and_loyalty_conflict",
-        "loyalty_category_not_available",
-        "loyalty_balance_not_enough",
-      ].includes(error.message)
-    ) {
-      return res.status(400).json({
-        error: error.message,
-        message: error.userMessage || error.message,
+      if (
+        errorCode === "telegram_username_required" ||
+        errorCode === "telegram_username_not_verified" ||
+        errorCode === "promo_and_loyalty_conflict" ||
+        errorCode === "loyalty_category_not_available" ||
+        errorCode === "loyalty_balance_not_enough" ||
+        errorCode === "loyalty_category_limit_exceeded"
+      ) {
+        return res.status(400).json({
+          error: errorCode,
+          message: error.userMessage || error.message || errorCode,
+        });
+      }
+      console.error("[public] Modify by customer error:", error);
+      return res.status(500).json({
+        error: "modify_failed",
+        message: error.message || "Не удалось изменить заказ",
       });
     }
-    return res.status(500).json({
-      error: "modify_failed",
-      message: error.message || "Не удалось обновить заказ",
-    });
-  }
-});
+  },
+);
 
-// Helper functions
-function generateId(prefix) {
-  return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-}
+publicRouter.post(
+  "/api/orders",
+  publicMiniAppMutationLimiter,
+  requireTelegramMiniAppAuth({ allowInsecureFallback: allowInsecureTelegramFallback }),
+  async (req, res) => {
+    try {
+      const {
+        telegram_username,
+        first_name,
+        last_name,
+        phone,
+        delivery_type = "pickup",
+        delivery_address,
+        notes,
+        items,
+        promo_code,
+      } = req.body || {};
 
-function getNextNumber(table, field) {
-  const row = db.prepare(`SELECT MAX(${field}) as maxNum FROM ${table}`).get();
-  return (row?.maxNum || 0) + 1;
-}
+      if (!Array.isArray(items) || items.length === 0) {
+        return res
+          .status(400)
+          .json({ error: "items_required", message: "Товары обязательны" });
+      }
 
-function throwPromoValidationError(result) {
-  const error = new Error(result?.error || "invalid_promo");
-  error.userMessage = result?.message || "Недействительный промокод";
-  throw error;
-}
+      const verifiedTelegramUsername = await resolveVerifiedOrderUsername(
+        req.telegramAuth,
+        telegram_username,
+      );
 
-// Validate promo code helper
-function validatePromoCode(code, orderAmount) {
-  if (!code || typeof code !== 'string' || !code.trim()) {
-    return { valid: false, error: 'not_found', message: 'Промокод не указан' };
-  }
+      if (!verifiedTelegramUsername) {
+        return res.status(400).json({
+          error: "telegram_username_required",
+          message: "Укажите Telegram username",
+        });
+      }
 
-  const cleanCode = code.trim().toUpperCase();
-  const promo = db.prepare('SELECT * FROM promo_codes WHERE code = ?').get(cleanCode);
+      if (!/^[a-zA-Z0-9_]{5,32}$/.test(verifiedTelegramUsername)) {
+        return res.status(400).json({
+          error: "telegram_username_invalid",
+          message: "Username должен содержать от 5 до 32 символов",
+        });
+      }
 
-  if (!promo) {
-    return { valid: false, error: 'not_found', message: 'Промокод не найден' };
-  }
+      const telegramId = String(req.telegramAuth?.telegramId || "").trim();
+      const existingActiveOrder = findOwnedActiveOrder({
+        telegramId,
+        telegramUsername: verifiedTelegramUsername,
+      });
 
-  if (!promo.active) {
-    return { valid: false, error: 'inactive', message: 'Промокод неактивен' };
-  }
+      if (existingActiveOrder) {
+        return res.status(409).json({
+          error: "active_order_exists",
+          message: "У вас уже есть активный заказ. Его можно только изменить или отменить.",
+          order_id: existingActiveOrder.id,
+          order_number: existingActiveOrder.order_number,
+        });
+      }
 
-  const now = new Date().toISOString();
+      if (delivery_type === "delivery") {
+        if (!phone || !phone.trim()) {
+          return res.status(400).json({
+            error: "phone_required",
+            message: "Укажите телефон для доставки",
+          });
+        }
+        if (!delivery_address || !delivery_address.trim()) {
+          return res.status(400).json({
+            error: "address_required",
+            message: "Укажите адрес доставки",
+          });
+        }
+      }
 
-  if (promo.valid_from && now < promo.valid_from) {
-    return { valid: false, error: 'not_started', message: 'Промокод еще не действует' };
-  }
+      const tx = db.transaction(() => {
+        const resolvedCustomerId = upsertPublicCustomer({
+          telegramId,
+          telegramUsername: verifiedTelegramUsername || null,
+          firstName: req.telegramAuth?.firstName || first_name || null,
+          lastName: req.telegramAuth?.lastName || last_name || null,
+          phone: phone || null,
+        });
 
-  if (promo.valid_until && now > promo.valid_until) {
-    return { valid: false, error: 'expired', message: 'Срок действия промокода истек' };
-  }
+        const createdOrderId = generateId("order");
+        const createdOrderNumber = getNextNumber("orders", "order_number");
+        const normalizedPromoCode = normalizePromoCode(promo_code);
 
-  if (promo.max_uses > 0 && promo.current_uses >= promo.max_uses) {
-    return { valid: false, error: 'max_uses_reached', message: 'Промокод уже использован максимальное количество раз' };
-  }
+        const orderBuild = buildPublicOrderItems({
+          items,
+          customerId: resolvedCustomerId,
+          promoCodeText: normalizedPromoCode,
+        });
 
-  if (promo.min_order_amount > 0 && orderAmount < promo.min_order_amount) {
-    return { valid: false, error: 'min_amount_not_met', message: `Минимальная сумма заказа для этого промокода: ${promo.min_order_amount} BYN` };
-  }
+        if (delivery_type === "delivery") {
+          const minDeliveryError = ensureMinDeliveryAmountSatisfied(orderBuild.totalAmount);
+          if (minDeliveryError) {
+            const error = new Error(minDeliveryError.message);
+            error.code = minDeliveryError.error;
+            error.payload = minDeliveryError;
+            throw error;
+          }
+        }
 
-  let calculatedDiscount = 0;
-  if (promo.discount_type === 'fixed') {
-    calculatedDiscount = Math.min(promo.discount_value, orderAmount);
-  } else if (promo.discount_type === 'percent') {
-    calculatedDiscount = Math.round(orderAmount * promo.discount_value / 100 * 100) / 100;
-  }
+        let createdPromoDiscount = 0;
+        let createdPromoCodeId = null;
+        let createdPromoResult = null;
+        if (normalizedPromoCode) {
+          createdPromoResult = validatePromoCodeForOrder(
+            normalizedPromoCode,
+            orderBuild.totalAmount,
+          );
+          if (!createdPromoResult.valid) {
+            throwPromoValidationError(createdPromoResult);
+            throw new Error(
+              createdPromoResult.message || "Недействительный промокод",
+            );
+          }
+          createdPromoDiscount = Number(createdPromoResult.calculated_discount || 0);
+          createdPromoCodeId = createdPromoResult.promo.id;
+        }
 
-  return {
-    valid: true,
-    promo,
-    discount_type: promo.discount_type,
-    discount_value: promo.discount_value,
-    calculated_discount: calculatedDiscount,
-    description: promo.description,
-  };
-}
+        const createdFinalAmount = Math.max(
+          0,
+          orderBuild.totalAmount - createdPromoDiscount - orderBuild.totalLoyaltyDiscount,
+        );
+        const createdProfit = createdFinalAmount - orderBuild.totalCost;
+
+        db.prepare(
+          `
+          INSERT INTO orders (
+            id, order_number, customer_id, status, delivery_type, delivery_address,
+            total_amount, discount_amount, discount_percent, final_amount, profit, notes, phone, telegram_username,
+            promo_code_id, promo_code_text
+          ) VALUES (?, ?, ?, 'new', ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?)
+        `,
+        ).run(
+          createdOrderId,
+          createdOrderNumber,
+          resolvedCustomerId,
+          delivery_type,
+          delivery_type === "delivery" ? delivery_address || null : null,
+          orderBuild.totalAmount,
+          createdPromoDiscount,
+          createdFinalAmount,
+          createdProfit,
+          notes || null,
+          delivery_type === "delivery" ? phone || null : null,
+          verifiedTelegramUsername || null,
+          createdPromoCodeId,
+          normalizedPromoCode,
+        );
+
+        const createdItemStmt = db.prepare(`
+          INSERT INTO order_items (
+            id, order_id, product_id, product_title, group_name, base_product_title, base_product_id, variant_id, variant_name, quantity,
+            price_per_unit, cost_per_unit, manual_discount_amount, loyalty_discount_amount, loyalty_units_applied, discount_amount, total_price, total_cost
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `);
+
+        for (const item of orderBuild.items) {
+          createdItemStmt.run(
+            item.id,
+            createdOrderId,
+            item.product_id,
+            item.product_title,
+            item.group_name,
+            item.base_product_title,
+            item.base_product_id,
+            item.variant_id || null,
+            item.variant_name,
+            item.quantity,
+            item.price_per_unit,
+            item.cost_per_unit,
+            item.manual_discount_amount,
+            item.loyalty_discount_amount,
+            item.loyalty_units_applied,
+            item.discount_amount,
+            item.total_price,
+            item.total_cost,
+          );
+        }
+
+        applyOrderLoyaltyReservations({
+          customerId: resolvedCustomerId,
+          orderId: createdOrderId,
+          application: orderBuild.application,
+        });
+
+        if (createdPromoCodeId && createdPromoResult) {
+          reservePromoUsageForOrder({
+            promoCodeId: createdPromoCodeId,
+            orderId: createdOrderId,
+            customerId: resolvedCustomerId || null,
+            discountApplied: createdPromoDiscount,
+            idFactory: () => generateId("pu"),
+          });
+        }
+
+        if (resolvedCustomerId) {
+          db.prepare(
+            `
+            UPDATE customers
+            SET total_orders = total_orders + 1,
+                total_spent = total_spent + ?,
+                last_order_at = DATETIME('now'),
+                updated_at = DATETIME('now')
+            WHERE id = ?
+          `,
+          ).run(createdFinalAmount, resolvedCustomerId);
+        }
+
+        return { orderId: createdOrderId, orderNumber: createdOrderNumber };
+      });
+
+      const created = tx();
+      return res.json({
+        success: true,
+        order_id: created.orderId,
+        order_number: created.orderNumber,
+      });
+    } catch (error) {
+      const errorCode = String(error.code || error.message || "");
+      if (error.payload?.error === "min_delivery_amount_not_met") {
+        return res.status(400).json(error.payload);
+      }
+      if (
+        errorCode === "telegram_username_required" ||
+        errorCode === "telegram_username_not_verified" ||
+        errorCode === "promo_and_loyalty_conflict" ||
+        errorCode === "loyalty_category_not_available" ||
+        errorCode === "loyalty_balance_not_enough" ||
+        errorCode === "loyalty_category_limit_exceeded"
+      ) {
+        return res.status(400).json({
+          error: errorCode,
+          message: error.userMessage || error.message || errorCode,
+        });
+      }
+      console.error("[public] Create order error:", error);
+      return res.status(500).json({
+        error: "create_failed",
+        message: error.message || "Не удалось создать заказ",
+      });
+    }
+  },
+);
+
+
 
 // Validate promo code (public endpoint)
 publicRouter.post("/api/promo/validate", (req, res) => {
@@ -2052,12 +2101,6 @@ function upsertPublicCustomer({
     .get(telegramId);
 
   if (existing) {
-    resetCustomerLoyaltyOnUsernameChange({
-      customerId: existing.id,
-      previousUsername: existing.telegram_username,
-      nextUsername: telegramUsername,
-    });
-
     db.prepare(
       `
       UPDATE customers
@@ -2114,7 +2157,7 @@ function buildPublicOrderItems({
       .prepare("SELECT * FROM products WHERE id = ?")
       .get(item.product_id);
     if (!product) {
-      throw new Error(`РўРѕРІР°СЂ РЅРµ РЅР°Р№РґРµРЅ: ${item.product_id}`);
+      throw new Error(`Товар не найден: ${item.product_id}`);
     }
 
     const quantity = Number(item.quantity || 0);
@@ -2130,7 +2173,7 @@ function buildPublicOrderItems({
         .prepare("SELECT * FROM product_variants WHERE id = ?")
         .get(item.variant_id);
       if (!variantData) {
-        throw new Error(`Р’Р°СЂРёР°РЅС‚ РЅРµ РЅР°Р№РґРµРЅ: ${item.variant_id}`);
+        throw new Error(`Вариант не найден: ${item.variant_id}`);
       }
       stockToCheck = variantData.stock;
     } else if (product.has_variants) {
@@ -2141,11 +2184,11 @@ function buildPublicOrderItems({
       const itemTitle = item.variant_name
         ? `${product.title} (${item.variant_name})`
         : product.title;
-      throw new Error(`РќРµРґРѕСЃС‚Р°С‚РѕС‡РЅРѕ С‚РѕРІР°СЂР°: ${itemTitle}`);
+      throw new Error(`Недостаточно товара: ${itemTitle}`);
     }
 
     const pricePerUnit =
-      item.price_per_unit || variantData?.price_rub || product.priceRub;
+      variantData?.price_rub ?? product.priceRub ?? item.price_per_unit ?? 0;
     const costPerUnit = Number(product.cost_price || 0);
     const groupName = product.groupId
       ? db
@@ -2162,10 +2205,10 @@ function buildPublicOrderItems({
       variant_id: item.variant_id || null,
       product_title: item.variant_name
         ? `${product.title} - ${item.variant_name}`
-        : product.title || "Р‘РµР· РЅР°Р·РІР°РЅРёСЏ",
+        : product.title || "Без названия",
       group_name: groupName,
       base_product_title:
-        item.product_title || product.title || "Р‘РµР· РЅР°Р·РІР°РЅРёСЏ",
+        item.product_title || product.title || "Без названия",
       base_product_id: item.product_id,
       variant_name: item.variant_name || null,
       quantity,
@@ -2213,539 +2256,3 @@ function buildPublicOrderItems({
 }
 
 // Create order (public endpoint)
-publicRouter.post("/api/orders", async (req, res) => {
-  try {
-    const {
-      telegram_id,
-      telegram_username,
-      first_name,
-      last_name,
-      phone,
-      delivery_type = "pickup",
-      delivery_address,
-      notes,
-      items,
-      promo_code,
-    } = req.body;
-
-    if (!Array.isArray(items) || items.length === 0) {
-      return res
-        .status(400)
-        .json({ error: "items_required", message: "Товары обязательны" });
-    }
-
-    const normalizedUsername = normalizeTelegramUsername(telegram_username);
-
-    // Validate telegram_username (required)
-    if (!normalizedUsername) {
-      return res
-        .status(400)
-        .json({
-          error: "telegram_username_required",
-          message: "Укажите Telegram username",
-        });
-    }
-
-    if (!/^[a-zA-Z0-9_]{5,32}$/.test(normalizedUsername)) {
-      return res
-        .status(400)
-        .json({
-          error: "telegram_username_invalid",
-          message: "Username должен содержать от 5 до 32 символов",
-        });
-    }
-
-    let verifiedTelegramUsername = normalizedUsername;
-
-    if (telegram_id) {
-      const usernameStatus = await resolveTelegramUsernameStatus(String(telegram_id));
-      
-      // Если Telegram API подтвердил username - используем его
-      if (usernameStatus.status === "confirmed" && usernameStatus.username) {
-        verifiedTelegramUsername = normalizeTelegramUsername(usernameStatus.username);
-      } 
-      // Если API вернул "missing" (пользователь точно без username) - блокируем
-      else if (usernameStatus.status === "missing") {
-        return res
-          .status(400)
-          .json({
-            error: "telegram_username_required",
-            message: usernameStatus.message || "Для оформления заказа нужен Telegram username",
-          });
-      }
-      // Если API недоступен (retry/chat not found), но клиент передал username - доверяем клиенту
-      // initDataUnsafe подписан Telegram и не может быть подделан
-      else if (usernameStatus.status === "retry" && normalizedUsername) {
-        verifiedTelegramUsername = normalizedUsername;
-      }
-      // API недоступен и клиент не передал username - блокируем
-      else {
-        return res
-          .status(400)
-          .json({
-            error: "telegram_username_not_verified",
-            message: "Не удалось проверить username. Закройте магазин и откройте заново.",
-          });
-      }
-    }
-
-    const existingActiveOrder = findOwnedActiveOrder({
-      telegramId: telegram_id ? String(telegram_id) : "",
-      telegramUsername: verifiedTelegramUsername,
-    });
-
-    if (existingActiveOrder) {
-      return res.status(409).json({
-        error: "active_order_exists",
-        message: "У вас уже есть активный заказ. Его можно только изменить или отменить.",
-        order_id: existingActiveOrder.id,
-        order_number: existingActiveOrder.order_number,
-      });
-    }
-
-    // Validate delivery requirements
-    if (delivery_type === "delivery") {
-      if (!phone || !phone.trim()) {
-        return res
-          .status(400)
-          .json({
-            error: "phone_required",
-            message: "Укажите телефон для доставки",
-          });
-      }
-      if (!delivery_address || !delivery_address.trim()) {
-        return res
-          .status(400)
-          .json({
-            error: "address_required",
-            message: "Укажите адрес доставки",
-          });
-      }
-
-      // Check minimum delivery amount
-      const minDeliveryRow = db
-        .prepare("SELECT value FROM settings WHERE key = ?")
-        .get("min_delivery_amount");
-      const minDeliveryAmount = parseFloat(minDeliveryRow?.value || "0") || 0;
-
-      if (minDeliveryAmount > 0) {
-        // Pre-calculate total amount to check against minimum
-        let preCalcTotal = 0;
-        for (const item of items) {
-          const product = db
-            .prepare("SELECT priceRub FROM products WHERE id = ?")
-            .get(item.product_id);
-          if (product) {
-            const pricePerUnit = item.price_per_unit || product.priceRub;
-            preCalcTotal += pricePerUnit * item.quantity;
-          }
-        }
-
-        if (preCalcTotal < minDeliveryAmount) {
-          return res.status(400).json({
-            error: "min_delivery_amount_not_met",
-            message: `Минимальная сумма заказа для доставки: ${minDeliveryAmount} BYN. Сейчас в корзине: ${preCalcTotal.toFixed(2)} BYN`,
-            min_amount: minDeliveryAmount,
-            current_amount: preCalcTotal,
-          });
-        }
-      }
-    }
-
-    const tx = db.transaction(() => {
-      const resolvedCustomerId = upsertPublicCustomer({
-        telegramId: telegram_id ? String(telegram_id) : "",
-        telegramUsername: verifiedTelegramUsername || null,
-        firstName: first_name || null,
-        lastName: last_name || null,
-        phone: phone || null,
-      });
-
-      const createdOrderId = generateId("order");
-      const createdOrderNumber = getNextNumber("orders", "order_number");
-      const normalizedPromoCode = normalizePromoCode(promo_code);
-
-      const orderBuild = buildPublicOrderItems({
-        items,
-        customerId: resolvedCustomerId,
-        promoCodeText: normalizedPromoCode,
-      });
-
-      let createdPromoDiscount = 0;
-      let createdPromoCodeId = null;
-      let createdPromoResult = null;
-      if (normalizedPromoCode) {
-        createdPromoResult = validatePromoCodeForOrder(
-          normalizedPromoCode,
-          orderBuild.totalAmount,
-        );
-        if (!createdPromoResult.valid) {
-          throwPromoValidationError(createdPromoResult);
-          throw new Error(
-            createdPromoResult.message || "РќРµРґРµР№СЃС‚РІРёС‚РµР»СЊРЅС‹Р№ РїСЂРѕРјРѕРєРѕРґ",
-          );
-        }
-        createdPromoDiscount = Number(createdPromoResult.calculated_discount || 0);
-        createdPromoCodeId = createdPromoResult.promo.id;
-      }
-
-      const createdFinalAmount = Math.max(
-        0,
-        orderBuild.totalAmount - createdPromoDiscount - orderBuild.totalLoyaltyDiscount,
-      );
-      const createdProfit = createdFinalAmount - orderBuild.totalCost;
-
-      db.prepare(
-        `
-        INSERT INTO orders (
-          id, order_number, customer_id, status, delivery_type, delivery_address,
-          total_amount, discount_amount, discount_percent, final_amount, profit, notes, phone, telegram_username,
-          promo_code_id, promo_code_text
-        ) VALUES (?, ?, ?, 'new', ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?)
-      `,
-      ).run(
-        createdOrderId,
-        createdOrderNumber,
-        resolvedCustomerId,
-        delivery_type,
-        delivery_type === "delivery" ? delivery_address || null : null,
-        orderBuild.totalAmount,
-        createdPromoDiscount,
-        createdFinalAmount,
-        createdProfit,
-        notes || null,
-        delivery_type === "delivery" ? phone || null : null,
-        verifiedTelegramUsername || null,
-        createdPromoCodeId,
-        normalizedPromoCode,
-      );
-
-      const createdItemStmt = db.prepare(`
-        INSERT INTO order_items (
-          id, order_id, product_id, product_title, group_name, base_product_title, base_product_id, variant_id, variant_name, quantity,
-          price_per_unit, cost_per_unit, manual_discount_amount, loyalty_discount_amount, loyalty_units_applied, discount_amount, total_price, total_cost
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `);
-
-      for (const item of orderBuild.items) {
-        createdItemStmt.run(
-          item.id,
-          createdOrderId,
-          item.product_id,
-          item.product_title,
-          item.group_name,
-          item.base_product_title,
-          item.base_product_id,
-          item.variant_id || null,
-          item.variant_name,
-          item.quantity,
-          item.price_per_unit,
-          item.cost_per_unit,
-          item.manual_discount_amount,
-          item.loyalty_discount_amount,
-          item.loyalty_units_applied,
-          item.discount_amount,
-          item.total_price,
-          item.total_cost,
-        );
-      }
-
-      applyOrderLoyaltyReservations({
-        customerId: resolvedCustomerId,
-        orderId: createdOrderId,
-        application: orderBuild.application,
-      });
-
-      if (createdPromoCodeId && createdPromoResult) {
-        reservePromoUsageForOrder({
-          promoCodeId: createdPromoCodeId,
-          orderId: createdOrderId,
-          customerId: resolvedCustomerId || null,
-          discountApplied: createdPromoDiscount,
-          idFactory: () => generateId("pu"),
-        });
-      }
-
-      if (resolvedCustomerId) {
-        db.prepare(
-          `
-          UPDATE customers
-          SET total_orders = total_orders + 1,
-              total_spent = total_spent + ?,
-              last_order_at = DATETIME('now'),
-              updated_at = DATETIME('now')
-          WHERE id = ?
-        `,
-        ).run(createdFinalAmount, resolvedCustomerId);
-      }
-
-      return { orderId: createdOrderId, orderNumber: createdOrderNumber };
-
-      // Find or create customer
-      let customerId = null;
-
-      if (telegram_id) {
-        const existing = db
-          .prepare("SELECT id FROM customers WHERE telegram_id = ?")
-          .get(telegram_id);
-        if (existing) {
-          customerId = existing.id;
-          // Update customer info
-          db.prepare(
-            `
-            UPDATE customers
-            SET telegram_username = ?,
-                first_name = ?,
-                last_name = ?,
-                phone = COALESCE(?, phone),
-                last_visit_at = DATETIME('now'),
-                updated_at = DATETIME('now')
-            WHERE id = ?
-          `,
-          ).run(
-            verifiedTelegramUsername || null,
-            first_name || null,
-            last_name || null,
-            phone || null,
-            customerId,
-          );
-        } else {
-          // Create new customer
-          customerId = generateId("cust");
-          db.prepare(
-            `
-            INSERT INTO customers (
-              id, telegram_id, telegram_username, first_name, last_name, phone,
-              first_visit_at, last_visit_at, total_orders, total_spent
-            ) VALUES (?, ?, ?, ?, ?, ?, DATETIME('now'), DATETIME('now'), 0, 0)
-          `,
-          ).run(
-            customerId,
-            telegram_id,
-            verifiedTelegramUsername || null,
-            first_name || null,
-            last_name || null,
-            phone || null,
-          );
-        }
-      }
-
-      // Generate order
-      const orderId = generateId("order");
-      const orderNumber = getNextNumber("orders", "order_number");
-
-      // Calculate totals
-      let totalAmount = 0;
-      let totalCost = 0;
-
-      const orderItems = items.map((item) => {
-        const product = db
-          .prepare("SELECT * FROM products WHERE id = ?")
-          .get(item.product_id);
-        if (!product) {
-          throw new Error(`Товар не найден: ${item.product_id}`);
-        }
-
-        // Check stock - для товаров с вариантами проверяем stock варианта
-        let stockToCheck = product.stock;
-        let variantData = null;
-
-        if (item.variant_id) {
-          // Товар с вариантом - проверяем stock варианта
-          variantData = db
-            .prepare("SELECT * FROM product_variants WHERE id = ?")
-            .get(item.variant_id);
-          if (variantData) {
-            stockToCheck = variantData.stock;
-          }
-        } else if (product.has_variants) {
-          // Товар имеет варианты, но variant_id не указан - пропускаем проверку stock базового товара
-          // т.к. stock хранится в вариантах
-          stockToCheck = null;
-        }
-
-        if (stockToCheck !== null && stockToCheck < item.quantity) {
-          const itemTitle = item.variant_name
-            ? `${product.title} (${item.variant_name})`
-            : product.title;
-          throw new Error(`Недостаточно товара: ${itemTitle}`);
-        }
-
-        const pricePerUnit =
-          item.price_per_unit || variantData?.price_rub || product.priceRub;
-        const costPerUnit = product.cost_price || 0;
-        const totalPrice = pricePerUnit * item.quantity;
-        const totalItemCost = costPerUnit * item.quantity;
-
-        totalAmount += totalPrice;
-        totalCost += totalItemCost;
-
-        const groupName = product.groupId
-          ? db
-              .prepare("SELECT name FROM category_groups WHERE id = ?")
-              .get(product.groupId)?.name || null
-          : null;
-
-        return {
-          id: generateId("oi"),
-          product_id: item.product_id,
-          variant_id: item.variant_id || null,
-          product_title: item.variant_name
-            ? `${product.title} - ${item.variant_name}`
-            : product.title || "Без названия",
-          group_name: groupName,
-          base_product_title:
-            item.product_title || product.title || "Без названия",
-          base_product_id: item.product_id,
-          variant_name: item.variant_name || null,
-          quantity: item.quantity,
-          price_per_unit: pricePerUnit,
-          cost_per_unit: costPerUnit,
-          discount_amount: 0,
-          total_price: totalPrice,
-          total_cost: totalItemCost,
-          has_variants: product.has_variants,
-        };
-      });
-
-      // Validate and apply promo code
-      let promoDiscount = 0;
-      let promoCodeId = null;
-      let promoCodeText = null;
-      let promoResult = null;
-
-      if (promo_code && promo_code.trim()) {
-        promoResult = validatePromoCodeForOrder(promo_code, totalAmount);
-        if (!promoResult.valid) {
-          throw new Error(promoResult.message || 'Недействительный промокод');
-        }
-        promoDiscount = promoResult.calculated_discount;
-        promoCodeId = promoResult.promo.id;
-        promoCodeText = promo_code.trim().toUpperCase();
-      }
-
-      const finalAmount = totalAmount - promoDiscount;
-      const profit = finalAmount - totalCost;
-
-      // Insert order
-      db.prepare(
-        `
-        INSERT INTO orders (
-          id, order_number, customer_id, status, delivery_type, delivery_address,
-          total_amount, discount_amount, discount_percent, final_amount, profit, notes, phone, telegram_username,
-          promo_code_id, promo_code_text
-        ) VALUES (?, ?, ?, 'new', ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?)
-      `,
-      ).run(
-        orderId,
-        orderNumber,
-        customerId,
-        delivery_type,
-        delivery_address || null,
-        totalAmount,
-        promoDiscount,
-        finalAmount,
-        profit,
-        notes || null,
-        phone || null,
-        verifiedTelegramUsername || null,
-        promoCodeId,
-        promoCodeText,
-      );
-
-      // Insert order items
-      const itemStmt = db.prepare(`
-        INSERT INTO order_items (
-          id, order_id, product_id, product_title, group_name, base_product_title, base_product_id, variant_id, variant_name, quantity,
-          price_per_unit, cost_per_unit, discount_amount, total_price, total_cost
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `);
-
-      for (const item of orderItems) {
-        itemStmt.run(
-          item.id,
-          orderId,
-          item.product_id,
-          item.product_title,
-          item.group_name,
-          item.base_product_title,
-          item.base_product_id,
-          item.variant_id || null,
-          item.variant_name,
-          item.quantity,
-          item.price_per_unit,
-          item.cost_per_unit,
-          item.discount_amount,
-          item.total_price,
-          item.total_cost,
-        );
-
-        // ВАЖНО: НЕ списываем сток при создании заказа!
-        // Сток списывается только при переходе в статус "Собран" (in_progress)
-        // Это защита от абуза - конкуренты могут создавать фейковые заказы
-        // и товары будут пропадать из наличия без реальных продаж
-      }
-
-      // Record promo usage and increment counter
-      if (promoCodeId && promoResult) {
-        reservePromoUsageForOrder({
-          promoCodeId,
-          orderId,
-          customerId: customerId || null,
-          discountApplied: promoDiscount,
-          idFactory: () => generateId("pu"),
-        });
-      }
-
-      // Update customer stats
-      if (customerId) {
-        db.prepare(
-          `
-          UPDATE customers
-          SET total_orders = total_orders + 1,
-              total_spent = total_spent + ?,
-              last_order_at = DATETIME('now'),
-              updated_at = DATETIME('now')
-          WHERE id = ?
-        `,
-        ).run(finalAmount, customerId);
-      }
-
-      return { orderId, orderNumber };
-    });
-
-    const result = tx();
-
-    res.json({
-      success: true,
-      order_id: result.orderId,
-      order_number: result.orderNumber,
-      message: "Заказ успешно создан",
-    });
-  } catch (error) {
-    console.error("[public] Create order error:", error);
-    if (
-      [
-        "invalid_item_quantity",
-        "not_found",
-        "inactive",
-        "not_started",
-        "expired",
-        "max_uses_reached",
-        "min_amount_not_met",
-        "promo_and_loyalty_conflict",
-        "loyalty_category_not_available",
-        "loyalty_balance_not_enough",
-      ].includes(error.message)
-    ) {
-      return res.status(400).json({
-        error: error.message,
-        message: error.userMessage || error.message,
-      });
-    }
-    res.status(500).json({
-      error: "failed",
-      message: error.message || "Не удалось создать заказ",
-    });
-  }
-});

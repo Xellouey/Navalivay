@@ -1513,11 +1513,11 @@ watch(
 /* Cart Button Styles */
 .cart-wrapper {
   position: fixed;
-  bottom: 40px; /* Подняли выше, чтобы не перекрывалось свайпом iPhone */
+  bottom: var(--app-bottom-tab-bar-height, 130px);
   left: 0;
   right: 0;
   z-index: 50;
-  padding: 1rem;
+  padding: 0 1rem;
   pointer-events: none;
 }
 
@@ -1537,23 +1537,18 @@ watch(
   background: linear-gradient(90deg, #f50302 0%, #a90f0e 100%);
   border: none;
   border-radius: 528px;
-  box-shadow: 0 8px 24px rgba(245, 3, 2, 0.3);
 
   cursor: pointer;
   pointer-events: auto;
-  transition:
-    transform 0.25s ease,
-    box-shadow 0.25s ease;
+  transition: transform 0.25s ease;
 }
 
 .cart-button:hover {
   transform: translateY(-2px);
-  box-shadow: 0 12px 32px rgba(245, 3, 2, 0.4);
 }
 
 .cart-button:active {
   transform: translateY(-1px);
-  box-shadow: 0 6px 20px rgba(245, 3, 2, 0.35);
 }
 
 .cart-icon {
@@ -1595,7 +1590,7 @@ watch(
 /* Mobile adjustments */
 @media (max-width: 768px) {
   .cart-wrapper {
-    padding: 0.75rem;
+    padding: 0 0.75rem;
   }
 
   .cart-button {
@@ -1616,7 +1611,7 @@ watch(
 
 @media (max-width: 480px) {
   .cart-wrapper {
-    padding: 0.5rem;
+    padding: 0 0.5rem;
   }
 
   .cart-button {

@@ -1,216 +1,128 @@
 <template>
-  <Teleport to="body">
-    <Transition name="modal">
-      <div v-if="isOpen" class="min-delivery-overlay" @click.self="close">
-        <div class="min-delivery-modal">
-          <!-- Close button -->
-          <button class="close-btn" @click="close">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M18 6L6 18M6 6l12 12" />
-            </svg>
-          </button>
-
-          <!-- Banner image -->
-          <div v-if="bannerImage" class="banner-image">
-            <img :src="bannerImage" alt="Минимальная сумма заказа" />
-          </div>
-
-          <!-- Content -->
-          <div class="banner-content">
-            <h2 class="banner-title">Минимальная сумма заказа</h2>
-            <p class="banner-text">
-              Для оформления доставки сумма заказа должна быть не менее 
-              <strong>{{ minAmount }} BYN</strong>
-            </p>
-            <p class="banner-subtext">
-              Сейчас в вашей корзине: <strong>{{ currentAmount }} BYN</strong>
-            </p>
-            <p class="banner-diff">
-              Добавьте товаров ещё на <strong>{{ diffAmount }} BYN</strong>
-            </p>
-          </div>
-
-          <!-- Action button -->
-          <button 
-            class="action-btn"
-            :style="{ backgroundColor: buttonColor }"
-            @click="close"
-          >
-            {{ buttonText }}
-          </button>
-        </div>
+  <CustomerModalShell
+    :open="isOpen"
+    title="Минимальная сумма заказа"
+    close-label="Закрыть подсказку"
+    @close="close"
+  >
+    <div class="min-delivery-content">
+      <div v-if="bannerImage" class="min-delivery-image">
+        <img :src="bannerImage" alt="Минимальная сумма заказа" />
       </div>
-    </Transition>
-  </Teleport>
+
+      <div class="min-delivery-copy">
+        <p>
+          Для оформления доставки сумма заказа должна быть не менее
+          <strong>{{ minAmount }} BYN</strong>.
+        </p>
+        <p>
+          Сейчас в вашей корзине
+          <strong>{{ currentAmount }} BYN</strong>.
+        </p>
+        <p class="min-delivery-copy-accent">
+          Добавьте товаров еще на
+          <strong>{{ diffAmount }} BYN</strong>.
+        </p>
+      </div>
+    </div>
+
+    <template #footer>
+      <button type="button" class="min-delivery-cta" @click="close">
+        {{ buttonText }}
+      </button>
+    </template>
+  </CustomerModalShell>
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed } from "vue";
+import CustomerModalShell from "@/components/CustomerModalShell.vue";
 
 interface Props {
-  isOpen: boolean
-  minAmount: number
-  currentAmount: number
-  bannerImage?: string
-  buttonText?: string
-  buttonColor?: string
+  isOpen: boolean;
+  minAmount: number;
+  currentAmount: number;
+  bannerImage?: string;
+  buttonText?: string;
+  buttonColor?: string;
 }
 
 const props = withDefaults(defineProps<Props>(), {
-  bannerImage: '',
-  buttonText: 'Понятно',
-  buttonColor: '#FFD700'
-})
+  bannerImage: "",
+  buttonText: "Понятно",
+  buttonColor: "",
+});
 
 const emit = defineEmits<{
-  (e: 'close'): void
-}>()
+  (e: "close"): void;
+}>();
 
 const diffAmount = computed(() => {
-  const diff = props.minAmount - props.currentAmount
-  return diff > 0 ? diff.toFixed(2) : '0.00'
-})
+  const diff = props.minAmount - props.currentAmount;
+  return diff > 0 ? diff.toFixed(2) : "0.00";
+});
 
 function close() {
-  emit('close')
+  emit("close");
 }
 </script>
 
 <style scoped>
-.min-delivery-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 9999;
+.min-delivery-content {
   display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(0, 0, 0, 0.6);
-  backdrop-filter: blur(4px);
-  padding: 1rem;
+  flex-direction: column;
+  gap: 16px;
 }
 
-.min-delivery-modal {
-  position: relative;
+.min-delivery-image {
   width: 100%;
-  max-width: 400px;
-  background: #fff;
-  border-radius: 24px;
+  border-radius: 16px;
   overflow: hidden;
-  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+  background: #f5f7fa;
 }
 
-.close-btn {
-  position: absolute;
-  top: 12px;
-  right: 12px;
-  z-index: 10;
-  width: 36px;
-  height: 36px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(255, 255, 255, 0.9);
-  border: none;
-  border-radius: 50%;
-  cursor: pointer;
-  color: #333;
-  transition: all 0.2s ease;
-}
-
-.close-btn:hover {
-  background: #fff;
-  transform: scale(1.1);
-}
-
-.banner-image {
+.min-delivery-image img {
+  display: block;
   width: 100%;
-  aspect-ratio: 16 / 10;
-  overflow: hidden;
-}
-
-.banner-image img {
-  width: 100%;
-  height: 100%;
+  max-height: 200px;
   object-fit: cover;
 }
 
-.banner-content {
-  padding: 1.5rem;
-  text-align: center;
+.min-delivery-copy {
+  color: #191919;
+  font-family: -apple-system, "SF Pro Display", sans-serif;
+  font-weight: 500;
+  font-size: 16px;
+  line-height: 19px;
 }
 
-.banner-title {
-  font-family: var(--font-display, 'Inter', sans-serif);
-  font-size: 1.5rem;
-  font-weight: 800;
-  color: #1a1a1a;
-  margin: 0 0 0.75rem;
-}
-
-.banner-text {
-  font-size: 1rem;
-  color: #4a4a4a;
-  margin: 0 0 0.5rem;
-  line-height: 1.5;
-}
-
-.banner-text strong {
-  color: #1a1a1a;
-}
-
-.banner-subtext {
-  font-size: 0.9rem;
-  color: #666;
-  margin: 0 0 0.5rem;
-}
-
-.banner-diff {
-  font-size: 0.95rem;
-  color: var(--navalivay-red, #d32f2f);
+.min-delivery-copy p {
   margin: 0;
-  font-weight: 600;
 }
 
-.action-btn {
-  display: block;
-  width: calc(100% - 3rem);
-  margin: 0 1.5rem 1.5rem;
-  padding: 1rem 2rem;
-  border: none;
-  border-radius: 16px;
-  font-family: var(--font-display, 'Inter', sans-serif);
-  font-size: 1rem;
+.min-delivery-copy p + p {
+  margin-top: 18px;
+}
+
+.min-delivery-copy strong {
   font-weight: 700;
-  color: #1a1a1a;
+}
+
+.min-delivery-copy-accent {
+  color: #a90f0e;
+}
+
+.min-delivery-cta {
+  width: 100%;
+  min-height: 64px;
+  border: none;
+  border-radius: 528px;
+  background: linear-gradient(90deg, #f50302 0%, #a90f0e 100%);
+  color: #ffffff;
+  font-family: "Montserrat", sans-serif;
+  font-weight: 500;
+  font-size: 16px;
+  line-height: 20px;
   cursor: pointer;
-  transition: all 0.2s ease;
-}
-
-.action-btn:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.15);
-}
-
-/* Transitions */
-.modal-enter-active,
-.modal-leave-active {
-  transition: opacity 0.3s ease;
-}
-
-.modal-enter-active .min-delivery-modal,
-.modal-leave-active .min-delivery-modal {
-  transition: transform 0.3s ease, opacity 0.3s ease;
-}
-
-.modal-enter-from,
-.modal-leave-to {
-  opacity: 0;
-}
-
-.modal-enter-from .min-delivery-modal,
-.modal-leave-to .min-delivery-modal {
-  transform: scale(0.9) translateY(20px);
-  opacity: 0;
 }
 </style>
-
