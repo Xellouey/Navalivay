@@ -33,11 +33,13 @@ export function getTimeZoneDateParts(date = new Date(), timeZone = BUSINESS_TIME
     }
   }
 
+  const hour = Number(values.hour);
+
   return {
     year: Number(values.year),
     month: Number(values.month),
     day: Number(values.day),
-    hour: Number(values.hour),
+    hour: hour === 24 ? 0 : hour,
     minute: Number(values.minute),
     second: Number(values.second),
   };

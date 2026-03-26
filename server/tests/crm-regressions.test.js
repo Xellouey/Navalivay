@@ -238,6 +238,20 @@ async function patchOrder(orderId, payload) {
   });
 }
 
+async function fetchDashboardToday() {
+  return requestJson("/api/admin/crm/dashboard?period=today", {
+    method: "GET",
+    headers: authHeaders(),
+  });
+}
+
+async function fetchDashboardTodayTimeseries() {
+  return requestJson("/api/admin/crm/dashboard-timeseries?period=today", {
+    method: "GET",
+    headers: authHeaders(),
+  });
+}
+
 async function withMockedNow(isoString, fn) {
   const RealDate = global.Date;
 
@@ -349,6 +363,20 @@ async function testDashboardUsesBusinessDayBoundary() {
     assert.equal(day24?.profit, 14);
     assert.equal(day25?.revenue, 35);
     assert.equal(day25?.profit, 15);
+
+    const todayTimeseries = await requestJson(
+      "/api/admin/crm/dashboard-timeseries?period=today",
+      {
+        method: "GET",
+        headers: authHeaders(),
+      },
+    );
+
+    assert.equal(todayTimeseries.response.status, 200);
+    assert.equal(todayTimeseries.data.length, 1);
+    assert.equal(todayTimeseries.data[0]?.label, "25");
+    assert.equal(todayTimeseries.data[0]?.revenue, 35);
+    assert.equal(todayTimeseries.data[0]?.profit, 15);
 
     const deliveredToday = await requestJson(
       "/api/admin/crm/orders/delivered?period=today&limit=10",
@@ -596,6 +624,20 @@ async function testIssuedOrderPaymentRollbackAndCancellationRestoreStock() {
     items: [{ productId, quantity: 1, price: 20, cost: 12 }],
   });
 
+  const dashboardBeforeIssue = await fetchDashboardToday();
+  const timeseriesBeforeIssue = await fetchDashboardTodayTimeseries();
+
+  assert.equal(dashboardBeforeIssue.response.status, 200);
+  assert.equal(timeseriesBeforeIssue.response.status, 200);
+  assert.equal(timeseriesBeforeIssue.data.length, 1);
+
+  const baselineSales = Number(dashboardBeforeIssue.data.stats.totalSales || 0);
+  const baselineRevenue = Number(dashboardBeforeIssue.data.stats.revenue || 0);
+  const baselineProfit = Number(dashboardBeforeIssue.data.stats.profit || 0);
+  const baselineTimeseriesOrders = Number(timeseriesBeforeIssue.data[0].orders || 0);
+  const baselineTimeseriesRevenue = Number(timeseriesBeforeIssue.data[0].revenue || 0);
+  const baselineTimeseriesProfit = Number(timeseriesBeforeIssue.data[0].profit || 0);
+
   const issued = await requestJson(`/api/admin/crm/orders/${orderId}/issue`, {
     method: "POST",
     headers: authHeaders(),
@@ -613,6 +655,51 @@ async function testIssuedOrderPaymentRollbackAndCancellationRestoreStock() {
   assert.equal(getCashAccountBalance(), 20);
   assert.equal(getCashTransactionCountForOrder(orderId), 1);
 
+  const deliveredIssued = await requestJson(
+    `/api/admin/crm/orders/delivered?period=today&limit=10&search=1007`,
+    {
+      method: "GET",
+      headers: authHeaders(),
+    },
+  );
+
+  assert.equal(deliveredIssued.response.status, 200);
+  assert.equal(deliveredIssued.data.orders.length, 1);
+  assert.equal(deliveredIssued.data.orders[0].order_number, 1007);
+  assert.equal(Number(deliveredIssued.data.stats.totalCount || 0), 1);
+  assert.equal(Number(deliveredIssued.data.stats.totalAmount || 0), 20);
+
+  const dashboardAfterIssue = await fetchDashboardToday();
+  const timeseriesAfterIssue = await fetchDashboardTodayTimeseries();
+
+  assert.equal(dashboardAfterIssue.response.status, 200);
+  assert.equal(timeseriesAfterIssue.response.status, 200);
+  assert.equal(timeseriesAfterIssue.data.length, 1);
+  assert.equal(
+    Number(dashboardAfterIssue.data.stats.totalSales || 0),
+    baselineSales + 1,
+  );
+  assert.equal(
+    Number(dashboardAfterIssue.data.stats.revenue || 0),
+    baselineRevenue + 20,
+  );
+  assert.equal(
+    Number(dashboardAfterIssue.data.stats.profit || 0),
+    baselineProfit + 8,
+  );
+  assert.equal(
+    Number(timeseriesAfterIssue.data[0].orders || 0),
+    baselineTimeseriesOrders + 1,
+  );
+  assert.equal(
+    Number(timeseriesAfterIssue.data[0].revenue || 0),
+    baselineTimeseriesRevenue + 20,
+  );
+  assert.equal(
+    Number(timeseriesAfterIssue.data[0].profit || 0),
+    baselineTimeseriesProfit + 8,
+  );
+
   const paymentRemoved = await requestJson(
     `/api/admin/crm/orders/${orderId}/payment`,
     {
@@ -629,6 +716,50 @@ async function testIssuedOrderPaymentRollbackAndCancellationRestoreStock() {
   assert.equal(getCashAccountBalance(), 0);
   assert.equal(getCashTransactionCountForOrder(orderId), 0);
 
+  const deliveredAfterPaymentRollback = await requestJson(
+    `/api/admin/crm/orders/delivered?period=today&limit=10&search=1007`,
+    {
+      method: "GET",
+      headers: authHeaders(),
+    },
+  );
+
+  assert.equal(deliveredAfterPaymentRollback.response.status, 200);
+  assert.equal(deliveredAfterPaymentRollback.data.orders.length, 0);
+  assert.equal(Number(deliveredAfterPaymentRollback.data.stats.totalCount || 0), 0);
+  assert.equal(Number(deliveredAfterPaymentRollback.data.stats.totalAmount || 0), 0);
+
+  const dashboardAfterPaymentRollback = await fetchDashboardToday();
+  const timeseriesAfterPaymentRollback = await fetchDashboardTodayTimeseries();
+
+  assert.equal(dashboardAfterPaymentRollback.response.status, 200);
+  assert.equal(timeseriesAfterPaymentRollback.response.status, 200);
+  assert.equal(timeseriesAfterPaymentRollback.data.length, 1);
+  assert.equal(
+    Number(dashboardAfterPaymentRollback.data.stats.totalSales || 0),
+    baselineSales,
+  );
+  assert.equal(
+    Number(dashboardAfterPaymentRollback.data.stats.revenue || 0),
+    baselineRevenue,
+  );
+  assert.equal(
+    Number(dashboardAfterPaymentRollback.data.stats.profit || 0),
+    baselineProfit,
+  );
+  assert.equal(
+    Number(timeseriesAfterPaymentRollback.data[0].orders || 0),
+    baselineTimeseriesOrders,
+  );
+  assert.equal(
+    Number(timeseriesAfterPaymentRollback.data[0].revenue || 0),
+    baselineTimeseriesRevenue,
+  );
+  assert.equal(
+    Number(timeseriesAfterPaymentRollback.data[0].profit || 0),
+    baselineTimeseriesProfit,
+  );
+
   const cancelled = await patchOrder(orderId, {
     status: "cancelled",
   });
@@ -637,6 +768,50 @@ async function testIssuedOrderPaymentRollbackAndCancellationRestoreStock() {
   assert.equal(cancelled.data.status, "cancelled");
   assert.equal(cancelled.data.stock_deducted, 0);
   assert.equal(getProductStock(productId), 2);
+
+  const deliveredAfterCancellation = await requestJson(
+    `/api/admin/crm/orders/delivered?period=today&limit=10&search=1007`,
+    {
+      method: "GET",
+      headers: authHeaders(),
+    },
+  );
+
+  assert.equal(deliveredAfterCancellation.response.status, 200);
+  assert.equal(deliveredAfterCancellation.data.orders.length, 0);
+  assert.equal(Number(deliveredAfterCancellation.data.stats.totalCount || 0), 0);
+  assert.equal(Number(deliveredAfterCancellation.data.stats.totalAmount || 0), 0);
+
+  const dashboardAfterCancellation = await fetchDashboardToday();
+  const timeseriesAfterCancellation = await fetchDashboardTodayTimeseries();
+
+  assert.equal(dashboardAfterCancellation.response.status, 200);
+  assert.equal(timeseriesAfterCancellation.response.status, 200);
+  assert.equal(timeseriesAfterCancellation.data.length, 1);
+  assert.equal(
+    Number(dashboardAfterCancellation.data.stats.totalSales || 0),
+    baselineSales,
+  );
+  assert.equal(
+    Number(dashboardAfterCancellation.data.stats.revenue || 0),
+    baselineRevenue,
+  );
+  assert.equal(
+    Number(dashboardAfterCancellation.data.stats.profit || 0),
+    baselineProfit,
+  );
+  assert.equal(
+    Number(timeseriesAfterCancellation.data[0].orders || 0),
+    baselineTimeseriesOrders,
+  );
+  assert.equal(
+    Number(timeseriesAfterCancellation.data[0].revenue || 0),
+    baselineTimeseriesRevenue,
+  );
+  assert.equal(
+    Number(timeseriesAfterCancellation.data[0].profit || 0),
+    baselineTimeseriesProfit,
+  );
 }
 
 async function main() {
