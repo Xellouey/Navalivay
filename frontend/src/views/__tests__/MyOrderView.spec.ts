@@ -93,8 +93,9 @@ describe("MyOrderView", () => {
 
     await flushPromises();
 
-    expect(wrapper.text()).toContain("Ожидает сборки, скоро вам напишут");
-    expect(wrapper.text()).toContain("Заказ №101");
+    expect(wrapper.text()).toContain("Заказ собирают...");
+    expect(wrapper.text()).toContain("Ваш заказ отправлен");
+    expect(wrapper.text()).not.toContain("Заказ №101");
 
     wrapper.unmount();
   });
@@ -105,8 +106,8 @@ describe("MyOrderView", () => {
 
     await flushPromises();
 
-    expect(wrapper.text()).toContain("Собран, можно забирать");
-    expect(wrapper.text()).toContain("Собран");
+    expect(wrapper.text()).toContain("Заказ готов к выдаче");
+    expect(wrapper.text()).toContain("Готовы к выдаче");
 
     wrapper.unmount();
   });

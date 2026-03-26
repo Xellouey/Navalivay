@@ -34,7 +34,6 @@
             {{ statusLabel }}
           </div>
           <div class="order-status-copy">
-            <span class="order-number">Заказ №{{ order.order_number }}</span>
             <strong>{{ statusHeadline }}</strong>
             <p>{{ statusDescription }}</p>
           </div>
@@ -82,24 +81,26 @@
           </div>
         </section>
 
-        <section class="order-actions-card">
-          <button
-            class="order-secondary-button"
-            :disabled="isEditingOrder || !order.can_edit"
-            @click="handleEditOrder"
-          >
-            {{ isEditingOrder ? "Открываем корзину…" : "Изменить заказ" }}
-          </button>
-          <button
-            class="order-danger-button"
-            :disabled="isCancellingOrder || !order.can_cancel"
-            @click="handleCancelOrder"
-          >
-            {{ isCancellingOrder ? "Отменяем…" : "Отменить заказ" }}
-          </button>
-        </section>
+        <div class="order-sticky-panel">
+          <p v-if="errorMessage" class="order-error">{{ errorMessage }}</p>
 
-        <p v-if="errorMessage" class="order-error">{{ errorMessage }}</p>
+          <section class="order-actions-card">
+            <button
+              class="order-secondary-button"
+              :disabled="isEditingOrder || !order.can_edit"
+              @click="handleEditOrder"
+            >
+              {{ isEditingOrder ? "Открываем корзину…" : "Изменить заказ" }}
+            </button>
+            <button
+              class="order-danger-button"
+              :disabled="isCancellingOrder || !order.can_cancel"
+              @click="handleCancelOrder"
+            >
+              {{ isCancellingOrder ? "Отменяем…" : "Отменить заказ" }}
+            </button>
+          </section>
+        </div>
       </template>
     </div>
   </div>
@@ -128,19 +129,19 @@ const errorMessage = ref("");
 let pollTimer: number | null = null;
 
 const statusLabel = computed(() => {
-  return order.value?.status === "in_progress" ? "Собран" : "Ожидает сборки";
+  return order.value?.status === "in_progress" ? "Готовы к выдаче" : "Заказ собирают...";
 });
 
 const statusHeadline = computed(() => {
   return order.value?.status === "in_progress"
-    ? "Собран, можно забирать"
-    : "Ожидает сборки, скоро вам напишут";
+    ? "Заказ готов к выдаче"
+    : "Ваш заказ отправлен";
 });
 
 const statusDescription = computed(() => {
   return order.value?.status === "in_progress"
-    ? "Если передумали, отмена для вас пройдет сразу, а менеджер увидит, что заказ нужно разобрать."
-    : "Пока заказ активен, новый оформить нельзя. Если нужно что-то поменять, откройте редактирование.";
+    ? "Заказ еще можно изменить, если вдруг что-то забыли или передумали. Когда будете готовы, просто приходите за ним."
+    : "С вами свяжутся, когда заказ подготовят к выдаче. Если нужны изменения, нажмите кнопку «Изменить заказ».";
 });
 
 async function loadOrder(options: { silent?: boolean } = {}) {
@@ -248,8 +249,7 @@ onUnmounted(() => {
 <style scoped>
 .order-page {
   min-height: 100vh;
-  background: #f5f7fa;
-  padding-bottom: 24px;
+  background: linear-gradient(180deg, #f8f9fb 0%, #f1f4f8 100%);
 }
 
 .order-header {
@@ -289,7 +289,7 @@ onUnmounted(() => {
 }
 
 .order-container {
-  padding: 18px 16px 0;
+  padding: 18px 16px calc(var(--app-bottom-tab-bar-height, 130px) + env(safe-area-inset-bottom, 0px) + 188px);
   display: flex;
   flex-direction: column;
   gap: 16px;
@@ -298,8 +298,7 @@ onUnmounted(() => {
 .order-state-card,
 .order-status-card,
 .order-items-card,
-.order-summary-card,
-.order-actions-card {
+.order-summary-card {
   background: #ffffff;
   border-radius: 24px;
   padding: 20px 18px;
@@ -338,43 +337,58 @@ onUnmounted(() => {
 }
 
 .order-status-card {
+  position: relative;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
   gap: 14px;
-  background: linear-gradient(140deg, #ffffff 0%, #fdf1f1 100%);
+  background: linear-gradient(135deg, #18181b 0%, #2a2a2f 52%, #17171a 100%);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 18px 40px rgba(16, 18, 24, 0.18);
+}
+
+.order-status-card::before {
+  content: "";
+  position: absolute;
+  inset: auto -12% -45% auto;
+  width: 180px;
+  height: 180px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.14) 0%, rgba(255, 255, 255, 0) 72%);
+  pointer-events: none;
 }
 
 .order-status-pill {
   width: fit-content;
-  padding: 8px 12px;
-  border-radius: 999px;
+  padding: 8px 14px;
+  border-radius: 14px;
   font-family: -apple-system, "SF Pro Display", sans-serif;
   font-size: 12px;
   line-height: 14px;
-  font-weight: 600;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  position: relative;
+  z-index: 1;
 }
 
 .order-status-pill--new {
-  background: #fff4d6;
-  color: #9a6700;
+  background: linear-gradient(90deg, #14a4db 0%, #0b7fc4 100%);
+  color: #ffffff;
+  box-shadow: 0 10px 20px rgba(20, 164, 219, 0.28);
 }
 
 .order-status-pill--in_progress {
-  background: #dceeff;
-  color: #005bb8;
+  background: linear-gradient(90deg, #70d80d 0%, #1dbb10 100%);
+  color: #ffffff;
+  box-shadow: 0 10px 20px rgba(46, 184, 39, 0.26);
 }
 
 .order-status-copy {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-}
-
-.order-number {
-  font-family: -apple-system, "SF Pro Display", sans-serif;
-  font-size: 13px;
-  line-height: 16px;
-  color: #8f95a3;
+  gap: 10px;
+  position: relative;
+  z-index: 1;
 }
 
 .order-status-copy strong,
@@ -383,7 +397,10 @@ onUnmounted(() => {
   font-size: 20px;
   line-height: 24px;
   font-weight: 700;
-  color: #191919;
+}
+
+.order-status-copy strong {
+  color: #ffffff;
 }
 
 .order-status-copy p,
@@ -392,6 +409,14 @@ onUnmounted(() => {
   font-family: -apple-system, "SF Pro Display", sans-serif;
   font-size: 14px;
   line-height: 20px;
+}
+
+.order-status-copy p {
+  max-width: 280px;
+  color: rgba(255, 255, 255, 0.78);
+}
+
+.order-state-card p {
   color: #5f6675;
 }
 
@@ -504,10 +529,27 @@ onUnmounted(() => {
   color: #191919;
 }
 
+.order-sticky-panel {
+  position: fixed;
+  left: 50%;
+  bottom: calc(var(--app-bottom-tab-bar-height, 130px) + env(safe-area-inset-bottom, 0px) + 12px);
+  transform: translateX(-50%);
+  width: min(560px, calc(100vw - 24px));
+  display: flex;
+  flex-direction: column;
+  z-index: 16;
+}
+
 .order-actions-card {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  padding: 14px;
+  background: rgba(255, 255, 255, 0.94);
+  border: 1px solid rgba(255, 255, 255, 0.85);
+  border-radius: 26px;
+  box-shadow: 0 20px 48px rgba(17, 24, 39, 0.18);
+  backdrop-filter: blur(18px);
 }
 
 .order-primary-button,
@@ -531,8 +573,9 @@ onUnmounted(() => {
 }
 
 .order-danger-button {
-  background: #f3f4f6;
+  background: linear-gradient(180deg, #ffffff 0%, #f5f6f9 100%);
   color: #191919;
+  box-shadow: inset 0 0 0 1px #e5e7eb;
 }
 
 .order-primary-button:disabled,
@@ -543,7 +586,7 @@ onUnmounted(() => {
 }
 
 .order-error {
-  margin: 0;
+  margin: 0 0 10px;
   padding: 14px 16px;
   border-radius: 16px;
   background: #fee2e2;
@@ -551,6 +594,7 @@ onUnmounted(() => {
   font-family: -apple-system, "SF Pro Display", sans-serif;
   font-size: 14px;
   line-height: 18px;
+  box-shadow: 0 10px 28px rgba(185, 28, 28, 0.16);
 }
 
 @keyframes spin {

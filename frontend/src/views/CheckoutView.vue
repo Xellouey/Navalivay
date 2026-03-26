@@ -288,21 +288,29 @@
               >
                 <div class="loyalty-line-copy">
                   <span class="loyalty-line-title">{{ line.product_title }}</span>
-                  <span class="loyalty-line-meta">Макс.: {{ line.max_redeemable_units }}</span>
+                  <span class="loyalty-line-meta">
+                    {{
+                      isLoyaltyAppliedToLine(line)
+                        ? "Скидка уже применена к этому товару"
+                        : `Скидка на товар: ${formatPrice(selectedCheckoutLoyaltyCategory.discount_amount)} BYN`
+                    }}
+                  </span>
                 </div>
-                <select
-                  class="loyalty-line-select"
-                  :value="getItemLoyaltyUnits(line.product_id, line.variant_id)"
-                  @change="handleLoyaltyUnitsChange(selectedCheckoutLoyaltyCategory, line, $event)"
-                >
-                  <option
-                    v-for="units in loyaltyOptionsForLine(selectedCheckoutLoyaltyCategory, line)"
-                    :key="`${line.key}-${units}`"
-                    :value="units"
+                <div class="loyalty-line-action">
+                  <button
+                    v-if="canToggleLoyaltyLine(selectedCheckoutLoyaltyCategory, line)"
+                    type="button"
+                    class="loyalty-line-button"
+                    :class="{ 'loyalty-line-button--applied': isLoyaltyAppliedToLine(line) }"
+                    :aria-pressed="isLoyaltyAppliedToLine(line)"
+                    @click="toggleLoyaltyLine(selectedCheckoutLoyaltyCategory, line)"
                   >
-                    {{ units }} шт.
-                  </option>
-                </select>
+                    {{ isLoyaltyAppliedToLine(line) ? "Применено" : "Применить" }}
+                  </button>
+                  <span v-else class="loyalty-line-state">
+                    {{ loyaltyLineStateText(selectedCheckoutLoyaltyCategory, line) }}
+                  </span>
+                </div>
               </div>
             </div>
 
@@ -843,37 +851,79 @@ function getItemLoyaltyUnits(productId: string | null, variantId: string | null)
   return Math.max(0, Number(item?.loyaltyUnitsApplied || 0));
 }
 
-function loyaltyOptionsForLine(category: LoyaltyPreviewCategory, line: LoyaltyPreviewLineItem) {
-  const currentUnits = getItemLoyaltyUnits(line.product_id, line.variant_id);
-  const usedByOtherLines = category.line_items.reduce((sum, currentLine) => {
-    if (currentLine.key === line.key) return sum;
-    return sum + getItemLoyaltyUnits(currentLine.product_id, currentLine.variant_id);
-  }, 0);
-  const maxAllowed = Math.max(
-    0,
-    Math.min(
-      Number(line.max_redeemable_units || 0),
-      Number(category.current_available_bonus_count || 0),
-      1 - usedByOtherLines + currentUnits,
-    ),
-  );
-
-  return Array.from({ length: maxAllowed + 1 }, (_, index) => index);
+function isLoyaltyAppliedToLine(line: LoyaltyPreviewLineItem) {
+  return getItemLoyaltyUnits(line.product_id, line.variant_id) > 0;
 }
 
-function handleLoyaltyUnitsChange(
-  category: LoyaltyPreviewCategory,
-  line: LoyaltyPreviewLineItem,
-  event: Event,
-) {
-  const target = event.target as HTMLSelectElement;
-  const nextUnits = Number(target.value || 0);
-  const maxAllowed = Math.max(...loyaltyOptionsForLine(category, line), 0);
+function getAppliedLoyaltyLineKey(category: LoyaltyPreviewCategory) {
+  const appliedLine = category.line_items.find((line) => isLoyaltyAppliedToLine(line));
+  return appliedLine?.key || null;
+}
+
+function canApplyLoyaltyToLine(category: LoyaltyPreviewCategory, line: LoyaltyPreviewLineItem) {
+  return (
+    Number(category.current_available_bonus_count || 0) > 0 &&
+    Number(line.max_redeemable_units || 0) > 0
+  );
+}
+
+function canToggleLoyaltyLine(category: LoyaltyPreviewCategory, line: LoyaltyPreviewLineItem) {
+  if (promoResult.value) {
+    return false;
+  }
+
+  if (isLoyaltyAppliedToLine(line)) {
+    return true;
+  }
+
+  if (!canApplyLoyaltyToLine(category, line)) {
+    return false;
+  }
+
+  const appliedLineKey = getAppliedLoyaltyLineKey(category);
+  return !appliedLineKey || appliedLineKey === line.key;
+}
+
+function loyaltyLineStateText(category: LoyaltyPreviewCategory, line: LoyaltyPreviewLineItem) {
+  if (!canApplyLoyaltyToLine(category, line)) {
+    return "Недоступно";
+  }
+
+  if (getAppliedLoyaltyLineKey(category)) {
+    return "Бонус уже выбран";
+  }
+
+  return "";
+}
+
+function setLoyaltyUnitsForLine(line: LoyaltyPreviewLineItem, nextUnits: number) {
   cartStore.setLoyaltyUnits(
     String(line.product_id || ""),
-    Math.min(maxAllowed, Math.max(0, nextUnits)),
+    Math.max(0, Math.min(1, nextUnits)),
     line.variant_id || null,
   );
+}
+
+function clearLoyaltySelectionInCategory(category: LoyaltyPreviewCategory, exceptLineKey?: string) {
+  for (const currentLine of category.line_items) {
+    if (currentLine.key === exceptLineKey) continue;
+    if (!isLoyaltyAppliedToLine(currentLine)) continue;
+    setLoyaltyUnitsForLine(currentLine, 0);
+  }
+}
+
+function toggleLoyaltyLine(category: LoyaltyPreviewCategory, line: LoyaltyPreviewLineItem) {
+  if (!canToggleLoyaltyLine(category, line)) {
+    return;
+  }
+
+  if (isLoyaltyAppliedToLine(line)) {
+    setLoyaltyUnitsForLine(line, 0);
+    return;
+  }
+
+  clearLoyaltySelectionInCategory(category, line.key);
+  setLoyaltyUnitsForLine(line, 1);
 }
 
 function openLoyaltyRules(categoryKey: string) {
@@ -2089,6 +2139,8 @@ async function submitOrder() {
   display: flex;
   flex-direction: column;
   gap: 4px;
+  min-width: 0;
+  flex: 1 1 auto;
 }
 
 .loyalty-line-title {
@@ -2103,14 +2155,52 @@ async function submitOrder() {
   color: rgba(255, 255, 255, 0.82);
 }
 
-.loyalty-line-select {
-  min-width: 78px;
-  min-height: 36px;
+.loyalty-line-action {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  flex: 0 0 auto;
+  min-width: 112px;
+}
+
+.loyalty-line-button {
+  min-width: 112px;
+  min-height: 40px;
   border-radius: 12px;
   border: 1px solid rgba(255, 255, 255, 0.2);
   background: rgba(255, 255, 255, 0.12);
   color: #ffffff;
-  padding: 0 10px;
+  padding: 0 14px;
+  font-family: "Montserrat", sans-serif;
+  font-size: 13px;
+  line-height: 16px;
+  font-weight: 700;
+  cursor: pointer;
+  transition:
+    background-color 0.2s ease,
+    color 0.2s ease,
+    border-color 0.2s ease,
+    transform 0.2s ease;
+}
+
+.loyalty-line-button:active {
+  transform: scale(0.98);
+}
+
+.loyalty-line-button--applied {
+  background: #ffffff;
+  border-color: #ffffff;
+  color: #c41515;
+}
+
+.loyalty-line-state {
+  display: inline-flex;
+  max-width: 112px;
+  justify-content: flex-end;
+  text-align: right;
+  font-size: 12px;
+  line-height: 14px;
+  color: rgba(255, 255, 255, 0.72);
 }
 
 .loyalty-rules-link {

@@ -649,7 +649,8 @@ describe("CheckoutView order flows", () => {
     await flushPromises();
     await flushPromises();
 
-    cartStore.setLoyaltyUnits("p-1", 1, null);
+    await wrapper.find(".loyalty-line-button").trigger("click");
+    await flushPromises();
     await flushPromises();
     await wrapper.find(".submit-button").trigger("click");
     await flushPromises();
@@ -904,15 +905,18 @@ describe("CheckoutView order flows", () => {
     expect(wrapper.text()).toContain("Snus Mint");
     expect(wrapper.text()).not.toContain("Device X");
 
-    const selects = wrapper.findAll(".loyalty-line-select");
-    expect(selects).toHaveLength(2);
+    const buttons = wrapper.findAll(".loyalty-line-button");
+    expect(buttons).toHaveLength(2);
+    expect(buttons.map((button) => button.text())).toEqual(["Применить", "Применить"]);
 
-    await selects[0].setValue("1");
+    await buttons[0].trigger("click");
+    await flushPromises();
     await flushPromises();
 
-    const refreshedSelects = wrapper.findAll(".loyalty-line-select");
-    const secondOptions = refreshedSelects[1].findAll("option").map((option) => option.text());
-    expect(secondOptions).toEqual(["0 шт."]);
+    const refreshedButtons = wrapper.findAll(".loyalty-line-button");
+    expect(refreshedButtons).toHaveLength(1);
+    expect(refreshedButtons[0].text()).toBe("Применено");
+    expect(wrapper.findAll(".loyalty-line-state").map((item) => item.text())).toContain("Бонус уже выбран");
 
     const tabs = wrapper.findAll(".loyalty-tab");
     await tabs[1].trigger("click");
@@ -920,7 +924,7 @@ describe("CheckoutView order flows", () => {
 
     expect(wrapper.find(".loyalty-tab--active").text()).toContain("Устройства");
     expect(wrapper.find(".loyalty-progress-value").text()).toBe("1 / 4");
-    expect(wrapper.findAll(".loyalty-line-select")).toHaveLength(0);
+    expect(wrapper.findAll(".loyalty-line-button")).toHaveLength(0);
     expect(wrapper.find(".loyalty-copy--secondary").exists()).toBe(true);
     expect(wrapper.text()).not.toContain("Snus Mint");
 
@@ -1001,15 +1005,16 @@ describe("CheckoutView order flows", () => {
     await flushPromises();
     await flushPromises();
 
-    await wrapper.findAll(".loyalty-line-select")[0].setValue("1");
+    await wrapper.findAll(".loyalty-line-button")[0].trigger("click");
+    await flushPromises();
     await flushPromises();
 
     await wrapper.findAll(".loyalty-tab")[1].trigger("click");
     await flushPromises();
 
-    const deviceSelect = wrapper.find(".loyalty-line-select");
-    expect(deviceSelect.exists()).toBe(true);
-    expect(deviceSelect.findAll("option").map((option) => option.text())).toEqual(["0 шт.", "1 шт."]);
+    const deviceButton = wrapper.find(".loyalty-line-button");
+    expect(deviceButton.exists()).toBe(true);
+    expect(deviceButton.text()).toBe("Применить");
 
     wrapper.unmount();
   });
