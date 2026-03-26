@@ -184,6 +184,21 @@ function getOrder(orderId) {
   return db.prepare("SELECT * FROM orders WHERE id = ?").get(orderId);
 }
 
+function getCashAccountBalance(accountId = "acc_default") {
+  return Number(
+    db.prepare("SELECT balance FROM cash_accounts WHERE id = ?").get(accountId)
+      ?.balance || 0,
+  );
+}
+
+function getCashTransactionCountForOrder(orderId) {
+  return Number(
+    db
+      .prepare("SELECT COUNT(*) as count FROM cash_transactions WHERE order_id = ?")
+      .get(orderId)?.count || 0,
+  );
+}
+
 function getOrderItems(orderId) {
   return db
     .prepare(
@@ -571,6 +586,59 @@ async function testInsufficientReplacementStockRollsBackAtomically() {
   ]);
 }
 
+async function testIssuedOrderPaymentRollbackAndCancellationRestoreStock() {
+  const productId = insertProduct({ stock: 1, title: "Rollback Product" });
+  const orderId = insertOrder({
+    orderNumber: 1007,
+    status: "in_progress",
+    stockDeducted: 1,
+    createdAt: "2026-03-25 09:00:00",
+    items: [{ productId, quantity: 1, price: 20, cost: 12 }],
+  });
+
+  const issued = await requestJson(`/api/admin/crm/orders/${orderId}/issue`, {
+    method: "POST",
+    headers: authHeaders(),
+    body: JSON.stringify({
+      payment_type: "cash",
+      payment_account_id: "acc_default",
+      amount: 20,
+    }),
+  });
+
+  assert.equal(issued.response.status, 200);
+  assert.equal(issued.data.order.status, "delivered");
+  assert.equal(Number(issued.data.order.paid_amount), 20);
+  assert.equal(getProductStock(productId), 1);
+  assert.equal(getCashAccountBalance(), 20);
+  assert.equal(getCashTransactionCountForOrder(orderId), 1);
+
+  const paymentRemoved = await requestJson(
+    `/api/admin/crm/orders/${orderId}/payment`,
+    {
+      method: "DELETE",
+      headers: authHeaders(),
+    },
+  );
+
+  assert.equal(paymentRemoved.response.status, 200);
+  assert.equal(paymentRemoved.data.status, "in_progress");
+  assert.equal(paymentRemoved.data.paid_amount, null);
+  assert.equal(paymentRemoved.data.completed_at, null);
+  assert.equal(getProductStock(productId), 1);
+  assert.equal(getCashAccountBalance(), 0);
+  assert.equal(getCashTransactionCountForOrder(orderId), 0);
+
+  const cancelled = await patchOrder(orderId, {
+    status: "cancelled",
+  });
+
+  assert.equal(cancelled.response.status, 200);
+  assert.equal(cancelled.data.status, "cancelled");
+  assert.equal(cancelled.data.stock_deducted, 0);
+  assert.equal(getProductStock(productId), 2);
+}
+
 async function main() {
   await testDashboardUsesBusinessDayBoundary();
   await testPackedStatusTransitionsWithItemsPayload();
@@ -578,6 +646,7 @@ async function main() {
   await testDeliveredOrderKeepsAndRestoresStockWithItemsPayload();
   await testCancellingWithChangedItemsDoesNotRedeductNewProduct();
   await testInsufficientReplacementStockRollsBackAtomically();
+  await testIssuedOrderPaymentRollbackAndCancellationRestoreStock();
   console.log("[crm-regressions] OK");
 }
 

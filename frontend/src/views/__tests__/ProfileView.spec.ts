@@ -99,6 +99,8 @@ describe("ProfileView loyalty section", () => {
 
     expect(wrapper.find(".rules-modal-overlay").exists()).toBe(true);
     expect(wrapper.text()).toContain("Как получить скидку?");
+    expect(wrapper.text()).toContain("Каждая купленная позиция добавляет один штамп");
+    expect(wrapper.text()).toContain("штампы начисляются за каждую позицию");
 
     await wrapper.find(".rules-modal-close").trigger("click");
 

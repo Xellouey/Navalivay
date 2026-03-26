@@ -1,6 +1,6 @@
 <template>
   <Transition name="toast-slide">
-    <div v-if="visible" class="toast-container">
+    <div v-if="visible" class="toast-container" :style="toastStyle">
       <p class="toast-message">{{ displayMessage }}</p>
       <button class="toast-close" @click="close" aria-label="Закрыть">
         <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
@@ -24,10 +24,12 @@ const props = withDefaults(
     message: string;
     type?: "error" | "success" | "info";
     duration?: number;
+    bottomOffset?: string;
   }>(),
   {
     type: "info",
     duration: 3500,
+    bottomOffset: "calc(var(--app-bottom-tab-bar-height, 130px) + 20px)",
   },
 );
 
@@ -66,6 +68,10 @@ const effectiveDuration = computed(() => {
   const base = Number.isFinite(props.duration) ? props.duration : 3500;
   return isOutOfStock ? Math.max(base, 3000) : base;
 });
+
+const toastStyle = computed(() => ({
+  "--toast-bottom-offset": props.bottomOffset,
+}));
 
 
 function clearTimers() {
@@ -110,7 +116,10 @@ onBeforeUnmount(() => {
 <style scoped>
 .toast-container {
   position: fixed;
-  bottom: 100px;
+  bottom: var(
+    --toast-bottom-offset,
+    calc(var(--app-bottom-tab-bar-height, 130px) + 20px)
+  );
   left: 50%;
   transform: translateX(-50%);
   z-index: 100;
@@ -192,7 +201,6 @@ onBeforeUnmount(() => {
 /* Mobile adjustments */
 @media (max-width: 480px) {
   .toast-container {
-    bottom: 90px;
     padding: 18px 16px;
     gap: 12px;
     border-radius: 18px;
@@ -216,7 +224,6 @@ onBeforeUnmount(() => {
 
 @media (max-width: 360px) {
   .toast-container {
-    bottom: 85px;
     padding: 16px 14px;
     border-radius: 16px;
   }

@@ -309,6 +309,7 @@
       :message="toastMessage"
       :type="toastType"
       :duration="toastDuration"
+      :bottom-offset="toastBottomOffset"
       @close="toastMessage = ''"
     />
   </div>
@@ -773,6 +774,11 @@ const showProducts = computed(() => {
 
 const totalCartItems = computed(() => cartStore.totalItems);
 const totalCartAmount = computed(() => cartStore.totalAmount.toFixed(2));
+const toastBottomOffset = computed(() =>
+  totalCartItems.value > 0
+    ? "calc(var(--app-bottom-tab-bar-height, 130px) + 80px)"
+    : "calc(var(--app-bottom-tab-bar-height, 130px) + 20px)",
+);
 
 function getProductBadges(product: Product): ProductBadge[] {
   if (!Array.isArray(product.badges)) {

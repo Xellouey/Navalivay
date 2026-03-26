@@ -449,7 +449,7 @@
       <div v-if="activeLoyaltyRulesCategory" class="checkout-modal-copy">
         <p>{{ loyaltyRulesDescription(activeLoyaltyRulesCategory) }}</p>
         <p>{{ loyaltyRulesHeadline(activeLoyaltyRulesCategory) }}</p>
-        <p>За покупку по промокоду, бонусу или ручной скидке покупки не начисляются.</p>
+        <p>За товары, купленные по промокоду, бонусу или ручной скидке, отметки не начисляются.</p>
         <p>Если username изменится, накопленные покупки сбросятся.</p>
       </div>
       <template #footer>
@@ -882,7 +882,7 @@ function openLoyaltyRules(categoryKey: string) {
 }
 
 function loyaltyRulesHeadline(category: LoyaltySnapshotCategory) {
-  return `Одна покупка в категории = одна отметка. За каждые ${category.threshold} покупок можно применить скидку ${formatPrice(category.discount_amount)} BYN к одной позиции этой категории. В одном заказе можно применить по одной бонусной скидке на каждую бонусную категорию.`;
+  return `Одна купленная позиция в категории = одна отметка. Если в одном заказе несколько товаров этой категории, отметки начисляются за каждую позицию. За каждые ${category.threshold} купленных позиций можно применить скидку ${formatPrice(category.discount_amount)} BYN к одной позиции этой категории. В одном заказе можно применить по одной бонусной скидке на каждую бонусную категорию.`;
 }
 
 function loyaltyRulesDescription(category: LoyaltySnapshotCategory) {

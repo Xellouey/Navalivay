@@ -1022,10 +1022,11 @@ import AdminLayout from '@/components/admin/layout/AdminLayout.vue'
 import AdminSectionHero from '@/components/admin/layout/AdminSectionHero.vue'
 import AdminProductsTable from '@/components/admin/AdminProductsTable.vue'
 import AdminCategoryGroupForm from '@/components/admin/AdminCategoryGroupForm.vue'
-  import CashierLockScreen from '@/components/admin/CashierLockScreen.vue'
-  import CountUp from '@/components/CountUp.vue'
+import CashierLockScreen from '@/components/admin/CashierLockScreen.vue'
+import CountUp from '@/components/CountUp.vue'
 import CountUpCurrency from '@/components/CountUpCurrency.vue'
 import { adminTabs, crmLinks, adminTabOptions, type AdminTabId } from '@/constants/adminNavigation'
+import { formatBusinessPeriodLabel, formatBusinessPeriodTitle, getBusinessYear } from '@/utils/businessTime'
 
 const router = useRouter()
 const route = useRoute()
@@ -1051,14 +1052,12 @@ const activeOverviewLabel = computed(() => overviewPeriods.find(option => option
 
 // Вычисляемый год на основе offset (для периода 'year')
 const currentYearForView = computed(() => {
-  if (overviewPeriod.value === 'year') {
-    return new Date().getFullYear() + overviewOffset.value
-  }
-  return new Date().getFullYear()
+  return getBusinessYear(new Date(), overviewPeriod.value === 'year' ? overviewOffset.value : 0)
 })
 
 const isAtCurrentOverview = computed(() => overviewOffset.value >= 0)
 const overviewRangeLabel = computed(() => {
+  return formatBusinessPeriodLabel(overviewPeriod.value, overviewOffset.value)
   const now = new Date()
   const off = overviewOffset.value
   if (overviewPeriod.value === 'today') {
@@ -1066,7 +1065,7 @@ const overviewRangeLabel = computed(() => {
     d.setUTCDate(d.getUTCDate() + off)
     return d.toLocaleDateString('ru-RU', { day: '2-digit', month: 'long', year: 'numeric' })
   }
-  if (overviewPeriod.value === 'week') {
+  if ((overviewPeriod.value as string) === 'week') {
     const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()))
     const day = d.getUTCDay() || 7
     const monday = new Date(d.getTime() - (day - 1) * 86400000 + off * 7 * 86400000)
@@ -1520,6 +1519,7 @@ const groupFormOptions = computed(() => {
 
 const currentTabName = computed(() => adminTabs.find(t => t.id === activeTab.value)?.name || 'Админ-панель')
 const currentMonthName = computed(() => {
+  return formatBusinessPeriodTitle(overviewPeriod.value, overviewOffset.value)
   if (overviewPeriod.value === 'month') {
     const now = new Date()
     const y = now.getUTCFullYear()
