@@ -1,17 +1,19 @@
-# Пересборка и перезапуск NAVALIVAY
+# Пересборка и штатный перезапуск NAVALIVAY
 
 ## Что важно знать
 
-- Прод-сборка frontend берётся из [`frontend/package.json`](frontend/package.json) через скрипт [`build-only`](frontend/package.json:14).
-- Полный [`npm run build`](package.json:11) сейчас включает [`vue-tsc --build`](frontend/package.json:15) и может падать из-за накопившихся TypeScript-ошибок, даже если production bundle собирается нормально.
-- Backend и bot должны запускаться через PM2 из конфига [`server/ecosystem.config.cjs`](server/ecosystem.config.cjs).
-- Для API фактический production-порт задаётся в [`server/ecosystem.config.cjs`](server/ecosystem.config.cjs:9) и сейчас это `8082`.
-- Значение `PORT=8080` в [`server/.env.production`](server/.env.production:2) не является определяющим, если сервис поднят через PM2 с env из ecosystem.
+- Прод-сборка frontend берётся из [`frontend/package.json`](../frontend/package.json) через скрипт `build-only`.
+- Полный `npm run build` из корня проекта вызывает frontend type-check и может падать из-за TypeScript-диагностики, даже если production bundle собирается нормально.
+- Штатный production-запуск на текущем сервере выполняется через systemd, а не через PM2.
+- Основной backend-сервис — `navalivay-server.service`.
+- Сервис `navalivay-bot.service` является опциональным и может отсутствовать на конкретном сервере.
+- Проверка живости API выполняется по `http://127.0.0.1:8082/api/health`, как и в [`ops/deploy.sh`](../ops/deploy.sh).
+- Конфиг [`server/ecosystem.config.cjs`](../server/ecosystem.config.cjs) сохраняется только как альтернативный вариант для отдельных окружений, где приложения были явно подняты через PM2.
 
 ## Правильная процедура после `git pull`
 
 ### 1. Обновить зависимости при необходимости
-Из корня проекта [`/var/www/NAVALIVAY`](package.json):
+Из корня проекта `/var/www/NAVALIVAY`:
 
 ```bash
 npm install
@@ -19,7 +21,7 @@ npm --prefix frontend install
 npm --prefix server install
 ```
 
-Если [`package-lock.json`](package-lock.json) и lock-файлы не менялись, достаточно серверной/фронтовой установки по месту, но безопасный вариант — выполнить все три команды.
+Если lock-файлы не менялись, обычно достаточно обновить зависимости только в нужной части проекта.
 
 ### 2. Собрать frontend
 Рабочая production-сборка:
@@ -28,108 +30,123 @@ npm --prefix server install
 npm --prefix frontend run build-only
 ```
 
-Почему так:
-- [`npm run build`](package.json:11) вызывает [`frontend build`](frontend/package.json:12),
-- а тот сначала запускает type-check,
-- из-за этого пересборка может оборваться не на bundle, а на TypeScript-диагностике.
+Почему именно так:
+- `npm run build` из корня вызывает frontend build со встроенным type-check,
+- из-за этого сборка может завершиться ошибкой на TypeScript-проверке,
+- при этом production bundle сам по себе может собираться корректно.
 
-Пока type-check не приведён в порядок, для деплоя использовать именно:
+Пока type-check полностью не приведён в порядок, для деплоя использовать именно:
 
 ```bash
 npm --prefix frontend run build-only
 ```
 
-### 3. Перезапустить backend и bot через PM2
-Из директории [`server`](server/package.json):
+### 3. Штатно перезапустить backend через systemd
+Основная команда:
 
 ```bash
-pm2 start ecosystem.config.cjs --only navalivay-api --update-env
-pm2 start ecosystem.config.cjs --only navalivay-bot --update-env
+sudo systemctl restart navalivay-server
 ```
 
-Если процессы уже существуют, стандартный вариант:
+Если на сервере установлен bot service, перезапустить и его:
 
 ```bash
-pm2 restart navalivay-api --update-env
-pm2 restart navalivay-bot --update-env
+if systemctl list-unit-files --type=service --no-legend | awk '{print $1}' | grep -qx 'navalivay-bot.service'; then
+  sudo systemctl restart navalivay-bot
+fi
 ```
 
-Или одной командой:
+Безопасный универсальный one-liner:
 
 ```bash
-pm2 restart navalivay-api navalivay-bot --update-env
+sudo systemctl restart navalivay-server && if systemctl list-unit-files --type=service --no-legend | awk '{print $1}' | grep -qx 'navalivay-bot.service'; then sudo systemctl restart navalivay-bot; fi
 ```
 
 ### 4. Проверить статус после рестарта
 
 ```bash
-pm2 status
-pm2 logs navalivay-api --lines 50 --nostream
-pm2 logs navalivay-bot --lines 50 --nostream
-curl http://127.0.0.1:8082/api/health
+sudo systemctl status navalivay-server --no-pager -n 20
+if systemctl list-unit-files --type=service --no-legend | awk '{print $1}' | grep -qx 'navalivay-bot.service'; then
+  sudo systemctl status navalivay-bot --no-pager -n 20
+fi
+curl -fsS http://127.0.0.1:8082/api/health
 ```
 
 Ожидаемый результат:
-- в [`pm2 status`](server/ecosystem.config.cjs) процесс [`navalivay-api`](server/ecosystem.config.cjs:4) в статусе `online`,
+- `navalivay-server.service` находится в статусе `active (running)`,
+- при наличии bot service он тоже находится в статусе `active (running)`,
 - healthcheck на `8082` отвечает успешно.
 
-## Если после перезапуска что-то всё равно работает не так
+## Правильные команды
 
-### Симптом: PM2-процесс падает, а сайт отвечает частично
-Наиболее вероятная причина — порт уже занят старым standalone-процессом Node.
-
-Проверка:
+### Только перезапуск API
 
 ```bash
-ss -ltnp | grep 8082
-pm2 status
-pm2 logs navalivay-api --lines 100 --nostream
+sudo systemctl restart navalivay-server && sleep 2 && curl -fsS http://127.0.0.1:8082/api/health
 ```
 
-Если в логах есть `EADDRINUSE`, значит:
-- PM2 не смог поднять актуальный backend,
-- а запросы продолжают попадать в старый процесс, который остался висеть на порту.
-
-### Как исправлять конфликт порта
-1. Найти PID процесса на `8082`.
-2. Убедиться, что это не актуальный PM2-процесс.
-3. Остановить его.
-4. Повторно выполнить рестарт PM2.
-
-Пример:
+### Полный штатный сценарий после пересборки frontend
 
 ```bash
-ss -ltnp | grep 8082
-ps -fp <PID>
-kill <PID>
+npm --prefix frontend run build-only && sudo systemctl restart navalivay-server && if systemctl list-unit-files --type=service --no-legend | awk '{print $1}' | grep -qx 'navalivay-bot.service'; then sudo systemctl restart navalivay-bot; fi && sleep 2 && curl -fsS http://127.0.0.1:8082/api/health
+```
+
+### Если работаешь из root-shell
+Можно выполнить те же команды без `sudo`.
+
+## Когда использовать `ops/deploy.sh`
+Скрипт [`ops/deploy.sh`](../ops/deploy.sh) — это штатный deploy helper для полного сценария на сервере:
+- установка production-зависимостей,
+- проверка конфигурации,
+- создание нужных директорий,
+- рестарт systemd-сервисов,
+- healthcheck.
+
+Важно: скрипт специально запрещает запуск от root, поэтому из root-shell удобнее выполнять команды systemd напрямую.
+
+## Когда использовать PM2
+PM2 не является основным production-механизмом на текущем сервере.
+
+Использовать команды из [`server/ecosystem.config.cjs`](../server/ecosystem.config.cjs) имеет смысл только если:
+1. на конкретном сервере приложения действительно были подняты через PM2,
+2. это осознанно выбранное окружение,
+3. в `pm2 status` уже видны соответствующие процессы.
+
+Если этих условий нет, не использовать:
+
+```bash
 pm2 restart navalivay-api navalivay-bot --update-env
 ```
 
-После этого снова проверить:
+как штатную команду перезапуска.
+
+## Если после рестарта что-то всё равно работает не так
+
+### Проверить статус сервиса и последние логи
 
 ```bash
-curl http://127.0.0.1:8082/api/health
+sudo systemctl status navalivay-server --no-pager -n 50
+sudo journalctl -u navalivay-server -n 100 --no-pager
 ```
 
-## Короткий рабочий чек-лист
+Если установлен bot service:
 
+```bash
+sudo systemctl status navalivay-bot --no-pager -n 50
+sudo journalctl -u navalivay-bot -n 100 --no-pager
+```
+
+### Проверить, кто слушает порт `8082`
+
+```bash
+ss -ltnp | grep 8082
+```
+
+### Быстрый рабочий чек-лист
 Из корня проекта:
 
 ```bash
 npm --prefix frontend run build-only
-npm --prefix server install
+sudo systemctl restart navalivay-server
+curl -fsS http://127.0.0.1:8082/api/health
 ```
-
-Из директории [`server`](server/package.json):
-
-```bash
-pm2 restart navalivay-api navalivay-bot --update-env
-pm2 status
-curl http://127.0.0.1:8082/api/health
-```
-
-## Что было исправлено дополнительно
-
-- Удалены временные диагностические логи из [`frontend/src/main.ts`](frontend/src/main.ts), [`frontend/src/App.vue`](frontend/src/App.vue) и [`frontend/src/views/ProfileView.vue`](frontend/src/views/ProfileView.vue).
-- Фикс белого экрана сохранён в [`frontend/src/views/HomeView.vue`](frontend/src/views/HomeView.vue).
-- Причина ошибки `Request failed` была связана не с frontend, а с конфликтом порта и неактуальным backend-процессом вместо PM2-инстанса.
