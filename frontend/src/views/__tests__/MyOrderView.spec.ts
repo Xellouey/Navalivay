@@ -108,6 +108,7 @@ describe("MyOrderView", () => {
 
     expect(wrapper.text()).toContain("Заказ готов к выдаче");
     expect(wrapper.text()).toContain("Готовы к выдаче");
+    expect(wrapper.text()).toContain("с 10:30 до 21:00");
 
     wrapper.unmount();
   });
