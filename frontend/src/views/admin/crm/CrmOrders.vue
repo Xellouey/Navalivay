@@ -700,12 +700,23 @@
                     </div>
                     <div
                       v-if="getOrderTotalDiscount(order) > 0"
-                      class="text-xs text-emerald-600"
-                    >Скидка: -{{ formatCurrency(getOrderTotalDiscount(order)) }}</div>
-                    <div
-                      v-if="getOrderLoyaltyDiscount(order) > 0"
-                      class="text-xs text-violet-600"
-                    >Покупки: -{{ formatCurrency(getOrderLoyaltyDiscount(order)) }}</div>
+                      class="mt-1 space-y-0.5 text-xs"
+                    >
+                      <div
+                        v-if="getOrderOrderLevelDiscount(order) > 0"
+                        class="flex items-center gap-1 text-emerald-600"
+                      >
+                        <span class="text-gray-500">На заказ:</span>
+                        <span class="font-medium">-{{ formatCurrency(getOrderOrderLevelDiscount(order)) }}</span>
+                      </div>
+                      <div
+                        v-if="getOrderLoyaltyDiscount(order) > 0"
+                        class="flex items-center gap-1 text-emerald-600"
+                      >
+                        <span class="text-gray-500">За покупки:</span>
+                        <span class="font-medium">-{{ formatCurrency(getOrderLoyaltyDiscount(order)) }}</span>
+                      </div>
+                    </div>
                     <span
                       v-if="order.promo_code_text"
                       class="inline-flex items-center rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-medium text-blue-700"
@@ -1313,6 +1324,10 @@ function getOrderLoyaltyDiscount(order: Order) {
     (sum, item) => sum + Number(item.loyalty_discount_amount || 0),
     0,
   );
+}
+
+function getOrderOrderLevelDiscount(order: Order) {
+  return Math.max(0, getOrderTotalDiscount(order) - getOrderLoyaltyDiscount(order));
 }
 
 function getOrderTotalDiscount(order: Order) {

@@ -289,7 +289,7 @@ onUnmounted(() => {
 }
 
 .order-container {
-  padding: 18px 16px calc(var(--app-bottom-tab-bar-height, 130px) + env(safe-area-inset-bottom, 0px) + 188px);
+  padding: 18px 16px calc(env(safe-area-inset-bottom, 0px) + 200px);
   display: flex;
   flex-direction: column;
   gap: 16px;
@@ -532,7 +532,7 @@ onUnmounted(() => {
 .order-sticky-panel {
   position: fixed;
   left: 50%;
-  bottom: calc(var(--app-bottom-tab-bar-height, 130px) + env(safe-area-inset-bottom, 0px) + 12px);
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 12px);
   transform: translateX(-50%);
   width: min(560px, calc(100vw - 24px));
   display: flex;
