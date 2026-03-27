@@ -146,6 +146,35 @@ Required characteristics:
 
 When building other promo widgets, this card is the closest approved reference.
 
+### Checkout loyalty application
+
+In checkout, loyalty application is not a quantity-picker interaction anymore.
+
+Required characteristics:
+
+- do not expose bonus application as `0 шт. / 1 шт.`
+- use a direct action pattern like `Применить`
+- once a bonus is applied inside a category, other products in that same category must not show competing apply controls
+- if a bonus is already chosen for a category, the rest of the category should show only a passive state, not another active CTA
+- keep the payload/business logic unchanged unless the task explicitly changes loyalty rules
+
+The UX here must express the real rule: one applied loyalty bonus per category per order.
+
+### My order screen
+
+`frontend/src/views/MyOrderView.vue` is now its own reference for the active order flow.
+
+Required characteristics:
+
+- status information is visually separated from the rest of the page
+- the top status card may use a dark neutral gradient when explicitly requested by the user
+- do not show the order number inside the status hero block unless the user explicitly asks for it
+- the `Изменить заказ` / `Отменить заказ` actions are fixed to the bottom of the screen on long orders
+- when the bottom tab bar is hidden for this route, sticky actions must anchor to the real screen bottom, not to the tab-bar reserve
+- for `in_progress` orders, the approved pickup copy currently includes the pickup window `10:30–21:00`
+
+This is a screen where clarity beats reuse. The status card and sticky actions should reduce scanning effort first.
+
 ### Tabs
 
 For customer tabs inside a shared horizontal row:

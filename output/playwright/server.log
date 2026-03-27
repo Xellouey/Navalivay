@@ -1,0 +1,35 @@
+
+> navalivay-miniapp-server@0.1.0 dev
+> node index.js
+
+[migration] hide_empty column already exists
+[migration] Title column already exists in banners table
+[migration] openInNewTab column already exists in banners table
+[migration] Settings table already exists, skipping...
+[migration] Category slug is already correct or category not found
+[migration] manager_name setting not found, skipping removal...
+[migration] Ensured idx_category_groups_parent index
+[migration] CRM tables already exist, skipping
+[migration] Order status history migration completed successfully
+[migration] message_templates table already exists, skipping
+[migration] phone field already exists in orders table, skipping
+[migration] Starting product variants migration...
+[migration] Product variants migration completed successfully
+[migration] Ensuring product list indexes...
+[migration] Product list indexes ensured
+[migration] telegram_username column already exists in orders table, skipping
+[migration] Starting add base product to order_items migration...
+[migration] Add base product to order_items migration completed successfully
+[migration] Starting color_image migration for product_variants...
+[migration] color_image column already exists in product_variants
+[migration] color_image migration completed successfully
+[migration] empty_since column check complete
+[migration] pos_sales table already exists, skipping
+[migration] POS sale transaction link migration completed successfully
+[migration] Manager action fields migration completed successfully
+[migration] Promo codes migration completed successfully
+[migration] Cash pacing tables ready
+[archive] Archiving delivered orders older than 2026-03-26T21:00:00.000Z (Minsk Midnight)
+[archive] No old delivered orders to archive
+[archive] Scheduled next archiving in 192 minutes (at Minsk midnight)
+[navalivay] server listening on :8081

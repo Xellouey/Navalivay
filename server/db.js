@@ -41,6 +41,7 @@ import { migrateCustomerPhoto } from './migrations/add_customer_photo.js';
 import { migratePromoCodes } from './migrations/add_promo_codes.js';
 import { migrateOrderItemDisplayFields } from './migrations/add_order_item_display_fields.js';
 import { migrateLoyaltyTables, seedDefaultLoyaltyData } from './migrations/add_loyalty_tables.js';
+import { migrateCashPacingTables } from './migrations/add_cash_pacing_tables.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -181,6 +182,7 @@ export function initDb() {
   migrateCustomerPhoto();
   migratePromoCodes();
   migrateLoyaltyTables();
+  migrateCashPacingTables();
 
   seedIfEmpty();
   seedDefaultLoyaltyData();

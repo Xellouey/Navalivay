@@ -1,0 +1,10 @@
+=http://127.0.0.1:8082 : Имя "=http://127.0.0.1:8082" не распознано как имя командлета, функции, файла сценария или вып
+олняемой программы. Проверьте правильность написания имени, а также наличие и правильность пути, после чего повторите п
+опытку.
+строка:1 знак:1
++ ='http://127.0.0.1:8082'; npm --prefix frontend run dev
++ ~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : ObjectNotFound: (=http://127.0.0.1:8082:String) [], CommandNotFoundException
+    + FullyQualifiedErrorId : CommandNotFoundException
+ 
+^C

@@ -7,7 +7,27 @@
         <p class="mt-2 text-sm text-gray-600 sm:text-base">Управление счетами и транзакциями</p>
       </div>
 
+      <div class="flex flex-wrap gap-2">
+        <button
+          type="button"
+          class="rounded-full px-4 py-2 text-sm font-semibold transition"
+          :class="activePanel === 'money' ? 'bg-blue-600 text-white shadow-sm' : 'bg-white text-gray-700 shadow-sm hover:bg-gray-100'"
+          @click="activePanel = 'money'"
+        >
+          Счета и транзакции
+        </button>
+        <button
+          type="button"
+          class="rounded-full px-4 py-2 text-sm font-semibold transition"
+          :class="activePanel === 'pacing' ? 'bg-blue-600 text-white shadow-sm' : 'bg-white text-gray-700 shadow-sm hover:bg-gray-100'"
+          @click="activePanel = 'pacing'"
+        >
+          План пробития
+        </button>
+      </div>
+
       <template v-if="profitUnlocked">
+        <template v-if="activePanel === 'money'">
         <!-- Cash Accounts -->
         <div class="mb-8">
           <div class="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -99,6 +119,9 @@
           </div>
           <div v-else class="text-center py-8 text-gray-500">Транзакций нет</div>
         </div>
+        </template>
+
+        <CrmCashPacingPanel v-else />
       </template>
 
       <div v-else class="relative overflow-hidden rounded-3xl border border-dashed border-blue-200 bg-white/80 p-10 text-center shadow-inner">
@@ -295,11 +318,13 @@ import { ref, onMounted, watch, reactive, computed } from 'vue'
 import { useCrmStore } from '@/stores/crm'
 import { storeToRefs } from 'pinia'
 import AdminModal from '@/components/AdminModal.vue'
+import CrmCashPacingPanel from '@/components/admin/CrmCashPacingPanel.vue'
 import type { CashTransaction } from '@/stores/crm'
 import { LockClosedIcon } from '@heroicons/vue/24/outline'
 
 const crmStore = useCrmStore()
 const { cashAccounts, cashTransactions, profitUnlocked, verifyingProfitAccess } = storeToRefs(crmStore)
+const activePanel = ref<'money' | 'pacing'>('money')
 const showAccountModal = ref(false)
 const showTransactionModal = ref(false)
 const transactionFilter = ref<'income' | 'expense' | null>(null)

@@ -272,6 +272,82 @@ export interface CashTransaction {
   created_at: string;
 }
 
+export interface CashPacingMonth {
+  id: string;
+  month_key: string;
+  title: string | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CashPacingItem {
+  id: string;
+  month_id: string;
+  entry_type: "base" | "addition";
+  title: string;
+  quantity: number;
+  cost_with_vat: number;
+  markup_percent: number;
+  effective_from: string;
+  note: string | null;
+  created_at: string;
+  updated_at: string;
+  retail_unit: number;
+  retail_total_precise: number;
+  retail_total: number;
+}
+
+export interface CashPacingDailyFact {
+  id: string;
+  month_id: string;
+  fact_date: string;
+  actual_amount: number;
+  note: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CashPacingDayPlan {
+  date: string;
+  active_limit: number;
+  recommended_amount: number;
+  actual_amount: number | null;
+  deviation_amount: number | null;
+  cumulative_actual: number;
+  remaining_after_day: number;
+  has_fact: boolean;
+}
+
+export interface CashPacingSummary {
+  month_key: string;
+  total_limit: number;
+  actual_total: number;
+  remaining_total: number;
+  remaining_days: number;
+  recommendation_date: string | null;
+  recommendation_amount: number | null;
+  active_limit_on_recommendation_date: number;
+  days_in_month: number;
+  days_with_facts: number;
+  completion_percent: number;
+  overrun_amount: number;
+  month_status: "past" | "current" | "future";
+}
+
+export interface CashPacingMonthListItem {
+  month: CashPacingMonth;
+  summary: CashPacingSummary;
+}
+
+export interface CashPacingMonthDetail {
+  month: CashPacingMonth;
+  items: CashPacingItem[];
+  daily_facts: CashPacingDailyFact[];
+  daily_plan: CashPacingDayPlan[];
+  summary: CashPacingSummary;
+}
+
 export interface PosSale {
   id: string;
   sale_number: number;
@@ -1409,6 +1485,165 @@ export const useCrmStore = defineStore("crm", () => {
     cashTransactions.value = cashTransactions.value.filter((t) => t.id !== id);
   }
 
+  // Cash pacing
+  const cashPacingMonths = ref<CashPacingMonthListItem[]>([]);
+  const currentCashPacingMonth = ref<CashPacingMonthDetail | null>(null);
+  const loadingCashPacing = ref(false);
+  const suggestedCashPacingMonthKey = ref("");
+
+  async function fetchCashPacingMonths() {
+    loadingCashPacing.value = true;
+    try {
+      const response = await fetchAPI<{
+        months: CashPacingMonthListItem[];
+        suggested_month_key: string;
+      }>(`${API_BASE}/cash-pacing/months`);
+      cashPacingMonths.value = response.months;
+      suggestedCashPacingMonthKey.value = response.suggested_month_key;
+      return response;
+    } finally {
+      loadingCashPacing.value = false;
+    }
+  }
+
+  async function fetchCashPacingMonth(id: string) {
+    loadingCashPacing.value = true;
+    try {
+      const detail = await fetchAPI<CashPacingMonthDetail>(
+        `${API_BASE}/cash-pacing/months/${id}`,
+      );
+      currentCashPacingMonth.value = detail;
+      return detail;
+    } finally {
+      loadingCashPacing.value = false;
+    }
+  }
+
+  async function createCashPacingMonth(data: {
+    month_key: string;
+    title?: string;
+    notes?: string;
+  }) {
+    const detail = await fetchAPI<CashPacingMonthDetail>(
+      `${API_BASE}/cash-pacing/months`,
+      {
+        method: "POST",
+        body: JSON.stringify(data),
+      },
+    );
+    currentCashPacingMonth.value = detail;
+    await fetchCashPacingMonths();
+    return detail;
+  }
+
+  async function updateCashPacingMonth(
+    id: string,
+    data: { title?: string; notes?: string },
+  ) {
+    const detail = await fetchAPI<CashPacingMonthDetail>(
+      `${API_BASE}/cash-pacing/months/${id}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify(data),
+      },
+    );
+    currentCashPacingMonth.value = detail;
+    await fetchCashPacingMonths();
+    return detail;
+  }
+
+  async function createCashPacingItem(
+    monthId: string,
+    data: {
+      title: string;
+      quantity: number;
+      cost_with_vat: number;
+      markup_percent: number;
+      effective_from: string;
+      entry_type?: "base" | "addition";
+      note?: string;
+    },
+  ) {
+    const detail = await fetchAPI<CashPacingMonthDetail>(
+      `${API_BASE}/cash-pacing/months/${monthId}/items`,
+      {
+        method: "POST",
+        body: JSON.stringify(data),
+      },
+    );
+    currentCashPacingMonth.value = detail;
+    await fetchCashPacingMonths();
+    return detail;
+  }
+
+  async function updateCashPacingItem(
+    itemId: string,
+    data: {
+      title?: string;
+      quantity?: number;
+      cost_with_vat?: number;
+      markup_percent?: number;
+      effective_from?: string;
+      entry_type?: "base" | "addition";
+      note?: string;
+    },
+  ) {
+    const detail = await fetchAPI<CashPacingMonthDetail>(
+      `${API_BASE}/cash-pacing/items/${itemId}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify(data),
+      },
+    );
+    currentCashPacingMonth.value = detail;
+    await fetchCashPacingMonths();
+    return detail;
+  }
+
+  async function deleteCashPacingItem(itemId: string) {
+    const detail = await fetchAPI<CashPacingMonthDetail>(
+      `${API_BASE}/cash-pacing/items/${itemId}`,
+      {
+        method: "DELETE",
+      },
+    );
+    currentCashPacingMonth.value = detail;
+    await fetchCashPacingMonths();
+    return detail;
+  }
+
+  async function upsertCashPacingDailyFact(
+    monthId: string,
+    data: {
+      fact_date: string;
+      actual_amount: number;
+      note?: string;
+    },
+  ) {
+    const detail = await fetchAPI<CashPacingMonthDetail>(
+      `${API_BASE}/cash-pacing/months/${monthId}/daily-facts`,
+      {
+        method: "POST",
+        body: JSON.stringify(data),
+      },
+    );
+    currentCashPacingMonth.value = detail;
+    await fetchCashPacingMonths();
+    return detail;
+  }
+
+  async function deleteCashPacingDailyFact(monthId: string, factDate: string) {
+    const detail = await fetchAPI<CashPacingMonthDetail>(
+      `${API_BASE}/cash-pacing/months/${monthId}/daily-facts/${factDate}`,
+      {
+        method: "DELETE",
+      },
+    );
+    currentCashPacingMonth.value = detail;
+    await fetchCashPacingMonths();
+    return detail;
+  }
+
   // POS Sales
   const posSales = ref<PosSale[]>([]);
   const pendingPosSales = ref<PosSale[]>([]);
@@ -1914,6 +2149,21 @@ export const useCrmStore = defineStore("crm", () => {
     createCashTransaction,
     updateCashTransaction,
     deleteCashTransaction,
+
+    // Cash pacing
+    cashPacingMonths,
+    currentCashPacingMonth,
+    loadingCashPacing,
+    suggestedCashPacingMonthKey,
+    fetchCashPacingMonths,
+    fetchCashPacingMonth,
+    createCashPacingMonth,
+    updateCashPacingMonth,
+    createCashPacingItem,
+    updateCashPacingItem,
+    deleteCashPacingItem,
+    upsertCashPacingDailyFact,
+    deleteCashPacingDailyFact,
 
     // POS Sales
     posSales,

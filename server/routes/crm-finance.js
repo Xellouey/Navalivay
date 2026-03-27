@@ -1,6 +1,14 @@
 import express from 'express';
 import { db } from '../db.js';
 import { authMiddleware } from '../auth.js';
+import {
+  computeCashPacingMonthProjection,
+  ensureDateInMonth,
+  formatDateKey,
+  normalizeMonthKey,
+  parseMonthKey,
+} from '../utils/cash-pacing.js';
+import { getTimeZoneDateParts } from '../utils/business-time.js';
 
 export const crmFinanceRouter = express.Router();
 
@@ -70,6 +78,130 @@ function resolveWriteOffProduct(item) {
     stock: Number(product.stock || 0),
     costPerUnit: Number(product.cost_price || 0),
   };
+}
+
+function sanitizeOptionalText(value) {
+  const normalized = typeof value === 'string' ? value.trim() : '';
+  return normalized ? normalized : null;
+}
+
+function toRequiredPositiveNumber(value, errorCode) {
+  const numericValue = Number(value);
+  if (!Number.isFinite(numericValue) || numericValue <= 0) {
+    throw new Error(errorCode);
+  }
+
+  return numericValue;
+}
+
+function toNonNegativeNumber(value, errorCode) {
+  const numericValue = Number(value);
+  if (!Number.isFinite(numericValue) || numericValue < 0) {
+    throw new Error(errorCode);
+  }
+
+  return numericValue;
+}
+
+function getCashPacingMonthRowById(monthId) {
+  return db.prepare('SELECT * FROM cash_pacing_months WHERE id = ?').get(monthId);
+}
+
+function getCashPacingItemsByMonthId(monthId) {
+  return db.prepare(`
+    SELECT *
+    FROM cash_pacing_items
+    WHERE month_id = ?
+    ORDER BY effective_from ASC, created_at ASC
+  `).all(monthId);
+}
+
+function getCashPacingDailyFactsByMonthId(monthId) {
+  return db.prepare(`
+    SELECT *
+    FROM cash_pacing_daily_facts
+    WHERE month_id = ?
+    ORDER BY fact_date ASC
+  `).all(monthId);
+}
+
+function createCashPacingMonthTitle(monthKey) {
+  return `План ${monthKey}`;
+}
+
+function serializeCashPacingProjection(projection) {
+  return {
+    items: projection.items.map(({ retail_total_raw, ...item }) => item),
+    daily_facts: projection.dailyFacts,
+    daily_plan: projection.dailyPlan,
+    summary: projection.summary,
+  };
+}
+
+function buildCashPacingMonthDetail(monthRow) {
+  const projection = computeCashPacingMonthProjection({
+    month: monthRow,
+    items: getCashPacingItemsByMonthId(monthRow.id),
+    dailyFacts: getCashPacingDailyFactsByMonthId(monthRow.id),
+  });
+
+  return {
+    month: monthRow,
+    ...serializeCashPacingProjection(projection),
+  };
+}
+
+function buildCashPacingMonthListItem(monthRow) {
+  const projection = computeCashPacingMonthProjection({
+    month: monthRow,
+    items: getCashPacingItemsByMonthId(monthRow.id),
+    dailyFacts: getCashPacingDailyFactsByMonthId(monthRow.id),
+  });
+
+  return {
+    month: monthRow,
+    summary: projection.summary,
+  };
+}
+
+function getDefaultCurrentMonthKey() {
+  const parts = getTimeZoneDateParts();
+  return formatDateKey(parts.year, parts.month, 1).slice(0, 7);
+}
+
+function getCurrentBusinessDateKey() {
+  const parts = getTimeZoneDateParts();
+  return formatDateKey(parts.year, parts.month, parts.day);
+}
+
+function validateCashPacingAdditionDate(monthKey, entryType, effectiveFrom) {
+  if (entryType !== 'addition') {
+    return;
+  }
+
+  const currentMonthKey = getDefaultCurrentMonthKey();
+  if (monthKey !== currentMonthKey) {
+    return;
+  }
+
+  const currentDateKey = getCurrentBusinessDateKey();
+  if (effectiveFrom <= currentDateKey) {
+    throw new Error('addition_starts_next_day');
+  }
+}
+
+function validateCashPacingFactDate(monthKey, factDate) {
+  const currentMonthKey = getDefaultCurrentMonthKey();
+  if (monthKey > currentMonthKey) {
+    throw new Error('future_fact_date');
+  }
+
+  if (monthKey === currentMonthKey) {
+    const currentDateKey = getCurrentBusinessDateKey();
+    if (factDate > currentDateKey) {
+      throw new Error('future_fact_date');
+    }
+  }
 }
 
 // =========================
@@ -708,6 +840,306 @@ crmFinanceRouter.delete('/api/admin/crm/cash-transactions/:id', authMiddleware, 
     res.json({ ok: true });
   } catch (error) {
     console.error('[crm] Delete transaction error:', error);
+    res.status(500).json({ error: 'failed', message: error.message });
+  }
+});
+
+// =========================
+// CASH PACING (План пробития кассы)
+// =========================
+crmFinanceRouter.get('/api/admin/crm/cash-pacing/months', authMiddleware, (req, res) => {
+  try {
+    const months = db.prepare(`
+      SELECT *
+      FROM cash_pacing_months
+      ORDER BY month_key DESC, created_at DESC
+    `).all();
+
+    res.json({
+      months: months.map(buildCashPacingMonthListItem),
+      suggested_month_key: getDefaultCurrentMonthKey(),
+    });
+  } catch (error) {
+    console.error('[crm] Get cash pacing months error:', error);
+    res.status(500).json({ error: 'failed', message: error.message });
+  }
+});
+
+crmFinanceRouter.post('/api/admin/crm/cash-pacing/months', authMiddleware, (req, res) => {
+  try {
+    const monthKey = normalizeMonthKey(req.body?.month_key || getDefaultCurrentMonthKey());
+    const existingMonth = db.prepare('SELECT id FROM cash_pacing_months WHERE month_key = ?').get(monthKey);
+    if (existingMonth) {
+      return res.status(409).json({ error: 'month_exists' });
+    }
+
+    const monthId = generateId('cpm');
+    const title = sanitizeOptionalText(req.body?.title) || createCashPacingMonthTitle(monthKey);
+    const notes = sanitizeOptionalText(req.body?.notes);
+
+    db.prepare(`
+      INSERT INTO cash_pacing_months (id, month_key, title, notes)
+      VALUES (?, ?, ?, ?)
+    `).run(monthId, monthKey, title, notes);
+
+    res.json(buildCashPacingMonthDetail(getCashPacingMonthRowById(monthId)));
+  } catch (error) {
+    console.error('[crm] Create cash pacing month error:', error);
+    if (error.message === 'invalid_month_key') {
+      return res.status(400).json({ error: error.message });
+    }
+    res.status(500).json({ error: 'failed', message: error.message });
+  }
+});
+
+crmFinanceRouter.get('/api/admin/crm/cash-pacing/months/:id', authMiddleware, (req, res) => {
+  try {
+    const month = getCashPacingMonthRowById(req.params.id);
+    if (!month) {
+      return res.status(404).json({ error: 'not_found' });
+    }
+
+    res.json(buildCashPacingMonthDetail(month));
+  } catch (error) {
+    console.error('[crm] Get cash pacing month error:', error);
+    res.status(500).json({ error: 'failed', message: error.message });
+  }
+});
+
+crmFinanceRouter.patch('/api/admin/crm/cash-pacing/months/:id', authMiddleware, (req, res) => {
+  try {
+    const month = getCashPacingMonthRowById(req.params.id);
+    if (!month) {
+      return res.status(404).json({ error: 'not_found' });
+    }
+
+    const title = req.body?.title !== undefined
+      ? sanitizeOptionalText(req.body.title) || createCashPacingMonthTitle(month.month_key)
+      : month.title;
+    const notes = req.body?.notes !== undefined ? sanitizeOptionalText(req.body.notes) : month.notes;
+
+    db.prepare(`
+      UPDATE cash_pacing_months
+      SET title = ?, notes = ?, updated_at = DATETIME('now')
+      WHERE id = ?
+    `).run(title, notes, month.id);
+
+    res.json(buildCashPacingMonthDetail(getCashPacingMonthRowById(month.id)));
+  } catch (error) {
+    console.error('[crm] Update cash pacing month error:', error);
+    res.status(500).json({ error: 'failed', message: error.message });
+  }
+});
+
+crmFinanceRouter.post('/api/admin/crm/cash-pacing/months/:id/items', authMiddleware, (req, res) => {
+  try {
+    const month = getCashPacingMonthRowById(req.params.id);
+    if (!month) {
+      return res.status(404).json({ error: 'month_not_found' });
+    }
+
+    const title = sanitizeOptionalText(req.body?.title);
+    if (!title) {
+      return res.status(400).json({ error: 'title_required' });
+    }
+
+    const quantity = toRequiredPositiveNumber(req.body?.quantity, 'invalid_quantity');
+    const costWithVat = toNonNegativeNumber(req.body?.cost_with_vat, 'invalid_cost_with_vat');
+    const markupPercent = toNonNegativeNumber(req.body?.markup_percent, 'invalid_markup_percent');
+    const entryType = req.body?.entry_type === 'addition' ? 'addition' : 'base';
+    const { year, month: monthNumber } = parseMonthKey(month.month_key);
+    const defaultEffectiveFrom = formatDateKey(year, monthNumber, 1);
+    const effectiveFrom = ensureDateInMonth(req.body?.effective_from || defaultEffectiveFrom, month.month_key);
+    validateCashPacingAdditionDate(month.month_key, entryType, effectiveFrom);
+    const note = sanitizeOptionalText(req.body?.note);
+
+    db.prepare(`
+      INSERT INTO cash_pacing_items (
+        id, month_id, entry_type, title, quantity, cost_with_vat, markup_percent, effective_from, note
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      generateId('cpi'),
+      month.id,
+      entryType,
+      title,
+      quantity,
+      costWithVat,
+      markupPercent,
+      effectiveFrom,
+      note,
+    );
+
+    res.json(buildCashPacingMonthDetail(month));
+  } catch (error) {
+    console.error('[crm] Create cash pacing item error:', error);
+    const clientErrors = new Set([
+      'invalid_quantity',
+      'invalid_cost_with_vat',
+      'invalid_markup_percent',
+      'invalid_date_key',
+      'date_out_of_month',
+      'addition_starts_next_day',
+    ]);
+    if (clientErrors.has(error.message)) {
+      return res.status(400).json({ error: error.message });
+    }
+    res.status(500).json({ error: 'failed', message: error.message });
+  }
+});
+
+crmFinanceRouter.patch('/api/admin/crm/cash-pacing/items/:itemId', authMiddleware, (req, res) => {
+  try {
+    const item = db.prepare('SELECT * FROM cash_pacing_items WHERE id = ?').get(req.params.itemId);
+    if (!item) {
+      return res.status(404).json({ error: 'not_found' });
+    }
+
+    const month = getCashPacingMonthRowById(item.month_id);
+    if (!month) {
+      return res.status(404).json({ error: 'month_not_found' });
+    }
+
+    const nextTitle = req.body?.title !== undefined ? sanitizeOptionalText(req.body.title) : item.title;
+    if (!nextTitle) {
+      return res.status(400).json({ error: 'title_required' });
+    }
+
+    const nextQuantity = req.body?.quantity !== undefined
+      ? toRequiredPositiveNumber(req.body.quantity, 'invalid_quantity')
+      : Number(item.quantity);
+    const nextCostWithVat = req.body?.cost_with_vat !== undefined
+      ? toNonNegativeNumber(req.body.cost_with_vat, 'invalid_cost_with_vat')
+      : Number(item.cost_with_vat);
+    const nextMarkupPercent = req.body?.markup_percent !== undefined
+      ? toNonNegativeNumber(req.body.markup_percent, 'invalid_markup_percent')
+      : Number(item.markup_percent);
+    const nextEntryType = req.body?.entry_type === 'addition'
+      ? 'addition'
+      : req.body?.entry_type === 'base'
+        ? 'base'
+        : item.entry_type;
+    const nextEffectiveFrom = req.body?.effective_from !== undefined
+      ? ensureDateInMonth(req.body.effective_from, month.month_key)
+      : item.effective_from;
+    validateCashPacingAdditionDate(month.month_key, nextEntryType, nextEffectiveFrom);
+    const nextNote = req.body?.note !== undefined ? sanitizeOptionalText(req.body.note) : item.note;
+
+    db.prepare(`
+      UPDATE cash_pacing_items
+      SET entry_type = ?, title = ?, quantity = ?, cost_with_vat = ?, markup_percent = ?, effective_from = ?, note = ?, updated_at = DATETIME('now')
+      WHERE id = ?
+    `).run(
+      nextEntryType,
+      nextTitle,
+      nextQuantity,
+      nextCostWithVat,
+      nextMarkupPercent,
+      nextEffectiveFrom,
+      nextNote,
+      item.id,
+    );
+
+    res.json(buildCashPacingMonthDetail(month));
+  } catch (error) {
+    console.error('[crm] Update cash pacing item error:', error);
+    const clientErrors = new Set([
+      'invalid_quantity',
+      'invalid_cost_with_vat',
+      'invalid_markup_percent',
+      'invalid_date_key',
+      'date_out_of_month',
+      'addition_starts_next_day',
+    ]);
+    if (clientErrors.has(error.message)) {
+      return res.status(400).json({ error: error.message });
+    }
+    res.status(500).json({ error: 'failed', message: error.message });
+  }
+});
+
+crmFinanceRouter.delete('/api/admin/crm/cash-pacing/items/:itemId', authMiddleware, (req, res) => {
+  try {
+    const item = db.prepare('SELECT * FROM cash_pacing_items WHERE id = ?').get(req.params.itemId);
+    if (!item) {
+      return res.status(404).json({ error: 'not_found' });
+    }
+
+    const month = getCashPacingMonthRowById(item.month_id);
+    if (!month) {
+      return res.status(404).json({ error: 'month_not_found' });
+    }
+
+    db.prepare('DELETE FROM cash_pacing_items WHERE id = ?').run(item.id);
+
+    res.json(buildCashPacingMonthDetail(month));
+  } catch (error) {
+    console.error('[crm] Delete cash pacing item error:', error);
+    res.status(500).json({ error: 'failed', message: error.message });
+  }
+});
+
+crmFinanceRouter.post('/api/admin/crm/cash-pacing/months/:id/daily-facts', authMiddleware, (req, res) => {
+  try {
+    const month = getCashPacingMonthRowById(req.params.id);
+    if (!month) {
+      return res.status(404).json({ error: 'month_not_found' });
+    }
+
+    const factDate = ensureDateInMonth(req.body?.fact_date, month.month_key);
+    validateCashPacingFactDate(month.month_key, factDate);
+    const actualAmount = toNonNegativeNumber(req.body?.actual_amount, 'invalid_actual_amount');
+    const note = sanitizeOptionalText(req.body?.note);
+    const existingFact = db.prepare(`
+      SELECT *
+      FROM cash_pacing_daily_facts
+      WHERE month_id = ? AND fact_date = ?
+    `).get(month.id, factDate);
+
+    if (existingFact) {
+      db.prepare(`
+        UPDATE cash_pacing_daily_facts
+        SET actual_amount = ?, note = ?, updated_at = DATETIME('now')
+        WHERE id = ?
+      `).run(actualAmount, note, existingFact.id);
+    } else {
+      db.prepare(`
+        INSERT INTO cash_pacing_daily_facts (id, month_id, fact_date, actual_amount, note)
+        VALUES (?, ?, ?, ?, ?)
+      `).run(generateId('cpf'), month.id, factDate, actualAmount, note);
+    }
+
+    res.json(buildCashPacingMonthDetail(month));
+  } catch (error) {
+    console.error('[crm] Upsert cash pacing fact error:', error);
+    const clientErrors = new Set(['invalid_actual_amount', 'invalid_date_key', 'date_out_of_month', 'future_fact_date']);
+    if (clientErrors.has(error.message)) {
+      return res.status(400).json({ error: error.message });
+    }
+    res.status(500).json({ error: 'failed', message: error.message });
+  }
+});
+
+crmFinanceRouter.delete('/api/admin/crm/cash-pacing/months/:id/daily-facts/:factDate', authMiddleware, (req, res) => {
+  try {
+    const month = getCashPacingMonthRowById(req.params.id);
+    if (!month) {
+      return res.status(404).json({ error: 'month_not_found' });
+    }
+
+    const factDate = ensureDateInMonth(req.params.factDate, month.month_key);
+    db.prepare(`
+      DELETE FROM cash_pacing_daily_facts
+      WHERE month_id = ? AND fact_date = ?
+    `).run(month.id, factDate);
+
+    res.json(buildCashPacingMonthDetail(month));
+  } catch (error) {
+    console.error('[crm] Delete cash pacing fact error:', error);
+    const clientErrors = new Set(['invalid_date_key', 'date_out_of_month']);
+    if (clientErrors.has(error.message)) {
+      return res.status(400).json({ error: error.message });
+    }
     res.status(500).json({ error: 'failed', message: error.message });
   }
 });
