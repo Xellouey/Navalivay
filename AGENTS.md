@@ -22,3 +22,7 @@ Read these when the task touches the matching area:
 - `docs/prod-hotfix-playbook.md`
   - production investigation and hotfix workflow
   - what is allowed while the customer is actively testing
+- `docs/cash-pacing-rules.md`
+  - CRM finance module `План пробития`
+  - month plan/fact/recalculation rules
+  - rounding, current-month additions, daily cash facts

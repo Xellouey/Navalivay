@@ -18,6 +18,7 @@ This document defines how to investigate and stabilize production issues without
 - run read-only API checks
 - compare prod state with local code
 - run isolated tests that do not touch live customer data
+- if mutation-based verification is unavoidable, prefer an isolated temporary test DB instead of live business rows
 
 ## Actions That Need Explicit Approval
 
