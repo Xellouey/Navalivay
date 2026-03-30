@@ -387,10 +387,17 @@ export function buildLoyaltyApplication({
       !variantContext ||
       !productContext ||
       String(variantContext.product_id || "") === String(rawItem.product_id || "");
-    const resolvedPricePerUnit = variantMatchesProduct
-      ? variantContext?.price_rub ?? productContext?.price_rub ?? rawItem.price_per_unit
-      : productContext?.price_rub ?? rawItem.price_per_unit;
+    const hasManualPricePerUnit =
+      rawItem.price_per_unit !== undefined &&
+      rawItem.price_per_unit !== null &&
+      Number.isFinite(Number(rawItem.price_per_unit));
+    const resolvedPricePerUnit = hasManualPricePerUnit
+      ? rawItem.price_per_unit
+      : (variantMatchesProduct
+          ? variantContext?.price_rub ?? productContext?.price_rub ?? rawItem.price_per_unit
+          : productContext?.price_rub ?? rawItem.price_per_unit);
     const pricePerUnit = Math.max(0, toNumber(resolvedPricePerUnit, 0));
+
     const loyaltyCategoryId = resolveLoyaltyCategoryId(productContext, mappingLookup);
     const category = loyaltyCategoryId ? categoryById.get(loyaltyCategoryId) || null : null;
     const requestedUnits = Math.max(
