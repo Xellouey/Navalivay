@@ -721,6 +721,18 @@
                       v-if="order.promo_code_text"
                       class="inline-flex items-center rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-medium text-blue-700"
                     >ПРОМО: {{ order.promo_code_text }}</span>
+                    <span
+                      v-if="order.promo_has_gift"
+                      class="ml-1 inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700"
+                    >
+                      Подарок по промокоду
+                    </span>
+                    <p
+                      v-if="order.promo_has_gift && order.promo_manager_description"
+                      class="mt-1 text-[11px] text-amber-700"
+                    >
+                      {{ order.promo_manager_description }}
+                    </p>
                     <div class="text-[11px] text-gray-400">
                       {{ formatDate(order.created_at) }}
                     </div>

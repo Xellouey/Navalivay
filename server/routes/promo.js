@@ -8,6 +8,32 @@ function generateId(prefix) {
   return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
+function normalizeIsoDate(value) {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return null;
+  return trimmed;
+}
+
+function normalizeDurationDays(value) {
+  if (value === null || value === undefined || value === '') return null;
+  const n = Number(value);
+  if (!Number.isFinite(n)) return null;
+  const intValue = Math.trunc(n);
+  if (intValue <= 0) return null;
+  return intValue;
+}
+
+function computeEffectiveValidUntilDate(validFromDate, durationDays) {
+  const start = normalizeIsoDate(validFromDate);
+  const duration = normalizeDurationDays(durationDays);
+  if (!start || !duration) return null;
+  const date = new Date(`${start}T00:00:00.000Z`);
+  date.setUTCDate(date.getUTCDate() + duration - 1);
+  return date.toISOString().slice(0, 10);
+}
+
 // =========================
 // PROMO CODES (Промокоды) - Admin API
 // =========================
@@ -21,8 +47,8 @@ promoRouter.get('/api/admin/crm/promo-codes', authMiddleware, (req, res) => {
     const params = [];
 
     if (search) {
-      whereClause += ' AND (pc.code LIKE ? OR pc.description LIKE ?)';
-      params.push(`%${search}%`, `%${search}%`);
+      whereClause += ' AND (pc.code LIKE ? OR pc.description LIKE ? OR pc.customer_description LIKE ? OR pc.manager_description LIKE ?)';
+      params.push(`%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`);
     }
 
     if (filter === 'active') {
@@ -35,7 +61,7 @@ promoRouter.get('/api/admin/crm/promo-codes', authMiddleware, (req, res) => {
       whereClause += ' AND pc.active = 0';
     }
 
-    const promoCodes = db.prepare(`
+    const promoCodesRaw = db.prepare(`
       SELECT
         pc.*,
         COALESCE(stats.reserved_uses, 0) as reserved_uses,
@@ -53,6 +79,13 @@ promoRouter.get('/api/admin/crm/promo-codes', authMiddleware, (req, res) => {
       ORDER BY pc.created_at DESC
       LIMIT ? OFFSET ?
     `).all(...params, parseInt(limit), parseInt(offset));
+    const promoCodes = promoCodesRaw.map((promo) => ({
+      ...promo,
+      effective_valid_until_date: computeEffectiveValidUntilDate(
+        promo.valid_from_date,
+        promo.duration_days,
+      ),
+    }));
 
     const countResult = db.prepare(`
       SELECT COUNT(*) as total FROM promo_codes pc WHERE ${whereClause}
@@ -94,7 +127,14 @@ promoRouter.get('/api/admin/crm/promo-codes/:id', authMiddleware, (req, res) => 
       ORDER BY pu.used_at DESC
     `).all(id);
 
-    res.json({ ...promo, usage });
+    res.json({
+      ...promo,
+      effective_valid_until_date: computeEffectiveValidUntilDate(
+        promo.valid_from_date,
+        promo.duration_days,
+      ),
+      usage,
+    });
   } catch (error) {
     console.error('[promo] Get promo code detail error:', error);
     res.status(500).json({ error: 'failed', message: error.message });
@@ -134,12 +174,17 @@ promoRouter.post('/api/admin/crm/promo-codes', authMiddleware, (req, res) => {
     const {
       code,
       description,
+      customer_description,
+      manager_description,
+      has_gift = 0,
       discount_type = 'fixed',
       discount_value,
       min_order_amount = 0,
       max_uses = 1,
       valid_from,
       valid_until,
+      valid_from_date,
+      duration_days,
       active = true,
     } = req.body;
 
@@ -159,6 +204,15 @@ promoRouter.post('/api/admin/crm/promo-codes', authMiddleware, (req, res) => {
       return res.status(400).json({ error: 'invalid_percent', message: 'Процент скидки не может быть больше 100' });
     }
 
+    const normalizedFromDate = valid_from_date === undefined ? null : normalizeIsoDate(valid_from_date);
+    if (valid_from_date !== undefined && valid_from_date !== null && valid_from_date !== '' && !normalizedFromDate) {
+      return res.status(400).json({ error: 'invalid_valid_from_date', message: 'Дата начала должна быть в формате YYYY-MM-DD' });
+    }
+    const normalizedDuration = normalizeDurationDays(duration_days);
+    if (duration_days !== undefined && duration_days !== null && duration_days !== '' && !normalizedDuration) {
+      return res.status(400).json({ error: 'invalid_duration_days', message: 'Срок в днях должен быть целым числом больше 0' });
+    }
+
     const cleanCode = code.trim().toUpperCase();
 
     // Check uniqueness
@@ -170,23 +224,38 @@ promoRouter.post('/api/admin/crm/promo-codes', authMiddleware, (req, res) => {
     const id = generateId('promo');
 
     db.prepare(`
-      INSERT INTO promo_codes (id, code, description, discount_type, discount_value, min_order_amount, max_uses, valid_from, valid_until, active)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO promo_codes (
+        id, code, description, customer_description, manager_description, has_gift,
+        discount_type, discount_value, min_order_amount, max_uses,
+        valid_from, valid_until, valid_from_date, duration_days, active
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       id,
       cleanCode,
       description || null,
+      customer_description || description || null,
+      manager_description || null,
+      has_gift ? 1 : 0,
       discount_type,
       Number(discount_value),
       Number(min_order_amount) || 0,
       Number(max_uses) || 0,
       valid_from || null,
       valid_until || null,
+      normalizedFromDate,
+      normalizedDuration,
       active ? 1 : 0,
     );
 
     const promo = db.prepare('SELECT * FROM promo_codes WHERE id = ?').get(id);
-    res.json(promo);
+    res.json({
+      ...promo,
+      effective_valid_until_date: computeEffectiveValidUntilDate(
+        promo.valid_from_date,
+        promo.duration_days,
+      ),
+    });
   } catch (error) {
     console.error('[promo] Create promo code error:', error);
     res.status(500).json({ error: 'failed', message: error.message });
@@ -206,18 +275,26 @@ promoRouter.patch('/api/admin/crm/promo-codes/:id', authMiddleware, (req, res) =
     const {
       code,
       description,
+      customer_description,
+      manager_description,
+      has_gift,
       discount_type,
       discount_value,
       min_order_amount,
       max_uses,
       valid_from,
       valid_until,
+      valid_from_date,
+      duration_days,
       active,
     } = req.body;
 
     const updates = {};
 
     if (code !== undefined) {
+      if (typeof code !== 'string' || !code.trim()) {
+        return res.status(400).json({ error: 'code_required', message: 'Код промокода обязателен' });
+      }
       const cleanCode = code.trim().toUpperCase();
       // Check uniqueness (excluding self)
       const dup = db.prepare('SELECT id FROM promo_codes WHERE code = ? AND id != ?').get(cleanCode, id);
@@ -228,17 +305,44 @@ promoRouter.patch('/api/admin/crm/promo-codes/:id', authMiddleware, (req, res) =
     }
 
     if (description !== undefined) updates.description = description || null;
+    if (customer_description !== undefined) updates.customer_description = customer_description || null;
+    if (manager_description !== undefined) updates.manager_description = manager_description || null;
+    if (has_gift !== undefined) updates.has_gift = has_gift ? 1 : 0;
     if (discount_type !== undefined) {
       if (!['fixed', 'percent'].includes(discount_type)) {
         return res.status(400).json({ error: 'invalid_discount_type' });
       }
       updates.discount_type = discount_type;
     }
-    if (discount_value !== undefined) updates.discount_value = Number(discount_value);
+    if (discount_value !== undefined) {
+      const nextDiscountType = (discount_type !== undefined ? discount_type : existing.discount_type);
+      const nextDiscountValue = Number(discount_value);
+      if (!Number.isFinite(nextDiscountValue) || nextDiscountValue <= 0) {
+        return res.status(400).json({ error: 'invalid_discount', message: 'Значение скидки должно быть больше 0' });
+      }
+      if (nextDiscountType === 'percent' && nextDiscountValue > 100) {
+        return res.status(400).json({ error: 'invalid_percent', message: 'Процент скидки не может быть больше 100' });
+      }
+      updates.discount_value = nextDiscountValue;
+    }
     if (min_order_amount !== undefined) updates.min_order_amount = Number(min_order_amount) || 0;
     if (max_uses !== undefined) updates.max_uses = Number(max_uses) || 0;
     if (valid_from !== undefined) updates.valid_from = valid_from || null;
     if (valid_until !== undefined) updates.valid_until = valid_until || null;
+    if (valid_from_date !== undefined) {
+      const normalizedFromDate = normalizeIsoDate(valid_from_date);
+      if (valid_from_date !== null && valid_from_date !== '' && !normalizedFromDate) {
+        return res.status(400).json({ error: 'invalid_valid_from_date', message: 'Дата начала должна быть в формате YYYY-MM-DD' });
+      }
+      updates.valid_from_date = normalizedFromDate;
+    }
+    if (duration_days !== undefined) {
+      const normalizedDuration = normalizeDurationDays(duration_days);
+      if (duration_days !== null && duration_days !== '' && !normalizedDuration) {
+        return res.status(400).json({ error: 'invalid_duration_days', message: 'Срок в днях должен быть целым числом больше 0' });
+      }
+      updates.duration_days = normalizedDuration;
+    }
     if (active !== undefined) updates.active = active ? 1 : 0;
 
     const setClauses = Object.keys(updates).map((key) => `${key} = ?`).join(', ');
@@ -249,7 +353,13 @@ promoRouter.patch('/api/admin/crm/promo-codes/:id', authMiddleware, (req, res) =
     }
 
     const promo = db.prepare('SELECT * FROM promo_codes WHERE id = ?').get(id);
-    res.json(promo);
+    res.json({
+      ...promo,
+      effective_valid_until_date: computeEffectiveValidUntilDate(
+        promo.valid_from_date,
+        promo.duration_days,
+      ),
+    });
   } catch (error) {
     console.error('[promo] Update promo code error:', error);
     res.status(500).json({ error: 'failed', message: error.message });

@@ -215,6 +215,18 @@
                 <span v-if="currentOrder.discount_amount > 0" class="text-sm text-blue-500">(-{{ formatCurrency(currentOrder.discount_amount) }})</span>
               </div>
               <div
+                v-if="currentOrder.promo_has_gift"
+                class="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5"
+              >
+                <p class="text-sm font-semibold text-amber-800">Подарок по промокоду</p>
+                <p v-if="currentOrder.promo_manager_description" class="mt-1 text-sm text-amber-700">
+                  {{ currentOrder.promo_manager_description }}
+                </p>
+                <p v-else class="mt-1 text-sm text-amber-700">
+                  Проверьте условия акции и положите подарок в заказ.
+                </p>
+              </div>
+              <div
                 v-if="currentOrder.items?.some((item) => Number(item.loyalty_discount_amount || 0) > 0)"
                 class="mt-2 inline-flex items-center gap-1.5 rounded-lg border border-violet-200 bg-violet-50 px-3 py-1.5"
               >

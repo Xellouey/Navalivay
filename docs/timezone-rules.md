@@ -14,6 +14,7 @@ This is the source of truth for business days, dashboard periods, and customer/a
 - Do not assume the server runtime timezone matches business time.
 - Frontend date labels for `today / month / year / week` must be computed in `Europe/Minsk`.
 - Backend period grouping and frontend period labels must describe the same Minsk-based period.
+- Promo validity that is date-based (start date + duration in days) must be evaluated by Minsk business date.
 
 ## Frontend Rules
 
@@ -28,6 +29,7 @@ This is the source of truth for business days, dashboard periods, and customer/a
 - Server grouping for dashboards, summaries, and time-series must be Minsk-based.
 - If there is a discrepancy between frontend labels and backend aggregates, treat it as a timezone bug first.
 - Pay special attention near midnight and year/month boundaries.
+- For promo-date logic, do not compare business dates using raw local-time browser dates.
 - Current backend helper references:
   - `server/utils/business-time.js`
   - `server/utils/cash-pacing.js` when the task touches daily recommendation logic

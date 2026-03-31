@@ -76,6 +76,9 @@ export interface Order {
   manager_action_note?: string | null;
   promo_code_id?: string | null;
   promo_code_text?: string | null;
+  promo_has_gift?: number;
+  promo_manager_description?: string | null;
+  promo_customer_description?: string | null;
   items?: OrderItem[];
 }
 
@@ -152,11 +155,17 @@ export interface PromoCode {
   id: string;
   code: string;
   description: string | null;
+  customer_description?: string | null;
+  manager_description?: string | null;
+  has_gift?: number;
   discount_type: 'fixed' | 'percent';
   discount_value: number;
   min_order_amount: number;
   max_uses: number;
   current_uses: number;
+  valid_from_date?: string | null;
+  duration_days?: number | null;
+  effective_valid_until_date?: string | null;
   valid_from: string | null;
   valid_until: string | null;
   active: number;

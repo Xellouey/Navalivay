@@ -2071,6 +2071,12 @@ publicRouter.post("/api/promo/validate", (req, res) => {
         discount_value: result.discount_value,
         calculated_discount: result.calculated_discount,
         description: result.description,
+        customer_description: result.customer_description,
+        manager_description: result.manager_description,
+        has_gift: result.has_gift,
+        valid_from_date: result.valid_from_date,
+        duration_days: result.duration_days,
+        effective_valid_until_date: result.effective_valid_until_date,
       });
     } else {
       res.json({

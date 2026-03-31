@@ -251,9 +251,13 @@ crmOperationsRouter.get("/api/admin/crm/orders", authMiddleware, (req, res) => {
       SELECT 
         o.*,
         COALESCE(o.telegram_username, c.telegram_username) as telegram_username,
-        c.first_name || ' ' || COALESCE(c.last_name, '') as customer_name
+        c.first_name || ' ' || COALESCE(c.last_name, '') as customer_name,
+        COALESCE(pc.has_gift, 0) as promo_has_gift,
+        pc.manager_description as promo_manager_description,
+        pc.customer_description as promo_customer_description
       FROM orders o
       LEFT JOIN customers c ON c.id = o.customer_id
+      LEFT JOIN promo_codes pc ON pc.id = o.promo_code_id
       ${whereClause}
       ORDER BY o.created_at DESC
       LIMIT ? OFFSET ?
@@ -357,9 +361,13 @@ crmOperationsRouter.get(
       SELECT 
         o.*,
         COALESCE(o.telegram_username, c.telegram_username) as telegram_username,
-        c.first_name || ' ' || COALESCE(c.last_name, '') as customer_name
+        c.first_name || ' ' || COALESCE(c.last_name, '') as customer_name,
+        COALESCE(pc.has_gift, 0) as promo_has_gift,
+        pc.manager_description as promo_manager_description,
+        pc.customer_description as promo_customer_description
       FROM orders o
       LEFT JOIN customers c ON c.id = o.customer_id
+      LEFT JOIN promo_codes pc ON pc.id = o.promo_code_id
       ${whereClause}
       ORDER BY o.completed_at DESC, o.created_at DESC
       LIMIT ? OFFSET ?
@@ -374,9 +382,13 @@ crmOperationsRouter.get(
           SELECT 
             o.*,
             COALESCE(o.telegram_username, c.telegram_username) as telegram_username,
-            c.first_name || ' ' || COALESCE(c.last_name, '') as customer_name
+            c.first_name || ' ' || COALESCE(c.last_name, '') as customer_name,
+            COALESCE(pc.has_gift, 0) as promo_has_gift,
+            pc.manager_description as promo_manager_description,
+            pc.customer_description as promo_customer_description
           FROM orders o
           LEFT JOIN customers c ON c.id = o.customer_id
+          LEFT JOIN promo_codes pc ON pc.id = o.promo_code_id
           WHERE o.archived = 1
           ORDER BY o.completed_at DESC, o.created_at DESC
           LIMIT ? OFFSET ?
@@ -473,9 +485,13 @@ crmOperationsRouter.get(
         SELECT
           o.*,
           COALESCE(o.telegram_username, c.telegram_username) as telegram_username,
-          c.first_name || ' ' || COALESCE(c.last_name, '') as customer_name
+          c.first_name || ' ' || COALESCE(c.last_name, '') as customer_name,
+          COALESCE(pc.has_gift, 0) as promo_has_gift,
+          pc.manager_description as promo_manager_description,
+          pc.customer_description as promo_customer_description
         FROM orders o
         LEFT JOIN customers c ON c.id = o.customer_id
+        LEFT JOIN promo_codes pc ON pc.id = o.promo_code_id
         ${whereClause}
         ORDER BY COALESCE(o.completed_at, o.paid_at, o.updated_at, o.created_at) DESC
         LIMIT ? OFFSET ?
@@ -556,9 +572,13 @@ crmOperationsRouter.get(
         COALESCE(o.telegram_username, c.telegram_username) as telegram_username,
         c.first_name,
         c.last_name,
-        c.phone
+        c.phone,
+        COALESCE(pc.has_gift, 0) as promo_has_gift,
+        pc.manager_description as promo_manager_description,
+        pc.customer_description as promo_customer_description
       FROM orders o
       LEFT JOIN customers c ON c.id = o.customer_id
+      LEFT JOIN promo_codes pc ON pc.id = o.promo_code_id
       WHERE o.id = ?
     `,
         )
@@ -1406,7 +1426,25 @@ crmOperationsRouter.patch(
 
       tx();
 
-      const updated = db.prepare("SELECT * FROM orders WHERE id = ?").get(id);
+      const updated = db
+        .prepare(
+          `
+          SELECT
+            o.*,
+            COALESCE(o.telegram_username, c.telegram_username) as telegram_username,
+            c.first_name,
+            c.last_name,
+            c.phone,
+            COALESCE(pc.has_gift, 0) as promo_has_gift,
+            pc.manager_description as promo_manager_description,
+            pc.customer_description as promo_customer_description
+          FROM orders o
+          LEFT JOIN customers c ON c.id = o.customer_id
+          LEFT JOIN promo_codes pc ON pc.id = o.promo_code_id
+          WHERE o.id = ?
+        `,
+        )
+        .get(id);
       const updatedItems = db
         .prepare(`
           SELECT oi.*, p.description as product_description 
@@ -1553,7 +1591,25 @@ crmOperationsRouter.post(
 
       tx();
 
-      const updated = db.prepare("SELECT * FROM orders WHERE id = ?").get(id);
+      const updated = db
+        .prepare(
+          `
+          SELECT
+            o.*,
+            COALESCE(o.telegram_username, c.telegram_username) as telegram_username,
+            c.first_name,
+            c.last_name,
+            c.phone,
+            COALESCE(pc.has_gift, 0) as promo_has_gift,
+            pc.manager_description as promo_manager_description,
+            pc.customer_description as promo_customer_description
+          FROM orders o
+          LEFT JOIN customers c ON c.id = o.customer_id
+          LEFT JOIN promo_codes pc ON pc.id = o.promo_code_id
+          WHERE o.id = ?
+        `,
+        )
+        .get(id);
       const updatedItems = db
         .prepare(`
           SELECT oi.*, p.description as product_description

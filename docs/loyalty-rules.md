@@ -4,6 +4,10 @@
 
 This document defines the current loyalty behavior across the customer app, CRM, and backend-facing UI assumptions.
 
+Promo-specific behavior is documented in:
+
+- `docs/promo-rules.md`
+
 Use it when a task touches:
 
 - checkout loyalty application

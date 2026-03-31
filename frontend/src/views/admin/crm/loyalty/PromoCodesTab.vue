@@ -80,9 +80,15 @@
                 <span class="inline-flex items-center rounded-lg bg-slate-100 px-2.5 py-1 font-mono text-sm font-semibold text-slate-800">
                   {{ promo.code }}
                 </span>
+                <span
+                  v-if="promo.has_gift"
+                  class="ml-2 inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700"
+                >
+                  Подарок
+                </span>
               </td>
               <td class="px-4 py-3.5 text-sm text-slate-600 max-w-[200px] truncate">
-                {{ promo.description || '-' }}
+                {{ promo.customer_description || promo.description || '-' }}
               </td>
               <td class="px-4 py-3.5 text-sm text-right font-semibold text-slate-800">
                 <template v-if="promo.discount_type === 'fixed'">{{ promo.discount_value }} BYN</template>
@@ -107,10 +113,23 @@
                 </button>
               </td>
               <td class="px-4 py-3.5 text-sm text-slate-500">
-                <template v-if="promo.valid_from || promo.valid_until">
-                  <span v-if="promo.valid_from">{{ formatDate(promo.valid_from) }}</span>
-                  <span v-if="promo.valid_from && promo.valid_until" class="text-slate-300"> - </span>
-                  <span v-if="promo.valid_until">{{ formatDate(promo.valid_until) }}</span>
+                <template v-if="promo.valid_from_date || promo.valid_from || promo.valid_until">
+                  <template v-if="promo.valid_from_date">
+                    <span>{{ formatDate(promo.valid_from_date) }}</span>
+                    <span class="text-slate-300"> - </span>
+                    <span>
+                      {{
+                        promo.effective_valid_until_date
+                          ? formatDate(promo.effective_valid_until_date)
+                          : 'Бессрочно'
+                      }}
+                    </span>
+                  </template>
+                  <template v-else>
+                    <span v-if="promo.valid_from">{{ formatDate(promo.valid_from) }}</span>
+                    <span v-if="promo.valid_from && promo.valid_until" class="text-slate-300"> - </span>
+                    <span v-if="promo.valid_until">{{ formatDate(promo.valid_until) }}</span>
+                  </template>
                 </template>
                 <span v-else class="text-slate-300">Бессрочный</span>
               </td>
@@ -195,12 +214,22 @@
               </div>
 
               <div>
-                <label class="block text-sm font-medium text-slate-700 mb-1.5">Описание</label>
+                <label class="block text-sm font-medium text-slate-700 mb-1.5">Описание для клиента</label>
                 <textarea
-                  v-model="form.description"
+                  v-model="form.customer_description"
                   rows="2"
                   class="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
-                  placeholder="Описание акции или промокода"
+                  placeholder="Текст для клиента в миниаппе"
+                ></textarea>
+              </div>
+
+              <div>
+                <label class="block text-sm font-medium text-slate-700 mb-1.5">Описание для менеджера</label>
+                <textarea
+                  v-model="form.manager_description"
+                  rows="3"
+                  class="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
+                  placeholder="Что нужно проверить и какой подарок положить"
                 ></textarea>
               </div>
 
@@ -257,20 +286,37 @@
                 <div>
                   <label class="block text-sm font-medium text-slate-700 mb-1.5">Действует с</label>
                   <input
-                    v-model="form.valid_from"
-                    type="datetime-local"
+                    v-model="form.valid_from_date"
+                    type="date"
                     class="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
                   />
                 </div>
                 <div>
-                  <label class="block text-sm font-medium text-slate-700 mb-1.5">Действует до</label>
+                  <label class="block text-sm font-medium text-slate-700 mb-1.5">На сколько дней</label>
                   <input
-                    v-model="form.valid_until"
-                    type="datetime-local"
+                    v-model.number="form.duration_days"
+                    type="number"
+                    min="1"
+                    :disabled="form.is_perpetual"
                     class="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
+                    placeholder="Например, 13"
                   />
                 </div>
               </div>
+
+              <div class="flex flex-wrap items-center gap-5">
+                <label class="inline-flex items-center gap-2 text-sm text-slate-700">
+                  <input v-model="form.is_perpetual" type="checkbox" class="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
+                  Бессрочно
+                </label>
+                <label class="inline-flex items-center gap-2 text-sm text-slate-700">
+                  <input v-model="form.has_gift" type="checkbox" class="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
+                  Есть подарок к заказу
+                </label>
+              </div>
+              <p v-if="effectiveUntilHint" class="text-sm text-emerald-600">
+                {{ effectiveUntilHint }}
+              </p>
 
               <div class="flex items-center gap-2.5">
                 <div
@@ -397,10 +443,16 @@ function getEmptyForm() {
   return {
     code: '',
     description: '',
+    customer_description: '',
+    manager_description: '',
+    has_gift: false,
     discount_type: 'fixed' as 'fixed' | 'percent',
     discount_value: 0,
     min_order_amount: 0,
     max_uses: 1,
+    valid_from_date: '',
+    duration_days: null as number | null,
+    is_perpetual: true,
     valid_from: '',
     valid_until: '',
     active: true,
@@ -441,10 +493,16 @@ function openEditModal(promo: PromoCode) {
   form.value = {
     code: promo.code,
     description: promo.description || '',
+    customer_description: promo.customer_description || promo.description || '',
+    manager_description: promo.manager_description || '',
+    has_gift: Boolean(promo.has_gift),
     discount_type: promo.discount_type,
     discount_value: promo.discount_value,
     min_order_amount: promo.min_order_amount,
     max_uses: promo.max_uses,
+    valid_from_date: promo.valid_from_date || '',
+    duration_days: promo.duration_days && promo.duration_days > 0 ? promo.duration_days : null,
+    is_perpetual: !(promo.duration_days && promo.duration_days > 0),
     valid_from: promo.valid_from ? promo.valid_from.slice(0, 16) : '',
     valid_until: promo.valid_until ? promo.valid_until.slice(0, 16) : '',
     active: Boolean(promo.active),
@@ -464,10 +522,23 @@ async function handleSubmit() {
   formSubmitting.value = true
 
   try {
+    const useNewValidity = Boolean(form.value.valid_from_date)
+
+    if (useNewValidity && !form.value.is_perpetual) {
+      const days = Number(form.value.duration_days || 0)
+      if (!Number.isFinite(days) || days <= 0) {
+        formError.value = 'Укажите срок действия в днях'
+        return
+      }
+    }
+
     const data = {
       ...form.value,
-      valid_from: form.value.valid_from || null,
-      valid_until: form.value.valid_until || null,
+      description: form.value.customer_description || null,
+      duration_days: useNewValidity ? (form.value.is_perpetual ? null : form.value.duration_days) : null,
+      valid_from_date: useNewValidity ? (form.value.valid_from_date || null) : null,
+      valid_from: useNewValidity ? null : (form.value.valid_from || null),
+      valid_until: useNewValidity ? null : (form.value.valid_until || null),
       active: form.value.active ? 1 : 0,
     }
 
@@ -528,10 +599,15 @@ function generateCode() {
 
 function getStatusText(promo: PromoCode): string {
   if (!promo.active) return 'Неактивен'
-  const now = new Date().toISOString()
-  if (promo.valid_until && now > promo.valid_until) return 'Истек'
+  const nowBusinessDate = getCurrentBusinessDateString()
+  if (promo.valid_from_date && nowBusinessDate < promo.valid_from_date) return 'Ожидает'
+  if (promo.effective_valid_until_date && nowBusinessDate > promo.effective_valid_until_date) return 'Истек'
+  const nowTs = Date.now()
+  const validUntilTs = promo.valid_until ? safeDateTs(promo.valid_until) : null
+  if (validUntilTs !== null && nowTs > validUntilTs) return 'Истек'
   if (promo.max_uses > 0 && promo.current_uses >= promo.max_uses) return 'Исчерпан'
-  if (promo.valid_from && now < promo.valid_from) return 'Ожидает'
+  const validFromTs = promo.valid_from ? safeDateTs(promo.valid_from) : null
+  if (validFromTs !== null && nowTs < validFromTs) return 'Ожидает'
   return 'Активен'
 }
 
@@ -558,10 +634,43 @@ function getUsageBarClass(promo: PromoCode): string {
 
 function formatDate(dateStr: string): string {
   try {
-    return new Date(dateStr).toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: '2-digit' })
+    const normalized = /^\d{4}-\d{2}-\d{2}$/.test(dateStr)
+      ? `${dateStr}T00:00:00`
+      : dateStr
+    return new Date(normalized).toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: '2-digit' })
   } catch {
     return dateStr
   }
+}
+
+const effectiveUntilHint = computed(() => {
+  const startDate = form.value.valid_from_date
+  if (!startDate) return ''
+  if (form.value.is_perpetual) return 'Промокод будет действовать бессрочно.'
+  const duration = Number(form.value.duration_days || 0)
+  if (!Number.isFinite(duration) || duration <= 0) return ''
+  const end = new Date(`${startDate}T00:00:00`)
+  end.setDate(end.getDate() + duration - 1)
+  const formatted = end.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' })
+  return `Будет действовать до ${formatted} включительно.`
+})
+
+function getCurrentBusinessDateString(): string {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Europe/Minsk',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(new Date())
+  const year = parts.find((p) => p.type === 'year')?.value || '1970'
+  const month = parts.find((p) => p.type === 'month')?.value || '01'
+  const day = parts.find((p) => p.type === 'day')?.value || '01'
+  return `${year}-${month}-${day}`
+}
+
+function safeDateTs(value: string): number | null {
+  const ts = Date.parse(value)
+  return Number.isFinite(ts) ? ts : null
 }
 
 function formatDateTime(dateStr: string): string {

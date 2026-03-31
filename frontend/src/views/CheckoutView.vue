@@ -213,7 +213,9 @@
 
           <p v-if="promoResult" class="promo-discount-text">
             Скидка: -{{ formatPrice(promoResult.calculated_discount) }} BYN
-            <template v-if="promoResult.description"> - {{ promoResult.description }}</template>
+            <template v-if="promoResult.customer_description || promoResult.description">
+              - {{ promoResult.customer_description || promoResult.description }}
+            </template>
           </p>
         </div>
 
@@ -534,6 +536,7 @@ const promoResult = ref<{
   discount_type: 'fixed' | 'percent';
   discount_value: number;
   calculated_discount: number;
+  customer_description?: string;
   description?: string;
 } | null>(null);
 const promoError = ref("");
@@ -781,6 +784,7 @@ async function handlePromoApply() {
         discount_type: data.discount_type,
         discount_value: data.discount_value,
         calculated_discount: data.calculated_discount,
+        customer_description: data.customer_description,
         description: data.description,
       };
       if (isEditingOrder.value) {
@@ -1336,7 +1340,7 @@ async function submitOrder() {
         form.deliveryType === "delivery" ? form.address : undefined,
       phone: form.deliveryType === "delivery" ? form.phone : undefined,
       notes: form.notes || undefined,
-      promo_code: promoCode.value || undefined,
+      promo_code: promoResult.value ? promoCode.value.trim() : undefined,
       items: cartStore.items.map((item) => ({
         product_id: item.productId,
         variant_id: item.variantId || null,
