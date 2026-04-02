@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
+import { useWholesaleStore } from './wholesale'
 
 export interface CategoryGroup {
   id: string
@@ -76,6 +77,9 @@ export interface Product {
   hasVariants?: boolean
   variants?: ProductVariant[]
   needsCategoryImage?: boolean // Флаг: нужно загрузить обложку категории
+  isWholesale?: boolean
+  wholesaleCode?: string | null
+  wholesaleMinAmount?: number | null
 }
 
 export interface Banner {
@@ -123,6 +127,11 @@ export const useCatalogStore = defineStore('catalog', () => {
   // Отслеживание загрузок в процессе
   const loadingCategoryImages = ref<Set<string>>(new Set())
   const loadingGroupImages = ref<Set<string>>(new Set())
+
+  function getWholesaleHeaders(): Record<string, string> {
+    const wholesaleStore = useWholesaleStore()
+    return wholesaleStore.buildHeaders()
+  }
 
   // Computed
   const filteredProducts = computed(() => {
@@ -264,7 +273,9 @@ export const useCatalogStore = defineStore('catalog', () => {
   // Actions
   async function fetchCategories() {
     try {
-      const response = await fetch('/api/categories')
+      const response = await fetch('/api/categories', {
+        headers: getWholesaleHeaders(),
+      })
       if (!response.ok) throw new Error('Failed to fetch categories')
       const data = await response.json()
       const mapped: Category[] = (data as any[]).map((cat) => ({
@@ -407,7 +418,9 @@ export const useCatalogStore = defineStore('catalog', () => {
         params.set('group', activeGroup.value)
       }
       
-      const response = await fetch(`/api/products?${params}`)
+      const response = await fetch(`/api/products?${params}`, {
+        headers: getWholesaleHeaders(),
+      })
       if (!response.ok) throw new Error('Failed to fetch products')
       
       const data = await response.json()
@@ -464,7 +477,9 @@ export const useCatalogStore = defineStore('catalog', () => {
   async function fetchAllProducts() {
     try {
       // Fetch all products without pagination or category filter for counts
-      const response = await fetch('/api/products?limit=1000&offset=0')
+      const response = await fetch('/api/products?limit=1000&offset=0', {
+        headers: getWholesaleHeaders(),
+      })
       if (!response.ok) throw new Error('Failed to fetch all products')
       const data = await response.json()
       // Обрабатываем изображения
@@ -479,7 +494,9 @@ export const useCatalogStore = defineStore('catalog', () => {
       isLoading.value = true
       error.value = null
       
-      const response = await fetch(`/api/product/${id}`)
+      const response = await fetch(`/api/product/${id}`, {
+        headers: getWholesaleHeaders(),
+      })
       if (!response.ok) throw new Error('Product not found')
       
       let product = await response.json()
@@ -504,7 +521,15 @@ export const useCatalogStore = defineStore('catalog', () => {
 
   async function fetchBanners() {
     try {
-      const response = await fetch('/api/banners')
+      const wholesaleStore = useWholesaleStore()
+      if (wholesaleStore.isWholesale) {
+        banners.value = []
+        return []
+      }
+
+      const response = await fetch('/api/banners', {
+        headers: getWholesaleHeaders(),
+      })
       if (!response.ok) throw new Error('Failed to fetch banners')
       const raw = await response.json()
       // Normalize shape to { id, image, href, active:number, order, openInNewTab }
@@ -541,7 +566,9 @@ export const useCatalogStore = defineStore('catalog', () => {
       error.value = null
       searchQuery.value = query
       
-      const response = await fetch(`/api/search?q=${encodeURIComponent(query)}&limit=50`)
+      const response = await fetch(`/api/search?q=${encodeURIComponent(query)}&limit=50`, {
+        headers: getWholesaleHeaders(),
+      })
       if (!response.ok) throw new Error('Search failed')
       
       const data = await response.json()
@@ -591,7 +618,9 @@ export const useCatalogStore = defineStore('catalog', () => {
 
   async function fetchCrossSell(categorySlug: string) {
     try {
-      const response = await fetch(`/api/cross-sells?category=${encodeURIComponent(categorySlug)}`)
+      const response = await fetch(`/api/cross-sells?category=${encodeURIComponent(categorySlug)}`, {
+        headers: getWholesaleHeaders(),
+      })
       if (!response.ok) throw new Error('Failed to fetch cross sell items')
       const data = await response.json()
       // Обрабатываем изображения
@@ -615,12 +644,20 @@ export const useCatalogStore = defineStore('catalog', () => {
 
   // Initialize
   async function initialize() {
-    await Promise.all([
+    const wholesaleStore = useWholesaleStore()
+    const loaders: Array<Promise<unknown>> = [
       fetchCategories(),
-      fetchBanners(),
       fetchProducts(),
-      fetchAllProducts() // Load all products for category counts
-    ])
+      fetchAllProducts(),
+    ]
+
+    if (!wholesaleStore.isWholesale) {
+      loaders.push(fetchBanners())
+    } else {
+      banners.value = []
+    }
+
+    await Promise.all(loaders)
   }
 
   return {

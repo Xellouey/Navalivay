@@ -3,7 +3,7 @@
     <SmokeParticles :count="4" area="full" />
 
     <!-- Баннер -->
-    <div v-if="catalogStore.banners.length" class="mb-0 relative banner-wrapper">
+    <div v-if="!wholesaleStore.isWholesale && catalogStore.banners.length" class="mb-0 relative banner-wrapper">
       <div class="banner-container relative">
         <BannerCarousel
           :banners="catalogStore.banners"
@@ -15,6 +15,24 @@
     </div>
 
     <div class="main-content-wrapper">
+      <section v-if="wholesaleStore.isWholesale" class="px-4 pt-4">
+        <div class="rounded-[24px] bg-white px-5 py-4 shadow-sm">
+          <p class="text-[11px] font-semibold uppercase tracking-[0.12em] text-red-500">Оптовый режим</p>
+          <p class="mt-2 text-base font-semibold text-gray-900">
+            {{ wholesaleStore.wholesaleLabel }}
+          </p>
+          <p class="mt-1 text-sm text-gray-600">
+            Минимальный заказ - {{ wholesaleStore.minOrderAmount.toFixed(0) }} BYN.
+            <template v-if="remainingWholesaleAmount > 0">
+              Сейчас не хватает {{ remainingWholesaleAmount.toFixed(2) }} BYN.
+            </template>
+            <template v-else>
+              Минимум уже выполнен.
+            </template>
+          </p>
+        </div>
+      </section>
+
       <section v-if="activeOrder && !cartStore.editingOrderId" class="active-order-section">
         <button class="active-order-banner" @click="router.push('/my-order')">
           <div class="active-order-copy">
@@ -55,7 +73,7 @@
 
     <!-- Cart Button - Figma Redesign -->
     <Transition name="cart-slide">
-      <div v-if="totalCartItems > 0" class="cart-wrapper">
+      <div v-if="totalCartItems > 0 && !wholesaleStore.isWholesale" class="cart-wrapper">
         <button class="cart-button" @click="goToCheckout">
           <svg
             width="17"
@@ -92,6 +110,7 @@
       </div>
     </Transition>
     <LoyaltyBonusPopup
+      v-if="!wholesaleStore.isWholesale"
       :open="showLoyaltyPopup"
       :categories="loyaltyStore.availableCategories"
       @close="showLoyaltyPopup = false"
@@ -107,6 +126,7 @@ import { useRouter } from "vue-router";
 import { useCatalogStore, type Category } from "@/stores/catalog";
 import { useCartStore } from "@/stores/cart";
 import { useLoyaltyStore } from "@/stores/loyalty";
+import { useWholesaleStore } from "@/stores/wholesale";
 import SmokeParticles from "@/components/SmokeParticles.vue";
 import BannerCarousel from "@/components/BannerCarousel.vue";
 import LoyaltyBonusPopup from "@/components/LoyaltyBonusPopup.vue";
@@ -119,6 +139,7 @@ import {
 const catalogStore = useCatalogStore();
 const cartStore = useCartStore();
 const loyaltyStore = useLoyaltyStore();
+const wholesaleStore = useWholesaleStore();
 const router = useRouter();
 const activeOrder = ref<CustomerActiveOrder | null>(null);
 const showLoyaltyPopup = ref(false);
@@ -146,6 +167,9 @@ const categoryCards = computed(() => {
 
 const totalCartItems = computed(() => cartStore.totalItems);
 const totalCartAmount = computed(() => cartStore.totalAmount.toFixed(2));
+const remainingWholesaleAmount = computed(() =>
+  wholesaleStore.remainingToMinimum(cartStore.totalAmount),
+);
 
 function openCategory(slug: string) {
   router.push({ name: "category", params: { slug } });
@@ -160,32 +184,40 @@ async function openProfileFromPopup() {
   await router.push("/profile");
 }
 
-onMounted(async () => {
+async function refreshHomeState() {
+  showLoyaltyPopup.value = false;
   await catalogStore.initialize();
 
   if (!cartStore.editingOrderId) {
     try {
       activeOrder.value = await fetchMyActiveOrder(getTelegramIdentity());
     } catch (error) {
+      activeOrder.value = null;
       console.warn("[Home] Failed to fetch active order", error);
     }
   } else {
     activeOrder.value = null;
   }
 
+  if (!wholesaleStore.isWholesale) {
+    try {
+      await loyaltyStore.fetchSnapshot(getTelegramIdentity());
+      if (loyaltyStore.canShowAvailableBonusPopup()) {
+        loyaltyStore.markPopupSeen();
+        showLoyaltyPopup.value = true;
+      }
+    } catch (error) {
+      console.warn("[Home] Failed to fetch loyalty snapshot", error);
+    }
+  }
+}
+
+onMounted(async () => {
+  await refreshHomeState();
+
   if (window.Telegram?.WebApp) {
     window.Telegram.WebApp.ready();
     window.Telegram.WebApp.expand();
-  }
-
-  try {
-    await loyaltyStore.fetchSnapshot(getTelegramIdentity());
-    if (loyaltyStore.canShowAvailableBonusPopup()) {
-      loyaltyStore.markPopupSeen();
-      showLoyaltyPopup.value = true;
-    }
-  } catch (error) {
-    console.warn("[Home] Failed to fetch loyalty snapshot", error);
   }
 });
 </script>

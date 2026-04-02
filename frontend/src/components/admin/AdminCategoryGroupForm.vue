@@ -23,6 +23,53 @@
       <p class="mt-1 text-xs text-gray-500">Показывается на витрине как единая строка</p>
     </div>
 
+    <div class="space-y-3 rounded-2xl border border-gray-200 bg-gray-50/80 p-4">
+      <div class="flex flex-wrap items-start justify-between gap-2">
+        <div>
+          <p class="text-sm font-medium text-gray-700">Оптовые цены</p>
+          <p class="mt-0.5 text-xs text-gray-500">Заполнено {{ wholesaleFilledCount }} из {{ resolvedWholesaleTiers.length || 0 }}</p>
+        </div>
+        <div class="text-right text-xs text-gray-500">
+          <p>Себестоимость</p>
+          <p class="mt-0.5 text-sm font-semibold text-gray-900">{{ averageCostAutoLabel }}</p>
+        </div>
+      </div>
+
+      <div v-if="resolvedWholesaleTiers.length" class="overflow-hidden rounded-xl border border-white bg-white shadow-sm">
+        <div class="grid grid-cols-[84px_minmax(0,1fr)] border-b border-gray-100 bg-gray-50 px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-gray-500">
+          <span>Уровень</span>
+          <span>Цена, BYN</span>
+        </div>
+        <div
+          v-for="tier in resolvedWholesaleTiers"
+          :key="tier.id"
+          class="grid grid-cols-[84px_minmax(0,1fr)] items-center gap-2 border-b border-gray-100 px-3 py-2 last:border-b-0"
+        >
+          <div class="min-w-0">
+            <p class="text-sm font-semibold text-gray-900">{{ tier.code }}+</p>
+            <p class="text-[11px] text-gray-500">{{ formatTierMinAmount(tier.minOrderAmount) }} минимум</p>
+          </div>
+          <div class="flex items-center gap-2">
+            <input
+              :id="`wholesale-price-${tier.code}`"
+              v-model="wholesalePriceInputs[tier.code]"
+              type="number"
+              min="0"
+              step="0.01"
+              inputmode="decimal"
+              class="w-full rounded-lg border border-gray-200 px-3 py-1.5 text-sm text-gray-900 focus:border-brand-dark/40 focus:ring-1 focus:ring-brand-dark/40"
+              placeholder="-"
+            />
+            <span class="text-xs font-medium text-gray-500">BYN</span>
+          </div>
+        </div>
+      </div>
+
+      <p v-else class="text-xs text-gray-500">
+        Уровни опта загружаются. После сохранения можно будет заполнить цены.
+      </p>
+    </div>
+
       <div class="space-y-3">
       <div class="flex flex-wrap items-start justify-between gap-3">
         <div>
@@ -184,16 +231,30 @@ interface CategoryGroup {
   metaLabel?: string | null
   metaValue?: string | null
   depth?: number
+  averageCostAuto?: number | null
+  directProductCount?: number
+  productsWithCostCount?: number
+  wholesalePrices?: Record<string, number | null>
+  wholesaleTiers?: WholesaleTier[]
 }
 
-const props = withDefaults(defineProps<{ editingGroup?: CategoryGroup | null; isSubmitting?: boolean; availableGroups?: Array<CategoryGroup & { depth?: number }> }>(), {
+interface WholesaleTier {
+  id: string
+  code: string
+  label: string
+  minOrderAmount: number
+  sortOrder?: number
+}
+
+const props = withDefaults(defineProps<{ editingGroup?: CategoryGroup | null; isSubmitting?: boolean; availableGroups?: Array<CategoryGroup & { depth?: number }>; wholesaleTiers?: WholesaleTier[] }>(), {
   editingGroup: null,
   isSubmitting: false,
-  availableGroups: () => []
+  availableGroups: () => [],
+  wholesaleTiers: () => []
 })
 
 const emit = defineEmits<{
-  (e: 'submit', payload: { name: string; coverImage?: string | null; hideEmpty?: boolean; parentId?: string | null; metaLabel?: string | null; metaValue?: string | null }): void
+  (e: 'submit', payload: { name: string; coverImage?: string | null; hideEmpty?: boolean; parentId?: string | null; metaLabel?: string | null; metaValue?: string | null; wholesalePrices?: Record<string, number | null> }): void
   (e: 'cancel'): void
 }>()
 
@@ -210,10 +271,71 @@ const coverMode = ref<'url' | 'file'>('url')
 const uploadPreview = ref('')
 const fileInputRef = ref<HTMLInputElement | null>(null)
 const uploadedFileName = ref('')
+const wholesalePriceInputs = reactive<Record<string, string>>({})
+
+const defaultWholesaleTiers: WholesaleTier[] = [
+  { id: 'wt_100', code: '100', label: 'Опт от 100 BYN', minOrderAmount: 100, sortOrder: 100 },
+  { id: 'wt_250', code: '250', label: 'Опт от 250 BYN', minOrderAmount: 250, sortOrder: 250 },
+  { id: 'wt_500', code: '500', label: 'Опт от 500 BYN', minOrderAmount: 500, sortOrder: 500 },
+  { id: 'wt_1000', code: '1000', label: 'Опт от 1000 BYN', minOrderAmount: 1000, sortOrder: 1000 }
+]
+
+const resolvedWholesaleTiers = computed(() => {
+  if (props.wholesaleTiers?.length) {
+    return props.wholesaleTiers
+  }
+
+  if (props.editingGroup?.wholesaleTiers?.length) {
+    return props.editingGroup.wholesaleTiers
+  }
+
+  const fromAvailableGroup = (props.availableGroups || []).find((group) => group.wholesaleTiers?.length)
+  return fromAvailableGroup?.wholesaleTiers?.length ? fromAvailableGroup.wholesaleTiers : defaultWholesaleTiers
+})
+
+const averageCostAutoLabel = computed(() => {
+  const value = props.editingGroup?.averageCostAuto
+  if (value === null || value === undefined || !Number.isFinite(Number(value))) {
+    return 'Появится после добавления товаров'
+  }
+  return `${Number(value).toFixed(2)} BYN`
+})
+
+const wholesaleFilledCount = computed(() =>
+  resolvedWholesaleTiers.value.reduce((total, tier) => {
+    const raw = wholesalePriceInputs[tier.code]?.trim() || ''
+    return raw ? total + 1 : total
+  }, 0),
+)
+
+const wholesaleTierKey = computed(() =>
+  resolvedWholesaleTiers.value.map((tier) => `${tier.id}:${tier.code}`).join('|'),
+)
+const editingWholesalePricesKey = computed(() => {
+  const prices = props.editingGroup?.wholesalePrices || {}
+  return Object.entries(prices)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([code, value]) => `${code}:${value === null || value === undefined ? '' : String(value)}`)
+    .join('|')
+})
+
+function syncWholesalePriceInputs(group?: CategoryGroup | null) {
+  Object.keys(wholesalePriceInputs).forEach((key) => {
+    delete wholesalePriceInputs[key]
+  })
+
+  resolvedWholesaleTiers.value.forEach((tier) => {
+    const rawValue = group?.wholesalePrices?.[tier.code]
+    wholesalePriceInputs[tier.code] =
+      rawValue === null || rawValue === undefined || Number.isNaN(Number(rawValue))
+        ? ''
+        : String(rawValue)
+  })
+}
 
 watch(
-  () => props.editingGroup,
-  (group) => {
+  [() => props.editingGroup, wholesaleTierKey, editingWholesalePricesKey],
+  ([group]) => {
     if (group) {
       form.name = group.name || ''
       form.coverImage = group.coverImage || ''
@@ -222,6 +344,7 @@ watch(
       const label = (group.metaLabel || '').trim()
       const value = (group.metaValue || '').trim()
       form.metaValue = label && value ? `${label} ${value}` : (label || value)
+      syncWholesalePriceInputs(group)
       if ((group.coverImage || '').startsWith('data:')) {
         coverMode.value = 'file'
         uploadPreview.value = group.coverImage || ''
@@ -236,6 +359,7 @@ watch(
       form.hideEmpty = false
       form.parentId = ''
       form.metaValue = ''
+      syncWholesalePriceInputs(null)
       coverMode.value = 'url'
       uploadPreview.value = ''
       uploadedFileName.value = ''
@@ -264,13 +388,26 @@ function onSubmit() {
     return
   }
   const metaValue = form.metaValue.trim()
+  const wholesalePrices = Object.fromEntries(
+    resolvedWholesaleTiers.value.map((tier) => {
+      const rawSource = wholesalePriceInputs[tier.code]
+      const rawValue = String(rawSource ?? '').trim()
+      if (!rawValue) {
+        return [tier.code, null]
+      }
+
+      const numeric = Number(rawValue)
+      return [tier.code, Number.isFinite(numeric) && numeric > 0 ? numeric : null]
+    }),
+  )
   emit('submit', {
     name: form.name.trim(),
     coverImage: form.coverImage.trim() ? form.coverImage.trim() : null,
     hideEmpty: form.hideEmpty,
     parentId: form.parentId ? form.parentId : null,
     metaLabel: null,
-    metaValue: metaValue.length ? metaValue : null
+    metaValue: metaValue.length ? metaValue : null,
+    wholesalePrices
   })
 }
 
@@ -336,6 +473,10 @@ function clearCover() {
   if (coverMode.value === 'file') {
     coverMode.value = 'url'
   }
+}
+
+function formatTierMinAmount(value: number) {
+  return Number(value || 0).toFixed(0)
 }
 
 const blockedParentIds = computed(() => {

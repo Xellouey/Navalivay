@@ -4,14 +4,29 @@ import { computed, onMounted } from "vue";
 import { useRoute } from "vue-router";
 import VapeSmoke from "@/components/VapeSmoke.vue";
 import BottomTabBar from "@/components/BottomTabBar.vue";
+import WholesaleStatusBar from "@/components/WholesaleStatusBar.vue";
+import { useWholesaleStore } from "@/stores/wholesale";
 
 const route = useRoute();
+const wholesaleStore = useWholesaleStore();
 
 const showTabBar = computed(() => {
   const path = route.path;
   if (path.startsWith("/admin")) return false;
   if (path === "/checkout") return false;
   if (path === "/my-order") return false;
+  if (wholesaleStore.isWholesale) return false;
+  return true;
+});
+
+const showWholesaleStatusBar = computed(() => {
+  const path = route.path;
+  if (!wholesaleStore.isWholesale) return false;
+  if (path.startsWith("/admin")) return false;
+  if (path === "/checkout") return false;
+  if (path === "/my-order") return false;
+  if (route.name === "product") return false;
+  if (route.name === "wholesale-entry") return false;
   return true;
 });
 
@@ -27,7 +42,7 @@ onMounted(() => {
 <template>
   <div
     class="app-shell"
-    :class="{ 'app-shell--with-tab-bar': showTabBar }"
+    :class="{ 'app-shell--with-tab-bar': showTabBar || showWholesaleStatusBar }"
     style="background: var(--app-page-background, #ffffff)"
   >
     <div class="app-shell__content">
@@ -39,6 +54,7 @@ onMounted(() => {
     </div>
     <VapeSmoke />
     <BottomTabBar v-if="showTabBar" />
+    <WholesaleStatusBar v-if="showWholesaleStatusBar" />
   </div>
 </template>
 

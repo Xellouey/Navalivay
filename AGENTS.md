@@ -16,6 +16,14 @@ Read these when the task touches the matching area:
   - customer loyalty rules
   - checkout loyalty UX
   - CRM wording for discounts and bonuses
+- `docs/promo-rules.md`
+  - promo-code validation and lifecycle
+  - gift-by-promo manager flow
+  - promo validity model and compatibility rules
+- `docs/wholesale-rules.md`
+  - wholesale link access and tier logic
+  - category group wholesale pricing
+  - wholesale storefront and checkout restrictions
 - `docs/timezone-rules.md`
   - all business date/time logic
   - Minsk timezone rules for frontend and backend

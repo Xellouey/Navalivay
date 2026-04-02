@@ -47,6 +47,35 @@ export function migratePromoCodes() {
       db.exec(`ALTER TABLE orders ADD COLUMN promo_code_text TEXT`);
     }
 
+    // Add gift and simplified validity fields to promo_codes
+    const promoColumns = db.prepare(`PRAGMA table_info(promo_codes)`).all();
+    const promoColumnNames = promoColumns.map((col) => col.name);
+
+    if (!promoColumnNames.includes('customer_description')) {
+      console.log('[migration] Adding customer_description column to promo_codes table');
+      db.exec(`ALTER TABLE promo_codes ADD COLUMN customer_description TEXT`);
+    }
+
+    if (!promoColumnNames.includes('manager_description')) {
+      console.log('[migration] Adding manager_description column to promo_codes table');
+      db.exec(`ALTER TABLE promo_codes ADD COLUMN manager_description TEXT`);
+    }
+
+    if (!promoColumnNames.includes('has_gift')) {
+      console.log('[migration] Adding has_gift column to promo_codes table');
+      db.exec(`ALTER TABLE promo_codes ADD COLUMN has_gift INTEGER NOT NULL DEFAULT 0`);
+    }
+
+    if (!promoColumnNames.includes('valid_from_date')) {
+      console.log('[migration] Adding valid_from_date column to promo_codes table');
+      db.exec(`ALTER TABLE promo_codes ADD COLUMN valid_from_date TEXT`);
+    }
+
+    if (!promoColumnNames.includes('duration_days')) {
+      console.log('[migration] Adding duration_days column to promo_codes table');
+      db.exec(`ALTER TABLE promo_codes ADD COLUMN duration_days INTEGER`);
+    }
+
     const usageColumns = db.prepare(`PRAGMA table_info(promo_usage)`).all();
     const usageColumnNames = usageColumns.map((col) => col.name);
 
@@ -128,6 +157,15 @@ export function migratePromoCodes() {
         WHERE pu.promo_code_id = promo_codes.id
           AND pu.status IN ('reserved', 'consumed')
       ), 0)
+    `);
+
+    // Backfill new descriptions from legacy description
+    db.exec(`
+      UPDATE promo_codes
+      SET customer_description = COALESCE(NULLIF(customer_description, ''), description)
+      WHERE (customer_description IS NULL OR TRIM(customer_description) = '')
+        AND description IS NOT NULL
+        AND TRIM(description) <> ''
     `);
 
     console.log('[migration] Promo codes migration completed successfully');

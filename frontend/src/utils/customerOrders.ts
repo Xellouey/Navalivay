@@ -50,6 +50,12 @@ export interface CustomerActiveOrder {
   discount_amount: number;
   final_amount: number;
   promo_code_text: string | null;
+  is_wholesale: number;
+  wholesale_tier_id: string | null;
+  wholesale_code: string | null;
+  wholesale_secret: string | null;
+  wholesale_tier_label: string | null;
+  wholesale_min_amount: number | null;
   telegram_username: string | null;
   created_at: string;
   updated_at: string;

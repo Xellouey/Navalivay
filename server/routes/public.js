@@ -14,6 +14,13 @@ import {
   reservePromoUsageForOrder,
   validatePromoCode as validatePromoCodeForOrder,
 } from "../promo-code-service.js";
+import {
+  getWholesaleTierById,
+  getWholesaleUnitPriceForProduct,
+  getWholesalePricedGroupIds,
+  resolveWholesaleContextFromRequest,
+  validateWholesaleMinimum,
+} from "../wholesale-service.js";
 
 export const publicRouter = express.Router();
 
@@ -195,6 +202,65 @@ function ensureMinDeliveryAmountSatisfied(totalAmount) {
     min_amount: minDeliveryAmount,
     current_amount: Number(totalAmount || 0),
   };
+}
+
+function buildWholesaleErrorPayload(error) {
+  return {
+    error: error?.code || "invalid_wholesale_link",
+    message: error?.message || "Оптовая ссылка недействительна",
+  };
+}
+
+function resolveWholesaleContextOrSendError(req, res) {
+  try {
+    return resolveWholesaleContextFromRequest(req);
+  } catch (error) {
+    res.status(error?.statusCode || 400).json(buildWholesaleErrorPayload(error));
+    return null;
+  }
+}
+
+function buildStoredWholesaleContext(order) {
+  if (!order || Number(order.is_wholesale || 0) !== 1 || !order.wholesale_tier_id) {
+    return null;
+  }
+
+  const tier = getWholesaleTierById(order.wholesale_tier_id);
+  if (!tier) {
+    return null;
+  }
+
+  return {
+    isWholesale: true,
+    tier: {
+      ...tier,
+      label: order.wholesale_tier_label || tier.label,
+      minOrderAmount: Number(
+        order.wholesale_min_amount ?? tier.minOrderAmount ?? 0,
+      ),
+    },
+    code: tier.code,
+    secret: "",
+    minOrderAmount: Number(order.wholesale_min_amount ?? tier.minOrderAmount ?? 0),
+    label: order.wholesale_tier_label || tier.label,
+  };
+}
+
+function applyWholesaleTierFilter(whereClauses, whereParams, tierId, column = "p.groupId") {
+  const normalizedTierId = typeof tierId === "string" ? tierId.trim() : "";
+  if (!normalizedTierId) {
+    whereClauses.push("1 = 0");
+    return;
+  }
+
+  whereClauses.push(`EXISTS (
+    SELECT 1
+    FROM category_group_wholesale_prices gwp
+    WHERE gwp.group_id = ${column}
+      AND gwp.tier_id = ?
+      AND gwp.price_byn > 0
+  )`);
+  whereParams.push(normalizedTierId);
 }
 
 async function resolveVerifiedOrderUsername(authIdentity, submittedUsername) {
@@ -476,6 +542,9 @@ function loadCustomerOrderItems(orderId) {
 function serializeCustomerOrder(order) {
   const items = loadCustomerOrderItems(order.id);
   const isActive = ACTIVE_CUSTOMER_ORDER_STATUSES.has(order.status);
+  const wholesaleTier = order.wholesale_tier_id
+    ? getWholesaleTierById(order.wholesale_tier_id)
+    : null;
 
   return {
     found: true,
@@ -490,6 +559,14 @@ function serializeCustomerOrder(order) {
     discount_amount: Number(order.discount_amount || 0),
     final_amount: Number(order.final_amount || 0),
     promo_code_text: order.promo_code_text || null,
+    is_wholesale: Number(order.is_wholesale || 0),
+    wholesale_tier_id: order.wholesale_tier_id || null,
+    wholesale_code: wholesaleTier?.code || null,
+    wholesale_secret: wholesaleTier?.secretKey || null,
+    wholesale_tier_label: order.wholesale_tier_label || null,
+    wholesale_min_amount: order.wholesale_min_amount === null || order.wholesale_min_amount === undefined
+      ? null
+      : Number(order.wholesale_min_amount),
     telegram_username: normalizeTelegramUsername(
       order.resolved_telegram_username || order.telegram_username,
     ) || null,
@@ -504,7 +581,43 @@ function serializeCustomerOrder(order) {
   };
 }
 
+publicRouter.get("/api/wholesale/context", (req, res) => {
+  const wholesaleContext = resolveWholesaleContextOrSendError(req, res);
+  if (!wholesaleContext) {
+    if (res.headersSent) {
+      return;
+    }
+    return res.status(400).json({
+      error: "wholesale_required",
+      message: "Не указана оптовая ссылка",
+    });
+  }
+
+  return res.json({
+    ok: true,
+    is_wholesale: true,
+    wholesale_code: wholesaleContext.tier.code,
+    wholesale_label: wholesaleContext.tier.label,
+    wholesale_min_amount: Number(wholesaleContext.tier.minOrderAmount || 0),
+    restrictions: {
+      hide_banners: true,
+      disable_loyalty: true,
+      disable_promos: true,
+      replace_bottom_tab_bar: true,
+    },
+  });
+});
+
 publicRouter.get("/api/categories", (req, res) => {
+  const wholesaleContext = resolveWholesaleContextOrSendError(req, res);
+  if (!wholesaleContext && res.headersSent) {
+    return;
+  }
+
+  const pricedGroupIds = wholesaleContext?.tier
+    ? getWholesalePricedGroupIds(wholesaleContext.tier.id)
+    : [];
+
   // РћРџРўРРњРР—РђР¦РРЇ: РЅРµ Р·Р°РіСЂСѓР¶Р°РµРј cover_image РІ СЃРїРёСЃРєРµ - СЌРєРѕРЅРѕРјРёС‚ ~8MB С‚СЂР°С„РёРєР°
   // Р¤СЂРѕРЅС‚РµРЅРґ Р·Р°РіСЂСѓР¶Р°РµС‚ РѕР±Р»РѕР¶РєРё РѕС‚РґРµР»СЊРЅРѕ С‡РµСЂРµР· /api/categories/:id/image
   const categoriesRaw = db
@@ -519,8 +632,7 @@ publicRouter.get("/api/categories", (req, res) => {
     )
     .all();
 
-  // Р”Р»СЏ РіСЂСѓРїРї С‚РѕР¶Рµ РЅРµ Р·Р°РіСЂСѓР¶Р°РµРј cover_image
-  const groupsRaw = db
+  let groupsRaw = db
     .prepare(
       `
     SELECT g.id, g.categoryId, g.slug, g.name, 
@@ -532,48 +644,93 @@ publicRouter.get("/api/categories", (req, res) => {
     )
     .all();
 
+  if (wholesaleContext?.tier) {
+    const parentById = new Map(
+      groupsRaw.map((group) => [
+        String(group.id),
+        group.parent_group_id ? String(group.parent_group_id) : null,
+      ]),
+    );
+    const visibleGroupIds = new Set(pricedGroupIds.map((id) => String(id)));
+
+    pricedGroupIds.forEach((groupId) => {
+      let cursor = parentById.get(String(groupId));
+      while (cursor) {
+        if (visibleGroupIds.has(cursor)) {
+          break;
+        }
+        visibleGroupIds.add(cursor);
+        cursor = parentById.get(cursor) || null;
+      }
+    });
+
+    groupsRaw = groupsRaw.filter((group) => visibleGroupIds.has(String(group.id)));
+  }
+
+  const categoryCountWhere = [
+    `(
+      (p.has_variants = 0 AND (p.stock IS NULL OR p.stock > 0))
+      OR
+      (p.has_variants = 1 AND EXISTS (
+        SELECT 1 FROM product_variants pv 
+        WHERE pv.product_id = p.id 
+          AND (pv.stock IS NULL OR pv.stock > 0)
+      ))
+    )`,
+  ];
+  const categoryCountParams = [];
+
+  if (wholesaleContext?.tier) {
+    applyWholesaleTierFilter(
+      categoryCountWhere,
+      categoryCountParams,
+      wholesaleContext.tier.id,
+    );
+  }
+
   const categoryCountRows = db
     .prepare(
       `
     SELECT categoryId, COUNT(DISTINCT p.id) as total
     FROM products p
-    WHERE (
-      -- Р”Р»СЏ С‚РѕРІР°СЂРѕРІ Р±РµР· РІР°СЂРёР°РЅС‚РѕРІ РїСЂРѕРІРµСЂСЏРµРј stock С‚РѕРІР°СЂР°
-      (p.has_variants = 0 AND (p.stock IS NULL OR p.stock > 0))
-      OR
-      -- Р”Р»СЏ С‚РѕРІР°СЂРѕРІ СЃ РІР°СЂРёР°РЅС‚Р°РјРё РїСЂРѕРІРµСЂСЏРµРј, РµСЃС‚СЊ Р»Рё РІР°СЂРёР°РЅС‚С‹ РІ РЅР°Р»РёС‡РёРё
-      (p.has_variants = 1 AND EXISTS (
-        SELECT 1 FROM product_variants pv 
-        WHERE pv.product_id = p.id 
-        AND (pv.stock IS NULL OR pv.stock > 0)
-      ))
-    )
+    WHERE ${categoryCountWhere.join(" AND ")}
     GROUP BY categoryId
   `,
     )
-    .all();
+    .all(...categoryCountParams);
+
+  const groupCountWhere = [
+    "groupId IS NOT NULL",
+    `(
+      (p.has_variants = 0 AND (p.stock IS NULL OR p.stock > 0))
+      OR
+      (p.has_variants = 1 AND EXISTS (
+        SELECT 1 FROM product_variants pv 
+        WHERE pv.product_id = p.id 
+          AND (pv.stock IS NULL OR pv.stock > 0)
+      ))
+    )`,
+  ];
+  const groupCountParams = [];
+
+  if (wholesaleContext?.tier) {
+    applyWholesaleTierFilter(
+      groupCountWhere,
+      groupCountParams,
+      wholesaleContext.tier.id,
+    );
+  }
 
   const groupCountRows = db
     .prepare(
       `
     SELECT groupId, COUNT(DISTINCT p.id) as total
     FROM products p
-    WHERE groupId IS NOT NULL 
-      AND (
-        -- Р”Р»СЏ С‚РѕРІР°СЂРѕРІ Р±РµР· РІР°СЂРёР°РЅС‚РѕРІ РїСЂРѕРІРµСЂСЏРµРј stock С‚РѕРІР°СЂР°
-        (p.has_variants = 0 AND (p.stock IS NULL OR p.stock > 0))
-        OR
-        -- Р”Р»СЏ С‚РѕРІР°СЂРѕРІ СЃ РІР°СЂРёР°РЅС‚Р°РјРё РїСЂРѕРІРµСЂСЏРµРј, РµСЃС‚СЊ Р»Рё РІР°СЂРёР°РЅС‚С‹ РІ РЅР°Р»РёС‡РёРё
-        (p.has_variants = 1 AND EXISTS (
-          SELECT 1 FROM product_variants pv 
-          WHERE pv.product_id = p.id 
-          AND (pv.stock IS NULL OR pv.stock > 0)
-        ))
-      )
+    WHERE ${groupCountWhere.join(" AND ")}
     GROUP BY groupId
   `,
     )
-    .all();
+    .all(...groupCountParams);
 
   const categoryCounts = new Map(
     categoryCountRows.map((row) => [row.categoryId, row.total]),
@@ -696,12 +853,21 @@ publicRouter.get("/api/categories", (req, res) => {
 });
 
 publicRouter.get("/api/banners", (req, res) => {
+  const wholesaleContext = resolveWholesaleContextOrSendError(req, res);
+  if (!wholesaleContext && res.headersSent) {
+    return;
+  }
+
+  if (wholesaleContext) {
+    return res.json([]);
+  }
+
   const rows = db
     .prepare(
       "SELECT id, image, href, active, [order], openInNewTab FROM banners WHERE active = 1 ORDER BY [order] ASC",
     )
     .all();
-  res.json(rows);
+  return res.json(rows);
 });
 
 // Endpoint РґР»СЏ РїРѕР»СѓС‡РµРЅРёСЏ РѕР±Р»РѕР¶РєРё РєР°С‚РµРіРѕСЂРёРё РѕС‚РґРµР»СЊРЅРѕ (РѕРїС‚РёРјРёР·Р°С†РёСЏ С‚СЂР°С„РёРєР°)
@@ -729,10 +895,13 @@ publicRouter.get("/api/category-groups/:id/image", (req, res) => {
 });
 
 publicRouter.get("/api/products", (req, res) => {
+  const wholesaleContext = resolveWholesaleContextOrSendError(req, res);
+  if (!wholesaleContext && res.headersSent) {
+    return;
+  }
+
   const { category, group, sort } = req.query;
 
-  // Pagination params (defaults aligned with frontend)
-  // РЈРІРµР»РёС‡РµРЅ РјР°РєСЃРёРјР°Р»СЊРЅС‹Р№ Р»РёРјРёС‚ РґРѕ 1000 РґР»СЏ Р·Р°РіСЂСѓР·РєРё РІСЃРµС… С‚РѕРІР°СЂРѕРІ РєР°С‚РµРіРѕСЂРёРё
   const limit = Math.min(
     Math.max(parseInt(req.query.limit ?? "50", 10) || 50, 1),
     1000,
@@ -772,8 +941,6 @@ publicRouter.get("/api/products", (req, res) => {
     whereParams.push(groupRow.id);
   }
 
-  // Hide products with zero stock for public storefront
-  // Р”Р»СЏ С‚РѕРІР°СЂРѕРІ Р±РµР· РІР°СЂРёР°РЅС‚РѕРІ РїСЂРѕРІРµСЂСЏРµРј stock С‚РѕРІР°СЂР°, РґР»СЏ С‚РѕРІР°СЂРѕРІ СЃ РІР°СЂРёР°РЅС‚Р°РјРё - stock РІР°СЂРёР°РЅС‚РѕРІ
   whereClauses.unshift(`(
     (p.has_variants = 0 AND (p.stock IS NULL OR p.stock > 0))
     OR
@@ -784,13 +951,19 @@ publicRouter.get("/api/products", (req, res) => {
     ))
   )`);
 
-  const where = `WHERE ${whereClauses.join(" AND ")}`;
+  if (wholesaleContext?.tier) {
+    applyWholesaleTierFilter(whereClauses, whereParams, wholesaleContext.tier.id);
+  }
 
-  // Sorting
-  let orderBy = "ORDER BY p.priceRub ASC";
+  const where = `WHERE ${whereClauses.join(" AND ")}`;
+  const effectivePriceExpr = wholesaleContext?.tier
+    ? `(SELECT gwp.price_byn FROM category_group_wholesale_prices gwp WHERE gwp.group_id = p.groupId AND gwp.tier_id = ? LIMIT 1)`
+    : `p.priceRub`;
+
+  let orderBy = "ORDER BY effectivePriceRub ASC";
   switch (String(sort || "price_asc")) {
     case "price_desc":
-      orderBy = "ORDER BY p.priceRub DESC";
+      orderBy = "ORDER BY effectivePriceRub DESC";
       break;
     case "newest":
       orderBy = "ORDER BY p.createdAt DESC";
@@ -799,18 +972,14 @@ publicRouter.get("/api/products", (req, res) => {
       orderBy = "ORDER BY p.createdAt ASC";
       break;
     default:
-      orderBy = "ORDER BY p.priceRub ASC";
+      orderBy = "ORDER BY effectivePriceRub ASC";
   }
 
-  // Total count
   const countSql = `SELECT COUNT(*) as total FROM products p ${where}`;
   const total = whereParams.length
     ? db.prepare(countSql).get(...whereParams).total
     : db.prepare(countSql).get().total;
 
-  // Fetch products with pagination
-  // РћРџРўРРњРР—РђР¦РРЇ: РЅРµ Р·Р°РіСЂСѓР¶Р°РµРј cover_image РєР°С‚РµРіРѕСЂРёРё Р·РґРµСЃСЊ - СЌС‚Рѕ СЌРєРѕРЅРѕРјРёС‚ ~80MB С‚СЂР°С„РёРєР°
-  // Р¤СЂРѕРЅС‚РµРЅРґ Р·Р°РіСЂСѓР¶Р°РµС‚ РѕР±Р»РѕР¶РєРё РєР°С‚РµРіРѕСЂРёР№ РѕС‚РґРµР»СЊРЅРѕ С‡РµСЂРµР· /api/categories/:id/image
   const sql = `
     SELECT 
       p.id, 
@@ -818,6 +987,7 @@ publicRouter.get("/api/products", (req, res) => {
       p.groupId,
       p.title, 
       p.priceRub, 
+      ${effectivePriceExpr} AS effectivePriceRub,
       p.description, 
       p.variant AS variant,
       p.strength AS strength,
@@ -835,9 +1005,10 @@ publicRouter.get("/api/products", (req, res) => {
     ${orderBy}
     LIMIT ? OFFSET ?
   `;
-  const products = whereParams.length
-    ? db.prepare(sql).all(...whereParams, limit, offset)
-    : db.prepare(sql).all(limit, offset);
+  const sqlParams = wholesaleContext?.tier
+    ? [wholesaleContext.tier.id, ...whereParams, limit, offset]
+    : [...whereParams, limit, offset];
+  const products = db.prepare(sql).all(...sqlParams);
 
   const productIds = products.map((p) => p.id);
   const baseImagesByProduct = new Map();
@@ -924,57 +1095,83 @@ publicRouter.get("/api/products", (req, res) => {
     }
   }
 
-  const enriched = products.map((p) => {
-    const stockValue = typeof p.stock === "number" ? p.stock : null;
-
-    const result = {
-      ...p,
-      stock: stockValue,
-      costPrice: typeof p.costPrice === "number" ? p.costPrice : null,
-      minStock: typeof p.minStock === "number" ? p.minStock : null,
-      badges: badgesByProduct.get(p.id) ?? [],
-      isAvailable: stockValue === null ? true : stockValue > 0,
-      links: linksByProduct.get(p.id) ?? [],
-    };
-
-    if (p.hasVariants) {
-      // Р”Р»СЏ С‚РѕРІР°СЂРѕРІ СЃ РІР°СЂРёР°РЅС‚Р°РјРё РїРѕР»СѓС‡Р°РµРј РІР°СЂРёР°РЅС‚С‹ Рё РёС… РёР·РѕР±СЂР°Р¶РµРЅРёСЏ
-      const variants = variantsByProduct.get(p.id) ?? [];
-      result.variants = variants.map((v) => ({
-        ...v,
-        images: variantImagesByProduct.get(p.id)?.get(v.id) ?? [],
-      }));
-      // Р”Р»СЏ РѕР±СЂР°С‚РЅРѕР№ СЃРѕРІРјРµСЃС‚РёРјРѕСЃС‚Рё, РїРѕРєР°Р·С‹РІР°РµРј РёР·РѕР±СЂР°Р¶РµРЅРёСЏ РїРµСЂРІРѕРіРѕ РІР°СЂРёР°РЅС‚Р° РєР°Рє РёР·РѕР±СЂР°Р¶РµРЅРёСЏ С‚РѕРІР°СЂР°
-      result.images =
-        result.variants.length > 0 &&
-        result.variants[0].images &&
-        result.variants[0].images.length > 0
-          ? result.variants[0].images
-          : [];
-      // РћР±РЅРѕРІР»СЏРµРј РґРѕСЃС‚СѓРїРЅРѕСЃС‚СЊ РЅР° РѕСЃРЅРѕРІРµ РІР°СЂРёР°РЅС‚РѕРІ
-      result.isAvailable = result.variants.some(
-        (v) => v.stock === null || v.stock > 0,
+  const enriched = products
+    .map((p) => {
+      const stockValue = typeof p.stock === "number" ? p.stock : null;
+      const effectivePrice = Number(
+        wholesaleContext?.tier ? p.effectivePriceRub ?? 0 : p.priceRub ?? 0,
       );
-    } else {
-      // РћР±С‹С‡РЅС‹Р№ С‚РѕРІР°СЂ Р±РµР· РІР°СЂРёР°РЅС‚РѕРІ
-      const productImages = baseImagesByProduct.get(p.id) ?? [];
-      result.images = productImages;
-      // РћРџРўРРњРР—РђР¦РРЇ: РµСЃР»Рё Сѓ С‚РѕРІР°СЂР° РЅРµС‚ СЃРІРѕРёС… РёР·РѕР±СЂР°Р¶РµРЅРёР№ Рё useCategoryImage=1,
-      // С„СЂРѕРЅС‚РµРЅРґ СЃР°Рј Р·Р°РіСЂСѓР·РёС‚ РѕР±Р»РѕР¶РєСѓ РєР°С‚РµРіРѕСЂРёРё С‡РµСЂРµР· РєСЌС€
-      // Р”РѕР±Р°РІР»СЏРµРј С„Р»Р°Рі needsCategoryImage РґР»СЏ С„СЂРѕРЅС‚РµРЅРґР°
-      result.needsCategoryImage =
-        p.useCategoryImage && productImages.length === 0;
-    }
 
-    return result;
+      if (wholesaleContext?.tier && (!Number.isFinite(effectivePrice) || effectivePrice <= 0)) {
+        return null;
+      }
+
+      const result = {
+        ...p,
+        priceRub: effectivePrice,
+        stock: stockValue,
+        costPrice: typeof p.costPrice === "number" ? p.costPrice : null,
+        minStock: typeof p.minStock === "number" ? p.minStock : null,
+        badges: badgesByProduct.get(p.id) ?? [],
+        isAvailable: stockValue === null ? true : stockValue > 0,
+        links: linksByProduct.get(p.id) ?? [],
+        isWholesale: Boolean(wholesaleContext?.tier),
+        wholesaleCode: wholesaleContext?.tier?.code || null,
+        wholesaleMinAmount: wholesaleContext?.tier
+          ? Number(wholesaleContext.tier.minOrderAmount || 0)
+          : null,
+      };
+
+      if (p.hasVariants) {
+        const variants = variantsByProduct.get(p.id) ?? [];
+        result.variants = variants.map((v) => ({
+          ...v,
+          priceRub: effectivePrice,
+          images: variantImagesByProduct.get(p.id)?.get(v.id) ?? [],
+        }));
+        result.images =
+          result.variants.length > 0 &&
+          result.variants[0].images &&
+          result.variants[0].images.length > 0
+            ? result.variants[0].images
+            : [];
+        result.isAvailable = result.variants.some(
+          (v) => v.stock === null || v.stock > 0,
+        );
+      } else {
+        const productImages = baseImagesByProduct.get(p.id) ?? [];
+        result.images = productImages;
+        result.needsCategoryImage =
+          p.useCategoryImage && productImages.length === 0;
+      }
+
+      return result;
+    })
+    .filter(Boolean);
+
+  res.json({
+    products: enriched,
+    total,
+    hasMore: offset + limit < total,
+    is_wholesale: Boolean(wholesaleContext?.tier),
+    wholesale_code: wholesaleContext?.tier?.code || null,
+    wholesale_min_amount: wholesaleContext?.tier
+      ? Number(wholesaleContext.tier.minOrderAmount || 0)
+      : null,
   });
-
-  res.json({ products: enriched, total, hasMore: offset + limit < total });
 });
 
 publicRouter.get("/api/product/:id", (req, res) => {
+  const wholesaleContext = resolveWholesaleContextOrSendError(req, res);
+  if (!wholesaleContext && res.headersSent) {
+    return;
+  }
+
   const id = req.params.id;
-  // РћРџРўРРњРР—РђР¦РРЇ: РЅРµ Р·Р°РіСЂСѓР¶Р°РµРј cover_image РєР°С‚РµРіРѕСЂРёРё - С„СЂРѕРЅС‚РµРЅРґ Р·Р°РіСЂСѓР·РёС‚ РѕС‚РґРµР»СЊРЅРѕ РїСЂРё РЅРµРѕР±С…РѕРґРёРјРѕСЃС‚Рё
+  const effectivePriceExpr = wholesaleContext?.tier
+    ? `(SELECT gwp.price_byn FROM category_group_wholesale_prices gwp WHERE gwp.group_id = p.groupId AND gwp.tier_id = ? LIMIT 1)`
+    : `p.priceRub`;
+
   const p = db
     .prepare(
       `
@@ -984,6 +1181,7 @@ publicRouter.get("/api/product/:id", (req, res) => {
       p.groupId,
       p.title,
       p.priceRub,
+      ${effectivePriceExpr} AS effectivePriceRub,
       p.description,
       p.variant AS variant,
       p.strength AS strength,
@@ -1000,8 +1198,15 @@ publicRouter.get("/api/product/:id", (req, res) => {
     WHERE p.id = ?
   `,
     )
-    .get(id);
+    .get(...(wholesaleContext?.tier ? [wholesaleContext.tier.id, id] : [id]));
   if (!p) return res.status(404).json({ error: "Not found" });
+
+  const effectivePrice = Number(
+    wholesaleContext?.tier ? p.effectivePriceRub ?? 0 : p.priceRub ?? 0,
+  );
+  if (wholesaleContext?.tier && (!Number.isFinite(effectivePrice) || effectivePrice <= 0)) {
+    return res.status(404).json({ error: "Not found" });
+  }
 
   const links = db
     .prepare(
@@ -1026,6 +1231,7 @@ publicRouter.get("/api/product/:id", (req, res) => {
 
   const result = {
     ...p,
+    priceRub: effectivePrice,
     stock: stockValue,
     costPrice: typeof p.costPrice === "number" ? p.costPrice : null,
     minStock: typeof p.minStock === "number" ? p.minStock : null,
@@ -1036,6 +1242,11 @@ publicRouter.get("/api/product/:id", (req, res) => {
     })),
     isAvailable: stockValue === null ? true : stockValue > 0,
     links,
+    isWholesale: Boolean(wholesaleContext?.tier),
+    wholesaleCode: wholesaleContext?.tier?.code || null,
+    wholesaleMinAmount: wholesaleContext?.tier
+      ? Number(wholesaleContext.tier.minOrderAmount || 0)
+      : null,
   };
 
   if (p.hasVariants) {
@@ -1053,6 +1264,7 @@ publicRouter.get("/api/product/:id", (req, res) => {
 
     result.variants = variants.map((v) => ({
       ...v,
+      priceRub: effectivePrice,
       images: db
         .prepare(
           "SELECT url FROM product_images WHERE productId = ? AND variant_id = ? ORDER BY position ASC",
@@ -1089,6 +1301,15 @@ publicRouter.get("/api/product/:id", (req, res) => {
 });
 
 publicRouter.get("/api/cross-sells", (req, res) => {
+  const wholesaleContext = resolveWholesaleContextOrSendError(req, res);
+  if (!wholesaleContext && res.headersSent) {
+    return;
+  }
+
+  if (wholesaleContext) {
+    return res.json([]);
+  }
+
   const { category, limit } = req.query;
   if (!category) {
     return res.json([]);
@@ -1598,6 +1819,14 @@ publicRouter.put(
         .all(id);
 
       const previousStatus = order.status;
+      const wholesaleContext = buildStoredWholesaleContext(order);
+
+      if (Number(order.is_wholesale || 0) === 1 && !wholesaleContext) {
+        return res.status(400).json({
+          error: "wholesale_context_missing",
+          message: "Не удалось восстановить оптовый прайс для этого заказа",
+        });
+      }
 
       const tx = db.transaction(() => {
         if (order.stock_deducted) {
@@ -1605,12 +1834,15 @@ publicRouter.put(
         }
         releaseOrderLoyaltyReservations(id);
 
-        const normalizedPromoCode = normalizePromoCode(promo_code);
+        const normalizedPromoCode = wholesaleContext
+          ? null
+          : normalizePromoCode(promo_code);
         const orderBuild = buildPublicOrderItems({
           items,
           customerId: order.customer_id || null,
           promoCodeText: normalizedPromoCode,
           existingOrderId: id,
+          wholesaleContext,
         });
 
         if (delivery_type === "delivery") {
@@ -1621,6 +1853,17 @@ publicRouter.put(
             error.payload = minDeliveryError;
             throw error;
           }
+        }
+
+        const wholesaleMinError = validateWholesaleMinimum(
+          orderBuild.totalAmount,
+          wholesaleContext,
+        );
+        if (wholesaleMinError) {
+          const error = new Error(wholesaleMinError.message);
+          error.code = wholesaleMinError.error;
+          error.payload = wholesaleMinError;
+          throw error;
         }
 
         let nextPromoDiscount = 0;
@@ -1689,11 +1932,13 @@ publicRouter.put(
           );
         }
 
-        applyOrderLoyaltyReservations({
-          customerId: order.customer_id || null,
-          orderId: id,
-          application: orderBuild.application,
-        });
+        if (!wholesaleContext) {
+          applyOrderLoyaltyReservations({
+            customerId: order.customer_id || null,
+            orderId: id,
+            application: orderBuild.application,
+          });
+        }
 
         db.prepare(
           `
@@ -1716,6 +1961,10 @@ publicRouter.put(
               manager_action_type = 'modified',
               manager_action_note = ?,
               manager_action_resolved_at = NULL,
+              is_wholesale = ?,
+              wholesale_tier_id = ?,
+              wholesale_tier_label = ?,
+              wholesale_min_amount = ?,
               stock_deducted = 0,
               cancelled_at = NULL,
               updated_at = DATETIME('now')
@@ -1735,6 +1984,12 @@ publicRouter.put(
           nextPromoCodeId,
           normalizedPromoCode,
           nextManagerActionNote,
+          wholesaleContext ? 1 : 0,
+          wholesaleContext?.tier?.id || null,
+          wholesaleContext?.tier?.label || null,
+          wholesaleContext?.tier
+            ? Number(wholesaleContext.tier.minOrderAmount || 0)
+            : null,
           id,
         );
 
@@ -1758,7 +2013,7 @@ publicRouter.put(
           );
         }
 
-        if (nextPromoCodeId && nextPromoResult) {
+        if (!wholesaleContext && nextPromoCodeId && nextPromoResult) {
           reservePromoUsageForOrder({
             promoCodeId: nextPromoCodeId,
             orderId: id,
@@ -1781,13 +2036,17 @@ publicRouter.put(
       if (error.payload?.error === "min_delivery_amount_not_met") {
         return res.status(400).json(error.payload);
       }
+      if (error.payload?.error === "wholesale_min_not_met") {
+        return res.status(400).json(error.payload);
+      }
       if (
         errorCode === "telegram_username_required" ||
         errorCode === "telegram_username_not_verified" ||
         errorCode === "promo_and_loyalty_conflict" ||
         errorCode === "loyalty_category_not_available" ||
         errorCode === "loyalty_balance_not_enough" ||
-        errorCode === "loyalty_category_limit_exceeded"
+        errorCode === "loyalty_category_limit_exceeded" ||
+        errorCode === "wholesale_price_unavailable"
       ) {
         return res.status(400).json({
           error: errorCode,
@@ -1861,6 +2120,11 @@ publicRouter.post(
         });
       }
 
+      const wholesaleContext = resolveWholesaleContextOrSendError(req, res);
+      if (!wholesaleContext && res.headersSent) {
+        return;
+      }
+
       if (delivery_type === "delivery") {
         if (!phone || !phone.trim()) {
           return res.status(400).json({
@@ -1887,12 +2151,15 @@ publicRouter.post(
 
         const createdOrderId = generateId("order");
         const createdOrderNumber = getNextNumber("orders", "order_number");
-        const normalizedPromoCode = normalizePromoCode(promo_code);
+        const normalizedPromoCode = wholesaleContext
+          ? null
+          : normalizePromoCode(promo_code);
 
         const orderBuild = buildPublicOrderItems({
           items,
           customerId: resolvedCustomerId,
           promoCodeText: normalizedPromoCode,
+          wholesaleContext,
         });
 
         if (delivery_type === "delivery") {
@@ -1903,6 +2170,17 @@ publicRouter.post(
             error.payload = minDeliveryError;
             throw error;
           }
+        }
+
+        const wholesaleMinError = validateWholesaleMinimum(
+          orderBuild.totalAmount,
+          wholesaleContext,
+        );
+        if (wholesaleMinError) {
+          const error = new Error(wholesaleMinError.message);
+          error.code = wholesaleMinError.error;
+          error.payload = wholesaleMinError;
+          throw error;
         }
 
         let createdPromoDiscount = 0;
@@ -1934,17 +2212,21 @@ publicRouter.post(
           INSERT INTO orders (
             id, order_number, customer_id, status, delivery_type, delivery_address,
             total_amount, discount_amount, discount_percent, final_amount, profit, notes, phone, telegram_username,
-            promo_code_id, promo_code_text
-          ) VALUES (?, ?, ?, 'new', ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?)
+            promo_code_id, promo_code_text, is_wholesale, wholesale_tier_id, wholesale_tier_label, wholesale_min_amount
+          ) VALUES (
+            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+          )
         `,
         ).run(
           createdOrderId,
           createdOrderNumber,
           resolvedCustomerId,
+          "new",
           delivery_type,
           delivery_type === "delivery" ? delivery_address || null : null,
           orderBuild.totalAmount,
           createdPromoDiscount,
+          0,
           createdFinalAmount,
           createdProfit,
           notes || null,
@@ -1952,6 +2234,12 @@ publicRouter.post(
           verifiedTelegramUsername || null,
           createdPromoCodeId,
           normalizedPromoCode,
+          wholesaleContext ? 1 : 0,
+          wholesaleContext?.tier?.id || null,
+          wholesaleContext?.tier?.label || null,
+          wholesaleContext?.tier
+            ? Number(wholesaleContext.tier.minOrderAmount || 0)
+            : null,
         );
 
         const createdItemStmt = db.prepare(`
@@ -1984,13 +2272,15 @@ publicRouter.post(
           );
         }
 
-        applyOrderLoyaltyReservations({
-          customerId: resolvedCustomerId,
-          orderId: createdOrderId,
-          application: orderBuild.application,
-        });
+        if (!wholesaleContext) {
+          applyOrderLoyaltyReservations({
+            customerId: resolvedCustomerId,
+            orderId: createdOrderId,
+            application: orderBuild.application,
+          });
+        }
 
-        if (createdPromoCodeId && createdPromoResult) {
+        if (!wholesaleContext && createdPromoCodeId && createdPromoResult) {
           reservePromoUsageForOrder({
             promoCodeId: createdPromoCodeId,
             orderId: createdOrderId,
@@ -2027,13 +2317,17 @@ publicRouter.post(
       if (error.payload?.error === "min_delivery_amount_not_met") {
         return res.status(400).json(error.payload);
       }
+      if (error.payload?.error === "wholesale_min_not_met") {
+        return res.status(400).json(error.payload);
+      }
       if (
         errorCode === "telegram_username_required" ||
         errorCode === "telegram_username_not_verified" ||
         errorCode === "promo_and_loyalty_conflict" ||
         errorCode === "loyalty_category_not_available" ||
         errorCode === "loyalty_balance_not_enough" ||
-        errorCode === "loyalty_category_limit_exceeded"
+        errorCode === "loyalty_category_limit_exceeded" ||
+        errorCode === "wholesale_price_unavailable"
       ) {
         return res.status(400).json({
           error: errorCode,
@@ -2071,6 +2365,12 @@ publicRouter.post("/api/promo/validate", (req, res) => {
         discount_value: result.discount_value,
         calculated_discount: result.calculated_discount,
         description: result.description,
+        customer_description: result.customer_description,
+        manager_description: result.manager_description,
+        has_gift: result.has_gift,
+        valid_from_date: result.valid_from_date,
+        duration_days: result.duration_days,
+        effective_valid_until_date: result.effective_valid_until_date,
       });
     } else {
       res.json({
@@ -2148,6 +2448,7 @@ function buildPublicOrderItems({
   customerId = null,
   promoCodeText = null,
   existingOrderId = null,
+  wholesaleContext = null,
 }) {
   let totalAmount = 0;
   let totalCost = 0;
@@ -2187,8 +2488,22 @@ function buildPublicOrderItems({
       throw new Error(`Недостаточно товара: ${itemTitle}`);
     }
 
-    const pricePerUnit =
+    let pricePerUnit =
       variantData?.price_rub ?? product.priceRub ?? item.price_per_unit ?? 0;
+
+    if (wholesaleContext?.tier) {
+      const wholesalePrice = getWholesaleUnitPriceForProduct(
+        product,
+        wholesaleContext.tier.id,
+      );
+      if (!Number.isFinite(Number(wholesalePrice)) || Number(wholesalePrice) <= 0) {
+        const error = new Error(`Оптовая цена не найдена для товара: ${product.title}`);
+        error.code = "wholesale_price_unavailable";
+        throw error;
+      }
+      pricePerUnit = Number(wholesalePrice);
+    }
+
     const costPerUnit = Number(product.cost_price || 0);
     const groupName = product.groupId
       ? db
@@ -2218,6 +2533,39 @@ function buildPublicOrderItems({
       loyalty_units_applied: Number(item.loyalty_units_applied || 0),
     };
   });
+
+  if (wholesaleContext?.tier) {
+    const finalizedItems = preparedItems.map((item) => ({
+      id: item.id,
+      product_id: item.product_id,
+      variant_id: item.variant_id || null,
+      product_title: item.product_title,
+      group_name: item.group_name || null,
+      base_product_title: item.base_product_title,
+      base_product_id: item.base_product_id,
+      variant_name: item.variant_name || null,
+      quantity: Number(item.quantity || 0),
+      price_per_unit: Number(item.price_per_unit || 0),
+      cost_per_unit: Number(item.cost_per_unit || 0),
+      manual_discount_amount: 0,
+      loyalty_discount_amount: 0,
+      loyalty_units_applied: 0,
+      discount_amount: 0,
+      total_price: Number(item.price_per_unit || 0) * Number(item.quantity || 0),
+      total_cost: Number(item.cost_per_unit || 0) * Number(item.quantity || 0),
+    }));
+
+    return {
+      items: finalizedItems,
+      totalAmount,
+      totalCost,
+      totalLoyaltyDiscount: 0,
+      application: {
+        items: finalizedItems,
+        total_loyalty_discount: 0,
+      },
+    };
+  }
 
   const application = buildLoyaltyApplication({
     customerId,

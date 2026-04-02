@@ -31,7 +31,7 @@
     <div class="main-content-wrapper">
       <!-- Cross-sell товары (без заголовка, первыми) -->
       <div
-        v-if="crossSellItems.length"
+        v-if="crossSellItems.length && !wholesaleStore.isWholesale"
         ref="crossSellContainer"
         class="category-content"
       >
@@ -265,7 +265,7 @@
 
     <!-- Cart Button - Figma Redesign -->
     <Transition name="cart-slide">
-      <div v-if="totalCartItems > 0" class="cart-wrapper">
+      <div v-if="totalCartItems > 0 && !wholesaleStore.isWholesale" class="cart-wrapper">
         <button class="cart-button" @click="goToCheckout">
           <svg
             width="17"
@@ -328,6 +328,7 @@ import {
   type ProductBadge,
 } from "@/stores/catalog";
 import { useCartStore } from "@/stores/cart";
+import { useWholesaleStore } from "@/stores/wholesale";
 import SmokeParticles from "@/components/SmokeParticles.vue";
 import LiquidLineTree from "@/components/product/liquid/LiquidLineTree.vue";
 import ToastNotification from "@/components/ToastNotification.vue";
@@ -341,6 +342,7 @@ const props = defineProps<{
 
 const catalogStore = useCatalogStore();
 const cartStore = useCartStore();
+const wholesaleStore = useWholesaleStore();
 const router = useRouter();
 const route = useRoute();
 
@@ -1049,7 +1051,7 @@ onMounted(async () => {
   await catalogStore.setActiveCategory(props.slug);
 
   // Загружаем cross-sell если нужно
-  if (props.slug && !catalogStore.crossSellProducts[props.slug]) {
+  if (!wholesaleStore.isWholesale && props.slug && !catalogStore.crossSellProducts[props.slug]) {
     catalogStore.fetchCrossSell(props.slug);
   }
 });
@@ -1062,7 +1064,7 @@ watch(
       groupExpansionState.value = {};
       liquidExpansionState.value = {};
       await catalogStore.setActiveCategory(newSlug);
-      if (!catalogStore.crossSellProducts[newSlug]) {
+      if (!wholesaleStore.isWholesale && !catalogStore.crossSellProducts[newSlug]) {
         catalogStore.fetchCrossSell(newSlug);
       }
     }

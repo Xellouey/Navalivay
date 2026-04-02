@@ -172,7 +172,21 @@
           </p>
         </div>
 
-        <div class="promo-card" :class="{ 'promo-card-applied': promoResult, 'promo-card-error': promoError }">
+        <div v-if="wholesaleStore.isWholesale" class="editing-order-card">
+          <p class="editing-order-kicker">Оптовый заказ</p>
+          <p class="editing-order-title">{{ wholesaleStore.wholesaleLabel }}</p>
+          <p class="editing-order-text">
+            Минимальная сумма заказа - {{ wholesaleStore.minOrderAmount.toFixed(0) }} BYN.
+            <template v-if="wholesaleRemainingAmount > 0">
+              Не хватает {{ wholesaleRemainingAmount.toFixed(2) }} BYN.
+            </template>
+            <template v-else>
+              Минимум выполнен, можно оформлять заказ.
+            </template>
+          </p>
+        </div>
+
+        <div v-if="!wholesaleStore.isWholesale" class="promo-card" :class="{ 'promo-card-applied': promoResult, 'promo-card-error': promoError }">
           <p class="promo-label">Есть промокод?</p>
 
           <div v-if="!promoResult" class="promo-input-row">
@@ -213,16 +227,18 @@
 
           <p v-if="promoResult" class="promo-discount-text">
             Скидка: -{{ formatPrice(promoResult.calculated_discount) }} BYN
-            <template v-if="promoResult.description"> - {{ promoResult.description }}</template>
+            <template v-if="promoResult.customer_description || promoResult.description">
+              - {{ promoResult.customer_description || promoResult.description }}
+            </template>
           </p>
         </div>
 
-        <div v-if="promoResult" class="summary-row">
+        <div v-if="!wholesaleStore.isWholesale && promoResult" class="summary-row">
           <span class="summary-label">Скидка по промокоду</span>
           <span class="summary-discount">-{{ formatPrice(promoResult.calculated_discount) }} BYN</span>
         </div>
 
-        <section v-if="selectedCheckoutLoyaltyCategory" class="loyalty-section">
+        <section v-if="!wholesaleStore.isWholesale && selectedCheckoutLoyaltyCategory" class="loyalty-section">
           <article class="loyalty-card loyalty-card--checkout">
             <div class="loyalty-card-header">
               <h2 class="loyalty-card-title-main">Бонусная система</h2>
@@ -338,7 +354,17 @@
           </article>
         </section>
 
-        <div v-if="loyaltyDiscountAmount > 0" class="summary-row">
+        <div v-if="wholesaleStore.isWholesale" class="summary-row">
+          <span class="summary-label">Минимум для опта</span>
+          <span>{{ wholesaleStore.minOrderAmount.toFixed(0) }} BYN</span>
+        </div>
+
+        <div v-if="wholesaleStore.isWholesale && wholesaleRemainingAmount > 0" class="summary-row">
+          <span class="summary-label">Осталось добрать</span>
+          <span>{{ wholesaleRemainingAmount.toFixed(2) }} BYN</span>
+        </div>
+
+        <div v-if="!wholesaleStore.isWholesale && loyaltyDiscountAmount > 0" class="summary-row">
           <span class="summary-label">Скидка за покупки</span>
           <span class="summary-discount">-{{ formatPrice(loyaltyDiscountAmount) }} BYN</span>
         </div>
@@ -395,7 +421,7 @@
           @touchstart="handleSubmitTouchStart"
           @mousedown="handleSubmitMouseDown"
           @pointerdown="handleSubmitPointerDown"
-          :disabled="isSubmitting"
+          :disabled="isSubmitting || isWholesaleSubmitBlocked"
           class="submit-button"
           type="button"
           style="touch-action: manipulation; -webkit-tap-highlight-color: transparent;"
@@ -472,6 +498,7 @@
     </CustomerModalShell>
 
     <LoyaltyBonusPopup
+      v-if="!wholesaleStore.isWholesale"
       :open="showLoyaltyPopup"
       :categories="loyaltyStore.availableCategories"
       @close="showLoyaltyPopup = false"
@@ -492,6 +519,7 @@ import {
   type LoyaltySnapshotCategory,
 } from "@/stores/loyalty";
 import { useSettingsStore } from "@/stores/settings";
+import { useWholesaleStore } from "@/stores/wholesale";
 import MinDeliveryBanner from "@/components/MinDeliveryBanner.vue";
 import DeliveryConditionsBanner from "@/components/DeliveryConditionsBanner.vue";
 import CustomerModalShell from "@/components/CustomerModalShell.vue";
@@ -518,6 +546,7 @@ const cartStore = useCartStore();
 const settingsStore = useSettingsStore();
 const catalogStore = useCatalogStore();
 const loyaltyStore = useLoyaltyStore();
+const wholesaleStore = useWholesaleStore();
 const activeCheckoutLoyaltyKey = ref<string | null>(null);
 
 const LOYALTY_CATEGORY_ORDER = ["liquids", "disposables", "devices"];
@@ -534,6 +563,7 @@ const promoResult = ref<{
   discount_type: 'fixed' | 'percent';
   discount_value: number;
   calculated_discount: number;
+  customer_description?: string;
   description?: string;
 } | null>(null);
 const promoError = ref("");
@@ -612,6 +642,9 @@ const submitButtonLabel = computed(() => {
   if (isSubmitting.value) {
     return isEditingOrder.value ? "Сохраняем..." : "Оформляем...";
   }
+  if (isWholesaleSubmitBlocked.value) {
+    return `Доберите еще ${wholesaleRemainingAmount.value.toFixed(2)} BYN`;
+  }
   return isEditingOrder.value ? "Сохранить изменения" : "Оформить заказ";
 });
 
@@ -674,6 +707,9 @@ function isIceProduct(item: (typeof cartStore.items)[0]): boolean {
 
 const finalTotal = computed(() => {
   const base = cartStore.totalAmount;
+  if (wholesaleStore.isWholesale) {
+    return base;
+  }
   if (loyaltyDiscountAmount.value > 0) {
     return Math.max(base - loyaltyDiscountAmount.value, 0);
   }
@@ -684,7 +720,19 @@ const finalTotal = computed(() => {
 });
 
 const loyaltyDiscountAmount = computed(() =>
-  promoResult.value ? 0 : Number(loyaltyStore.totalLoyaltyDiscount || 0),
+  wholesaleStore.isWholesale
+    ? 0
+    : (promoResult.value ? 0 : Number(loyaltyStore.totalLoyaltyDiscount || 0)),
+);
+
+const wholesaleRemainingAmount = computed(() =>
+  wholesaleStore.remainingToMinimum(cartStore.totalAmount),
+);
+const isWholesaleMinimumReached = computed(() =>
+  wholesaleStore.meetsMinimum(cartStore.totalAmount),
+);
+const isWholesaleSubmitBlocked = computed(() =>
+  wholesaleStore.isWholesale && cartStore.items.length > 0 && !isWholesaleMinimumReached.value,
 );
 
 function checkoutLoyaltyCategoryLabel(category: LoyaltyPreviewCategory) {
@@ -781,6 +829,7 @@ async function handlePromoApply() {
         discount_type: data.discount_type,
         discount_value: data.discount_value,
         calculated_discount: data.calculated_discount,
+        customer_description: data.customer_description,
         description: data.description,
       };
       if (isEditingOrder.value) {
@@ -818,6 +867,11 @@ function buildLoyaltyIdentity() {
 }
 
 async function refreshLoyaltyPreview() {
+  if (wholesaleStore.isWholesale) {
+    loyaltyStore.resetPreview();
+    return;
+  }
+
   if (!cartStore.items.length) {
     loyaltyStore.resetPreview();
     return;
@@ -1076,15 +1130,20 @@ onMounted(async () => {
   await fetchStockLimits();
   syncTelegramUserData({ trustCurrentUser: true });
   await hydrateEditingOrder();
+  if (wholesaleStore.isWholesale) {
+    handlePromoClear();
+  }
   await refreshLoyaltyPreview();
-  try {
-    await loyaltyStore.fetchSnapshot(getTelegramIdentity());
-    if (loyaltyStore.canShowAvailableBonusPopup()) {
-      loyaltyStore.markPopupSeen();
-      showLoyaltyPopup.value = true;
+  if (!wholesaleStore.isWholesale) {
+    try {
+      await loyaltyStore.fetchSnapshot(getTelegramIdentity());
+      if (loyaltyStore.canShowAvailableBonusPopup()) {
+        loyaltyStore.markPopupSeen();
+        showLoyaltyPopup.value = true;
+      }
+    } catch (error) {
+      console.warn("[Checkout] Failed to fetch loyalty snapshot", error);
     }
-  } catch (error) {
-    console.warn("[Checkout] Failed to fetch loyalty snapshot", error);
   }
   if (requiresTelegramUsername.value) {
     showUsernameRequiredModal.value = true;
@@ -1140,6 +1199,18 @@ async function hydrateEditingOrder() {
     }
 
     editingOrderDetails.value = activeOrder;
+    if (activeOrder.is_wholesale) {
+      wholesaleStore.applyOrderWholesaleContext({
+        code: activeOrder.wholesale_code,
+        secret: activeOrder.wholesale_secret,
+        label: activeOrder.wholesale_tier_label,
+        minOrderAmount: activeOrder.wholesale_min_amount,
+      });
+      handlePromoClear();
+    } else if (wholesaleStore.isWholesale) {
+      wholesaleStore.clearContext();
+    }
+
     form.deliveryType = activeOrder.delivery_type;
     form.phone = activeOrder.phone || "";
     form.address = activeOrder.delivery_address || "";
@@ -1150,7 +1221,8 @@ async function hydrateEditingOrder() {
       form.telegramUsername = orderUsername;
     }
 
-    const orderPromoCode = activeOrder.promo_code_text || cartStore.editingPromoCode;
+    const orderPromoCode =
+      activeOrder.is_wholesale ? "" : (activeOrder.promo_code_text || cartStore.editingPromoCode);
     if (orderPromoCode) {
       promoCode.value = orderPromoCode;
       cartStore.setEditingPromoCode(orderPromoCode);
@@ -1168,7 +1240,9 @@ async function fetchStockLimits() {
   const newLimits = new Map<string, number>();
   try {
     for (const item of cartStore.items) {
-      const response = await fetch(`/api/product/${item.productId}`);
+      const response = await fetch(`/api/product/${item.productId}`, {
+        headers: wholesaleStore.buildHeaders(),
+      });
       if (response.ok) {
         const product = await response.json();
         let stock: number | null = null;
@@ -1253,6 +1327,11 @@ function validateForm(): boolean {
   errors.phone = "";
   errors.address = "";
 
+  if (isWholesaleSubmitBlocked.value) {
+    submitError.value = `Для оформления нужно добрать еще ${wholesaleRemainingAmount.value.toFixed(2)} BYN`;
+    return false;
+  }
+
   if (requiresTelegramUsername.value) {
     submitError.value = "Без Telegram username оформить заказ нельзя.";
     showUsernameRequiredModal.value = true;
@@ -1336,7 +1415,10 @@ async function submitOrder() {
         form.deliveryType === "delivery" ? form.address : undefined,
       phone: form.deliveryType === "delivery" ? form.phone : undefined,
       notes: form.notes || undefined,
-      promo_code: promoCode.value || undefined,
+      promo_code:
+        wholesaleStore.isWholesale || !promoResult.value
+          ? undefined
+          : promoCode.value.trim(),
       items: cartStore.items.map((item) => ({
         product_id: item.productId,
         variant_id: item.variantId || null,
@@ -1344,7 +1426,9 @@ async function submitOrder() {
         price_per_unit: item.priceRub,
         product_title: item.productTitle || item.title,
         variant_name: item.variantName || null,
-        loyalty_units_applied: Number(item.loyaltyUnitsApplied || 0),
+        loyalty_units_applied: wholesaleStore.isWholesale
+          ? 0
+          : Number(item.loyaltyUnitsApplied || 0),
       })),
     };
 
@@ -1354,7 +1438,10 @@ async function submitOrder() {
         : "/api/orders",
       {
       method: isEditingOrder.value ? "PUT" : "POST",
-      headers: withTelegramAuthHeaders({ "Content-Type": "application/json" }),
+      headers: withTelegramAuthHeaders({
+        "Content-Type": "application/json",
+        ...wholesaleStore.buildHeaders(),
+      }),
       body: JSON.stringify(orderData),
     });
 
@@ -1375,6 +1462,11 @@ async function submitOrder() {
         form.deliveryType = "pickup";
         throw new Error(
           result.message || "Сумма заказа меньше минимальной для доставки",
+        );
+      }
+      if (result?.error === "wholesale_min_not_met") {
+        throw new Error(
+          result.message || "Сумма заказа меньше минимальной для выбранного оптового прайса",
         );
       }
       if (isEditingOrder.value && result?.error === "not_found") {

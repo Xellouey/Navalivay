@@ -1,4 +1,5 @@
 import { db } from "./db.js";
+import { getTimeZoneDateParts } from "./utils/business-time.js";
 
 export const PROMO_USAGE_RESERVED = "reserved";
 export const PROMO_USAGE_CONSUMED = "consumed";
@@ -264,6 +265,30 @@ export function validatePromoCode(code, orderAmount, { excludeOrderId = null } =
     };
   }
 
+  const nowBusinessDate = getCurrentBusinessDateString();
+  const validFromDate = normalizePromoDate(promo.valid_from_date);
+  const durationDays = normalizeDurationDays(promo.duration_days);
+  const validUntilDate =
+    validFromDate && durationDays
+      ? addDaysToIsoDate(validFromDate, durationDays - 1)
+      : null;
+
+  if (validFromDate && nowBusinessDate < validFromDate) {
+    return {
+      valid: false,
+      error: "not_started",
+      message: "Промокод еще не действует",
+    };
+  }
+
+  if (validUntilDate && nowBusinessDate > validUntilDate) {
+    return {
+      valid: false,
+      error: "expired",
+      message: "Срок действия промокода истек",
+    };
+  }
+
   const usageStats = getPromoUsageStatsForPromo(promo.id, { excludeOrderId });
   if (promo.max_uses > 0 && usageStats.activeUses >= promo.max_uses) {
     return {
@@ -296,11 +321,48 @@ export function validatePromoCode(code, orderAmount, { excludeOrderId = null } =
     discount_type: promo.discount_type,
     discount_value: promo.discount_value,
     calculated_discount: calculatedDiscount,
-    description: promo.description,
+    description: promo.customer_description || promo.description,
+    customer_description: promo.customer_description || promo.description || null,
+    manager_description: promo.manager_description || null,
+    has_gift: Number(promo.has_gift || 0),
+    valid_from_date: validFromDate,
+    duration_days: durationDays,
+    effective_valid_until_date: validUntilDate,
     usage_stats: usageStats,
   };
 }
 
 function defaultPromoUsageIdFactory() {
   return `pu_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function getCurrentBusinessDateString() {
+  const parts = getTimeZoneDateParts(new Date());
+  return `${parts.year}-${String(parts.month).padStart(2, "0")}-${String(parts.day).padStart(2, "0")}`;
+}
+
+function normalizePromoDate(value) {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return null;
+  return trimmed;
+}
+
+function normalizeDurationDays(value) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return null;
+  const intValue = Math.trunc(parsed);
+  if (intValue <= 0) return null;
+  return intValue;
+}
+
+function addDaysToIsoDate(isoDate, dayOffset) {
+  const [year, month, day] = isoDate.split("-").map((part) => Number(part));
+  if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) {
+    return null;
+  }
+  const date = new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
+  date.setUTCDate(date.getUTCDate() + dayOffset);
+  return date.toISOString().slice(0, 10);
 }
