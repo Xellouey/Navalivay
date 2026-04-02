@@ -7,6 +7,7 @@ This document defines the current loyalty behavior across the customer app, CRM,
 Promo-specific behavior is documented in:
 
 - `docs/promo-rules.md`
+- `docs/wholesale-rules.md`
 
 Use it when a task touches:
 
@@ -26,6 +27,8 @@ Use it when a task touches:
 - A loyalty bonus never auto-applies.
 - Loyalty application is always an explicit customer action.
 - If a promo code is active on the order, loyalty bonuses are blocked for that order.
+- If wholesale mode is active on the order, loyalty bonuses are blocked for that order.
+- Products purchased with promo discount, loyalty bonus, or manual discount do not generate loyalty marks.
 
 ## Checkout UX Rules
 
@@ -42,9 +45,11 @@ Use it when a task touches:
 Use consistent labels:
 
 - `Промокод`
-  - promo-code discount on the order
-- `За покупки`
-  - loyalty discount earned from the purchase system
+  - promo input label in checkout
+- `Скидка по промокоду`
+  - applied promo discount in checkout summary
+- `Скидка за покупки`
+  - applied loyalty discount in checkout summary
 - `На заказ`
   - order-level discount that is not the loyalty discount
 
@@ -60,6 +65,7 @@ When multiple discount sources are visible in CRM:
 - separate loyalty discount from order-level discount
 - do not show one total discount line plus a second loyalty line if that reads like the same money was subtracted twice
 - use one visual pattern for all discount rows in the same card
+- Current customer `MyOrder` screen uses a single aggregated row `Скидка` without source split. If source-specific rows are needed there, update both UI and this document.
 
 ## Order Editing / Cancellation Expectations
 

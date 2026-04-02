@@ -8,6 +8,16 @@ import { db } from '../db.js';
 import { authMiddleware, issueToken, verifyPassword, changePassword, getAdminUsername } from '../auth.js';
 import { DEFAULT_PROFIT_PASSWORD } from '../migrations/add_profit_password_setting.js';
 import { convertImageToWebP } from '../utils/imageUtils.js';
+import {
+  buildWholesaleLinkPath,
+  getActiveWholesaleTiers,
+  getBulkGroupAverageCostStats,
+  getBulkGroupWholesalePrices,
+  getGroupAverageCostStats,
+  getGroupWholesalePrices,
+  getWholesaleCoverageSummary,
+  saveGroupWholesalePrices,
+} from '../wholesale-service.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -95,6 +105,54 @@ function generateGroupSlug(categoryId, name, customSlug, excludeId) {
     counter += 1;
   }
   return slugCandidate;
+}
+
+function buildWholesaleTiersPayload() {
+  return getActiveWholesaleTiers().map((tier) => ({
+    id: tier.id,
+    code: tier.code,
+    label: tier.label,
+    min_order_amount: Number(tier.minOrderAmount ?? 0),
+    sort_order: Number(tier.sortOrder ?? 0),
+  }));
+}
+
+function enrichAdminCategoryGroups(groups) {
+  const normalizedGroups = Array.isArray(groups) ? groups : [];
+  const groupIds = normalizedGroups.map((group) => String(group.id || '')).filter(Boolean);
+  const priceMapByGroup = getBulkGroupWholesalePrices(groupIds);
+  const costStatsByGroup = getBulkGroupAverageCostStats(groupIds);
+  const wholesaleTiers = buildWholesaleTiersPayload();
+
+  return normalizedGroups.map((group) => {
+    const groupId = String(group.id || '');
+    const costStats = costStatsByGroup.get(groupId) || null;
+    return {
+      ...group,
+      wholesale_prices: priceMapByGroup.get(groupId) || {},
+      average_cost_auto: costStats?.averageCostAuto ?? null,
+      direct_product_count: costStats?.directProductCount ?? Number(group.productCount ?? 0),
+      products_with_cost_count: costStats?.productsWithCostCount ?? 0,
+      wholesale_tiers: wholesaleTiers,
+    };
+  });
+}
+
+function enrichAdminCategoryGroup(group) {
+  if (!group?.id) {
+    return group;
+  }
+
+  const costStats = getGroupAverageCostStats(group.id);
+  const wholesaleTiers = buildWholesaleTiersPayload();
+  return {
+    ...group,
+    wholesale_prices: getGroupWholesalePrices(group.id),
+    average_cost_auto: costStats.averageCostAuto,
+    direct_product_count: costStats.directProductCount,
+    products_with_cost_count: costStats.productsWithCostCount,
+    wholesale_tiers: wholesaleTiers,
+  };
 }
 
 export const adminRouter = express.Router();
@@ -1396,6 +1454,27 @@ adminRouter.delete('/api/admin/categories/:id', authMiddleware, (req, res) => {
 });
 
 // Category groups CRUD
+adminRouter.get('/api/admin/wholesale-links', authMiddleware, (req, res) => {
+  try {
+    const tiers = getWholesaleCoverageSummary().map((tier) => ({
+      id: tier.id,
+      code: tier.code,
+      label: tier.label,
+      min_order_amount: Number(tier.minOrderAmount ?? 0),
+      sort_order: Number(tier.sortOrder ?? 0),
+      path: buildWholesaleLinkPath(tier),
+      total_target_groups: Number(tier.totalTargetGroups ?? 0),
+      filled_group_count: Number(tier.filledGroupCount ?? 0),
+      missing_group_count: Number(tier.missingGroupCount ?? 0),
+    }));
+
+    return res.json({ tiers });
+  } catch (error) {
+    console.error('[admin] Failed to build wholesale links:', error);
+    return res.status(500).json({ error: 'wholesale_links_failed', message: error.message });
+  }
+});
+
 adminRouter.get('/api/admin/category-groups', authMiddleware, (req, res) => {
   const { categoryId } = req.query;
   const params = [];
@@ -1515,7 +1594,7 @@ adminRouter.get('/api/admin/category-groups', authMiddleware, (req, res) => {
     }
   });
 
-  res.json(flattened);
+  res.json(enrichAdminCategoryGroups(flattened));
 });
 
 // Отдельный эндпоинт для получения изображения группы (чтобы не грузить все изображения в списке)
@@ -1555,15 +1634,28 @@ adminRouter.get('/api/admin/category-groups/:id', authMiddleware, (req, res) => 
   
   const productCount = db.prepare('SELECT COUNT(*) as cnt FROM products WHERE groupId = ?').get(id)?.cnt || 0;
   
-  res.json({
+  return res.json(enrichAdminCategoryGroup({
     ...row,
     productCount: Number(productCount),
     parent_group_id: row.parent_group_id ?? null
-  });
+  }));
 });
 
 adminRouter.post('/api/admin/category-groups', authMiddleware, async (req, res) => {
-  const { categoryId, name, slug, coverImage, hide_empty, parentId, metaLabel, metaValue, meta_label, meta_value } = req.body || {};
+  const {
+    categoryId,
+    name,
+    slug,
+    coverImage,
+    hide_empty,
+    parentId,
+    metaLabel,
+    metaValue,
+    meta_label,
+    meta_value,
+    wholesalePrices,
+    wholesale_prices,
+  } = req.body || {};
 
   if (!categoryId || !name) {
     return res.status(400).json({ error: 'missing_fields' });
@@ -1605,21 +1697,35 @@ adminRouter.post('/api/admin/category-groups', authMiddleware, async (req, res) 
   // Конвертируем изображение в WebP
   const coverImageValue = coverImage ? await convertImageToWebP(coverImage) : null;
 
-  db.prepare(`
-    INSERT INTO category_groups (id, categoryId, slug, name, cover_image, [order], hide_empty, meta_label, meta_value, parent_group_id, createdAt, updatedAt)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, DATETIME('now'), DATETIME('now'))
-  `).run(
-    newId,
-    String(categoryId),
-    finalSlug,
-    name,
-    coverImageValue,
-    nextOrder,
-    hide_empty ? 1 : 0,
-    resolvedMetaLabel,
-    resolvedMetaValue,
-    resolvedParentId,
-  );
+  try {
+    const tx = db.transaction(() => {
+      db.prepare(`
+        INSERT INTO category_groups (id, categoryId, slug, name, cover_image, [order], hide_empty, meta_label, meta_value, parent_group_id, createdAt, updatedAt)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, DATETIME('now'), DATETIME('now'))
+      `).run(
+        newId,
+        String(categoryId),
+        finalSlug,
+        name,
+        coverImageValue,
+        nextOrder,
+        hide_empty ? 1 : 0,
+        resolvedMetaLabel,
+        resolvedMetaValue,
+        resolvedParentId,
+      );
+
+      saveGroupWholesalePrices(newId, wholesalePrices ?? wholesale_prices ?? {});
+    });
+
+    tx();
+  } catch (error) {
+    if (error?.code === 'invalid_wholesale_price') {
+      return res.status(400).json({ error: 'invalid_wholesale_price', message: error.message });
+    }
+    console.error('[admin] Failed to create category group:', error);
+    return res.status(500).json({ error: 'create_failed', message: error.message });
+  }
 
   const result = db.prepare(`
     SELECT 
@@ -1658,16 +1764,29 @@ adminRouter.post('/api/admin/category-groups', authMiddleware, async (req, res) 
     LEFT JOIN products p ON p.groupId = gt.id
   `).get(newId);
 
-  res.json({
+  return res.json(enrichAdminCategoryGroup({
     ...result,
     productCount: Number(result.productCount ?? 0),
     totalProductCount: Number(totalRow?.total ?? result.productCount ?? 0)
-  });
+  }));
 });
 
 adminRouter.put('/api/admin/category-groups/:id', authMiddleware, async (req, res) => {
   const { id } = req.params;
-  const { name, slug, coverImage, hide_empty, order, parentId, metaLabel, metaValue, meta_label, meta_value } = req.body || {};
+  const {
+    name,
+    slug,
+    coverImage,
+    hide_empty,
+    order,
+    parentId,
+    metaLabel,
+    metaValue,
+    meta_label,
+    meta_value,
+    wholesalePrices,
+    wholesale_prices,
+  } = req.body || {};
 
   const current = db.prepare('SELECT * FROM category_groups WHERE id = ?').get(id);
   if (!current) {
@@ -1690,6 +1809,7 @@ adminRouter.put('/api/admin/category-groups/:id', authMiddleware, async (req, re
   // Проверяем, было ли поле явно передано в запросе (включая null для очистки)
   const metaLabelProvided = 'metaLabel' in req.body || 'meta_label' in req.body;
   const metaValueProvided = 'metaValue' in req.body || 'meta_value' in req.body;
+  const wholesalePricesProvided = 'wholesalePrices' in req.body || 'wholesale_prices' in req.body;
   const rawMetaLabel = metaLabel ?? meta_label;
   const rawMetaValue = metaValue ?? meta_value;
   const nextMetaLabel =
@@ -1738,11 +1858,27 @@ adminRouter.put('/api/admin/category-groups/:id', authMiddleware, async (req, re
     }
   }
 
-  db.prepare(`
-    UPDATE category_groups
-    SET name = ?, slug = ?, cover_image = ?, hide_empty = ?, [order] = ?, meta_label = ?, meta_value = ?, parent_group_id = ?, updatedAt = DATETIME('now')
-    WHERE id = ?
-  `).run(nextName, nextSlug, nextCover, nextHideEmpty, nextOrder, nextMetaLabel, nextMetaValue, nextParentId, id);
+  try {
+    const tx = db.transaction(() => {
+      db.prepare(`
+        UPDATE category_groups
+        SET name = ?, slug = ?, cover_image = ?, hide_empty = ?, [order] = ?, meta_label = ?, meta_value = ?, parent_group_id = ?, updatedAt = DATETIME('now')
+        WHERE id = ?
+      `).run(nextName, nextSlug, nextCover, nextHideEmpty, nextOrder, nextMetaLabel, nextMetaValue, nextParentId, id);
+
+      if (wholesalePricesProvided) {
+        saveGroupWholesalePrices(id, wholesalePrices ?? wholesale_prices ?? {});
+      }
+    });
+
+    tx();
+  } catch (error) {
+    if (error?.code === 'invalid_wholesale_price') {
+      return res.status(400).json({ error: 'invalid_wholesale_price', message: error.message });
+    }
+    console.error('[admin] Failed to update category group:', error);
+    return res.status(500).json({ error: 'update_failed', message: error.message });
+  }
 
   const updated = db.prepare(`
     SELECT 
@@ -1781,11 +1917,11 @@ adminRouter.put('/api/admin/category-groups/:id', authMiddleware, async (req, re
     LEFT JOIN products p ON p.groupId = gt.id
   `).get(id);
 
-  res.json({
+  return res.json(enrichAdminCategoryGroup({
     ...updated,
     productCount: Number(updated.productCount ?? 0),
     totalProductCount: Number(totalRow?.total ?? updated.productCount ?? 0)
-  });
+  }));
 });
 
 adminRouter.patch('/api/admin/category-groups/reorder', authMiddleware, (req, res) => {

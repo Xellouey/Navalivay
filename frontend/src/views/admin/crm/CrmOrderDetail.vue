@@ -227,6 +227,18 @@
                 </p>
               </div>
               <div
+                v-if="currentOrder.is_wholesale"
+                class="mt-2 rounded-lg border border-violet-200 bg-violet-50 px-3 py-2.5"
+              >
+                <p class="text-sm font-semibold text-violet-800">Оптовый заказ</p>
+                <p class="mt-1 text-sm text-violet-700">
+                  {{ currentOrder.wholesale_tier_label || 'Оптовый прайс' }}
+                </p>
+                <p v-if="currentOrder.wholesale_min_amount" class="mt-1 text-sm text-violet-700">
+                  Минимальная сумма: {{ formatCurrency(currentOrder.wholesale_min_amount) }}
+                </p>
+              </div>
+              <div
                 v-if="currentOrder.items?.some((item) => Number(item.loyalty_discount_amount || 0) > 0)"
                 class="mt-2 inline-flex items-center gap-1.5 rounded-lg border border-violet-200 bg-violet-50 px-3 py-1.5"
               >

@@ -18,12 +18,20 @@
         </span>
       </template>
       <template #actions>
-        <button
-          @click="$emit('create')"
-          class="flex items-center justify-center gap-2 rounded-xl bg-white/15 px-5 py-3 text-sm font-semibold text-white shadow-lg transition-all duration-200 hover:bg-white/25 focus:outline-none focus:ring-2 focus:ring-white/60 focus:ring-offset-2 focus:ring-offset-transparent"
-        >
-          <span>Добавить категорию</span>
-        </button>
+        <div class="flex flex-wrap items-center justify-end gap-2">
+          <button
+            @click="$emit('manage-wholesale-links')"
+            class="flex items-center justify-center gap-2 rounded-xl border border-white/25 bg-white/10 px-5 py-3 text-sm font-semibold text-white shadow-lg transition-all duration-200 hover:bg-white/20 focus:outline-none focus:ring-2 focus:ring-white/60 focus:ring-offset-2 focus:ring-offset-transparent"
+          >
+            <span>Оптовые ссылки</span>
+          </button>
+          <button
+            @click="$emit('create')"
+            class="flex items-center justify-center gap-2 rounded-xl bg-white/15 px-5 py-3 text-sm font-semibold text-white shadow-lg transition-all duration-200 hover:bg-white/25 focus:outline-none focus:ring-2 focus:ring-white/60 focus:ring-offset-2 focus:ring-offset-transparent"
+          >
+            <span>Добавить категорию</span>
+          </button>
+        </div>
       </template>
     </AdminSectionHero>
 
@@ -240,6 +248,7 @@ const props = withDefaults(
 
 const emit = defineEmits<{
   (e: 'create'): void
+  (e: 'manage-wholesale-links'): void
   (e: 'edit', category: Category): void
   (e: 'delete', id: string): void
   (e: 'reorder', list: { id: string; order: number }[]): void

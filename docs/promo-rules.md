@@ -11,6 +11,7 @@ Use it when a task touches:
 - CRM promo management
 - gift-by-promo operational flow
 - checkout promo UX and wording
+- wholesale compatibility
 
 ## Source Of Truth
 
@@ -82,6 +83,8 @@ Current promo fields include:
   - `customer_description` (fallback to legacy `description`)
 - Order payload should send `promo_code` only for validated promo state.
 - Promo and loyalty cannot be combined in one order.
+- Promo codes are disabled in wholesale mode. See `docs/wholesale-rules.md`.
+- `POST /api/promo/validate` itself does not receive wholesale context. Final promo blocking in wholesale mode is enforced during order create/modify endpoints.
 
 ## CRM Rules
 
@@ -105,7 +108,8 @@ Current promo fields include:
 
 ## Wording Rules
 
-- Use `Промокод` for promo discount.
+- Use `Промокод` for promo input block.
+- Use `Скидка по промокоду` for checkout summary row with applied promo discount.
 - Use `За покупки` for loyalty discount.
 - Avoid ambiguous generic `Скидка` if multiple discount sources are visible.
 

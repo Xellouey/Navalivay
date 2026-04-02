@@ -75,6 +75,26 @@ export interface Product {
   groupImage?: string | null
 }
 
+export interface WholesaleTier {
+  id: string
+  code: string
+  label: string
+  minOrderAmount: number
+  sortOrder: number
+}
+
+export interface WholesaleLink {
+  id: string
+  code: string
+  label: string
+  minOrderAmount: number
+  sortOrder: number
+  path: string | null
+  totalTargetGroups: number
+  filledGroupCount: number
+  missingGroupCount: number
+}
+
 export interface CategoryGroup {
   id: string
   categoryId: string
@@ -94,6 +114,11 @@ export interface CategoryGroup {
   stockSum?: number
   totalStockSum?: number
   emptySince?: string | null
+  averageCostAuto?: number | null
+  directProductCount?: number
+  productsWithCostCount?: number
+  wholesalePrices?: Record<string, number | null>
+  wholesaleTiers?: WholesaleTier[]
 }
 
 interface ProductsResponse {
@@ -126,6 +151,7 @@ export const useAdminStore = defineStore('admin', () => {
   const currentProduct = ref<Product | null>(null)
   const categoryGroups = ref<CategoryGroup[]>([])
   const categoryCrossSells = ref<Record<string, Product[]>>({})
+  const wholesaleLinks = ref<WholesaleLink[]>([])
   const settings = ref<Record<string, string>>({})
 
   // UI state
@@ -168,6 +194,38 @@ export const useAdminStore = defineStore('admin', () => {
     } else {
       setError('Произошла ошибка при выполнении запроса')
     }
+  }
+
+  function normalizeWholesaleTiers(value: any): WholesaleTier[] {
+    if (!Array.isArray(value)) {
+      return []
+    }
+
+    return value
+      .map((tier: any) => ({
+        id: String(tier?.id || ''),
+        code: String(tier?.code || ''),
+        label: String(tier?.label || ''),
+        minOrderAmount: Number(tier?.minOrderAmount ?? tier?.min_order_amount ?? 0),
+        sortOrder: Number(tier?.sortOrder ?? tier?.sort_order ?? 0),
+      }))
+      .filter((tier) => tier.id && tier.code)
+  }
+
+  function normalizeWholesalePrices(value: any): Record<string, number | null> {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      return {}
+    }
+
+    return Object.fromEntries(
+      Object.entries(value).map(([code, rawPrice]) => {
+        if (rawPrice === null || rawPrice === undefined || rawPrice === '') {
+          return [String(code), null]
+        }
+
+        return [String(code), Number(rawPrice)]
+      }),
+    )
   }
 
   function normalizeProductData(product: any): Product {
@@ -717,7 +775,12 @@ async function createCategory(category: { name: string; hideEmpty?: boolean; cov
         totalProductCount: group.totalProductCount ?? group.productCount ?? 0,
         stockSum: group.stockSum ?? 0,
         totalStockSum: group.totalStockSum ?? group.stockSum ?? 0,
-        emptySince: group.empty_since ?? null
+        emptySince: group.empty_since ?? null,
+        averageCostAuto: group.averageCostAuto ?? group.average_cost_auto ?? null,
+        directProductCount: Number(group.directProductCount ?? group.direct_product_count ?? group.productCount ?? 0),
+        productsWithCostCount: Number(group.productsWithCostCount ?? group.products_with_cost_count ?? 0),
+        wholesalePrices: normalizeWholesalePrices(group.wholesalePrices ?? group.wholesale_prices),
+        wholesaleTiers: normalizeWholesaleTiers(group.wholesaleTiers ?? group.wholesale_tiers)
       })) as CategoryGroup[]
 
       if (categoryId) {
@@ -796,7 +859,12 @@ async function createCategory(category: { name: string; hideEmpty?: boolean; cov
         metaValue: response.metaValue ?? response.meta_value ?? null,
         createdAt: response.createdAt,
         updatedAt: response.updatedAt,
-        productCount: response.productCount ?? 0
+        productCount: response.productCount ?? 0,
+        averageCostAuto: response.averageCostAuto ?? response.average_cost_auto ?? null,
+        directProductCount: Number(response.directProductCount ?? response.direct_product_count ?? response.productCount ?? 0),
+        productsWithCostCount: Number(response.productsWithCostCount ?? response.products_with_cost_count ?? 0),
+        wholesalePrices: normalizeWholesalePrices(response.wholesalePrices ?? response.wholesale_prices),
+        wholesaleTiers: normalizeWholesaleTiers(response.wholesaleTiers ?? response.wholesale_tiers)
       }
     } catch (err: any) {
       console.error('Failed to fetch group:', err)
@@ -804,7 +872,37 @@ async function createCategory(category: { name: string; hideEmpty?: boolean; cov
     }
   }
 
-  async function createCategoryGroup(payload: { categoryId: string; name: string; slug?: string; coverImage?: string | null; hideEmpty?: boolean; parentId?: string | null; metaLabel?: string | null; metaValue?: string | null }) {
+  async function fetchWholesaleLinks() {
+    try {
+      isLoading.value = true
+      error.value = null
+
+      const response = await $fetch<{ tiers?: Array<Record<string, any>> }>('/api/admin/wholesale-links', {
+        headers: getAuthHeaders()
+      })
+
+      wholesaleLinks.value = (response?.tiers || []).map((tier) => ({
+        id: String(tier.id),
+        code: String(tier.code),
+        label: String(tier.label),
+        minOrderAmount: Number(tier.minOrderAmount ?? tier.min_order_amount ?? 0),
+        sortOrder: Number(tier.sortOrder ?? tier.sort_order ?? 0),
+        path: tier.path ?? null,
+        totalTargetGroups: Number(tier.totalTargetGroups ?? tier.total_target_groups ?? 0),
+        filledGroupCount: Number(tier.filledGroupCount ?? tier.filled_group_count ?? 0),
+        missingGroupCount: Number(tier.missingGroupCount ?? tier.missing_group_count ?? 0),
+      }))
+
+      return wholesaleLinks.value
+    } catch (err: any) {
+      handleApiError(err)
+      throw err
+    } finally {
+      isLoading.value = false
+    }
+  }
+
+  async function createCategoryGroup(payload: { categoryId: string; name: string; slug?: string; coverImage?: string | null; hideEmpty?: boolean; parentId?: string | null; metaLabel?: string | null; metaValue?: string | null; wholesalePrices?: Record<string, number | null> }) {
     try {
       isLoading.value = true
       error.value = null
@@ -820,7 +918,8 @@ async function createCategory(category: { name: string; hideEmpty?: boolean; cov
           hide_empty: payload.hideEmpty ?? false,
           parentId: payload.parentId ?? null,
           metaLabel: payload.metaLabel ?? null,
-          metaValue: payload.metaValue ?? null
+          metaValue: payload.metaValue ?? null,
+          wholesalePrices: payload.wholesalePrices ?? undefined
         }
       })
 
@@ -838,7 +937,12 @@ async function createCategory(category: { name: string; hideEmpty?: boolean; cov
         createdAt: response.createdAt,
         updatedAt: response.updatedAt,
         productCount: response.productCount ?? 0,
-        totalProductCount: response.totalProductCount ?? response.productCount ?? 0
+        totalProductCount: response.totalProductCount ?? response.productCount ?? 0,
+        averageCostAuto: response.averageCostAuto ?? response.average_cost_auto ?? null,
+        directProductCount: Number(response.directProductCount ?? response.direct_product_count ?? response.productCount ?? 0),
+        productsWithCostCount: Number(response.productsWithCostCount ?? response.products_with_cost_count ?? 0),
+        wholesalePrices: normalizeWholesalePrices(response.wholesalePrices ?? response.wholesale_prices),
+        wholesaleTiers: normalizeWholesaleTiers(response.wholesaleTiers ?? response.wholesale_tiers)
       }
 
       categoryGroups.value = categoryGroups.value.filter(g => g.id !== mapped.id).concat(mapped)
@@ -869,7 +973,8 @@ async function createCategory(category: { name: string; hideEmpty?: boolean; cov
           order: updates.order,
           parentId: updates.parentId ?? null,
           metaLabel: updates.metaLabel ?? null,
-          metaValue: updates.metaValue ?? null
+          metaValue: updates.metaValue ?? null,
+          wholesalePrices: updates.wholesalePrices
         }
       })
 
@@ -888,7 +993,12 @@ async function createCategory(category: { name: string; hideEmpty?: boolean; cov
         createdAt: response.createdAt,
         updatedAt: response.updatedAt,
         productCount: response.productCount ?? 0,
-        totalProductCount: response.totalProductCount ?? response.productCount ?? 0
+        totalProductCount: response.totalProductCount ?? response.productCount ?? 0,
+        averageCostAuto: response.averageCostAuto ?? response.average_cost_auto ?? null,
+        directProductCount: Number(response.directProductCount ?? response.direct_product_count ?? response.productCount ?? 0),
+        productsWithCostCount: Number(response.productsWithCostCount ?? response.products_with_cost_count ?? 0),
+        wholesalePrices: normalizeWholesalePrices(response.wholesalePrices ?? response.wholesale_prices),
+        wholesaleTiers: normalizeWholesaleTiers(response.wholesaleTiers ?? response.wholesale_tiers)
       }
 
       const idx = categoryGroups.value.findIndex(g => g.id === id)
@@ -1478,6 +1588,7 @@ async function createCategory(category: { name: string; hideEmpty?: boolean; cov
     currentProduct,
     categoryGroups,
     categoryCrossSells,
+    wholesaleLinks,
     settings,
     isLoading,
     error,
@@ -1511,6 +1622,7 @@ async function createCategory(category: { name: string; hideEmpty?: boolean; cov
     fetchCategoryGroups,
     fetchCategoryGroup,
     fetchCategoryGroupImage,
+    fetchWholesaleLinks,
     createCategoryGroup,
     updateCategoryGroup,
     deleteCategoryGroup,

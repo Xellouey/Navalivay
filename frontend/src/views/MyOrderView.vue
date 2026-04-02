@@ -39,6 +39,16 @@
           </div>
         </section>
 
+        <section v-if="order.is_wholesale" class="order-status-card">
+          <div class="order-status-copy">
+            <strong>Оптовый заказ</strong>
+            <p>
+              {{ order.wholesale_tier_label || 'Оптовый прайс' }}.
+              Минимальная сумма - {{ formatPrice(order.wholesale_min_amount || 0) }} BYN.
+            </p>
+          </div>
+        </section>
+
         <section class="order-items-card">
           <div class="order-card-header">
             <h2>Состав заказа</h2>
@@ -110,6 +120,7 @@
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import { useRouter } from "vue-router";
 import { useCartStore } from "@/stores/cart";
+import { useWholesaleStore } from "@/stores/wholesale";
 import {
   fetchMyActiveOrder,
   getTelegramIdentity,
@@ -119,6 +130,7 @@ import { withTelegramAuthHeaders } from "@/utils/telegramAuth";
 
 const router = useRouter();
 const cartStore = useCartStore();
+const wholesaleStore = useWholesaleStore();
 
 const order = ref<CustomerActiveOrder | null>(null);
 const isLoading = ref(false);
@@ -175,6 +187,17 @@ async function handleEditOrder() {
 
   isEditingOrder.value = true;
   try {
+    if (order.value.is_wholesale) {
+      wholesaleStore.applyOrderWholesaleContext({
+        code: order.value.wholesale_code,
+        secret: order.value.wholesale_secret,
+        label: order.value.wholesale_tier_label,
+        minOrderAmount: order.value.wholesale_min_amount,
+      });
+    } else if (wholesaleStore.isWholesale) {
+      wholesaleStore.clearContext();
+    }
+
     cartStore.replaceItemsFromOrder(order.value.items);
     cartStore.startOrderEdit(order.value.id, {
       promoCode: order.value.promo_code_text,

@@ -402,6 +402,7 @@
                 @edit="handleEditCategory"
                 @delete="handleDeleteCategory"
                 @reorder="handleReorderCategories"
+                @manage-wholesale-links="openWholesaleLinksModal"
                 @manage-groups="handleManageGroups"
                 @manage-cross-sell="handleManageCrossSell"
               />
@@ -411,7 +412,7 @@
           <template v-else-if="activeTab === 'products'">
             <div class="space-y-6">
               <AdminProductsTable
-                :products="adminStore.products || []"
+                :products="adminProductsForTable"
                 :categories="adminStore.categories || []"
                 :pagination="adminStore.productsPagination"
                 :isLoading="adminStore.isLoading"
@@ -778,13 +779,21 @@
             <p class="text-sm text-gray-600">Категория</p>
             <p class="text-lg font-semibold text-gray-900">{{ activeGroupCategory.name }}</p>
           </div>
+          <div class="flex flex-wrap items-center gap-2">
             <button
-            class="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold rounded-lg bg-brand-dark text-white hover:bg-brand-dark/90 transition-colors"
-            @click="openGroupForm(undefined, activeGroupCategory)"
-          >
-            <PlusIcon class="w-4 h-4" />
-            Добавить линейку
-          </button>
+              class="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold rounded-lg border border-gray-300 bg-white text-gray-700 hover:border-gray-400 hover:text-gray-900 transition-colors"
+              @click="openWholesaleLinksModal"
+            >
+              Оптовые ссылки
+            </button>
+            <button
+              class="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold rounded-lg bg-brand-dark text-white hover:bg-brand-dark/90 transition-colors"
+              @click="openGroupForm(undefined, activeGroupCategory)"
+            >
+              <PlusIcon class="w-4 h-4" />
+              Добавить линейку
+            </button>
+          </div>
         </div>
 
         <p v-if="groupModalLoading" class="text-xs text-gray-500 mb-3">Синхронизация…</p>
@@ -827,6 +836,35 @@
                     <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/></svg>
                     Нет в наличии, не отображается на витрине{{ group.emptySince ? ` уже ${getDaysEmpty(group.emptySince)} дн.` : '' }}
                   </span>
+                </div>
+                <div class="mt-2 rounded-xl border border-gray-200 bg-gray-50/80 px-3 py-2">
+                  <div class="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+                    <div>
+                      <p class="text-xs font-semibold uppercase tracking-wide text-gray-500">Оптовые цены</p>
+                      <p class="text-xs text-gray-500">
+                        Заполнено {{ getFilledWholesaleCount(group) }} из {{ getGroupWholesaleTiers(group).length || 0 }}
+                      </p>
+                    </div>
+                    <p class="text-xs text-gray-500 whitespace-nowrap">
+                      Себестоимость:
+                      <strong class="ml-1 text-gray-900">{{ formatWholesalePrice(group.averageCostAuto, true) }}</strong>
+                    </p>
+                  </div>
+
+                  <div class="mt-2 grid grid-cols-2 gap-1.5 sm:grid-cols-4">
+                    <div
+                      v-for="tier in getGroupWholesaleTiers(group)"
+                      :key="`${group.id}-${tier.code}`"
+                      class="rounded-md border px-2 py-1.5"
+                      :class="group.wholesalePrices?.[tier.code] ? 'border-emerald-200 bg-emerald-50/70' : 'border-gray-200 bg-white'"
+                    >
+                      <p class="text-[11px] font-semibold leading-none text-gray-500">{{ tier.code }}+</p>
+                      <p
+                        class="mt-1 text-xs font-semibold leading-none"
+                        :class="group.wholesalePrices?.[tier.code] ? 'text-emerald-700' : 'text-gray-400'"
+                      >{{ formatWholesaleCompact(group.wholesalePrices?.[tier.code] ?? null) }}</p>
+                    </div>
+                  </div>
                 </div>
               </div>
               </div>
@@ -886,8 +924,23 @@
         :editing-group="editingGroup || undefined"
         :is-submitting="groupFormSubmitting"
         :available-groups="groupFormOptions"
+        :wholesale-tiers="resolvedWholesaleTiers"
         @submit="handleGroupFormSubmit"
         @cancel="closeGroupForm"
+      />
+    </AdminModal>
+
+    <AdminModal
+      :isOpen="showWholesaleLinksModal"
+      title="Оптовые ссылки"
+      size="lg"
+      :showActions="false"
+      @cancel="showWholesaleLinksModal = false"
+      @close="showWholesaleLinksModal = false"
+    >
+      <AdminWholesaleLinksPanel
+        :links="adminStore.wholesaleLinks"
+        :is-loading="wholesaleLinksLoading"
       />
     </AdminModal>
 
@@ -1022,6 +1075,7 @@ import AdminLayout from '@/components/admin/layout/AdminLayout.vue'
 import AdminSectionHero from '@/components/admin/layout/AdminSectionHero.vue'
 import AdminProductsTable from '@/components/admin/AdminProductsTable.vue'
 import AdminCategoryGroupForm from '@/components/admin/AdminCategoryGroupForm.vue'
+import AdminWholesaleLinksPanel from '@/components/admin/AdminWholesaleLinksPanel.vue'
 import CashierLockScreen from '@/components/admin/CashierLockScreen.vue'
 import CountUp from '@/components/CountUp.vue'
 import CountUpCurrency from '@/components/CountUpCurrency.vue'
@@ -1104,8 +1158,10 @@ const modalTitle = ref('')
 
 const showGroupModal = ref(false)
 const showGroupFormModal = ref(false)
+const showWholesaleLinksModal = ref(false)
 const groupFormSubmitting = ref(false)
 const groupModalLoading = ref(false)
+const wholesaleLinksLoading = ref(false)
 const activeGroupCategory = ref<Category | null>(null)
 const groupFormCategoryId = ref<string | null>(null)
 type CategoryGroupWithDepth = CategoryGroup & { depth: number }
@@ -1135,6 +1191,37 @@ function getDaysEmpty(emptySince: string | null | undefined): number {
   return Math.floor(diff / 86400000)
 }
 
+function formatWholesalePrice(value: number | null | undefined, emptyAsHint = false): string {
+  if (value === null || value === undefined || !Number.isFinite(Number(value))) {
+    return emptyAsHint ? 'Нет данных' : 'Не задано'
+  }
+
+  return `${Number(value).toFixed(2)} BYN`
+}
+
+function formatWholesaleCompact(value: number | null | undefined): string {
+  if (value === null || value === undefined || !Number.isFinite(Number(value))) {
+    return '-'
+  }
+
+  return `${Number(value).toFixed(2)} BYN`
+}
+
+function getGroupWholesaleTiers(group: CategoryGroup) {
+  if (group.wholesaleTiers?.length) {
+    return group.wholesaleTiers
+  }
+
+  return resolvedWholesaleTiers.value
+}
+
+function getFilledWholesaleCount(group: CategoryGroup): number {
+  return getGroupWholesaleTiers(group).reduce((total, tier) => {
+    const value = group.wholesalePrices?.[tier.code]
+    return value !== null && value !== undefined && Number.isFinite(Number(value)) ? total + 1 : total
+  }, 0)
+}
+
 function showToast(message: string, type: 'success' | 'error' = 'success', timeout = 2500) {
   // Clear previous timer if any
   if (toast.value.timer) {
@@ -1149,6 +1236,19 @@ function showToast(message: string, type: 'success' | 'error' = 'success', timeo
     toast.value.message = ''
     toast.value.timer = null
   }, timeout)
+}
+
+async function openWholesaleLinksModal() {
+  showWholesaleLinksModal.value = true
+  wholesaleLinksLoading.value = true
+  try {
+    await adminStore.fetchWholesaleLinks()
+  } catch (error) {
+    console.error('Failed to load wholesale links:', error)
+    showToast('Не удалось загрузить оптовые ссылки', 'error')
+  } finally {
+    wholesaleLinksLoading.value = false
+  }
 }
 
 function resetLoadedState() {
@@ -1299,7 +1399,26 @@ function flattenGroupTree(nodes: CategoryGroupNode[], depth = 0): CategoryGroupW
   return list
 }
 
+const resolvedWholesaleTiers = computed(() => {
+  const fromGroups = adminStore.categoryGroups.find((group) => group.wholesaleTiers?.length)?.wholesaleTiers
+  if (fromGroups?.length) {
+    return fromGroups
+  }
+
+  return (adminStore.wholesaleLinks || []).map((link) => ({
+    id: link.id,
+    code: link.code,
+    label: link.label,
+    minOrderAmount: link.minOrderAmount,
+    sortOrder: link.sortOrder,
+  }))
+})
+
 const tabOptions = adminTabOptions
+const currentTabDescription = computed(() =>
+  adminTabs.find((option) => option.id === activeTab.value)?.description || '',
+)
+const adminProductsForTable = computed(() => (adminStore.products || []) as any)
 
 type DataSliceKey = 'banners' | 'categories' | 'categoryGroups' | 'products' | 'settings' | 'dashboard'
 const dataLoaded = reactive<Record<DataSliceKey, boolean>>({
@@ -2224,7 +2343,7 @@ function closeGroupForm() {
   }
 }
 
-async function handleGroupFormSubmit(payload: { name: string; slug?: string; coverImage?: string | null; hideEmpty?: boolean; parentId?: string | null; metaLabel?: string | null; metaValue?: string | null }) {
+async function handleGroupFormSubmit(payload: { name: string; slug?: string; coverImage?: string | null; hideEmpty?: boolean; parentId?: string | null; metaLabel?: string | null; metaValue?: string | null; wholesalePrices?: Record<string, number | null> }) {
   const categoryId = groupFormCategoryId.value || activeGroupCategory.value?.id || null
   if (!categoryId) {
     showToast('Сначала выберите категорию', 'error')
@@ -2248,7 +2367,8 @@ async function handleGroupFormSubmit(payload: { name: string; slug?: string; cov
         hideEmpty: payload.hideEmpty,
         parentId: payload.parentId ?? null,
         metaLabel: payload.metaLabel ?? null,
-        metaValue: payload.metaValue ?? null
+        metaValue: payload.metaValue ?? null,
+        wholesalePrices: payload.wholesalePrices ?? {}
       })
       showToast('Линейка обновлена', 'success')
     } else {
@@ -2260,7 +2380,8 @@ async function handleGroupFormSubmit(payload: { name: string; slug?: string; cov
         hideEmpty: payload.hideEmpty,
         parentId: payload.parentId ?? null,
         metaLabel: payload.metaLabel ?? null,
-        metaValue: payload.metaValue ?? null
+        metaValue: payload.metaValue ?? null,
+        wholesalePrices: payload.wholesalePrices ?? {}
       })
       showToast('Линейка создана', 'success')
     }

@@ -79,6 +79,10 @@ export interface Order {
   promo_has_gift?: number;
   promo_manager_description?: string | null;
   promo_customer_description?: string | null;
+  is_wholesale?: number;
+  wholesale_tier_id?: string | null;
+  wholesale_tier_label?: string | null;
+  wholesale_min_amount?: number | null;
   items?: OrderItem[];
 }
 
