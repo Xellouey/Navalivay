@@ -558,7 +558,7 @@
                       type="text"
                       required
                       class="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-900 transition focus:border-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-200"
-                      :placeholder="adminStore.settings.manager_telegram || 'innocentyy'"
+                      :placeholder="adminStore.settings.manager_telegram || 'Rez0nsky'"
                     />
                   </div>
 
@@ -2539,7 +2539,7 @@ watch(() => adminStore.settings, () => {
 }, { deep: true })
 
 function updateManagerForm() {
-  const currentValue = adminStore.settings.manager_telegram || 'innocentyy'
+  const currentValue = adminStore.settings.manager_telegram || 'Rez0nsky'
   managerForm.value.telegram = currentValue
 }
 

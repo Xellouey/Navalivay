@@ -191,7 +191,7 @@ if (!BOT_TOKEN) {
   bot.action('contact', async (ctx) => {
     await ctx.answerCbQuery();
     await ctx.editMessageText(
-      'По вопросам и заказам — пишите @innocentyy. Ответим оперативно.',
+      'По вопросам и заказам — пишите @Rez0nsky. Ответим оперативно.',
       Markup.inlineKeyboard([[Markup.button.callback('Назад', 'back')]])
     );
   });
