@@ -392,7 +392,28 @@
           </template>
 
           <template v-else-if="activeTab === 'categories'">
-            <div class="space-y-6">
+            <div v-if="!profitUnlocked" class="flex justify-center py-12">
+              <div class="w-full max-w-sm rounded-2xl bg-white p-6 shadow">
+                <h3 class="text-lg font-semibold text-gray-900 text-center mb-3">Введите код доступа</h3>
+                <form class="space-y-4" @submit.prevent="handleProfitUnlocked">
+                  <input
+                    v-model="profitPassword"
+                    type="password"
+                    class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-brand-dark focus:outline-none focus:ring-2 focus:ring-brand-dark/20"
+                    placeholder="Пароль"
+                  />
+                  <p v-if="profitError" class="text-sm text-red-600">{{ profitError }}</p>
+                  <button
+                    type="submit"
+                    class="w-full rounded-lg bg-brand-dark px-4 py-2 text-sm font-semibold text-white hover:bg-brand-dark/90 disabled:cursor-not-allowed disabled:bg-brand-dark/60"
+                    :disabled="verifyingProfit"
+                  >
+                    {{ verifyingProfit ? 'Проверяем…' : 'Войти' }}
+                  </button>
+                </form>
+              </div>
+            </div>
+            <div v-else class="space-y-6">
               <AdminCategoriesList
                 :categories="adminStore.categories"
                 :isLoading="adminStore.isLoading"
@@ -1306,6 +1327,9 @@ async function ensureTabData(tab: AdminTabId) {
   }
 
   if (tab === 'categories') {
+    if (!profitUnlocked.value) {
+      return
+    }
     if (!dataLoaded.categories) {
       loaders.push({ key: 'categories', loader: () => adminStore.fetchCategories() })
     }
@@ -1341,13 +1365,15 @@ async function ensureTabData(tab: AdminTabId) {
 async function loadInitialAdminData() {
   const loaders: Array<{ key: DataSliceKey; loader: () => Promise<unknown> }> = [
     { key: 'banners', loader: () => adminStore.fetchBanners() },
-    { key: 'categories', loader: () => adminStore.fetchCategories() },
-    { key: 'categoryGroups', loader: () => adminStore.fetchCategoryGroups() },
     { key: 'products', loader: () => adminStore.fetchProducts({ page: 1, limit: 10 }) },
     { key: 'settings', loader: () => adminStore.fetchSettings() }
   ]
 
   if (profitUnlocked.value) {
+    loaders.push(
+      { key: 'categories', loader: () => adminStore.fetchCategories() },
+      { key: 'categoryGroups', loader: () => adminStore.fetchCategoryGroups() }
+    )
     loaders.push({
       key: 'dashboard',
       loader: () => crmStore.fetchDashboard(overviewPeriod.value, overviewOffset.value)
@@ -1754,6 +1780,39 @@ function closeProfitModal() {
   profitError.value = ''
 }
 
+async function loadDataAfterProfitUnlock() {
+  const tab = activeTab.value
+  if (tab === 'dashboard') {
+    await crmStore.fetchDashboard(overviewPeriod.value, overviewOffset.value)
+    try {
+      await crmStore.fetchDashboardTimeseries(
+        overviewPeriod.value,
+        overviewOffset.value,
+        overviewPeriod.value === 'year' ? currentYearForView.value : undefined
+      )
+    } catch (e) {
+      console.error('Timeseries load failed:', e)
+    }
+    dataLoaded.dashboard = true
+    return
+  }
+  if (tab === 'categories') {
+    const catLoaders: Array<{ key: DataSliceKey; loader: () => Promise<unknown> }> = []
+    if (!dataLoaded.categories) {
+      catLoaders.push({ key: 'categories', loader: () => adminStore.fetchCategories() })
+    }
+    if (!dataLoaded.categoryGroups) {
+      catLoaders.push({ key: 'categoryGroups', loader: () => adminStore.fetchCategoryGroups() })
+    }
+    if (catLoaders.length) {
+      const success = await runDataLoaders(catLoaders)
+      if (!success) {
+        showToast('Не удалось загрузить категории. Попробуйте ещё раз.', 'error', 5000)
+      }
+    }
+  }
+}
+
 async function submitProfitPassword() {
   if (!profitPassword.value.trim()) {
     profitError.value = 'Введите ключ'
@@ -1763,48 +1822,24 @@ async function submitProfitPassword() {
   try {
     await crmStore.verifyProfitPassword(profitPassword.value.trim())
     closeProfitModal()
-    await crmStore.fetchDashboard(overviewPeriod.value, overviewOffset.value)
-    try {
-      await crmStore.fetchDashboardTimeseries(
-        overviewPeriod.value,
-        overviewOffset.value,
-        overviewPeriod.value === 'year' ? currentYearForView.value : undefined
-      )
-    } catch (e) {
-      console.error('Timeseries load failed:', e)
-    }
-    dataLoaded.dashboard = true
+    await loadDataAfterProfitUnlock()
   } catch (error) {
     profitError.value = 'Неверный ключ'
   }
 }
 
 async function handleProfitUnlocked() {
-  // Verify profit password and load dashboard data
   if (!profitPassword.value.trim()) {
     profitError.value = 'Введите ключ'
     return
   }
-  
+
   profitError.value = ''
-  
+
   try {
-    // First verify the password
     await crmStore.verifyProfitPassword(profitPassword.value.trim())
-    
-    // If successful, load dashboard data
-    await crmStore.fetchDashboard(overviewPeriod.value, overviewOffset.value)
-    try {
-      await crmStore.fetchDashboardTimeseries(
-        overviewPeriod.value,
-        overviewOffset.value,
-        overviewPeriod.value === 'year' ? currentYearForView.value : undefined
-      )
-    } catch (e) {
-      console.error('Timeseries load failed:', e)
-    }
-    dataLoaded.dashboard = true
     profitPassword.value = ''
+    await loadDataAfterProfitUnlock()
   } catch (error) {
     console.error('Failed to unlock profit access:', error)
     profitError.value = 'Неверный ключ'
