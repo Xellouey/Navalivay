@@ -23,6 +23,9 @@ Use it when a task touches:
   - `server/routes/public.js` (`POST /api/promo/validate`)
 - CRM promo UI:
   - `frontend/src/views/admin/crm/loyalty/PromoCodesTab.vue`
+- CRM orders (applied promo hints for staff):
+  - `frontend/src/views/admin/crm/CrmOrders.vue`
+  - `frontend/src/views/admin/crm/CrmOrderDetail.vue`
 - Checkout promo UI:
   - `frontend/src/views/CheckoutView.vue`
 
@@ -103,7 +106,8 @@ Current promo fields include:
 ### Orders visibility
 
 - If order promo has `has_gift = 1`, CRM should show a clear visual marker.
-- Manager-facing action text comes from `manager_description`.
+- Manager-facing instructions come from `manager_description` (API: `promo_manager_description` on orders).
+- The orders board and order detail can show this text whenever it is present (including non-gift promos), as an assembly hint for staff.
 - This is an operational hint, not an automated gift-picking subsystem.
 
 ## Wording Rules

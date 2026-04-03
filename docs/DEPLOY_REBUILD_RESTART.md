@@ -2,6 +2,7 @@
 
 ## Что важно знать
 
+- Telegram Mini App и оптовые ссылки: переменные `TELEGRAM_BOT_USERNAME`, `TELEGRAM_MINI_APP_SHORT_NAME`, публичные поля `/api/settings` и поведение бота описаны в [`docs/telegram-mini-app.md`](telegram-mini-app.md). После изменения `.env` перезапустите и API, и бота (если он зависит от тех же переменных).
 - Прод-сборка frontend берётся из [`frontend/package.json`](../frontend/package.json) через скрипт `build-only`.
 - Полный `npm run build` из корня проекта вызывает frontend type-check и может падать из-за TypeScript-диагностики, даже если production bundle собирается нормально.
 - Штатный production-запуск на текущем сервере выполняется через systemd, а не через PM2.

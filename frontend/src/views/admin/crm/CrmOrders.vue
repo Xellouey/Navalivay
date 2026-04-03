@@ -733,12 +733,34 @@
                     >
                       ОПТ{{ order.wholesale_tier_label ? `: ${order.wholesale_tier_label}` : '' }}
                     </span>
-                    <p
-                      v-if="order.promo_has_gift && order.promo_manager_description"
-                      class="mt-1 text-[11px] text-amber-700"
+                    <div
+                      v-if="order.promo_manager_description"
+                      :title="order.promo_manager_description"
+                      class="mt-1.5 flex gap-1.5 rounded-md border border-amber-200/85 bg-amber-50/90 px-2 py-1.5"
                     >
-                      {{ order.promo_manager_description }}
-                    </p>
+                      <svg
+                        class="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-600"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                        aria-hidden="true"
+                      >
+                        <path
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          stroke-width="2"
+                          d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+                        />
+                      </svg>
+                      <div class="min-w-0 flex-1">
+                        <p class="text-[10px] font-semibold leading-none text-amber-900/80">
+                          К заказу (промо)
+                        </p>
+                        <p class="mt-1 text-[11px] leading-snug text-amber-900/90">
+                          {{ order.promo_manager_description }}
+                        </p>
+                      </div>
+                    </div>
                     <p
                       v-if="order.is_wholesale && order.wholesale_min_amount"
                       class="mt-1 text-[11px] text-violet-700"
@@ -1819,18 +1841,10 @@ async function refreshOrders(options: { skipNotify?: boolean } = {}) {
 
   const previousIds = new Set<string>(orders.value.map((order) => order.id));
 
-  // #region agent log
-  fetch('http://127.0.0.1:7375/ingest/770bfcdb-ad04-41b5-8064-47b780108bbc',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'bc40da'},body:JSON.stringify({sessionId:'bc40da',location:'CrmOrders.vue:refreshOrders',message:'before fetch',data:{totalOrders:orders.value.length,deliveredCount:orders.value.filter(o=>['delivered','completed'].includes(o.status)).length},timestamp:Date.now()})}).catch(()=>{});
-  // #endregion
-
   try {
     const searchParam = searchQuery.value.trim() || undefined;
     await crmStore.fetchOrders({ limit: 200, search: searchParam });
     lastUpdateAt.value = new Date();
-
-    // #region agent log
-    fetch('http://127.0.0.1:7375/ingest/770bfcdb-ad04-41b5-8064-47b780108bbc',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'bc40da'},body:JSON.stringify({sessionId:'bc40da',location:'CrmOrders.vue:refreshOrders:afterFetch',message:'after fetch',data:{totalOrders:orders.value.length,deliveredCount:orders.value.filter(o=>['delivered','completed'].includes(o.status)).length,statusBreakdown:orders.value.reduce((acc,o)=>{acc[o.status]=(acc[o.status]||0)+1;return acc},{} as Partial<Record<Order["status"], number>>)},timestamp:Date.now()})}).catch(()=>{});
-    // #endregion
 
     if (options.skipNotify) {
       return;

@@ -21,6 +21,11 @@ function extractProductId(link) {
   }
 }
 
+/** HTTPS URL витрины для web_app кнопок и меню (как в BotFather). Оптовые t.me ссылки с mode=compact — во фронте. */
+function getStoreWebAppUrl() {
+  return (process.env.BASE_URL || "https://navalivay.store").replace(/\/$/, "");
+}
+
 function ensureCustomer(telegramUser) {
   const telegramId = String(telegramUser.id);
   let customer = db.prepare('SELECT * FROM customers WHERE telegram_id = ?').get(telegramId);
@@ -158,7 +163,9 @@ if (!BOT_TOKEN) {
 
   bot.start(async (ctx) => {
     try {
-      const webAppUrl = process.env.BASE_URL || 'https://navalivay.store';
+      const webAppUrl = getStoreWebAppUrl();
+      await ctx.reply('Добро пожаловать в НАВАЛИВАЙ!', Markup.removeKeyboard());
+
       const kb = Markup.inlineKeyboard([
         [Markup.button.webApp('🛍 Открыть каталог', webAppUrl)],
         [Markup.button.callback('О нас', 'about')],
@@ -166,7 +173,7 @@ if (!BOT_TOKEN) {
         [Markup.button.callback('Обратная связь', 'contact')],
       ]);
 
-      await ctx.reply('Добро пожаловать в НАВАЛИВАЙ! Нажмите кнопку ниже, чтобы открыть каталог 😊', kb);
+      await ctx.reply('Нажмите кнопку ниже, чтобы открыть каталог 😊', kb);
     } catch (e) {
       console.error(e);
     }
@@ -198,7 +205,7 @@ if (!BOT_TOKEN) {
 
   bot.action('back', async (ctx) => {
     await ctx.answerCbQuery();
-    const webAppUrl = process.env.BASE_URL || 'https://navalivay.store';
+    const webAppUrl = getStoreWebAppUrl();
     const kb = Markup.inlineKeyboard([
       [Markup.button.webApp('🛍 Открыть каталог', webAppUrl)],
       [Markup.button.callback('О нас', 'about')],
@@ -253,7 +260,7 @@ if (!BOT_TOKEN) {
 
       const finalPrice = Number(result.finalAmount) || 0;
       const formattedPrice = new Intl.NumberFormat('ru-RU').format(finalPrice);
-      const webAppUrl = process.env.BASE_URL || 'https://navalivay.store';
+      const webAppUrl = getStoreWebAppUrl();
       await ctx.reply(
         `Заказ принят!\nТовар: ${title.trim()}\nСтоимость: ${formattedPrice} ₽\nМенеджер свяжется с вами для подтверждения.`,
         Markup.inlineKeyboard([
@@ -274,6 +281,25 @@ if (!BOT_TOKEN) {
     try {
       // На всякий случай удаляем webhook, чтобы getUpdates заработал
       await bot.telegram.deleteWebhook({ drop_pending_updates: true });
+      const shopUrl = getStoreWebAppUrl();
+      try {
+        await bot.telegram.setChatMenuButton({
+          menuButton: {
+            type: 'web_app',
+            text: 'Магазин',
+            web_app: { url: shopUrl },
+          },
+        });
+        let menuAfter = null;
+        try {
+          menuAfter = await bot.telegram.getChatMenuButton({});
+        } catch (e) {
+          menuAfter = { error: e?.message || String(e) };
+        }
+        console.log('[navalivay:bot] setChatMenuButton web_app url=', shopUrl, 'getChatMenuButton=', JSON.stringify(menuAfter));
+      } catch (menuErr) {
+        console.warn('[navalivay:bot] setChatMenuButton:', menuErr?.message || menuErr);
+      }
       await bot.launch();
       console.log('[navalivay:bot] started (long polling). BASE_URL=', process.env.BASE_URL);
     } catch (err) {

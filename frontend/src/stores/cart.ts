@@ -32,6 +32,39 @@ export const useCartStore = defineStore('cart', () => {
     return items.value.reduce((sum, item) => sum + item.priceRub * item.quantity, 0)
   })
 
+  /** Подтянуть цены строк корзины из актуального каталога (опт: после повторного fetch allProducts). */
+  function syncItemPricesFromCatalog() {
+    if (!items.value.length) return
+
+    const catalogStore = useCatalogStore()
+    if (!catalogStore.allProducts.length) return
+
+    let changed = false
+    items.value = items.value.map((item) => {
+      const catalogProduct = catalogStore.allProducts.find((p) => p.id === item.productId)
+      if (!catalogProduct) return item
+
+      let synced: number | null = null
+      if (item.variantId && catalogProduct.variants?.length) {
+        const vv = catalogProduct.variants.find((v) => v.id === item.variantId)
+        if (vv && vv.priceRub != null) {
+          const vp = Number(vv.priceRub)
+          if (Number.isFinite(vp) && vp > 0) synced = vp
+        }
+      }
+      if (synced == null) {
+        const pp = Number(catalogProduct.priceRub)
+        if (Number.isFinite(pp) && pp > 0) synced = pp
+      }
+      if (synced != null && synced !== item.priceRub) {
+        changed = true
+        return { ...item, priceRub: synced }
+      }
+      return item
+    })
+    if (changed) saveToStorage()
+  }
+
   async function loadFromStorage() {
     try {
       const stored = localStorage.getItem('navalivay_cart')
@@ -89,9 +122,10 @@ export const useCartStore = defineStore('cart', () => {
               }
             }
           }
-          
+
           return migrated
         })
+        syncItemPricesFromCatalog()
         saveToStorage()
       }
     } catch (error) {
@@ -328,6 +362,7 @@ export const useCartStore = defineStore('cart', () => {
     startOrderEdit,
     setEditingPromoCode,
     finishOrderEdit,
-    clearOrderEdit
+    clearOrderEdit,
+    syncItemPricesFromCatalog,
   }
 })

@@ -438,6 +438,7 @@ import { ref, computed, onMounted, nextTick, watch } from 'vue'
 import { useRouter, onBeforeRouteUpdate } from 'vue-router'
 import { useCatalogStore } from '@/stores/catalog'
 import { useCartStore } from '@/stores/cart'
+import { useWholesaleStore } from '@/stores/wholesale'
 
 // Import new components
 import ProductHero from '@/components/product/ProductHero.vue'
@@ -461,6 +462,7 @@ import {
 const props = defineProps<{ id: string }>()
 const catalogStore = useCatalogStore()
 const cartStore = useCartStore()
+const wholesaleStore = useWholesaleStore()
 const router = useRouter()
 
 // State
@@ -571,7 +573,7 @@ function selectVariant(variantId: string) {
 // Actions
 function addToCart() {
   if (!product.value) return
-  
+
   // Для товаров с вариантами передаем выбранный вариант
   if (hasVariants.value && selectedVariant.value) {
     cartStore.addItem(product.value, 1, selectedVariant.value.id)

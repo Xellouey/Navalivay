@@ -4,6 +4,10 @@ import { $fetch } from '@/utils/http'
 
 export interface PublicSettings {
   manager_telegram: string
+  /** Имя бота без @ для ссылок t.me/...?startapp= */
+  telegram_bot_username: string
+  /** Сегмент t.me/bot/SHORT/app — из BotFather; для compact-ссылок direct link */
+  telegram_mini_app_short_name: string
   // Минимальная сумма для доставки
   min_delivery_amount: string
   min_delivery_banner_image: string
@@ -20,6 +24,8 @@ export const useSettingsStore = defineStore('settings', () => {
   // State
   const settings = ref<PublicSettings>({
     manager_telegram: 'dmitriy_mityuk',
+    telegram_bot_username: '',
+    telegram_mini_app_short_name: '',
     min_delivery_amount: '0',
     min_delivery_banner_image: '',
     min_delivery_banner_button_text: 'Понятно',

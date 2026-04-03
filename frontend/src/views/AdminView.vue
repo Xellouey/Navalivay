@@ -2323,7 +2323,12 @@ function openGroupForm(group?: (CategoryGroup & { depth?: number }) | null, cate
     savedGroupModalScrollTop.value = scrollContainer.scrollTop
   }
   showGroupModal.value = false
-  editingGroup.value = group || null
+  editingGroup.value = group
+    ? {
+        ...group,
+        wholesalePrices: { ...(group.wholesalePrices || {}) },
+      }
+    : null
   showGroupFormModal.value = true
 }
 

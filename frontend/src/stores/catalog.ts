@@ -120,6 +120,9 @@ export const useCatalogStore = defineStore('catalog', () => {
   const hasMore = ref(true)
   const totalProducts = ref(0)
 
+  /** Сериализация: параллельные fetchAllProducts (initialize + loadFromStorage) давали разные снимки цен. */
+  let fetchAllProductsInFlight: Promise<void> | null = null
+
   // Кэш изображений категорий (categoryId -> base64 image)
   const categoryImageCache = ref<Map<string, string>>(new Map())
   // Кэш изображений групп (groupId -> base64 image)
@@ -475,18 +478,29 @@ export const useCatalogStore = defineStore('catalog', () => {
   }
 
   async function fetchAllProducts() {
-    try {
-      // Fetch all products without pagination or category filter for counts
-      const response = await fetch('/api/products?limit=1000&offset=0', {
-        headers: getWholesaleHeaders(),
-      })
-      if (!response.ok) throw new Error('Failed to fetch all products')
-      const data = await response.json()
-      // Обрабатываем изображения
-      allProducts.value = await processProductImages(data.products)
-    } catch (err) {
-      console.error('Error fetching all products for counts:', err)
+    if (fetchAllProductsInFlight) {
+      await fetchAllProductsInFlight
+      return
     }
+    fetchAllProductsInFlight = (async () => {
+      try {
+        const response = await fetch('/api/products?limit=1000&offset=0', {
+          headers: getWholesaleHeaders(),
+        })
+        if (!response.ok) throw new Error('Failed to fetch all products')
+        const data = await response.json()
+        allProducts.value = await processProductImages(data.products)
+        if (allProducts.value.length) {
+          const { useCartStore } = await import('./cart')
+          useCartStore().syncItemPricesFromCatalog()
+        }
+      } catch (err) {
+        console.error('Error fetching all products for counts:', err)
+      } finally {
+        fetchAllProductsInFlight = null
+      }
+    })()
+    await fetchAllProductsInFlight
   }
 
   async function fetchProduct(id: string) {

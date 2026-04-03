@@ -711,6 +711,7 @@ sqlite3 navalivay.db "SELECT p.id, p.title, g.name as group_name FROM products p
 | Order detail page | `frontend/src/views/admin/crm/CrmOrderDetail.vue` |
 | Orders list page | `frontend/src/views/admin/crm/CrmOrders.vue` |
 | Checkout page | `frontend/src/views/CheckoutView.vue` |
+| Telegram Mini App, wholesale `t.me` links | `docs/telegram-mini-app.md`, `frontend/src/utils/telegramMiniAppContext.ts` |
 | Cart store | `frontend/src/stores/cart.ts` |
 | CRM store | `frontend/src/stores/crm.ts` |
 | Admin store | `frontend/src/stores/admin.ts` |

@@ -376,9 +376,32 @@
           >
         </div>
 
-        <!-- Вне Telegram Mini App даём ввести username вручную -->
         <div
-          v-if="shouldShowManualUsernameInput"
+          v-if="shouldShowOpenInTelegramForWholesale"
+          class="user-info-card user-info-card-warning"
+        >
+          <p class="user-info-label">Откройте в Telegram</p>
+          <p class="username-warning-text">
+            Оптовый заказ оформляется только в Telegram Mini App, чтобы использовать ваш профиль и @username.
+          </p>
+          <div class="username-warning-actions">
+            <a
+              v-if="wholesaleTelegramOpenUrl"
+              :href="wholesaleTelegramOpenUrl"
+              class="username-warning-primary"
+              style="display: inline-block; text-align: center; text-decoration: none"
+            >
+              Открыть в Telegram
+            </a>
+            <p v-else class="username-warning-text" style="margin-top: 8px">
+              Задайте TELEGRAM_BOT_USERNAME на сервере или откройте ту же ссылку из чата Telegram.
+            </p>
+          </div>
+        </div>
+
+        <!-- Вне Telegram Mini App даём ввести username вручную (розница) -->
+        <div
+          v-else-if="shouldShowManualUsernameInput"
           class="user-info-card"
         >
           <p class="user-info-label">Ваши данные</p>
@@ -421,7 +444,7 @@
           @touchstart="handleSubmitTouchStart"
           @mousedown="handleSubmitMouseDown"
           @pointerdown="handleSubmitPointerDown"
-          :disabled="isSubmitting || isWholesaleSubmitBlocked"
+          :disabled="isSubmitting || isWholesaleSubmitBlocked || shouldShowOpenInTelegramForWholesale"
           class="submit-button"
           type="button"
           style="touch-action: manipulation; -webkit-tap-highlight-color: transparent;"
@@ -530,6 +553,11 @@ import {
   type CustomerActiveOrder,
 } from "@/utils/customerOrders";
 import { withTelegramAuthHeaders } from "@/utils/telegramAuth";
+import {
+  buildTelegramMiniAppOpenUrl,
+  hasTelegramMiniAppUserContext,
+  wholesalePairToStartParam,
+} from "@/utils/telegramMiniAppContext";
 
 interface TelegramMiniAppUser {
   id: number;
@@ -660,16 +688,39 @@ const canUseDelivery = computed(() => {
   );
 });
 
-const isTelegramMiniApp = computed(() => {
-  return typeof window !== "undefined" && Boolean(window.Telegram?.WebApp);
-});
+/** Подписанный initData и id пользователя (не заглушка из внешнего браузера). */
+const hasTelegramUserAuth = computed(() => hasTelegramMiniAppUserContext());
 
 const requiresTelegramUsername = computed(() => {
-  return isTelegramMiniApp.value && !verifiedTelegramUsername.value;
+  return hasTelegramUserAuth.value && !verifiedTelegramUsername.value;
+});
+
+const shouldShowOpenInTelegramForWholesale = computed(() => {
+  return wholesaleStore.isWholesale && !hasTelegramUserAuth.value;
+});
+
+const wholesaleTelegramOpenUrl = computed(() => {
+  const bot = (settingsStore.settings.telegram_bot_username || "")
+    .replace(/^@/, "")
+    .trim();
+  if (!bot || !wholesaleStore.isWholesale) {
+    return "";
+  }
+  const code = wholesaleStore.wholesaleCode;
+  const secret = wholesaleStore.wholesaleSecret;
+  if (!code || !secret) {
+    return "";
+  }
+  const sp = wholesalePairToStartParam(code, secret);
+  if (!sp) {
+    return "";
+  }
+  const short = (settingsStore.settings.telegram_mini_app_short_name || "").trim();
+  return buildTelegramMiniAppOpenUrl(bot, sp, { miniAppShortName: short || null }) || "";
 });
 
 const shouldShowManualUsernameInput = computed(() => {
-  return !isTelegramMiniApp.value;
+  return !wholesaleStore.isWholesale && !hasTelegramUserAuth.value;
 });
 
 const displayedItems = computed(() => {
@@ -1018,7 +1069,7 @@ function normalizeTelegramUsername(value: unknown): string {
 }
 
 function readTelegramUser(): TelegramMiniAppUser | null {
-  if (!isTelegramMiniApp.value) {
+  if (!hasTelegramMiniAppUserContext()) {
     return null;
   }
   return window.Telegram?.WebApp?.initDataUnsafe?.user ?? null;
@@ -1043,7 +1094,7 @@ function applyDetectedUsername(username: string | null) {
   if (normalizedUsername) {
     form.telegramUsername = normalizedUsername;
     errors.telegramUsername = "";
-  } else if (isTelegramMiniApp.value && !verifiedTelegramUsername.value) {
+  } else if (hasTelegramMiniAppUserContext() && !verifiedTelegramUsername.value) {
     form.telegramUsername = "";
   }
 
@@ -1329,6 +1380,12 @@ function validateForm(): boolean {
 
   if (isWholesaleSubmitBlocked.value) {
     submitError.value = `Для оформления нужно добрать еще ${wholesaleRemainingAmount.value.toFixed(2)} BYN`;
+    return false;
+  }
+
+  if (shouldShowOpenInTelegramForWholesale.value) {
+    submitError.value =
+      "Откройте магазин в Telegram, чтобы оформить оптовый заказ с вашим профилем.";
     return false;
   }
 

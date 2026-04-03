@@ -16,12 +16,12 @@
 
     <div class="main-content-wrapper">
       <section v-if="wholesaleStore.isWholesale" class="px-4 pt-4">
-        <div class="rounded-[24px] bg-white px-5 py-4 shadow-sm">
-          <p class="text-[11px] font-semibold uppercase tracking-[0.12em] text-red-500">Оптовый режим</p>
-          <p class="mt-2 text-base font-semibold text-gray-900">
+        <div class="wholesale-mode-card">
+          <p class="wholesale-mode-kicker">Оптовый режим</p>
+          <p class="wholesale-mode-title">
             {{ wholesaleStore.wholesaleLabel }}
           </p>
-          <p class="mt-1 text-sm text-gray-600">
+          <p class="wholesale-mode-text">
             Минимальный заказ - {{ wholesaleStore.minOrderAmount.toFixed(0) }} BYN.
             <template v-if="remainingWholesaleAmount > 0">
               Сейчас не хватает {{ remainingWholesaleAmount.toFixed(2) }} BYN.
@@ -217,7 +217,6 @@ onMounted(async () => {
 
   if (window.Telegram?.WebApp) {
     window.Telegram.WebApp.ready();
-    window.Telegram.WebApp.expand();
   }
 });
 </script>
@@ -232,6 +231,42 @@ onMounted(async () => {
 
 .banner-container {
   position: relative;
+}
+
+.wholesale-mode-card {
+  background: linear-gradient(145deg, #191919 0%, #363636 100%);
+  border-radius: 20px;
+  padding: 18px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: #ffffff;
+}
+
+.wholesale-mode-kicker {
+  margin: 0;
+  font-family: -apple-system, "SF Pro Display", sans-serif;
+  font-size: 12px;
+  line-height: 14px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.58);
+}
+
+.wholesale-mode-title {
+  margin: 0;
+  font-family: "Montserrat", sans-serif;
+  font-weight: 700;
+  font-size: 18px;
+  line-height: 22px;
+}
+
+.wholesale-mode-text {
+  margin: 0;
+  font-family: -apple-system, "SF Pro Display", sans-serif;
+  font-size: 14px;
+  line-height: 19px;
+  color: rgba(255, 255, 255, 0.78);
 }
 
 .active-order-section {

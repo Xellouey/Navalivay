@@ -56,6 +56,7 @@ export const useWholesaleStore = defineStore('wholesale', () => {
 
   const isWholesale = computed(() => Boolean(context.value))
   const wholesaleCode = computed(() => context.value?.code || '')
+  const wholesaleSecret = computed(() => context.value?.secret || '')
   const wholesaleLabel = computed(() => context.value?.label || '')
   const minOrderAmount = computed(() => Number(context.value?.minOrderAmount || 0))
 
@@ -109,6 +110,7 @@ export const useWholesaleStore = defineStore('wholesale', () => {
       }
 
       setContext(nextContext)
+
       return nextContext
     } catch (requestError: any) {
       error.value = requestError?.message || 'Не удалось открыть оптовый прайс'
@@ -191,6 +193,7 @@ export const useWholesaleStore = defineStore('wholesale', () => {
     error,
     isWholesale,
     wholesaleCode,
+    wholesaleSecret,
     wholesaleLabel,
     minOrderAmount,
     activateFromLink,

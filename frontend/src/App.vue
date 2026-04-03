@@ -32,9 +32,7 @@ const showWholesaleStatusBar = computed(() => {
 
 onMounted(() => {
   if (typeof window !== "undefined" && window.Telegram?.WebApp) {
-    const tg = window.Telegram.WebApp;
-    tg.ready();
-    tg.expand();
+    window.Telegram.WebApp.ready();
   }
 });
 </script>

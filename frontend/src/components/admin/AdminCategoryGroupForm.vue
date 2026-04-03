@@ -53,10 +53,9 @@
             <input
               :id="`wholesale-price-${tier.code}`"
               v-model="wholesalePriceInputs[tier.code]"
-              type="number"
-              min="0"
-              step="0.01"
+              type="text"
               inputmode="decimal"
+              autocomplete="off"
               class="w-full rounded-lg border border-gray-200 px-3 py-1.5 text-sm text-gray-900 focus:border-brand-dark/40 focus:ring-1 focus:ring-brand-dark/40"
               placeholder="-"
             />
@@ -303,7 +302,7 @@ const averageCostAutoLabel = computed(() => {
 
 const wholesaleFilledCount = computed(() =>
   resolvedWholesaleTiers.value.reduce((total, tier) => {
-    const raw = wholesalePriceInputs[tier.code]?.trim() || ''
+    const raw = String(wholesalePriceInputs[tier.code] ?? '').trim()
     return raw ? total + 1 : total
   }, 0),
 )
@@ -311,13 +310,6 @@ const wholesaleFilledCount = computed(() =>
 const wholesaleTierKey = computed(() =>
   resolvedWholesaleTiers.value.map((tier) => `${tier.id}:${tier.code}`).join('|'),
 )
-const editingWholesalePricesKey = computed(() => {
-  const prices = props.editingGroup?.wholesalePrices || {}
-  return Object.entries(prices)
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([code, value]) => `${code}:${value === null || value === undefined ? '' : String(value)}`)
-    .join('|')
-})
 
 function syncWholesalePriceInputs(group?: CategoryGroup | null) {
   Object.keys(wholesalePriceInputs).forEach((key) => {
@@ -334,7 +326,7 @@ function syncWholesalePriceInputs(group?: CategoryGroup | null) {
 }
 
 watch(
-  [() => props.editingGroup, wholesaleTierKey, editingWholesalePricesKey],
+  [() => props.editingGroup, wholesaleTierKey],
   ([group]) => {
     if (group) {
       form.name = group.name || ''

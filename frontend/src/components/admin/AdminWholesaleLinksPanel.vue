@@ -1,9 +1,5 @@
 <template>
   <div class="space-y-4">
-    <div class="rounded-2xl border border-violet-200/70 bg-violet-50/70 px-4 py-3 text-sm text-violet-900">
-      Здесь собраны все оптовые ссылки. В каждой карточке видно, для скольких линеек уже заполнены цены.
-    </div>
-
     <div v-if="isLoading" class="rounded-2xl border border-gray-200 bg-white px-4 py-8 text-center text-sm text-gray-500">
       Загружаем оптовые ссылки...
     </div>
@@ -33,26 +29,18 @@
           </div>
         </div>
 
-        <div class="mt-3 rounded-xl border border-gray-200 bg-gray-50 px-3 py-3">
-          <p class="break-all text-sm text-gray-700">{{ buildAbsoluteUrl(link.path) }}</p>
-        </div>
-
-        <div class="mt-3 flex flex-wrap gap-2">
+        <div class="mt-3 flex flex-col gap-1">
           <button
             type="button"
-            class="rounded-lg bg-brand-dark px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-brand-dark/90"
-            @click="copyLink(link)"
+            class="w-fit rounded-lg bg-gray-900 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-50"
+            :disabled="!buildTelegramDeepLink(link)"
+            @click="copyTelegramLink(link)"
           >
-            Скопировать
+            Скопировать ссылку
           </button>
-          <a
-            :href="buildAbsoluteUrl(link.path)"
-            target="_blank"
-            rel="noopener"
-            class="rounded-lg border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700 transition-colors hover:border-gray-400 hover:text-gray-900"
-          >
-            Открыть
-          </a>
+          <p v-if="!buildTelegramDeepLink(link)" class="text-xs text-amber-700">
+            Задайте TELEGRAM_BOT_USERNAME на сервере или проверьте путь ссылки.
+          </p>
         </div>
 
         <p v-if="link.missingGroupCount > 0" class="mt-3 text-xs text-amber-700">
@@ -64,7 +52,12 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onMounted, ref } from 'vue'
+
+import {
+  buildTelegramMiniAppOpenUrl,
+  wholesalePairToStartParam,
+} from '@/utils/telegramMiniAppContext'
 
 interface WholesaleLink {
   id: string
@@ -86,32 +79,57 @@ const props = withDefaults(defineProps<{
   isLoading: false
 })
 
+const telegramBotUsername = ref('')
+const telegramMiniAppShortName = ref('')
+
 const sortedLinks = computed(() => {
   return [...(props.links || [])].sort((left, right) => left.sortOrder - right.sortOrder)
 })
 
-function buildAbsoluteUrl(path: string | null) {
-  if (!path) {
+onMounted(async () => {
+  try {
+    const r = await fetch('/api/settings')
+    const j = await r.json()
+    telegramBotUsername.value = String(j.telegram_bot_username || '')
+      .replace(/^@/, '')
+      .trim()
+    telegramMiniAppShortName.value = String(j.telegram_mini_app_short_name || '')
+      .trim()
+      .replace(/^\/+|\/+$/g, '')
+  } catch {
+    telegramBotUsername.value = ''
+  }
+})
+
+function buildTelegramDeepLink(link: WholesaleLink): string {
+  const bot = telegramBotUsername.value
+  if (!bot || !link.path) {
     return ''
   }
-
-  if (typeof window === 'undefined') {
-    return path
+  const m = link.path.replace(/\/+$/, '').match(/^\/opt\/([^/]+)\/([^/]+)$/)
+  if (!m) {
+    return ''
   }
-
-  return new URL(path, window.location.origin).toString()
+  const sp = wholesalePairToStartParam(m[1], m[2])
+  if (!sp) {
+    return ''
+  }
+  return (
+    buildTelegramMiniAppOpenUrl(bot, sp, {
+      miniAppShortName: telegramMiniAppShortName.value || null,
+    }) || ''
+  )
 }
 
-async function copyLink(link: WholesaleLink) {
-  const text = buildAbsoluteUrl(link.path)
+async function copyTelegramLink(link: WholesaleLink) {
+  const text = buildTelegramDeepLink(link)
   if (!text) {
     return
   }
-
   try {
     await navigator.clipboard.writeText(text)
   } catch (error) {
-    console.error('[AdminWholesaleLinksPanel] Failed to copy link', error)
+    console.error('[AdminWholesaleLinksPanel] Failed to copy telegram link', error)
   }
 }
 

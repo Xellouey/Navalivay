@@ -14,6 +14,7 @@ Use it when a task touches:
 
 Related documents:
 
+- `docs/telegram-mini-app.md` (Telegram env, `/api/settings`, deep links, Mini App vs browser)
 - `docs/loyalty-rules.md`
 - `docs/promo-rules.md`
 
@@ -32,8 +33,11 @@ Related documents:
   - `frontend/src/views/AdminView.vue`
 - Customer wholesale mode:
   - `frontend/src/stores/wholesale.ts`
+  - `frontend/src/utils/telegramMiniAppContext.ts`
+  - `frontend/src/main.ts` (bootstrap + `applyTelegramWholesaleStartParam`)
   - `frontend/src/components/WholesaleStatusBar.vue`
   - `frontend/src/views/WholesaleEntryView.vue`
+  - `frontend/src/views/CheckoutView.vue` (wholesale requires real Mini App user context)
 
 ## Core Business Model
 
@@ -51,9 +55,11 @@ Related documents:
 
 ## Link Rules
 
-- Public wholesale link format:
+- Public wholesale link format (same origin):
   - `/opt/:code/:secret`
-- Entering that link activates wholesale mode in the frontend session.
+- For Telegram, the storefront may be opened with `startapp` carrying an encoded wholesale pair (see `docs/telegram-mini-app.md`). That path still ends up on `wholesale-entry` with the same `code` and `secret`.
+- Admin "copy link" for tiers produces a `t.me` mini app URL when `TELEGRAM_BOT_USERNAME` (and valid `/opt/...` path) are configured.
+- Entering that link activates wholesale mode in the frontend session **only with valid Telegram Mini App user context** (signed `initData`). In an external browser, the entry screen prompts to open Telegram instead of activating the tier.
 - When opening another wholesale link while cart is not empty or customer is editing an order, frontend asks for confirmation and clears cart/edit state only after confirmation.
 - Backend must validate both tier code and secret.
 - Invalid or incomplete wholesale links must not expose wholesale pricing.
@@ -65,7 +71,8 @@ Related documents:
 ## Pricing Rules
 
 - Wholesale price comes from `category_group_wholesale_prices`.
-- Product and variant retail prices are ignored in wholesale mode.
+- In **wholesale** mode, product and variant retail list prices are ignored for the public API: variants use the resolved wholesale **effective** unit price for the tier.
+- In **retail** mode, if a variant row has `priceRub` set and it is a finite number `> 0`, the public product APIs expose that per-variant price; otherwise the variant uses the same effective retail price as the product line (existing behavior).
 - All variants inside the same priced group use the same wholesale unit price for the active tier.
 - Average cost shown in admin is informational and auto-calculated from products in the group.
 
@@ -98,6 +105,7 @@ Related documents:
 ## Checkout Rules
 
 - Wholesale checkout uses the same order flow as retail, but with different restrictions.
+- Wholesale checkout in the customer UI is allowed only when there is a real Mini App session (`initData` + user id). Otherwise the user must open the app from Telegram.
 - The server is the final authority for:
   - wholesale price resolution
   - minimum amount validation

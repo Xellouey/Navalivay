@@ -6,20 +6,27 @@ import { createPinia } from 'pinia'
 
 import App from './App.vue'
 import router from './router'
+import { applyTelegramWholesaleStartParam } from '@/utils/telegramMiniAppContext'
 
-// Telegram WebApp initialization
-if (window.Telegram?.WebApp) {
+function initTelegramChrome() {
+  if (!window.Telegram?.WebApp) return
   const tg = window.Telegram.WebApp
   tg.ready()
-
-  if (typeof tg.expand === 'function') {
-    tg.expand()
-  }
+  // Не вызываем expand(): иначе витрина всегда на полный экран. Компактный лист как на скрине
+  // остаётся, если клиент открыл мини-приложение в обычном режиме (см. mode=compact в ссылке / BotFather).
 }
 
-const app = createApp(App)
+async function bootstrap() {
+  initTelegramChrome()
 
-app.use(createPinia())
-app.use(router)
+  const app = createApp(App)
+  app.use(createPinia())
+  app.use(router)
 
-app.mount('#app')
+  await router.isReady()
+  await applyTelegramWholesaleStartParam(router)
+
+  app.mount('#app')
+}
+
+void bootstrap()

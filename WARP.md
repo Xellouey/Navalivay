@@ -25,6 +25,8 @@ A full-featured e-commerce platform for a vape shop with:
 ### Bot (`server/bot.js`)
 - Telegram bot for notifications and integration
 - Optional production service depending on server setup
+- Uses `BASE_URL` for `web_app` buttons and default menu button; does not replace storefront URLs with `t.me` links
+- See `docs/telegram-mini-app.md` for `TELEGRAM_BOT_USERNAME`, `TELEGRAM_MINI_APP_SHORT_NAME`, and Mini App open behavior (no forced `expand()`)
 
 ## Development
 
@@ -146,6 +148,7 @@ NAVALIVAY/
 │   ├── deploy.sh      # Production deployment script
 │   ├── backup.sh      # Database backup script
 │   └── monitor.sh     # Health monitoring script
+├── deploy/            # Optional samples (e.g. systemd unit for bot)
 ├── uploads/           # User uploaded files
 └── docs/              # Documentation
 ```

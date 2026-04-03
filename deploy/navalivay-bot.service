@@ -1,0 +1,19 @@
+# На проде NAVALIVAY бот обычно в PM2 (navalivay-bot). Этот unit - запасной вариант без PM2.
+# Установка: sudo cp ... /etc/systemd/system/ && sudo systemctl enable --now navalivay-bot
+[Unit]
+Description=NAVALIVAY Telegram Bot (long polling)
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/var/www/NAVALIVAY/server
+EnvironmentFile=/var/www/NAVALIVAY/server/.env
+ExecStart=/usr/bin/node /var/www/NAVALIVAY/server/bot.js
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=navalivay-bot
+
+[Install]
+WantedBy=multi-user.target

@@ -1,5 +1,4 @@
 import express from "express";
-import fs from "fs";
 import rateLimit from "express-rate-limit";
 import { db } from "../db.js";
 import {
@@ -24,6 +23,18 @@ import {
 
 export const publicRouter = express.Router();
 
+/** Розница: цена варианта из БД, если > 0; иначе цена строки товара / опт. Опт: всегда effectivePrice. */
+function resolveVariantPublicPriceRub(variantRow, effectivePrice, isWholesaleTier) {
+  if (isWholesaleTier) {
+    return effectivePrice;
+  }
+  const raw = variantRow?.priceRub;
+  const n = raw != null && raw !== "" ? Number(raw) : NaN;
+  if (Number.isFinite(n) && n > 0) {
+    return n;
+  }
+  return effectivePrice;
+}
 
 const MAX_SQL_VARS = 900;
 const TELEGRAM_BOT_TOKEN = process.env.BOT_TOKEN || "";
@@ -1126,7 +1137,7 @@ publicRouter.get("/api/products", (req, res) => {
         const variants = variantsByProduct.get(p.id) ?? [];
         result.variants = variants.map((v) => ({
           ...v,
-          priceRub: effectivePrice,
+          priceRub: resolveVariantPublicPriceRub(v, effectivePrice, Boolean(wholesaleContext?.tier)),
           images: variantImagesByProduct.get(p.id)?.get(v.id) ?? [],
         }));
         result.images =
@@ -1264,7 +1275,7 @@ publicRouter.get("/api/product/:id", (req, res) => {
 
     result.variants = variants.map((v) => ({
       ...v,
-      priceRub: effectivePrice,
+      priceRub: resolveVariantPublicPriceRub(v, effectivePrice, Boolean(wholesaleContext?.tier)),
       images: db
         .prepare(
           "SELECT url FROM product_images WHERE productId = ? AND variant_id = ? ORDER BY position ASC",
@@ -1462,6 +1473,13 @@ publicRouter.get("/api/settings", (req, res) => {
 
     res.json({
       manager_telegram: getSettingValue("manager_telegram", "dmitriy_mityuk"),
+      telegram_bot_username: (process.env.TELEGRAM_BOT_USERNAME || "")
+        .trim()
+        .replace(/^@/, ""),
+      /** Короткое имя Mini App из @BotFather (сегмент t.me/bot/NAME/…). Пусто = только main-ссылка. */
+      telegram_mini_app_short_name: (process.env.TELEGRAM_MINI_APP_SHORT_NAME || "")
+        .trim()
+        .replace(/^\/+|\/+$/g, ""),
       // РњРёРЅРёРјР°Р»СЊРЅР°СЏ СЃСѓРјРјР° РґР»СЏ РґРѕСЃС‚Р°РІРєРё
       min_delivery_amount: getSettingValue("min_delivery_amount", "0"),
       min_delivery_banner_image: getSettingValue(
@@ -1493,6 +1511,8 @@ publicRouter.get("/api/settings", (req, res) => {
     // Р’РѕР·РІСЂР°С‰Р°РµРј РґРµС„РѕР»С‚РЅС‹Рµ Р·РЅР°С‡РµРЅРёСЏ РІ СЃР»СѓС‡Р°Рµ РѕС€РёР±РєРё
     res.json({
       manager_telegram: "dmitriy_mityuk",
+      telegram_bot_username: "",
+      telegram_mini_app_short_name: "",
       min_delivery_amount: "0",
       min_delivery_banner_image: "",
       min_delivery_banner_button_text: "Понятно",

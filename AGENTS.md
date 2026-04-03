@@ -24,6 +24,8 @@ Read these when the task touches the matching area:
   - wholesale link access and tier logic
   - category group wholesale pricing
   - wholesale storefront and checkout restrictions
+- `docs/telegram-mini-app.md`
+  - Telegram env vars, `/api/settings`, compact mode, wholesale `t.me` links, bot menu button
 - `docs/timezone-rules.md`
   - all business date/time logic
   - Minsk timezone rules for frontend and backend
