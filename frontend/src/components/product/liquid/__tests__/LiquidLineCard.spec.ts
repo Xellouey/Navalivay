@@ -52,7 +52,9 @@ describe("LiquidLineCard", () => {
       },
     });
 
-    expect(wrapper.find(".liquid-line-price").text()).toBe("15 BYN");
+    expect(wrapper.find(".liquid-line-image-price").exists()).toBe(true);
+    expect(wrapper.find(".liquid-line-image-price-amount").text()).toBe("15");
+    expect(wrapper.find(".liquid-line-image-price-currency").text()).toBe("BYN");
   });
 
   it("does not show a price for a parent line with subgroups", () => {
@@ -76,6 +78,6 @@ describe("LiquidLineCard", () => {
       },
     });
 
-    expect(wrapper.find(".liquid-line-price").exists()).toBe(false);
+    expect(wrapper.find(".liquid-line-image-price").exists()).toBe(false);
   });
 });

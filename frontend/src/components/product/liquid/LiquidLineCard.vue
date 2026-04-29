@@ -26,19 +26,14 @@
               <path d="M21 15l-5-5L5 21" />
             </svg>
           </div>
+          <p v-if="minPriceLabel" class="liquid-line-image-price">
+            <span class="liquid-line-image-price-amount">{{ minPriceLabel }}</span>
+            <span class="liquid-line-image-price-currency">BYN</span>
+          </p>
         </div>
         <div class="liquid-line-info">
           <h3 class="liquid-line-title">{{ title }}</h3>
           <p v-if="metaText" class="liquid-line-meta">{{ metaText }}</p>
-          <p v-if="minPriceLabel" class="liquid-line-price">
-            {{ minPriceLabel }} BYN
-          </p>
-          <div
-            v-if="!expanded && totalProductCount > 0"
-            class="liquid-line-count-badge"
-          >
-            <span>Ещё {{ totalProductCount }}</span>
-          </div>
         </div>
       </div>
       <div class="liquid-line-side">
@@ -909,6 +904,10 @@ function closeColorPreview() {
 
 .liquid-line-image-wrapper {
   flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
 }
 
 .liquid-line-image {
@@ -933,6 +932,28 @@ function closeColorPreview() {
 
 .liquid-line-image-placeholder {
   background: #fafafa;
+}
+
+.liquid-line-image-price {
+  margin: 0;
+  display: inline-flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 4px;
+  font-family: "Montserrat", sans-serif;
+  font-style: normal;
+  font-weight: 700;
+  font-size: 16px;
+  line-height: 20px;
+  white-space: nowrap;
+}
+
+.liquid-line-image-price-amount {
+  color: var(--navalivay-red, #d32f2f);
+}
+
+.liquid-line-image-price-currency {
+  color: #191919;
 }
 
 .liquid-line-info {
@@ -964,41 +985,6 @@ function closeColorPreview() {
   font-weight: 500;
   font-size: 14.4px;
   line-height: 17.3px;
-  color: #aab2bd;
-}
-
-.liquid-line-price {
-  margin: 0;
-  font-family: "Montserrat", sans-serif;
-  font-style: normal;
-  font-weight: 700;
-  font-size: 16px;
-  line-height: 20px;
-  color: #191919;
-}
-
-.liquid-line-count-badge {
-  display: inline-flex;
-  align-self: flex-start;
-  flex-direction: row;
-  justify-content: center;
-  align-items: center;
-  padding: 10px 8px;
-  background: #f5f7fa;
-  border-radius: 24px;
-  box-sizing: border-box;
-}
-
-.liquid-line-count-badge span {
-  font-family:
-    "SF Pro Display",
-    -apple-system,
-    BlinkMacSystemFont,
-    sans-serif;
-  font-style: normal;
-  font-weight: 400;
-  font-size: 12px;
-  line-height: 14px;
   color: #aab2bd;
 }
 
@@ -1454,7 +1440,7 @@ function closeColorPreview() {
     line-height: 20px;
   }
 
-  .liquid-line-price {
+  .liquid-line-image-price {
     font-size: 16px;
     line-height: 20px;
   }
@@ -1462,15 +1448,6 @@ function closeColorPreview() {
   .liquid-subline-title {
     font-size: 16px;
     line-height: 20px;
-  }
-
-  .liquid-line-count-badge {
-    padding: 10px 8px;
-  }
-
-  .liquid-line-count-badge span {
-    font-size: 12px;
-    line-height: 14px;
   }
 
   .liquid-line-toggle {
@@ -1561,7 +1538,7 @@ function closeColorPreview() {
     line-height: 20px;
   }
 
-  .liquid-line-price {
+  .liquid-line-image-price {
     font-size: 16px;
     line-height: 20px;
   }
@@ -1569,15 +1546,6 @@ function closeColorPreview() {
   .liquid-subline-title {
     font-size: 16px;
     line-height: 20px;
-  }
-
-  .liquid-line-count-badge {
-    padding: 10px 8px;
-  }
-
-  .liquid-line-count-badge span {
-    font-size: 12px;
-    line-height: 14px;
   }
 
   .liquid-line-toggle {
@@ -1693,23 +1661,14 @@ function closeColorPreview() {
     line-height: 20px;
   }
 
-  .liquid-line-price {
-    font-size: 16px;
-    line-height: 20px;
+  .liquid-line-image-price {
+    font-size: 15px;
+    line-height: 19px;
   }
 
   .liquid-subline-title {
     font-size: 15px;
     line-height: 19px;
-  }
-
-  .liquid-line-count-badge {
-    padding: 10px 8px;
-  }
-
-  .liquid-line-count-badge span {
-    font-size: 12px;
-    line-height: 14px;
   }
 
   .liquid-line-toggle {
@@ -1836,9 +1795,9 @@ function closeColorPreview() {
     line-height: 19px;
   }
 
-  .liquid-line-price {
-    font-size: 15px;
-    line-height: 19px;
+  .liquid-line-image-price {
+    font-size: 14px;
+    line-height: 18px;
   }
 
   .liquid-subline-title {
@@ -1846,14 +1805,6 @@ function closeColorPreview() {
     line-height: 18px;
   }
 
-  .liquid-line-count-badge {
-    padding: 8px 6px;
-  }
-
-  .liquid-line-count-badge span {
-    font-size: 11px;
-    line-height: 13px;
-  }
 
   .liquid-line-toggle {
     width: 36px;

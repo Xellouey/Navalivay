@@ -27,20 +27,15 @@
               <path d="M21 15l-5-5L5 21" />
             </svg>
           </span>
+          <span v-if="firstProductPrice" class="group-line-image-price">
+            <span class="group-line-image-price-amount">{{ formatPrice(firstProductPrice) }}</span>
+            <span class="group-line-image-price-currency">BYN</span>
+          </span>
         </span>
 
         <span class="group-line-info">
           <span class="group-line-title">{{ node.name }}</span>
           <span v-if="metaText" class="group-line-meta">{{ metaText }}</span>
-          <span v-if="firstProductPrice" class="group-line-price">
-            {{ formatPrice(firstProductPrice) }} BYN
-          </span>
-          <span
-            v-if="!isExpanded && totalProductCount > 0"
-            class="group-line-count-badge"
-          >
-            <span>Ещё {{ totalProductCount }}</span>
-          </span>
         </span>
       </span>
 
@@ -366,6 +361,10 @@ onBeforeUnmount(() => {
 
 .group-line-image-wrapper {
   flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
 }
 
 .group-line-image {
@@ -392,6 +391,27 @@ onBeforeUnmount(() => {
   background: #fafafa;
 }
 
+.group-line-image-price {
+  display: inline-flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 4px;
+  font-family: "Montserrat", sans-serif;
+  font-style: normal;
+  font-weight: 700;
+  font-size: 16px;
+  line-height: 20px;
+  white-space: nowrap;
+}
+
+.group-line-image-price-amount {
+  color: var(--navalivay-red, #d32f2f);
+}
+
+.group-line-image-price-currency {
+  color: #191919;
+}
+
 .group-line-info {
   display: flex;
   flex-direction: column;
@@ -401,8 +421,7 @@ onBeforeUnmount(() => {
 }
 
 .group-line-title,
-.group-line-meta,
-.group-line-price {
+.group-line-meta {
   display: block;
   margin: 0;
 }
@@ -426,40 +445,6 @@ onBeforeUnmount(() => {
   font-weight: 500;
   font-size: 14.4px;
   line-height: 17.3px;
-  color: #aab2bd;
-}
-
-.group-line-price {
-  font-family: "Montserrat", sans-serif;
-  font-style: normal;
-  font-weight: 700;
-  font-size: 16px;
-  line-height: 20px;
-  color: #191919;
-}
-
-.group-line-count-badge {
-  display: inline-flex;
-  align-self: flex-start;
-  flex-direction: row;
-  justify-content: center;
-  align-items: center;
-  padding: 10px 8px;
-  gap: 10px;
-  background: #f5f7fa;
-  border-radius: 24px;
-}
-
-.group-line-count-badge span {
-  font-family:
-    "SF Pro Display",
-    -apple-system,
-    BlinkMacSystemFont,
-    sans-serif;
-  font-style: normal;
-  font-weight: 400;
-  font-size: 12px;
-  line-height: 14px;
   color: #aab2bd;
 }
 
@@ -538,7 +523,7 @@ onBeforeUnmount(() => {
     line-height: 20px;
   }
 
-  .group-line-price {
+  .group-line-image-price {
     font-size: 16px;
     line-height: 20px;
   }
@@ -598,18 +583,9 @@ onBeforeUnmount(() => {
     line-height: 20px;
   }
 
-  .group-line-price {
-    font-size: 16px;
-    line-height: 20px;
-  }
-
-  .group-line-count-badge {
-    padding: 10px 8px;
-  }
-
-  .group-line-count-badge span {
-    font-size: 12px;
-    line-height: 14px;
+  .group-line-image-price {
+    font-size: 15px;
+    line-height: 19px;
   }
 
   .group-line-toggle {
@@ -658,18 +634,9 @@ onBeforeUnmount(() => {
     line-height: 20px;
   }
 
-  .group-line-price {
-    font-size: 16px;
-    line-height: 20px;
-  }
-
-  .group-line-count-badge {
-    padding: 10px 8px;
-  }
-
-  .group-line-count-badge span {
-    font-size: 12px;
-    line-height: 14px;
+  .group-line-image-price {
+    font-size: 14px;
+    line-height: 18px;
   }
 
   .group-line-toggle {
@@ -718,18 +685,9 @@ onBeforeUnmount(() => {
     line-height: 19px;
   }
 
-  .group-line-price {
-    font-size: 15px;
-    line-height: 19px;
-  }
-
-  .group-line-count-badge {
-    padding: 8px 6px;
-  }
-
-  .group-line-count-badge span {
-    font-size: 11px;
-    line-height: 13px;
+  .group-line-image-price {
+    font-size: 13px;
+    line-height: 17px;
   }
 
   .group-line-toggle {

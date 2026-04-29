@@ -226,15 +226,15 @@
               </div>
             </div>
             <div class="product-card-body">
+              <p class="product-card-price">
+                <span class="product-card-price-amount">{{ formatPrice(product.priceRub) }}</span>
+                <span class="product-card-price-currency">BYN</span>
+              </p>
               <p class="product-card-title">
                 {{ product.title || "Без названия" }}
               </p>
               <p v-if="product.variant" class="product-card-variant">
                 {{ product.variant }}
-              </p>
-              <p class="product-card-price">
-                {{ formatPrice(product.priceRub)
-                }}<span class="text-base ml-1">BYN</span>
               </p>
             </div>
           </div>
@@ -1512,10 +1512,20 @@ watch(
 }
 
 .product-card-price {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.25rem;
   font-size: 1.1rem;
   font-weight: 900;
-  color: var(--navalivay-red);
   letter-spacing: 0.05em;
+}
+
+.product-card-price-amount {
+  color: var(--navalivay-red);
+}
+
+.product-card-price-currency {
+  color: var(--navalivay-black);
 }
 
 /* Cart Button Styles */

@@ -23,6 +23,10 @@
             <path d="M21 15l-5-5L5 21" />
           </svg>
         </div>
+        <p class="single-product-image-price">
+          <span class="single-product-image-price-amount">{{ formattedPrice }}</span>
+          <span class="single-product-image-price-currency">BYN</span>
+        </p>
       </div>
 
       <!-- Информация о товаре -->
@@ -33,7 +37,6 @@
         <p v-if="product.description" class="single-product-description">
           {{ product.description }}
         </p>
-        <p class="single-product-price">{{ formattedPrice }} BYN</p>
       </div>
     </div>
 
@@ -170,6 +173,10 @@ const isAtStockLimit = computed(() => {
 /* Изображение товара */
 .single-product-image-wrapper {
   flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
 }
 
 .single-product-image {
@@ -194,6 +201,28 @@ const isAtStockLimit = computed(() => {
 
 .single-product-image-placeholder {
   background: #fafafa;
+}
+
+.single-product-image-price {
+  margin: 0;
+  display: inline-flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 4px;
+  font-family: "Montserrat", sans-serif;
+  font-style: normal;
+  font-weight: 700;
+  font-size: 16px;
+  line-height: 20px;
+  white-space: nowrap;
+}
+
+.single-product-image-price-amount {
+  color: var(--navalivay-red, #d32f2f);
+}
+
+.single-product-image-price-currency {
+  color: #191919;
 }
 
 /* Информация о товаре */
@@ -227,16 +256,6 @@ const isAtStockLimit = computed(() => {
   font-size: 14.4px;
   line-height: 17.3px;
   color: #aab2bd;
-}
-
-.single-product-price {
-  margin: 0;
-  font-family: "Montserrat", sans-serif;
-  font-style: normal;
-  font-weight: 700;
-  font-size: 16px;
-  line-height: 20px;
-  color: #191919;
 }
 
 /* Кнопки действий */
@@ -332,7 +351,7 @@ const isAtStockLimit = computed(() => {
     font-size: 16px;
   }
 
-  .single-product-price {
+  .single-product-image-price {
     font-size: 16px;
   }
 
@@ -384,9 +403,9 @@ const isAtStockLimit = computed(() => {
     font-size: 14.4px;
   }
 
-  .single-product-price {
-    font-size: 16px;
-    line-height: 20px;
+  .single-product-image-price {
+    font-size: 15px;
+    line-height: 19px;
   }
 
   .single-product-actions {
@@ -446,9 +465,9 @@ const isAtStockLimit = computed(() => {
     font-size: 14.4px;
   }
 
-  .single-product-price {
-    font-size: 16px;
-    line-height: 20px;
+  .single-product-image-price {
+    font-size: 14px;
+    line-height: 18px;
   }
 
   .single-product-actions {
@@ -504,9 +523,9 @@ const isAtStockLimit = computed(() => {
     font-size: 14.4px;
   }
 
-  .single-product-price {
-    font-size: 15px;
-    line-height: 19px;
+  .single-product-image-price {
+    font-size: 13px;
+    line-height: 17px;
   }
 
   .single-product-actions {
