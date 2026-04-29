@@ -109,13 +109,6 @@
         </button>
       </div>
     </Transition>
-    <LoyaltyBonusPopup
-      v-if="!wholesaleStore.isWholesale"
-      :open="showLoyaltyPopup"
-      :categories="loyaltyStore.availableCategories"
-      @close="showLoyaltyPopup = false"
-      @open-profile="openProfileFromPopup"
-    />
   </div>
 </template>
 
@@ -125,11 +118,9 @@ import { useRouter } from "vue-router";
 
 import { useCatalogStore, type Category } from "@/stores/catalog";
 import { useCartStore } from "@/stores/cart";
-import { useLoyaltyStore } from "@/stores/loyalty";
 import { useWholesaleStore } from "@/stores/wholesale";
 import SmokeParticles from "@/components/SmokeParticles.vue";
 import BannerCarousel from "@/components/BannerCarousel.vue";
-import LoyaltyBonusPopup from "@/components/LoyaltyBonusPopup.vue";
 import {
   fetchMyActiveOrder,
   getTelegramIdentity,
@@ -138,11 +129,9 @@ import {
 
 const catalogStore = useCatalogStore();
 const cartStore = useCartStore();
-const loyaltyStore = useLoyaltyStore();
 const wholesaleStore = useWholesaleStore();
 const router = useRouter();
 const activeOrder = ref<CustomerActiveOrder | null>(null);
-const showLoyaltyPopup = ref(false);
 
 const PLACEHOLDER_IMAGE = "/placeholder-category.png";
 
@@ -179,13 +168,7 @@ function goToCheckout() {
   router.push("/checkout");
 }
 
-async function openProfileFromPopup() {
-  showLoyaltyPopup.value = false;
-  await router.push("/profile");
-}
-
 async function refreshHomeState() {
-  showLoyaltyPopup.value = false;
   await catalogStore.initialize();
 
   if (!cartStore.editingOrderId) {
@@ -197,18 +180,6 @@ async function refreshHomeState() {
     }
   } else {
     activeOrder.value = null;
-  }
-
-  if (!wholesaleStore.isWholesale) {
-    try {
-      await loyaltyStore.fetchSnapshot(getTelegramIdentity());
-      if (loyaltyStore.canShowAvailableBonusPopup()) {
-        loyaltyStore.markPopupSeen();
-        showLoyaltyPopup.value = true;
-      }
-    } catch (error) {
-      console.warn("[Home] Failed to fetch loyalty snapshot", error);
-    }
   }
 }
 
