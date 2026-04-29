@@ -419,10 +419,12 @@ export interface DashboardStats {
   topProducts: Array<{
     group_id: string;
     group_name: string;
+    cover_image: string | null;
     total_quantity: number;
     total_revenue: number;
     total_profit: number;
   }>;
+  topProductsHasMore?: boolean;
   ordersByStatus: Array<{
     status: string;
     count: number;
@@ -782,13 +784,40 @@ export const useCrmStore = defineStore("crm", () => {
   const loadingDashboard = ref(false);
 
   async function fetchDashboard(
-    period: "today" | "week" | "month" | "year" = "today",
+    period: "today" | "week" | "month" | "year" | "custom" = "today",
     offset: number = 0,
+    options: {
+      from?: string;          // YYYY-MM-DD, нужен только при period === 'custom'
+      to?: string;            // YYYY-MM-DD, нужен только при period === 'custom'
+      topSort?: "profit" | "quantity";
+      topLimit?: number;
+      topSearch?: string;
+    } = {},
   ) {
+    // Для произвольного периода без обеих границ — не делаем запрос.
+    // Backend всё равно вернёт 400, и это бы зашумляло UX (мигание ошибки при инициализации).
+    if (period === "custom" && (!options.from || !options.to)) {
+      return;
+    }
+
     loadingDashboard.value = true;
     try {
+      const params = new URLSearchParams({
+        period,
+        offset: String(offset),
+      });
+      if (period === "custom") {
+        params.append("from", options.from!);
+        params.append("to", options.to!);
+      }
+      if (options.topSort) params.append("top_sort", options.topSort);
+      if (options.topLimit !== undefined) {
+        params.append("top_limit", String(options.topLimit));
+      }
+      if (options.topSearch) params.append("top_search", options.topSearch);
+
       dashboardStats.value = await fetchAPI<DashboardStats>(
-        `${API_BASE}/dashboard?period=${period}&offset=${offset}`,
+        `${API_BASE}/dashboard?${params.toString()}`,
       );
     } finally {
       loadingDashboard.value = false;

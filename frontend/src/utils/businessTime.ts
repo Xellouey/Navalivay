@@ -6,7 +6,7 @@ export type BusinessDateParts = {
   day: number;
 };
 
-export type BusinessPeriod = "today" | "week" | "month" | "year";
+export type BusinessPeriod = "today" | "week" | "month" | "year" | "custom";
 
 const datePartsFormatterCache = new Map<string, Intl.DateTimeFormat>();
 const displayFormatterCache = new Map<string, Intl.DateTimeFormat>();
@@ -166,7 +166,12 @@ export function formatBusinessPeriodLabel(
     );
   }
 
-  return String(today.year + offset);
+  if (period === "year") {
+    return String(today.year + offset);
+  }
+
+  // 'custom' выводит сам компонент, потому что знает диапазон. Возвращаем плейсхолдер.
+  return "произвольный";
 }
 
 export function formatBusinessPeriodTitle(

@@ -117,9 +117,40 @@
                         </button>
                       </div>
 
+                      <!-- Произвольный диапазон дат -->
+                      <div v-if="overviewPeriod === 'custom'" class="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3" role="group" aria-label="Произвольный диапазон дат">
+                        <label class="flex items-center gap-2 text-xs font-semibold text-white/80">
+                          <span>с</span>
+                          <input
+                            v-model="customRangeFrom"
+                            type="date"
+                            :max="customRangeTo || undefined"
+                            aria-label="Начало диапазона"
+                            class="rounded-lg bg-white/10 px-3 py-1.5 text-xs text-white placeholder-white/50 backdrop-blur-sm border border-white/20 focus:border-white/60 focus:outline-none"
+                          />
+                        </label>
+                        <label class="flex items-center gap-2 text-xs font-semibold text-white/80">
+                          <span>по</span>
+                          <input
+                            v-model="customRangeTo"
+                            type="date"
+                            :min="customRangeFrom || undefined"
+                            aria-label="Конец диапазона"
+                            class="rounded-lg bg-white/10 px-3 py-1.5 text-xs text-white placeholder-white/50 backdrop-blur-sm border border-white/20 focus:border-white/60 focus:outline-none"
+                          />
+                        </label>
+                        <span v-if="!isCustomRangeReady" class="text-[10px] uppercase tracking-wide text-white/50">
+                          выберите обе даты
+                        </span>
+                      </div>
+
                       <!-- Chart Area -->
                       <div class="flex-1 rounded-2xl bg-white/5 backdrop-blur-sm p-4 sm:p-5 border border-white/10">
-                        <div v-if="loadingTimeseries" class="flex flex-col items-center justify-center h-64 gap-4">
+                        <div v-if="overviewPeriod === 'custom'" class="flex flex-col items-center justify-center h-64 gap-2 text-center">
+                          <p class="text-sm text-white/70 font-medium">График по дням для произвольного диапазона пока недоступен</p>
+                          <p class="text-[11px] text-white/40">Сводные показатели справа учитывают выбранный диапазон корректно</p>
+                        </div>
+                        <div v-else-if="loadingTimeseries" class="flex flex-col items-center justify-center h-64 gap-4">
                           <div class="h-10 w-10 animate-spin rounded-full border-3 border-white/30 border-t-white"></div>
                           <p class="text-xs text-white/60 font-medium animate-pulse">Загрузка графика...</p>
                         </div>
@@ -241,8 +272,9 @@
                         </div>
                       </div>
 
-                      <!-- Navigation -->
-                      <div class="flex items-center justify-center gap-3 text-xs font-semibold uppercase tracking-wider text-white/90">
+                      <!-- Navigation: для произвольного диапазона стрелки скрываем —
+                           вместо них уже есть два инпута дат сверху -->
+                      <div v-if="overviewPeriod !== 'custom'" class="flex items-center justify-center gap-3 text-xs font-semibold uppercase tracking-wider text-white/90">
                         <button
                           @click="prevOverviewRange"
                           class="rounded-lg bg-white/15 border border-white/20 px-3 py-1.5 hover:bg-white/25 transition"
@@ -273,13 +305,46 @@
                   <div class="card-base relative overflow-hidden rounded-3xl border border-red-100/60 bg-white p-6 shadow-lg">
                     <div class="flex flex-col items-start gap-4 sm:flex-row sm:items-start sm:justify-between">
                       <div>
-                        <h3 class="text-lg font-semibold text-gray-900">Топ линеек по прибыли</h3>
+                        <h3 class="text-lg font-semibold text-gray-900">
+                          {{ topGroupsSort === 'quantity' ? 'Топ линеек по продажам' : 'Топ линеек по прибыли' }}
+                        </h3>
                         <p class="mt-1 text-xs text-gray-400">Если линеек меньше пяти, отображаются только доступные</p>
                       </div>
                       <span v-if="topGroups.length" class="rounded-full bg-brand-primary/20 px-3 py-1 text-xs font-semibold text-brand-dark">
                         {{ topGroups.length }}
                       </span>
                     </div>
+
+                    <div class="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                      <div class="inline-flex rounded-xl bg-gray-100 p-1 text-xs font-semibold" role="group" aria-label="Сортировка топ-линеек">
+                        <button
+                          type="button"
+                          class="rounded-lg px-3 py-1.5 transition"
+                          :class="topGroupsSort === 'profit' ? 'bg-white text-brand-dark shadow' : 'text-gray-500 hover:text-gray-700'"
+                          :aria-pressed="topGroupsSort === 'profit'"
+                          @click="topGroupsSort = 'profit'"
+                        >
+                          По прибыли
+                        </button>
+                        <button
+                          type="button"
+                          class="rounded-lg px-3 py-1.5 transition"
+                          :class="topGroupsSort === 'quantity' ? 'bg-white text-brand-dark shadow' : 'text-gray-500 hover:text-gray-700'"
+                          :aria-pressed="topGroupsSort === 'quantity'"
+                          @click="topGroupsSort = 'quantity'"
+                        >
+                          По количеству
+                        </button>
+                      </div>
+                      <input
+                        v-model="topGroupsSearch"
+                        type="search"
+                        placeholder="Поиск по названию линейки…"
+                        aria-label="Поиск по названию линейки"
+                        class="w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700 transition focus:border-brand-primary focus:outline-none focus:ring-2 focus:ring-brand-primary/30 sm:max-w-xs"
+                      />
+                    </div>
+
                     <div v-if="topGroups.length" class="mt-6 space-y-4">
                       <div
                         v-for="(group, index) in topGroups"
@@ -287,29 +352,51 @@
                         class="relative overflow-hidden rounded-2xl border border-gray-200/70 bg-white/90 p-4 shadow-sm transition hover:-translate-y-1 hover:shadow-md"
                       >
                         <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-                          <div>
-                            <p class="text-xs font-semibold uppercase tracking-[0.3em] text-brand-dark/70">№{{ index + 1 }}</p>
-                            <p class="mt-1 text-base font-semibold text-gray-900">
-                              {{ group.group_name || 'Без названия' }}
-                            </p>
-                            <p class="text-xs text-gray-500">Продано: {{ group.total_quantity }} шт</p>
+                          <div class="flex items-center gap-3 min-w-0">
+                            <div class="flex h-12 w-12 flex-shrink-0 items-center justify-center overflow-hidden rounded-xl border border-gray-200 bg-gray-50">
+                              <img
+                                v-if="group.cover_image"
+                                :src="group.cover_image"
+                                :alt="group.group_name || ''"
+                                class="h-full w-full object-cover"
+                                loading="lazy"
+                              />
+                              <PhotoIcon v-else class="h-6 w-6 text-gray-300" />
+                            </div>
+                            <div class="min-w-0">
+                              <p class="text-xs font-semibold uppercase tracking-[0.3em] text-brand-dark/70">№{{ index + 1 }}</p>
+                              <p class="mt-1 truncate text-base font-semibold text-gray-900">
+                                {{ group.group_name || 'Без названия' }}
+                              </p>
+                              <p class="text-xs text-gray-500">Продано: {{ group.total_quantity }} шт</p>
+                            </div>
                           </div>
-<div class="flex items-center gap-2">
-  <p class="text-lg font-semibold text-brand-dark" title="Прибыль">
-    {{ formatCurrency(group.total_profit ?? 0) }}
-  </p>
-</div>
+                          <div class="flex items-center gap-2">
+                            <p class="text-lg font-semibold text-brand-dark" title="Прибыль">
+                              {{ formatCurrency(group.total_profit ?? 0) }}
+                            </p>
+                          </div>
                         </div>
                         <div class="mt-4 h-2 w-full rounded-full bg-gray-100">
                           <div
                             class="h-full rounded-full bg-gradient-to-r from-brand-dark via-red-500 to-brand-primary"
-:style="{ width: `${Math.min(100, Math.max(0, topGroupsMaxProfit ? (((group.total_profit ?? 0) / topGroupsMaxProfit) * 100) : 0))}%` }"
+                            :style="{ width: `${Math.min(100, Math.max(0, topGroupsMaxValue ? ((Number(topGroupsSort === 'quantity' ? group.total_quantity : group.total_profit) || 0) / topGroupsMaxValue) * 100 : 0))}%` }"
                           ></div>
                         </div>
                       </div>
+
+                      <button
+                        v-if="topGroupsHasMore || topGroupsExpanded"
+                        type="button"
+                        class="w-full rounded-2xl border border-dashed border-gray-200 bg-gray-50 px-4 py-3 text-sm font-semibold text-brand-dark transition hover:border-brand-primary hover:bg-brand-primary/5"
+                        :aria-expanded="topGroupsExpanded"
+                        @click="topGroupsExpanded = !topGroupsExpanded"
+                      >
+                        {{ topGroupsExpanded ? 'Свернуть до топ-5' : 'Показать весь список' }}
+                      </button>
                     </div>
                     <div v-else class="mt-6 rounded-2xl border border-dashed border-gray-200 bg-gray-50 px-6 py-8 text-center text-sm text-gray-500">
-                      Нет данных по продажам за выбранный период.
+                      {{ topGroupsSearch ? 'Ничего не найдено по этому запросу.' : 'Нет данных по продажам за выбранный период.' }}
                     </div>
                   </div>
 
@@ -431,7 +518,28 @@
           </template>
 
           <template v-else-if="activeTab === 'products'">
-            <div class="space-y-6">
+            <div v-if="!profitUnlocked" class="flex justify-center py-12">
+              <div class="w-full max-w-sm rounded-2xl bg-white p-6 shadow">
+                <h3 class="text-lg font-semibold text-gray-900 text-center mb-3">Введите код доступа</h3>
+                <form class="space-y-4" @submit.prevent="handleProfitUnlocked">
+                  <input
+                    v-model="profitPassword"
+                    type="password"
+                    class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-brand-dark focus:outline-none focus:ring-2 focus:ring-brand-dark/20"
+                    placeholder="Пароль"
+                  />
+                  <p v-if="profitError" class="text-sm text-red-600">{{ profitError }}</p>
+                  <button
+                    type="submit"
+                    class="w-full rounded-lg bg-brand-dark px-4 py-2 text-sm font-semibold text-white hover:bg-brand-dark/90 disabled:cursor-not-allowed disabled:bg-brand-dark/60"
+                    :disabled="verifyingProfit"
+                  >
+                    {{ verifyingProfit ? 'Проверяем…' : 'Войти' }}
+                  </button>
+                </form>
+              </div>
+            </div>
+            <div v-else class="space-y-6">
               <AdminProductsTable
                 :products="adminProductsForTable"
                 :categories="adminStore.categories || []"
@@ -1101,7 +1209,7 @@ import CashierLockScreen from '@/components/admin/CashierLockScreen.vue'
 import CountUp from '@/components/CountUp.vue'
 import CountUpCurrency from '@/components/CountUpCurrency.vue'
 import { adminTabs, crmLinks, adminTabOptions, type AdminTabId } from '@/constants/adminNavigation'
-import { formatBusinessPeriodLabel, formatBusinessPeriodTitle, getBusinessYear } from '@/utils/businessTime'
+import { formatBusinessDate, formatBusinessPeriodLabel, formatBusinessPeriodTitle, getBusinessYear } from '@/utils/businessTime'
 
 const router = useRouter()
 const route = useRoute()
@@ -1117,13 +1225,54 @@ const isLocked = ref(false)
 const overviewPeriods = [
   { value: 'today', label: 'за день' },
   { value: 'month', label: 'за месяц' },
-  { value: 'year', label: 'за год' }
+  { value: 'year', label: 'за год' },
+  { value: 'custom', label: 'произвольный' }
 ] as const
 type OverviewPeriod = typeof overviewPeriods[number]['value']
 const overviewPeriod = ref<OverviewPeriod>('year')
 const selectedMetric = ref<'revenue' | 'profit' | 'orders'>('profit')
 const overviewOffset = ref(0)
+// Произвольный диапазон (используется когда overviewPeriod === 'custom')
+const customRangeFrom = ref<string>('')
+const customRangeTo = ref<string>('')
+// Параметры блока «Топ линеек»
+const topGroupsSort = ref<'profit' | 'quantity'>('profit')
+const topGroupsSearch = ref<string>('')
+const topGroupsSearchDebounced = ref<string>('') // что реально уходит в backend
+const topGroupsExpanded = ref<boolean>(false)
+const TOP_GROUPS_DEFAULT_LIMIT = 5
+const TOP_GROUPS_EXPANDED_LIMIT = 1000
 const activeOverviewLabel = computed(() => overviewPeriods.find(option => option.value === overviewPeriod.value)?.label || '')
+const isCustomRangeReady = computed(() => Boolean(customRangeFrom.value && customRangeTo.value))
+
+// Debounce ввода поиска по топ-линейкам — чтобы не дёргать backend на каждый символ
+let topGroupsSearchDebounceTimer: ReturnType<typeof setTimeout> | null = null
+watch(topGroupsSearch, (value) => {
+  if (topGroupsSearchDebounceTimer !== null) {
+    clearTimeout(topGroupsSearchDebounceTimer)
+  }
+  topGroupsSearchDebounceTimer = setTimeout(() => {
+    topGroupsSearchDebounced.value = value
+  }, 300)
+})
+
+// Сброс expanded при смене периода — иначе после прыжка из expanded year в month
+// получаем неконсистентное «1000 строк за этот месяц» (которых там может не быть)
+watch(overviewPeriod, () => {
+  topGroupsExpanded.value = false
+})
+
+// Текущее состояние UI блока топ-линеек (используется во ВСЕХ вызовах fetchDashboard,
+// чтобы не было рассинхронизации, когда дашборд перезагружается из побочных мест)
+function currentDashboardOptions() {
+  return {
+    from: overviewPeriod.value === 'custom' ? customRangeFrom.value : undefined,
+    to: overviewPeriod.value === 'custom' ? customRangeTo.value : undefined,
+    topSort: topGroupsSort.value,
+    topLimit: topGroupsExpanded.value ? TOP_GROUPS_EXPANDED_LIMIT : TOP_GROUPS_DEFAULT_LIMIT,
+    topSearch: topGroupsSearchDebounced.value || undefined,
+  } as const
+}
 
 // Вычисляемый год на основе offset (для периода 'year')
 const currentYearForView = computed(() => {
@@ -1311,7 +1460,7 @@ async function ensureTabData(tab: AdminTabId) {
 
     const success = await runDataLoaders([{
       key: 'dashboard',
-      loader: () => crmStore.fetchDashboard(overviewPeriod.value, overviewOffset.value)
+      loader: () => crmStore.fetchDashboard(overviewPeriod.value, overviewOffset.value, currentDashboardOptions())
     }])
 
     if (!success) {
@@ -1339,6 +1488,9 @@ async function ensureTabData(tab: AdminTabId) {
   }
 
   if (tab === 'products') {
+    if (!profitUnlocked.value) {
+      return
+    }
     // Всегда обновляем данные товаров при входе в раздел, чтобы остатки были актуальными
     const page = adminStore.productsPagination?.page ?? 1
     const limit = adminStore.productsPagination?.limit ?? 10
@@ -1365,18 +1517,18 @@ async function ensureTabData(tab: AdminTabId) {
 async function loadInitialAdminData() {
   const loaders: Array<{ key: DataSliceKey; loader: () => Promise<unknown> }> = [
     { key: 'banners', loader: () => adminStore.fetchBanners() },
-    { key: 'products', loader: () => adminStore.fetchProducts({ page: 1, limit: 10 }) },
     { key: 'settings', loader: () => adminStore.fetchSettings() }
   ]
 
   if (profitUnlocked.value) {
     loaders.push(
       { key: 'categories', loader: () => adminStore.fetchCategories() },
-      { key: 'categoryGroups', loader: () => adminStore.fetchCategoryGroups() }
+      { key: 'categoryGroups', loader: () => adminStore.fetchCategoryGroups() },
+      { key: 'products', loader: () => adminStore.fetchProducts({ page: 1, limit: 10 }) }
     )
     loaders.push({
       key: 'dashboard',
-      loader: () => crmStore.fetchDashboard(overviewPeriod.value, overviewOffset.value)
+      loader: () => crmStore.fetchDashboard(overviewPeriod.value, overviewOffset.value, currentDashboardOptions())
     })
   }
 
@@ -1512,6 +1664,11 @@ const stats = computed(() => ({
 // Метрики вычисляются из детализированных данных графика
 // Это гарантирует 100% синхронизацию между карточками и графиком
 const overviewStats = computed(() => {
+  // Для произвольного диапазона timeseries не строим (бэк его не умеет), и
+  // fallback на agregated stats обязателен — иначе карточки покажут не тот период.
+  if (overviewPeriod.value === 'custom') {
+    return dashboardStats.value?.stats ?? null
+  }
   // Приоритет: детализированные данные (timeseries)
   if (dashboardTimeseries.value && dashboardTimeseries.value.length > 0) {
     // Суммируем данные из точек графика
@@ -1583,22 +1740,22 @@ const overviewStatuses = computed(() => {
   }))
 })
 const topGroups = computed(() => {
-  const groups = (dashboardStats.value?.topProducts ?? []).slice(0, 5)
-  if (groups.length > 0) {
-    console.log('[Dashboard] 🏆 Лучшие линейки:', {
-      'Количество': groups.length,
-      'Пример': groups[0],
-      'Есть total_profit': groups[0]?.total_profit !== undefined
-    })
-  }
-  return groups
+  // Backend уже возвращает нужное количество с учётом топ-limit, сортировки и поиска.
+  return dashboardStats.value?.topProducts ?? []
+})
+
+// Бэкенд возвращает honest флаг: запрашивает на 1 строку больше limit и сообщает наличие хвоста.
+const topGroupsHasMore = computed(() => {
+  if (topGroupsExpanded.value) return false
+  return Boolean(dashboardStats.value?.topProductsHasMore)
 })
 const overviewStatusTotal = computed(() => overviewStatuses.value.reduce((sum, status) => sum + (status.count ?? 0), 0))
 
-// Максимальная прибыль среди топ-линеек
-const topGroupsMaxProfit = computed(() => {
-  const profits = topGroups.value.map((g: any) => Number(g?.total_profit ?? 0))
-  return profits.length ? Math.max(...profits) : 0
+// Максимальное значение по выбранной метрике сортировки — для шкалы прогресс-бара
+const topGroupsMaxValue = computed(() => {
+  const field = topGroupsSort.value === 'quantity' ? 'total_quantity' : 'total_profit'
+  const values = topGroups.value.map((g: any) => Number(g?.[field] ?? 0))
+  return values.length ? Math.max(...values) : 0
 })
 
 const groupCounts = computed<Record<string, number>>(() => {
@@ -1683,7 +1840,22 @@ const currentMonthName = computed(() => {
   return ''
 })
 
+function formatCustomRangeBoundary(iso: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso)
+  if (!m) return iso
+  return formatBusinessDate(
+    { year: +m[1], month: +m[2], day: +m[3] },
+    { day: '2-digit', month: 'long', year: 'numeric' },
+  )
+}
+
 const dashboardHeader = computed(() => {
+  if (overviewPeriod.value === 'custom') {
+    if (customRangeFrom.value && customRangeTo.value) {
+      return `Показатели: ${formatCustomRangeBoundary(customRangeFrom.value)} — ${formatCustomRangeBoundary(customRangeTo.value)}`
+    }
+    return 'Показатели за выбранный диапазон'
+  }
   const periodMap: Record<string, string> = {
     today: 'Показатели за день',
     month: 'Показатели за текущий месяц',
@@ -1736,7 +1908,7 @@ function handleOverviewClick(tabId: 'banners' | 'categories' | 'products' | 'set
   activeTab.value = tabId
 }
 
-watch([overviewPeriod, overviewOffset, profitUnlocked], async ([p, off, unlocked]) => {
+watch([overviewPeriod, overviewOffset, profitUnlocked, customRangeFrom, customRangeTo, topGroupsSort, topGroupsSearchDebounced, topGroupsExpanded], async ([p, off, unlocked]) => {
   if (!adminStore.isAuthenticated) {
     return
   }
@@ -1744,20 +1916,31 @@ watch([overviewPeriod, overviewOffset, profitUnlocked], async ([p, off, unlocked
     dataLoaded.dashboard = false
     return
   }
-  
+
+  // Для произвольного периода ждём, пока обе границы заполнены
+  if (p === 'custom' && !isCustomRangeReady.value) {
+    return
+  }
+
   console.log(`[Dashboard] 🔄 Загрузка данных: period=${p}, offset=${off}`)
-  
+
   try {
     // Загружаем сводные показатели
-    await crmStore.fetchDashboard(p as any, off as number)
-    // Всегда загружаем детализированные данные для графика
-    try {
-      const yearForApi = p === 'year' ? currentYearForView.value : undefined
-      await crmStore.fetchDashboardTimeseries(p as any, off as number, yearForApi)
-      console.log(`[Dashboard] ✅ Данные успешно загружены из API`)
-    } catch (timeseriesError) {
-      console.error('❌ Failed to load timeseries:', timeseriesError)
-      // Не показываем ошибку пользователю, просто оставляем пустой график
+    await crmStore.fetchDashboard(p as any, off as number, currentDashboardOptions())
+    if (p === 'custom') {
+      // Бэкенд timeseries не умеет произвольный диапазон — обнуляем массив,
+      // чтобы overviewStats упал на агрегированные данные dashboardStats.stats
+      dashboardTimeseries.value = []
+    } else {
+      // Загружаем детализированные данные для графика
+      try {
+        const yearForApi = p === 'year' ? currentYearForView.value : undefined
+        await crmStore.fetchDashboardTimeseries(p as 'today' | 'month' | 'year', off as number, yearForApi)
+        console.log(`[Dashboard] ✅ Данные успешно загружены из API`)
+      } catch (timeseriesError) {
+        console.error('❌ Failed to load timeseries:', timeseriesError)
+        // Не показываем ошибку пользователю, просто оставляем пустой график
+      }
     }
     dataLoaded.dashboard = true
   } catch (error) {
@@ -1783,15 +1966,24 @@ function closeProfitModal() {
 async function loadDataAfterProfitUnlock() {
   const tab = activeTab.value
   if (tab === 'dashboard') {
-    await crmStore.fetchDashboard(overviewPeriod.value, overviewOffset.value)
-    try {
-      await crmStore.fetchDashboardTimeseries(
-        overviewPeriod.value,
-        overviewOffset.value,
-        overviewPeriod.value === 'year' ? currentYearForView.value : undefined
-      )
-    } catch (e) {
-      console.error('Timeseries load failed:', e)
+    // Если выбран custom без обеих границ — не считаем dashboard загруженным:
+    // watcher на customRangeFrom/customRangeTo догрузит данные сразу как юзер выберет диапазон
+    if (overviewPeriod.value === 'custom' && !isCustomRangeReady.value) {
+      return
+    }
+    await crmStore.fetchDashboard(overviewPeriod.value, overviewOffset.value, currentDashboardOptions())
+    if (overviewPeriod.value === 'custom') {
+      dashboardTimeseries.value = []
+    } else {
+      try {
+        await crmStore.fetchDashboardTimeseries(
+          overviewPeriod.value as 'today' | 'month' | 'year',
+          overviewOffset.value,
+          overviewPeriod.value === 'year' ? currentYearForView.value : undefined
+        )
+      } catch (e) {
+        console.error('Timeseries load failed:', e)
+      }
     }
     dataLoaded.dashboard = true
     return
@@ -1809,6 +2001,23 @@ async function loadDataAfterProfitUnlock() {
       if (!success) {
         showToast('Не удалось загрузить категории. Попробуйте ещё раз.', 'error', 5000)
       }
+    }
+  }
+  if (tab === 'products') {
+    const page = adminStore.productsPagination?.page ?? 1
+    const limit = adminStore.productsPagination?.limit ?? 10
+    const productLoaders: Array<{ key: DataSliceKey; loader: () => Promise<unknown> }> = [
+      { key: 'products', loader: () => adminStore.fetchProducts({ page, limit }) }
+    ]
+    if (!dataLoaded.categories) {
+      productLoaders.push({ key: 'categories', loader: () => adminStore.fetchCategories() })
+    }
+    if (!dataLoaded.categoryGroups) {
+      productLoaders.push({ key: 'categoryGroups', loader: () => adminStore.fetchCategoryGroups() })
+    }
+    const success = await runDataLoaders(productLoaders)
+    if (!success) {
+      showToast('Не удалось загрузить товары. Попробуйте ещё раз.', 'error', 5000)
     }
   }
 }
@@ -2653,6 +2862,12 @@ onMounted(async () => {
 onUnmounted(() => {
   // Останавливаем polling при выходе из админки
   crmStore.stopPolling()
+  // Чистим debounce-таймер поиска по топ-линейкам, чтобы callback
+  // не выполнился на размонтированном компоненте
+  if (topGroupsSearchDebounceTimer !== null) {
+    clearTimeout(topGroupsSearchDebounceTimer)
+    topGroupsSearchDebounceTimer = null
+  }
 })
 
 watch(() => adminStore.isAuthenticated, async (loggedIn, wasLoggedIn) => {

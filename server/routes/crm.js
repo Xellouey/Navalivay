@@ -32,8 +32,37 @@ crmRouter.get('/api/admin/crm/dashboard', authMiddleware, (req, res) => {
     const { period = 'today' } = req.query;
     const offset = Number(req.query.offset || 0) || 0;
 
-    const { start, end } = getBusinessPeriodRange(period, offset);
-    
+    // Произвольный диапазон дат (period=custom): from/to в формате YYYY-MM-DD.
+    // Парсим строго как business-tz даты, чтобы границы суток совпадали с
+    // остальными ветками (иначе UTC-смещение режет/добавляет ~3 часа).
+    let start, end;
+    const ISO_DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
+    if (period === 'custom') {
+      const m1 = ISO_DATE.exec(String(req.query.from || ''));
+      const m2 = ISO_DATE.exec(String(req.query.to || ''));
+      if (!m1 || !m2) {
+        return res.status(400).json({ error: 'invalid_custom_range', message: 'from/to must be YYYY-MM-DD' });
+      }
+      const fromRange = getBusinessCalendarDayRange(+m1[1], +m1[2], +m1[3]);
+      const toRange = getBusinessCalendarDayRange(+m2[1], +m2[2], +m2[3]);
+      if (fromRange.start.getTime() >= toRange.end.getTime()) {
+        return res.status(400).json({ error: 'invalid_custom_range', message: 'from must be earlier than to' });
+      }
+      start = fromRange.start;
+      // toRange.end — это уже начало (to+1)-го дня (exclusive), что нам и нужно
+      end = toRange.end;
+    } else {
+      ({ start, end } = getBusinessPeriodRange(period, offset));
+    }
+
+    // Параметры топ-линеек
+    const topSort = req.query.top_sort === 'quantity' ? 'quantity' : 'profit';
+    const topLimitRaw = Number(req.query.top_limit ?? 5);
+    const topLimit = Number.isFinite(topLimitRaw) ? Math.min(Math.max(Math.trunc(topLimitRaw), 1), 1000) : 5;
+    // Эскейпим LIKE-метасимволы, чтобы поиск по «5_unit» / «100%» не превращался в wildcard
+    const rawTopSearch = typeof req.query.top_search === 'string' ? req.query.top_search.trim() : '';
+    const topSearch = rawTopSearch.replace(/[\\%_]/g, (ch) => '\\' + ch);
+
     // Функция для форматирования даты в SQLite-совместимый формат (YYYY-MM-DD HH:MM:SS)
     function toSqliteDate(date) {
       return toSqliteUtcString(date);
@@ -78,7 +107,10 @@ crmRouter.get('/api/admin/crm/dashboard', authMiddleware, (req, res) => {
     };
 
     // Топ линейки (category groups) - по дате ОПЛАТЫ (paid_at)
-    const topProducts = db.prepare(`
+    // Whitelist для ORDER BY (защита от SQL-инъекции через top_sort)
+    const topOrderBy = topSort === 'quantity' ? 'total_quantity DESC' : 'total_profit DESC';
+    // Запрашиваем на 1 строку больше, чтобы понимать «есть ли ещё» без второго запроса
+    const topRowsRaw = db.prepare(`
       WITH order_totals AS (
         SELECT order_id, SUM(total_price) AS items_subtotal
         FROM order_items
@@ -91,6 +123,7 @@ crmRouter.get('/api/admin/crm/dashboard', authMiddleware, (req, res) => {
           oi.total_cost AS total_cost,
           COALESCE(g.id, 'no_group') AS group_id,
           COALESCE(g.name, 'Без линейки') AS group_name,
+          g.cover_image AS cover_image,
           CASE
             WHEN COALESCE(ot.items_subtotal, 0) > 0
             THEN (COALESCE(ot.items_subtotal, 0) - COALESCE(o.final_amount, ot.items_subtotal)) / COALESCE(ot.items_subtotal, 0)
@@ -105,17 +138,21 @@ crmRouter.get('/api/admin/crm/dashboard', authMiddleware, (req, res) => {
           AND o.paid_at IS NOT NULL
           AND ${paidAtFilter}
       )
-      SELECT 
+      SELECT
         group_id,
         group_name,
+        MAX(cover_image) AS cover_image,
         SUM(quantity) as total_quantity,
         SUM(total_price - (total_price * order_discount_ratio)) as total_revenue,
         SUM((total_price - (total_price * order_discount_ratio)) - total_cost) as total_profit
       FROM item_totals
+      WHERE (? = '' OR LOWER(group_name) LIKE '%' || LOWER(?) || '%' ESCAPE '\\')
       GROUP BY group_id, group_name
-      ORDER BY total_profit DESC
-      LIMIT 5
-    `).all();
+      ORDER BY ${topOrderBy}
+      LIMIT ?
+    `).all(topSearch, topSearch, topLimit + 1);
+    const topProductsHasMore = topRowsRaw.length > topLimit;
+    const topProducts = topRowsRaw.slice(0, topLimit);
 
     // Статистика по статусам заказов - по дате СОЗДАНИЯ
     const ordersByStatus = db.prepare(`
@@ -161,6 +198,7 @@ crmRouter.get('/api/admin/crm/dashboard', authMiddleware, (req, res) => {
         uniqueCustomers: combinedStats.unique_customers || 0
       },
       topProducts,
+      topProductsHasMore,
       ordersByStatus,
       deliveryStats: {
         deliveries: deliveryStats?.deliveries || 0,
