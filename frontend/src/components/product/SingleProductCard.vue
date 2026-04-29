@@ -353,6 +353,7 @@ const isAtStockLimit = computed(() => {
 
   .single-product-image-price {
     font-size: 16px;
+    line-height: 20px;
   }
 
   .single-qty-btn {
