@@ -1932,7 +1932,14 @@ crmOperationsRouter.get(
       SELECT pi.*,
              CASE WHEN pv.name IS NOT NULL THEN p.title || ' (' || pv.name || ')' ELSE p.title END as product_title,
              p.stock, p.min_stock, cg.name as group_name,
-             pv.name as variant_name, pv.stock as variant_stock
+             pv.name as variant_name, pv.stock as variant_stock,
+             COALESCE(
+               (SELECT url FROM product_images WHERE productId = pi.product_id AND variant_id = pi.variant_id ORDER BY position LIMIT 1),
+               (SELECT url FROM product_images WHERE productId = pi.product_id AND variant_id IS NULL ORDER BY position LIMIT 1),
+               (SELECT url FROM product_images WHERE productId = pi.product_id ORDER BY position LIMIT 1),
+               cg.cover_image,
+               (SELECT cover_image FROM categories WHERE id = p.categoryId)
+             ) as product_image
       FROM procurement_items pi
       JOIN products p ON p.id = pi.product_id
       LEFT JOIN category_groups cg ON cg.id = p.groupId
@@ -2044,7 +2051,14 @@ crmOperationsRouter.post(
       SELECT pi.*,
              CASE WHEN pv.name IS NOT NULL THEN p.title || ' (' || pv.name || ')' ELSE p.title END as product_title,
              cg.name as group_name,
-             pv.name as variant_name
+             pv.name as variant_name,
+             COALESCE(
+               (SELECT url FROM product_images WHERE productId = pi.product_id AND variant_id = pi.variant_id ORDER BY position LIMIT 1),
+               (SELECT url FROM product_images WHERE productId = pi.product_id AND variant_id IS NULL ORDER BY position LIMIT 1),
+               (SELECT url FROM product_images WHERE productId = pi.product_id ORDER BY position LIMIT 1),
+               cg.cover_image,
+               (SELECT cover_image FROM categories WHERE id = p.categoryId)
+             ) as product_image
       FROM procurement_items pi
       JOIN products p ON p.id = pi.product_id
       LEFT JOIN category_groups cg ON cg.id = p.groupId
@@ -2182,7 +2196,14 @@ crmOperationsRouter.patch(
       SELECT pi.*,
              CASE WHEN pv.name IS NOT NULL THEN p.title || ' (' || pv.name || ')' ELSE p.title END as product_title,
              p.stock, p.min_stock, cg.name as group_name,
-             pv.name as variant_name, pv.stock as variant_stock
+             pv.name as variant_name, pv.stock as variant_stock,
+             COALESCE(
+               (SELECT url FROM product_images WHERE productId = pi.product_id AND variant_id = pi.variant_id ORDER BY position LIMIT 1),
+               (SELECT url FROM product_images WHERE productId = pi.product_id AND variant_id IS NULL ORDER BY position LIMIT 1),
+               (SELECT url FROM product_images WHERE productId = pi.product_id ORDER BY position LIMIT 1),
+               cg.cover_image,
+               (SELECT cover_image FROM categories WHERE id = p.categoryId)
+             ) as product_image
       FROM procurement_items pi
       JOIN products p ON p.id = pi.product_id
       LEFT JOIN category_groups cg ON cg.id = p.groupId
