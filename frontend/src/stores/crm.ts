@@ -439,6 +439,21 @@ export interface DashboardStats {
   };
 }
 
+/**
+ * Маркер ошибки авторизации. Бросается из fetchAPI при 401.
+ * Caller'ы могут проверить через `error instanceof UnauthorizedError`.
+ * Поддерживает `cause` (ErrorOptions) — стандартный паттерн ES2022.
+ */
+export class UnauthorizedError extends Error {
+  constructor(message = "Unauthorized", options?: ErrorOptions) {
+    super(message, options);
+    this.name = "UnauthorizedError";
+  }
+}
+
+// TODO: при появлении ролевой модели (manager/cashier) — рассмотреть отдельную
+// обработку 403 (Forbidden). Сейчас на бэке используется только 401 для всех
+// auth-сценариев, поэтому отдельная ветка не нужна.
 async function fetchAPI<T>(
   endpoint: string,
   options?: RequestInit,
@@ -452,11 +467,25 @@ async function fetchAPI<T>(
     },
   });
 
-  // Обработка 401 - перенаправление на админ логин
+  // Обработка 401: реактивно сбрасываем auth-state — AdminView через
+  // <CashierLockScreen v-if="!isAuthenticated"> сам перерисуется на lock-screen.
+  // Никакого window.location.reload — это вызывало бесконечный цикл, когда
+  // незалогиненный пользователь открывал /admin (CashierLockScreen в onMounted
+  // звал защищённый /api/admin/pos/pending → 401 → reload → снова /admin → ...).
   if (response.status === 401) {
-    console.warn("[CRM] Unauthorized - redirecting to login");
-    window.location.href = "/admin";
-    throw new Error("Unauthorized");
+    // Динамический импорт, чтобы не создавать циклическую зависимость stores.
+    try {
+      const { useAdminStore } = await import("./admin");
+      const adminStore = useAdminStore();
+      // Идемпотентность: при N параллельных 401 не плодим лишних logout-операций
+      // (важно если когда-нибудь logout станет реально асинхронным с side-effects).
+      if (adminStore.isAuthenticated) {
+        await adminStore.logout();
+      }
+    } catch (logoutError) {
+      console.warn("[CRM] Failed to clear admin state on 401:", logoutError);
+    }
+    throw new UnauthorizedError();
   }
 
   if (!response.ok) {
