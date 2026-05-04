@@ -335,53 +335,9 @@ const productsWithoutVariants = computed(() =>
   props.products.filter((p) => !p.hasVariants),
 );
 
-const productNames = computed(() =>
-  props.products.map((p) => p.title.toUpperCase()),
-);
-const badgeLabel = computed(() => (props.badge || "").trim() || null);
-const badgeStyle = computed(() =>
-  props.badgeColor ? { backgroundColor: props.badgeColor } : undefined,
-);
-
-const countLabel = computed(() => {
-  // Если есть подгруппы, показываем их названия
-  if (props.subgroups && props.subgroups.length > 0) {
-    const maxVisible = 3;
-    const subgroupNames = props.subgroups.map((sg) => sg.name.toUpperCase());
-
-    if (subgroupNames.length <= maxVisible) {
-      return subgroupNames.join("\n");
-    } else {
-      const visible = subgroupNames.slice(0, maxVisible);
-      const remaining = subgroupNames.length - maxVisible;
-      return visible.join("\n") + `\nи еще ${remaining} других...`;
-    }
-  }
-
-  // Иначе ничего не показываем
-  return "";
-});
-
 const coverUrl = computed(
   () => props.coverImage || catalogStore.getGroupImage(props.groupId) || props.fallbackImage,
 );
-
-// Общее количество товаров для бейджа "Ещё N"
-const totalProductCount = computed(() => {
-  let count = props.products.length;
-  // Добавляем товары из подгрупп
-  if (props.subgroups && props.subgroups.length > 0) {
-    props.subgroups.forEach((subgroup) => {
-      count += subgroup.productCount ?? 0;
-    });
-  }
-  return count;
-});
-
-const summaryPreview = computed(() => {
-  // summaryPreview больше не используется, всегда показываем countLabel
-  return [];
-});
 
 const minPriceLabel = computed(() => {
   if (props.subgroups && props.subgroups.length > 0) return null;
@@ -1539,8 +1495,8 @@ function closeColorPreview() {
   }
 
   .liquid-line-image-price {
-    font-size: 16px;
-    line-height: 20px;
+    font-size: 15px;
+    line-height: 19px;
   }
 
   .liquid-subline-title {
@@ -1662,8 +1618,8 @@ function closeColorPreview() {
   }
 
   .liquid-line-image-price {
-    font-size: 15px;
-    line-height: 19px;
+    font-size: 14px;
+    line-height: 18px;
   }
 
   .liquid-subline-title {
@@ -1796,8 +1752,8 @@ function closeColorPreview() {
   }
 
   .liquid-line-image-price {
-    font-size: 14px;
-    line-height: 18px;
+    font-size: 13px;
+    line-height: 17px;
   }
 
   .liquid-subline-title {
