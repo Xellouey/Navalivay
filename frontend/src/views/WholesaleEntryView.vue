@@ -72,6 +72,7 @@ import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 import { useCartStore } from '@/stores/cart'
+import { useCatalogStore } from '@/stores/catalog'
 import { useSettingsStore } from '@/stores/settings'
 import { useWholesaleStore } from '@/stores/wholesale'
 import {
@@ -83,6 +84,7 @@ import {
 const route = useRoute()
 const router = useRouter()
 const cartStore = useCartStore()
+const catalogStore = useCatalogStore()
 const wholesaleStore = useWholesaleStore()
 const settingsStore = useSettingsStore()
 
@@ -143,6 +145,7 @@ onMounted(async () => {
     }
 
     await wholesaleStore.activateFromLink(code, secret)
+    await catalogStore.fetchAllProducts({ force: true })
 
     await router.replace('/')
   } catch (error: any) {

@@ -120,8 +120,14 @@ export const useCatalogStore = defineStore('catalog', () => {
   const hasMore = ref(true)
   const totalProducts = ref(0)
 
-  /** Сериализация: параллельные fetchAllProducts (initialize + loadFromStorage) давали разные снимки цен. */
-  let fetchAllProductsInFlight: Promise<void> | null = null
+  /**
+   * Полный список товаров: дедуп по ключу опта (розница vs code:secret).
+   * Связка гонки с оптом: cart.loadFromStorage в setup WholesaleEntry до activateFromLink
+   * может запустить fetch без заголовков опта; поколение fetchAllProductsLatestGen отбрасывает
+   * ответ такого запроса, если уже стартовала более новая загрузка (например с оптом).
+   */
+  let fetchAllProductsLatestGen = 0
+  const fetchAllProductsInFlight = new Map<string, Promise<void>>()
 
   // Кэш изображений категорий (categoryId -> base64 image)
   const categoryImageCache = ref<Map<string, string>>(new Map())
@@ -134,6 +140,13 @@ export const useCatalogStore = defineStore('catalog', () => {
   function getWholesaleHeaders(): Record<string, string> {
     const wholesaleStore = useWholesaleStore()
     return wholesaleStore.buildHeaders()
+  }
+
+  function getAllProductsFetchKey(): string {
+    const h = getWholesaleHeaders()
+    const code = h['x-wholesale-code'] || ''
+    const secret = h['x-wholesale-secret'] || ''
+    return code && secret ? `${code}:${secret}` : '__retail__'
   }
 
   // Computed
@@ -477,19 +490,30 @@ export const useCatalogStore = defineStore('catalog', () => {
     })
   }
 
-  async function fetchAllProducts() {
-    if (fetchAllProductsInFlight) {
-      await fetchAllProductsInFlight
-      return
+  async function fetchAllProducts(options?: { force?: boolean }) {
+    const key = getAllProductsFetchKey()
+    if (!options?.force) {
+      const existing = fetchAllProductsInFlight.get(key)
+      if (existing) {
+        await existing
+        return
+      }
+    } else {
+      fetchAllProductsInFlight.delete(key)
     }
-    fetchAllProductsInFlight = (async () => {
+
+    const myGen = ++fetchAllProductsLatestGen
+
+    const promise = (async () => {
       try {
         const response = await fetch('/api/products?limit=1000&offset=0', {
           headers: getWholesaleHeaders(),
         })
         if (!response.ok) throw new Error('Failed to fetch all products')
         const data = await response.json()
-        allProducts.value = await processProductImages(data.products)
+        const processed = await processProductImages(data.products)
+        if (myGen !== fetchAllProductsLatestGen) return
+        allProducts.value = processed
         if (allProducts.value.length) {
           const { useCartStore } = await import('./cart')
           useCartStore().syncItemPricesFromCatalog()
@@ -497,10 +521,14 @@ export const useCatalogStore = defineStore('catalog', () => {
       } catch (err) {
         console.error('Error fetching all products for counts:', err)
       } finally {
-        fetchAllProductsInFlight = null
+        if (fetchAllProductsInFlight.get(key) === promise) {
+          fetchAllProductsInFlight.delete(key)
+        }
       }
     })()
-    await fetchAllProductsInFlight
+
+    fetchAllProductsInFlight.set(key, promise)
+    await promise
   }
 
   async function fetchProduct(id: string) {

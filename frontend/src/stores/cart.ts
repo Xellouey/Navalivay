@@ -2,7 +2,9 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import type { Product } from './catalog'
 import { useCatalogStore } from './catalog'
+import { useWholesaleStore } from './wholesale'
 import type { CustomerOrderItem } from '@/utils/customerOrders'
+import { hasTelegramMiniAppUserContext } from '@/utils/telegramMiniAppContext'
 
 export interface CartItem {
   productId: string
@@ -71,10 +73,27 @@ export const useCartStore = defineStore('cart', () => {
       if (stored) {
         const loadedItems = JSON.parse(stored)
         const catalogStore = useCatalogStore()
-        
-        // Ensure catalog is loaded
+        const wholesaleStore = useWholesaleStore()
+
+        // На /opt/... корзина инициализируется до onMounted WholesaleEntry; не дергаем
+        // полный каталог без опта, пока activateFromLink не выставил контекст (иначе розничный снимок).
         if (!catalogStore.allProducts.length) {
-          await catalogStore.fetchAllProducts()
+          const path =
+            typeof window !== 'undefined' ? (window.location.pathname.split('?')[0] || '') : ''
+          const onWholesaleEntryPath = /^\/opt\/[^/]+\/[^/]+\/?$/.test(path)
+          if (
+            onWholesaleEntryPath
+            && hasTelegramMiniAppUserContext()
+            && !wholesaleStore.isWholesale
+          ) {
+            const deadline = Date.now() + 12000
+            while (!wholesaleStore.isWholesale && Date.now() < deadline) {
+              await new Promise((r) => setTimeout(r, 40))
+            }
+          }
+          if (!catalogStore.allProducts.length) {
+            await catalogStore.fetchAllProducts()
+          }
         }
         
         // Migrate old items
