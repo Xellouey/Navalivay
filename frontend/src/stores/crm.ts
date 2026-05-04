@@ -423,6 +423,15 @@ export interface PosSale {
   notes: string | null;
   employee_id: string | null;
   employee_name?: string | null;
+  // Привязанный клиент (после миграции add_pos_customer_link).
+  // Null если чек анонимный.
+  customer_id?: string | null;
+  // Поля приходят из LEFT JOIN customers в GET /api/admin/pos/pending —
+  // используются для отображения клиента в списке отложенных чеков.
+  customer_first_name?: string | null;
+  customer_last_name?: string | null;
+  customer_phone?: string | null;
+  customer_telegram_username?: string | null;
   created_at: string;
   completed_at: string | null;
 }
@@ -1083,6 +1092,40 @@ export const useCrmStore = defineStore("crm", () => {
         body: JSON.stringify({ unblock_reason: unblock_reason ?? null }),
       },
     );
+  }
+
+  // ===== POS-клиенты (касса): поиск, создание/merge, история покупок =====
+
+  async function searchCustomersForPos(q: string, limit = 20) {
+    if (!q || !q.trim()) return [] as Customer[];
+    const params = new URLSearchParams({ q: q.trim(), limit: String(limit) });
+    const result = await fetchAPI<{ items: Customer[] }>(
+      `${API_BASE}/customers/search?${params.toString()}`,
+    );
+    return result.items;
+  }
+
+  async function createPosCustomer(payload: { name: string; phone: string }) {
+    return fetchAPI<{ ok: true; customer: Customer; merged: boolean }>(
+      `${API_BASE}/pos-customers`,
+      { method: "POST", body: JSON.stringify(payload) },
+    );
+  }
+
+  async function fetchCustomerPurchaseHistory(customerId: string, limit = 50) {
+    const params = new URLSearchParams({ limit: String(limit) });
+    const result = await fetchAPI<{
+      items: Array<{
+        id: string;
+        source: "order" | "pos";
+        number: number | null;
+        amount: number;
+        status: string;
+        created_at: string;
+        completed_at: string | null;
+      }>;
+    }>(`${API_BASE}/customers/${customerId}/purchases?${params.toString()}`);
+    return result.items;
   }
 
   async function deleteCustomer(id: string) {
@@ -1856,6 +1899,7 @@ export const useCrmStore = defineStore("crm", () => {
     cost_price?: number | null;
     notes?: string;
     employee_id?: string;
+    customer_id?: string | null;
   }) {
     const sale = await fetchAPI<PosSale>('/api/admin/pos/sales', {
       method: 'POST',
@@ -2262,6 +2306,11 @@ export const useCrmStore = defineStore("crm", () => {
     fetchCustomerBlocksList,
     createCustomerBlock,
     removeCustomerBlock,
+
+    // POS-клиенты (касса)
+    searchCustomersForPos,
+    createPosCustomer,
+    fetchCustomerPurchaseHistory,
 
     // Customer Feedbacks
     customerFeedbacks,

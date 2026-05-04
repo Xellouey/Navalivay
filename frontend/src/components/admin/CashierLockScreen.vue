@@ -127,6 +127,14 @@
                   <div class="flex-1 min-w-0">
                     <p class="text-sm font-medium text-gray-900 truncate">{{ sale.product_name }}</p>
                     <p class="text-xs text-gray-500">{{ formatPrice(sale.price) }} ₽</p>
+                    <!-- Привязанный клиент чека (если был выбран при откладывании) -->
+                    <p
+                      v-if="sale.customer_id"
+                      class="mt-0.5 text-xs text-blue-600 truncate"
+                      :title="sale.customer_phone || ''"
+                    >
+                      👤 {{ formatPendingSaleCustomer(sale) }}
+                    </p>
                   </div>
                   <button
                     @click="openCompletePendingModal(sale)"
@@ -141,7 +149,7 @@
         </div>
       </div>
 
-      <!-- Right sidebar - Search (hidden password input) -->
+      <!-- Right sidebar - Search (hidden password input) + клиент чека -->
       <div class="w-80 bg-white border-l border-gray-200 flex flex-col">
         <div class="p-4 border-b border-gray-200">
           <label class="block text-sm font-medium text-gray-700 mb-2">Поиск по товарам</label>
@@ -163,8 +171,9 @@
           <p v-if="isVerifying" class="mt-2 text-xs text-gray-500">Поиск...</p>
         </div>
 
-        <!-- Sidebar content placeholder -->
-        <div class="flex-1 p-4">
+        <!-- Блок «Клиент чека» — поиск + создание + история. -->
+        <div class="flex-1 p-4 overflow-y-auto">
+          <PosCustomerPanel v-model="selectedCustomer" />
         </div>
       </div>
 
@@ -221,7 +230,8 @@
 import { ref, computed, onMounted, nextTick } from 'vue'
 import { MagnifyingGlassIcon, ExclamationTriangleIcon, CheckCircleIcon } from '@heroicons/vue/24/outline'
 import { useAdminStore } from '@/stores/admin'
-import { useCrmStore, type PosSale } from '@/stores/crm'
+import { useCrmStore, type PosSale, type Customer } from '@/stores/crm'
+import PosCustomerPanel from '@/components/admin/PosCustomerPanel.vue'
 
 const emit = defineEmits<{
   (e: 'unlocked'): void
@@ -244,6 +254,11 @@ const isVerifying = ref(false)
 const isSubmitting = ref(false)
 const successMessage = ref('')
 const errorMessage = ref('')
+
+// Клиент чека (опционально). Сбрасывается после успешного проведения,
+// но сохраняется при «отложить чек» — продавец может вернуться к этому
+// клиенту позже через дозаполнение.
+const selectedCustomer = ref<Customer | null>(null)
 
 const form = ref({
   productName: '',
@@ -289,6 +304,21 @@ function formatDate(date: Date): string {
 
 function formatPrice(price: number): string {
   return price.toLocaleString('ru-RU', { minimumFractionDigits: 0, maximumFractionDigits: 2 })
+}
+
+/**
+ * Краткое отображение клиента чека: ФИО или @username, либо телефон
+ * как fallback. Используется в списке отложенных чеков.
+ */
+function formatPendingSaleCustomer(sale: PosSale): string {
+  const name = [sale.customer_first_name, sale.customer_last_name]
+    .filter(Boolean)
+    .join(' ')
+    .trim()
+  if (name) return name
+  if (sale.customer_telegram_username) return `@${sale.customer_telegram_username}`
+  if (sale.customer_phone) return sale.customer_phone
+  return 'Без имени'
 }
 
 function focusPrice() {
@@ -351,11 +381,15 @@ async function submitSale() {
     await crmStore.createPosSale({
       product_name: form.value.productName.trim(),
       price: Number(form.value.price),
-      cost_price: costPrice
+      cost_price: costPrice,
+      customer_id: selectedCustomer.value?.id ?? null,
     })
-    
+
     successMessage.value = 'Чек проведен!'
     clearForm()
+    // Открепляем клиента после успешного проведения чека —
+    // следующий чек начинается «с чистого листа» (как новая покупка).
+    selectedCustomer.value = null
     
     // Hide success message after 3 seconds
     setTimeout(() => {
@@ -379,14 +413,17 @@ async function submitPending() {
     await crmStore.createPosSale({
       product_name: form.value.productName.trim(),
       price: Number(form.value.price),
-      cost_price: null // No cost price - pending
+      cost_price: null, // No cost price - pending
+      customer_id: selectedCustomer.value?.id ?? null,
     })
-    
+
     // Перезагружаем список отложенных чеков
     await loadPendingSales()
-    
+
     successMessage.value = 'Чек отложен!'
     clearForm()
+    // При откладывании чека клиента НЕ сбрасываем — продавец может
+    // продолжать работу с тем же клиентом (например, ещё одна позиция).
     
     setTimeout(() => {
       successMessage.value = ''

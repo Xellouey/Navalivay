@@ -185,12 +185,20 @@ posRouter.get('/api/admin/pos/sales', authMiddleware, (req, res) => {
 // Получить только отложенные чеки
 posRouter.get('/api/admin/pos/pending', authMiddleware, (req, res) => {
   try {
+    // LEFT JOIN customers — чтобы показывать привязанного клиента в списке
+    // отложенных чеков (иначе кассир, возвращаясь к чеку через час, не
+    // понимает чей это).
     const sales = db.prepare(`
-      SELECT 
+      SELECT
         ps.*,
-        e.first_name || ' ' || e.last_name as employee_name
+        e.first_name || ' ' || e.last_name as employee_name,
+        c.first_name as customer_first_name,
+        c.last_name as customer_last_name,
+        c.phone as customer_phone,
+        c.telegram_username as customer_telegram_username
       FROM pos_sales ps
       LEFT JOIN employees e ON e.id = ps.employee_id
+      LEFT JOIN customers c ON c.id = ps.customer_id
       WHERE ps.status = 'pending'
       ORDER BY ps.created_at DESC
     `).all();
@@ -247,7 +255,7 @@ posRouter.get('/api/admin/pos/stats', authMiddleware, (req, res) => {
 // Создать продажу
 posRouter.post('/api/admin/pos/sales', authMiddleware, (req, res) => {
   try {
-    const { product_name, price, cost_price, notes, employee_id } = req.body;
+    const { product_name, price, cost_price, notes, employee_id, customer_id } = req.body;
 
     if (!product_name || typeof product_name !== 'string' || !product_name.trim()) {
       return res.status(400).json({ error: 'product_name_required' });
@@ -255,6 +263,20 @@ posRouter.post('/api/admin/pos/sales', authMiddleware, (req, res) => {
 
     if (price === undefined || price === null || !Number.isFinite(Number(price)) || Number(price) <= 0) {
       return res.status(400).json({ error: 'invalid_price' });
+    }
+
+    // customer_id опционален — POS-чеки могут оставаться анонимными.
+    // Если передан — проверяем что клиент существует, чтобы не получить
+    // болтающуюся ссылку на удалённую запись.
+    let resolvedCustomerId = null;
+    if (customer_id) {
+      const customer = db
+        .prepare('SELECT id FROM customers WHERE id = ?')
+        .get(String(customer_id));
+      if (!customer) {
+        return res.status(400).json({ error: 'invalid_customer_id' });
+      }
+      resolvedCustomerId = customer.id;
     }
 
     const id = generateId('pos');
@@ -282,9 +304,9 @@ posRouter.post('/api/admin/pos/sales', authMiddleware, (req, res) => {
       db.prepare(`
         INSERT INTO pos_sales (
           id, sale_number, product_name, price, cost_price, profit,
-          status, notes, employee_id, created_at, completed_at
+          status, notes, employee_id, customer_id, created_at, completed_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         id,
         saleNumber,
@@ -295,6 +317,7 @@ posRouter.post('/api/admin/pos/sales', authMiddleware, (req, res) => {
         status,
         notes || null,
         employee_id || null,
+        resolvedCustomerId,
         now,
         completedAt,
       );

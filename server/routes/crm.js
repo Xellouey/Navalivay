@@ -20,6 +20,11 @@ import {
   serializeBlock,
   unblockCustomerBlock,
 } from '../utils/customer-blocks.js';
+import {
+  createOrMergePosCustomer,
+  getCustomerPurchaseHistory,
+  searchCustomers,
+} from '../utils/pos-customers.js';
 
 export const crmRouter = express.Router();
 
@@ -540,34 +545,97 @@ crmRouter.get('/api/admin/crm/customers', authMiddleware, (req, res) => {
   }
 });
 
+// ВНИМАНИЕ: статические сегменты пути (search, pos-customers) объявляются
+// ДО ':id' маршрутов — иначе Express отдаст :id-обработчику и /search, и
+// /pos-customers будут резолвиться как customer с id="search".
+
+// Поиск клиентов для админских autocomplete (новый POS-флоу + любые модалки).
+crmRouter.get('/api/admin/crm/customers/search', authMiddleware, (req, res) => {
+  try {
+    const q = typeof req.query.q === 'string' ? req.query.q : '';
+    const limitRaw = Number(req.query.limit);
+    const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? limitRaw : 20;
+    const items = searchCustomers({ q, limit });
+    res.json({ items });
+  } catch (error) {
+    console.error('[crm] Search customers error:', error);
+    res.status(500).json({ error: 'failed', message: error.message });
+  }
+});
+
+// Создание / переиспользование клиента из кассы.
+// Тело: { name: "Иван Петров", phone: "+375 33 123-45-67" }
+// Возвращает: { customer, merged: boolean } — merged=true если найден
+// существующий клиент с таким же телефоном (например, Telegram-клиент).
+crmRouter.post('/api/admin/crm/pos-customers', authMiddleware, (req, res) => {
+  try {
+    const result = createOrMergePosCustomer({
+      name: req.body?.name,
+      phone: req.body?.phone,
+      createdBy: req.user?.u || 'admin',
+    });
+    res.json({ ok: true, customer: result.customer, merged: result.merged });
+  } catch (err) {
+    if (err.code === 'name_required' || err.code === 'phone_invalid') {
+      return res.status(400).json({ error: err.code });
+    }
+    console.error('[crm] Create POS customer error:', err);
+    res.status(500).json({ error: 'failed', message: err.message });
+  }
+});
+
+// История покупок клиента (онлайн-заказы + POS-чеки в одном списке).
+crmRouter.get('/api/admin/crm/customers/:id/purchases', authMiddleware, (req, res) => {
+  try {
+    const exists = db.prepare('SELECT id FROM customers WHERE id = ?').get(req.params.id);
+    if (!exists) return res.status(404).json({ error: 'not_found' });
+    const limitRaw = Number(req.query.limit);
+    const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? limitRaw : 50;
+    const items = getCustomerPurchaseHistory(req.params.id, { limit });
+    res.json({ items });
+  } catch (error) {
+    console.error('[crm] Customer purchases error:', error);
+    res.status(500).json({ error: 'failed', message: error.message });
+  }
+});
+
 crmRouter.get('/api/admin/crm/customers/:id', authMiddleware, (req, res) => {
   try {
     const { id } = req.params;
-    
+
     const customer = db.prepare('SELECT * FROM customers WHERE id = ?').get(id);
     if (!customer) {
       return res.status(404).json({ error: 'not_found' });
     }
 
     const orders = db.prepare(`
-      SELECT * FROM orders 
-      WHERE customer_id = ? 
+      SELECT * FROM orders
+      WHERE customer_id = ?
       ORDER BY created_at DESC
     `).all(id);
 
     const blocks = db.prepare(`
-      SELECT * FROM customer_blocks 
+      SELECT * FROM customer_blocks
       WHERE customer_id = ? AND active = 1
     `).all(id);
 
     const visitLogs = db.prepare(`
-      SELECT * FROM visit_logs 
-      WHERE customer_id = ? 
-      ORDER BY visited_at DESC 
+      SELECT * FROM visit_logs
+      WHERE customer_id = ?
+      ORDER BY visited_at DESC
       LIMIT 50
     `).all(id);
 
-    res.json({ ...customer, orders, blocks, visitLogs });
+    // POS-чеки клиента (новое: после привязки кассы к клиентам).
+    // Кладём отдельным массивом, чтобы UI карточки клиента мог отрисовать
+    // объединённую историю онлайн + офлайн.
+    const posSales = db.prepare(`
+      SELECT * FROM pos_sales
+      WHERE customer_id = ?
+      ORDER BY created_at DESC
+    `).all(id);
+
+    res.json({ ...customer, orders, posSales, blocks, visitLogs });
   } catch (error) {
     console.error('[crm] Get customer error:', error);
     res.status(500).json({ error: 'failed', message: error.message });
