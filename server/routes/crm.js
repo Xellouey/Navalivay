@@ -32,6 +32,12 @@ import {
   pauseGroup,
   resumeGroup,
 } from '../utils/low-stock-groups.js';
+import {
+  listAllAgreements,
+  createAgreement,
+  updateAgreement,
+  deleteAgreement,
+} from '../utils/agreements.js';
 
 export const crmRouter = express.Router();
 
@@ -612,6 +618,76 @@ crmRouter.delete('/api/admin/crm/low-stock-groups/:groupId/pause', authMiddlewar
   } catch (error) {
     console.error('[crm] Resume low-stock group error:', error);
     res.status(500).json({ error: 'failed', message: error.message });
+  }
+});
+
+// =============================================================================
+// Agreements (соглашения перед оформлением заказа)
+//
+// CRUD из CRM «Настройки». Публичный список — отдельный endpoint в public.js.
+// Все handler'ы возвращают единый формат { item } / { items }.
+// =============================================================================
+
+crmRouter.get('/api/admin/crm/agreements', authMiddleware, (req, res) => {
+  try {
+    res.json({ items: listAllAgreements() });
+  } catch (err) {
+    console.error('[crm] List agreements error:', err);
+    res.status(500).json({ error: 'failed', message: err.message });
+  }
+});
+
+crmRouter.post('/api/admin/crm/agreements', authMiddleware, (req, res) => {
+  try {
+    const item = createAgreement({
+      title: req.body?.title,
+      body: req.body?.body,
+      is_active: req.body?.is_active,
+      sort_order: req.body?.sort_order,
+    });
+    res.json({ ok: true, item });
+  } catch (err) {
+    if (err.code === 'title_required' || err.code === 'title_too_long' || err.code === 'body_too_long') {
+      return res.status(400).json({ error: err.code });
+    }
+    console.error('[crm] Create agreement error:', err);
+    res.status(500).json({ error: 'failed', message: err.message });
+  }
+});
+
+crmRouter.put('/api/admin/crm/agreements/:id', authMiddleware, (req, res) => {
+  try {
+    const item = updateAgreement(req.params.id, {
+      title: req.body?.title,
+      body: req.body?.body,
+      is_active: req.body?.is_active,
+      sort_order: req.body?.sort_order,
+    });
+    res.json({ ok: true, item });
+  } catch (err) {
+    if (err.code === 'agreement_not_found') {
+      return res.status(404).json({ error: err.code });
+    }
+    if (err.code === 'title_required' || err.code === 'title_too_long' || err.code === 'body_too_long') {
+      return res.status(400).json({ error: err.code });
+    }
+    console.error('[crm] Update agreement error:', err);
+    res.status(500).json({ error: 'failed', message: err.message });
+  }
+});
+
+crmRouter.delete('/api/admin/crm/agreements/:id', authMiddleware, (req, res) => {
+  try {
+    const removed = deleteAgreement(req.params.id);
+    if (!removed) {
+      // 404 чтобы UI второго админа (который тоже нажал Delete после первого)
+      // увидел stale-data и мог сделать рефреш списка.
+      return res.status(404).json({ error: 'agreement_not_found' });
+    }
+    res.json({ ok: true, removed });
+  } catch (err) {
+    console.error('[crm] Delete agreement error:', err);
+    res.status(500).json({ error: 'failed', message: err.message });
   }
 });
 

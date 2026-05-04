@@ -849,6 +849,8 @@
                   </button>
                 </form>
               </section>
+
+              <AdminAgreementsSection />
             </div>
           </div>
           </template>
@@ -1205,6 +1207,7 @@ import AdminSectionHero from '@/components/admin/layout/AdminSectionHero.vue'
 import AdminProductsTable from '@/components/admin/AdminProductsTable.vue'
 import AdminCategoryGroupForm from '@/components/admin/AdminCategoryGroupForm.vue'
 import AdminWholesaleLinksPanel from '@/components/admin/AdminWholesaleLinksPanel.vue'
+import AdminAgreementsSection from '@/components/admin/AdminAgreementsSection.vue'
 import CashierLockScreen from '@/components/admin/CashierLockScreen.vue'
 import CountUp from '@/components/CountUp.vue'
 import CountUpCurrency from '@/components/CountUpCurrency.vue'

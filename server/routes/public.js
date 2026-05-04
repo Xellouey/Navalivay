@@ -26,6 +26,11 @@ import {
   getPendingBanForUsername,
   serializeBlock,
 } from "../utils/customer-blocks.js";
+import {
+  listActiveAgreements,
+  validateAcceptedAgreementIds,
+  buildAcceptedSnapshot,
+} from "../utils/agreements.js";
 
 export const publicRouter = express.Router();
 
@@ -1530,6 +1535,19 @@ publicRouter.get("/api/settings", (req, res) => {
   }
 });
 
+// Активные соглашения для чекаута (публично, без auth — клиент должен видеть
+// заголовки и body чтобы прочитать в модалке перед оформлением заказа).
+// Body шлём целиком — это короткие маркетинговые/юридические тексты, не
+// чувствительные данные. Под rate-limiter'ом для консистентности с другими
+// public read-эндпоинтами.
+publicRouter.get("/api/agreements", publicMiniAppReadLimiter, (req, res) => {
+  try {
+    res.json({ items: listActiveAgreements() });
+  } catch (err) {
+    console.error("[public] List agreements error:", err);
+    res.status(500).json({ error: "failed", message: err.message });
+  }
+});
 
 publicRouter.get("/api/telegram/username-status", async (req, res) => {
   try {
@@ -2104,12 +2122,28 @@ publicRouter.post(
         notes,
         items,
         promo_code,
+        accepted_agreement_ids,
       } = req.body || {};
 
       if (!Array.isArray(items) || items.length === 0) {
         return res
           .status(400)
           .json({ error: "items_required", message: "Товары обязательны" });
+      }
+
+      // Соглашения: квик-валидация ДО основной транзакции (быстрый отказ
+      // без лишней работы — стоковые проверки, lookup'ы и т.п.). Реальный
+      // снимок и финальная проверка происходят ВНУТРИ db.transaction ниже,
+      // под write-lock'ом — это закрывает race между чтением agreements
+      // и INSERT в orders (admin не может в этот момент вставить новое
+      // обязательное соглашение).
+      const preliminaryAgreementsCheck = validateAcceptedAgreementIds(accepted_agreement_ids);
+      if (!preliminaryAgreementsCheck.ok) {
+        return res.status(400).json({
+          error: "agreements_required",
+          message: "Подтвердите согласие для оформления заказа",
+          missing: preliminaryAgreementsCheck.missing,
+        });
       }
 
       const verifiedTelegramUsername = await resolveVerifiedOrderUsername(
@@ -2192,6 +2226,16 @@ publicRouter.post(
       }
 
       const tx = db.transaction(() => {
+        // Финальная проверка соглашений: повторяем под write-lock на случай,
+        // если между preliminary-проверкой выше и стартом транзакции admin
+        // активировал новое обязательное соглашение. Возвращаем sentinel
+        // вместо throw — наружный код увидит violation и вернёт 400 без 500.
+        const finalAgreementsCheck = validateAcceptedAgreementIds(accepted_agreement_ids);
+        if (!finalAgreementsCheck.ok) {
+          return { agreementsViolation: finalAgreementsCheck.missing };
+        }
+        const acceptedAgreementsSnapshot = buildAcceptedSnapshot(accepted_agreement_ids);
+
         const resolvedCustomerId = upsertPublicCustomer({
           telegramId,
           telegramUsername: verifiedTelegramUsername || null,
@@ -2263,9 +2307,11 @@ publicRouter.post(
           INSERT INTO orders (
             id, order_number, customer_id, status, delivery_type, delivery_address,
             total_amount, discount_amount, discount_percent, final_amount, profit, notes, phone, telegram_username,
-            promo_code_id, promo_code_text, is_wholesale, wholesale_tier_id, wholesale_tier_label, wholesale_min_amount
+            promo_code_id, promo_code_text, is_wholesale, wholesale_tier_id, wholesale_tier_label, wholesale_min_amount,
+            accepted_agreements
           ) VALUES (
-            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+            ?
           )
         `,
         ).run(
@@ -2291,6 +2337,7 @@ publicRouter.post(
           wholesaleContext?.tier
             ? Number(wholesaleContext.tier.minOrderAmount || 0)
             : null,
+          acceptedAgreementsSnapshot,
         );
 
         const createdItemStmt = db.prepare(`
@@ -2358,6 +2405,16 @@ publicRouter.post(
       });
 
       const created = tx();
+      // Sentinel из транзакции: если активировалось новое соглашение между
+      // preliminary-проверкой и началом tx — возвращаем 400 с актуальным
+      // missing[].
+      if (created?.agreementsViolation) {
+        return res.status(400).json({
+          error: "agreements_required",
+          message: "Подтвердите согласие для оформления заказа",
+          missing: created.agreementsViolation,
+        });
+      }
       return res.json({
         success: true,
         order_id: created.orderId,

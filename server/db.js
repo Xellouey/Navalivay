@@ -38,6 +38,7 @@ import { migrateParkedOrderToGroups } from './migrations/add_parked_order_to_gro
 import { migrateCustomerBlockLifecycle } from './migrations/add_customer_block_lifecycle.js';
 import { migratePosCustomerLink } from './migrations/add_pos_customer_link.js';
 import { migrateLowStockGroups } from './migrations/add_low_stock_groups.js';
+import { migrateAgreements } from './migrations/add_agreements.js';
 import { migratePosSales } from './migrations/add_pos_sales.js';
 import { migratePosSaleTransactionLink } from './migrations/add_pos_sale_transaction_link.js';
 import { migrateManagerActionFields } from './migrations/add_manager_action_fields.js';
@@ -186,6 +187,7 @@ export function initDb() {
   migratePosSales();
   migratePosCustomerLink();
   migrateLowStockGroups();
+  migrateAgreements();
   migratePosSaleTransactionLink();
   migrateManagerActionFields();
   migrateCustomerPhoto();

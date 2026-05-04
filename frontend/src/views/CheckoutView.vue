@@ -376,6 +376,13 @@
           >
         </div>
 
+        <CheckoutAgreements
+          v-if="!isEditingOrder"
+          v-model="acceptedAgreementIds"
+          :missing-ids="missingAgreementIds"
+          @loaded="onAgreementsLoaded"
+        />
+
         <div
           v-if="shouldShowOpenInTelegramForWholesale"
           class="user-info-card user-info-card-warning"
@@ -527,6 +534,15 @@
       @close="showLoyaltyPopup = false"
       @open-profile="openProfileFromLoyaltyPopup"
     />
+
+    <ToastNotification
+      v-if="toastMessage"
+      :key="toastKey"
+      :message="toastMessage"
+      :type="toastType"
+      :duration="toastDuration"
+      @close="toastMessage = ''"
+    />
   </div>
 </template>
 
@@ -548,6 +564,8 @@ import MinDeliveryBanner from "@/components/MinDeliveryBanner.vue";
 import DeliveryConditionsBanner from "@/components/DeliveryConditionsBanner.vue";
 import CustomerModalShell from "@/components/CustomerModalShell.vue";
 import LoyaltyBonusPopup from "@/components/LoyaltyBonusPopup.vue";
+import CheckoutAgreements from "@/components/checkout/CheckoutAgreements.vue";
+import ToastNotification from "@/components/ToastNotification.vue";
 import {
   fetchMyActiveOrder,
   getTelegramIdentity,
@@ -620,6 +638,38 @@ const errors = reactive({
 
 const isSubmitting = ref(false);
 const submitError = ref("");
+
+// Соглашения перед заказом. acceptedAgreementIds — список id принятых
+// чекбоксов; missingAgreementIds — те, что фронт (или бэк после ответа)
+// помечает как непринятые при попытке сабмита (используются для подсветки
+// в CheckoutAgreements). loadedAgreements — полный список активных
+// соглашений, опубликованный компонентом через @loaded.
+const acceptedAgreementIds = ref<number[]>([]);
+const missingAgreementIds = ref<number[]>([]);
+const loadedAgreements = ref<Array<{ id: number; title: string }>>([]);
+
+const toastMessage = ref("");
+const toastType = ref<"info" | "success" | "error">("info");
+const toastDuration = ref(3500);
+const toastKey = ref(0);
+
+function showToast(message: string, type: "info" | "success" | "error" = "info") {
+  toastMessage.value = message;
+  toastType.value = type;
+  toastKey.value += 1;
+}
+
+function onAgreementsLoaded(items: Array<{ id: number; title: string }>) {
+  loadedAgreements.value = items;
+}
+
+function computeLocalMissingAgreementIds(): number[] {
+  if (!loadedAgreements.value.length) return [];
+  const accepted = new Set(acceptedAgreementIds.value);
+  return loadedAgreements.value
+    .map((a) => a.id)
+    .filter((id) => !accepted.has(id));
+}
 const stockLimits = ref<Map<string, number>>(new Map());
 const stockLoading = ref(false);
 const showMinDeliveryBanner = ref(false);
@@ -1455,6 +1505,24 @@ async function submitOrder() {
   const validationResult = validateForm();
   if (!validationResult) return;
 
+  // Локальная проверка соглашений (быстрая UX-валидация перед сетевым
+  // запросом). Серверная проверка в /api/orders — основная и не зависит от
+  // фронта. Если что-то не отмечено — подсвечиваем чекбоксы и показываем toast.
+  // ВАЖНО: при модификации существующего заказа (PUT /api/orders/:id/...)
+  // соглашения уже были приняты при изначальном оформлении и заново их
+  // принимать не нужно. Бэк modify-by-customer тоже их не валидирует.
+  if (!isEditingOrder.value) {
+    const localMissing = computeLocalMissingAgreementIds();
+    if (localMissing.length) {
+      missingAgreementIds.value = localMissing;
+      showToast("Подтвердите согласие для оформления заказа", "error");
+      return;
+    }
+  }
+  // Сабмит начинается с чистым списком ошибок — если сервер вернёт missing,
+  // мы перезапишем (см. ниже).
+  missingAgreementIds.value = [];
+
   isSubmitting.value = true;
 
   try {
@@ -1489,6 +1557,7 @@ async function submitOrder() {
           ? 0
           : Number(item.loyaltyUnitsApplied || 0),
       })),
+      accepted_agreement_ids: acceptedAgreementIds.value,
     };
 
     const response = await fetch(
@@ -1512,6 +1581,21 @@ async function submitOrder() {
     }
 
     if (!response.ok) {
+      if (result?.error === "agreements_required") {
+        // Бэк прислал список конкретных непринятых соглашений — подсвечиваем
+        // именно их и показываем точное сообщение от сервера. Это покрывает
+        // race-условие, когда между загрузкой /api/agreements и сабмитом
+        // в админке могли активировать новое соглашение.
+        const missing = Array.isArray(result?.missing) ? result.missing : [];
+        missingAgreementIds.value = missing
+          .map((m: { id?: number }) => Number(m?.id))
+          .filter((id: number) => Number.isFinite(id) && id > 0);
+        showToast(
+          result?.message || "Подтвердите согласие для оформления заказа",
+          "error",
+        );
+        return;
+      }
       if (result?.error === "active_order_exists") {
         await router.push("/my-order");
         return;
