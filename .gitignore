@@ -49,12 +49,18 @@ server/data/*.db-shm
 server/data/*.db.bak*
 *.db.old
 *.db.backup
+# Локальные снимки прод-БД для восстановления (содержат PII клиентов).
+*.before-prod-copy
+*.before-prod-copy-*
 
 # Uploaded files (raw folder too large)
 uploads/
 
 # Backup files
 *.backup
+
+# Локальные настройки Claude Code (launch.json, скилы и т.п.)
+.claude/
 *.bak
 *.bak.*
 
