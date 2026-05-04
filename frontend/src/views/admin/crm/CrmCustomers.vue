@@ -17,6 +17,15 @@
         <button @click="activeTab = 'all'" :class="tabButtonClass('all')">
           Все клиенты
         </button>
+        <button @click="activeTab = 'blocked'" :class="tabButtonClass('blocked')">
+          Заблокированные
+          <span
+            v-if="blockedTotalCount > 0"
+            class="ml-1 inline-flex items-center justify-center rounded-full bg-red-100 px-2 py-0.5 text-xs font-semibold text-red-600"
+          >
+            {{ blockedTotalCount }}
+          </span>
+        </button>
       </div>
 
 
@@ -200,6 +209,113 @@
             <p class="text-gray-600">Клиентов не найдено</p>
           </div>
         </div>
+
+        <!-- Blocked customers (active + pending) -->
+        <div v-if="activeTab === 'blocked'" class="space-y-4">
+          <div v-if="loadingBlocks" class="text-center py-12 bg-white rounded-lg shadow-sm">
+            <p class="text-gray-600">Загрузка списка блокировок…</p>
+          </div>
+          <template v-else>
+            <!-- Активные блокировки -->
+            <div class="rounded-lg bg-white shadow-sm overflow-hidden">
+              <div class="px-6 py-3 bg-gray-50 border-b text-sm font-semibold text-gray-700">
+                Активные блокировки ({{ blocksList.active.length }})
+              </div>
+              <div v-if="blocksList.active.length === 0" class="px-6 py-8 text-center text-sm text-gray-500">
+                Нет активных блокировок
+              </div>
+              <table v-else class="w-full min-w-[720px]">
+                <thead class="bg-gray-50 border-b">
+                  <tr>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Клиент</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Причина</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Истекает</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Кто заблокировал</th>
+                    <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Действия</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-200">
+                  <tr v-for="block in blocksList.active" :key="block.id" class="hover:bg-gray-50">
+                    <td class="px-6 py-4">
+                      <a
+                        v-if="block.customer?.telegram_username"
+                        :href="`https://t.me/${block.customer.telegram_username}`"
+                        target="_blank"
+                        class="text-blue-600 hover:text-blue-900 text-sm"
+                      >
+                        @{{ block.customer.telegram_username }}
+                      </a>
+                      <span v-else class="text-sm text-gray-500">
+                        {{ block.customer?.first_name || 'Без username' }}
+                      </span>
+                    </td>
+                    <td class="px-6 py-4 text-sm text-gray-700 max-w-xs truncate" :title="block.reason || ''">
+                      {{ block.reason || '—' }}
+                    </td>
+                    <td class="px-6 py-4 text-sm text-gray-500">
+                      {{ block.block_until ? formatBlockUntil(block.block_until) : 'Бессрочно' }}
+                    </td>
+                    <td class="px-6 py-4 text-sm text-gray-500">{{ block.blocked_by || '—' }}</td>
+                    <td class="px-6 py-4 text-right">
+                      <button
+                        :disabled="removingBlockId === block.id"
+                        @click="handleUnblock(block.id)"
+                        class="px-3 py-1 bg-green-50 text-green-600 text-sm font-medium rounded hover:bg-green-100 disabled:opacity-50"
+                      >
+                        {{ removingBlockId === block.id ? 'Снимаем…' : 'Разблокировать' }}
+                      </button>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <!-- Pending (превентивные баны) -->
+            <div class="rounded-lg bg-white shadow-sm overflow-hidden">
+              <div class="px-6 py-3 bg-gray-50 border-b text-sm font-semibold text-gray-700">
+                Превентивные баны ({{ blocksList.pending.length }})
+                <span class="ml-2 text-xs font-normal text-gray-500">
+                  активируются при первом заходе клиента в миниапку
+                </span>
+              </div>
+              <div v-if="blocksList.pending.length === 0" class="px-6 py-8 text-center text-sm text-gray-500">
+                Нет превентивных банов
+              </div>
+              <table v-else class="w-full min-w-[640px]">
+                <thead class="bg-gray-50 border-b">
+                  <tr>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">@username</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Причина</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Истекает</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Создан</th>
+                    <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Действия</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-200">
+                  <tr v-for="pb in blocksList.pending" :key="`p-${pb.id}`" class="hover:bg-gray-50">
+                    <td class="px-6 py-4 text-sm text-gray-900">@{{ pb.telegram_username }}</td>
+                    <td class="px-6 py-4 text-sm text-gray-700 max-w-xs truncate" :title="pb.reason || ''">
+                      {{ pb.reason || '—' }}
+                    </td>
+                    <td class="px-6 py-4 text-sm text-gray-500">
+                      {{ pb.block_until ? formatBlockUntil(pb.block_until) : 'Бессрочно' }}
+                    </td>
+                    <td class="px-6 py-4 text-sm text-gray-500">{{ formatDate(pb.blocked_at) }}</td>
+                    <td class="px-6 py-4 text-right">
+                      <button
+                        :disabled="removingBlockId === String(pb.id)"
+                        @click="handleUnblock(pb.id)"
+                        class="px-3 py-1 bg-green-50 text-green-600 text-sm font-medium rounded hover:bg-green-100 disabled:opacity-50"
+                      >
+                        {{ removingBlockId === String(pb.id) ? 'Удаляем…' : 'Отменить' }}
+                      </button>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </template>
+        </div>
       </template>
     </div>
 
@@ -341,15 +457,71 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, computed, watch } from 'vue'
 import { useCrmStore } from '@/stores/crm'
 import { storeToRefs } from 'pinia'
 import type { Customer, CustomerFeedback } from '@/stores/crm'
 
 const crmStore = useCrmStore()
-const { customers, loadingCustomers, customerFeedbacks, loadingCustomerFeedbacks } = storeToRefs(crmStore)
+const {
+  customers,
+  loadingCustomers,
+  customerFeedbacks,
+  loadingCustomerFeedbacks,
+  customerBlocksList,
+  loadingCustomerBlocks,
+} = storeToRefs(crmStore)
 
-const activeTab = ref<'inactive' | 'processed' | 'all'>('inactive')
+const activeTab = ref<'inactive' | 'processed' | 'all' | 'blocked'>('inactive')
+
+// Список блокировок (active + pending) — для таба «Заблокированные»
+const blocksList = computed(() => customerBlocksList.value)
+const loadingBlocks = computed(() => loadingCustomerBlocks.value)
+const blockedTotalCount = computed(
+  () => blocksList.value.active.length + blocksList.value.pending.length,
+)
+const removingBlockId = ref<string | null>(null)
+
+// Реактивно подгружаем при переключении на таб
+watch(activeTab, (tab) => {
+  if (tab === 'blocked') {
+    crmStore.fetchCustomerBlocksList().catch((err) => {
+      console.error('[crm-customers] failed to load blocks list', err)
+    })
+  }
+})
+
+async function handleUnblock(blockId: string | number) {
+  const id = String(blockId)
+  if (removingBlockId.value === id) return
+  removingBlockId.value = id
+  try {
+    await crmStore.removeCustomerBlock(blockId)
+    await crmStore.fetchCustomerBlocksList()
+  } catch (err: any) {
+    console.error('[crm-customers] unblock failed', err)
+    // eslint-disable-next-line no-alert
+    window.alert(err?.message || 'Не удалось снять блок')
+  } finally {
+    removingBlockId.value = null
+  }
+}
+
+function formatBlockUntil(iso: string) {
+  // Backend хранит TEXT в SQLite UTC формате 'YYYY-MM-DD HH:MM:SS'.
+  // В JS new Date('YYYY-MM-DD HH:MM:SS') парсится как локальное время,
+  // поэтому добавляем 'Z' чтобы интерпретировать как UTC.
+  const normalized = iso.includes('T') ? iso : iso.replace(' ', 'T') + 'Z'
+  const date = new Date(normalized)
+  if (Number.isNaN(date.getTime())) return iso
+  return date.toLocaleString('ru-RU', {
+    day: '2-digit',
+    month: 'long',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
 const showBlockModal = ref(false)
 const showFeedbackModal = ref(false)
 const showDeleteFeedbackModal = ref(false)
@@ -387,7 +559,9 @@ const inactiveCustomers = computed<InactiveCustomer[]>(() => {
 })
 
 const filteredAllCustomers = computed(() => {
-  const q = searchQuery.value.trim().toLowerCase()
+  // В UI username отображается с префиксом "@", в БД хранится без него.
+  // Принимаем обе формы запроса: "@polizhzw" и "polizhzw".
+  const q = searchQuery.value.trim().toLowerCase().replace(/^@+/, '')
   const list = customers.value
   if (!q) return list
   return list.filter((c) => (c.telegram_username || '').toLowerCase().includes(q))
@@ -404,7 +578,7 @@ const groupedFeedbacks = computed(() => {
   return Object.entries(groups).map(([date, items]) => ({ date, items }))
 })
 
-function tabButtonClass(tab: 'inactive' | 'processed' | 'all') {
+function tabButtonClass(tab: 'inactive' | 'processed' | 'all' | 'blocked') {
   return [
     'w-full rounded-lg px-4 py-2 text-sm font-medium transition-colors sm:w-auto',
     activeTab.value === tab ? 'bg-blue-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-100'

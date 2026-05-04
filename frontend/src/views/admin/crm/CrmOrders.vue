@@ -304,6 +304,16 @@
             <span class="hidden sm:inline">Создать заказ</span>
             <span class="sm:hidden">Заказ</span>
           </button>
+
+          <!-- Заблокировать клиента -->
+          <button
+            @click="openBlockModal()"
+            class="inline-flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-2 text-sm font-semibold text-red-600 shadow-sm transition-all duration-200 hover:bg-red-100"
+            title="Заблокировать клиента по @username"
+          >
+            <NoSymbolIcon class="h-4 w-4" />
+            <span class="hidden sm:inline">Заблокировать</span>
+          </button>
         </div>
       </div>
 
@@ -1093,6 +1103,14 @@
       @created="handleOrderCreated"
     />
 
+    <!-- Блокировка клиента -->
+    <CustomerBlockModal
+      :is-open="showBlockModal"
+      :prefill-username="blockPrefillUsername"
+      @close="showBlockModal = false"
+      @created="handleBlockCreated"
+    />
+
     <!-- Модалка скидки -->
     <AdminModal
       :isOpen="discountModalOpen && !!discountOrder"
@@ -1277,7 +1295,8 @@ import { useCrmStore } from "@/stores/crm";
 import OrderCreateModal from "@/components/crm/OrderCreateModal.vue";
 import ManagerActionSummary from "@/components/crm/ManagerActionSummary.vue";
 import AdminModal from "@/components/AdminModal.vue";
-import { LockClosedIcon } from "@heroicons/vue/24/outline";
+import CustomerBlockModal from "@/components/admin/CustomerBlockModal.vue";
+import { LockClosedIcon, NoSymbolIcon } from "@heroicons/vue/24/outline";
 
 const crmStore = useCrmStore();
 const {
@@ -1294,6 +1313,25 @@ const {
 const router = useRouter();
 
 const showCreateModal = ref(false);
+
+// Модалка блокировки клиента
+const showBlockModal = ref(false);
+const blockPrefillUsername = ref<string>('');
+function openBlockModal(prefill?: string) {
+  blockPrefillUsername.value = prefill ?? '';
+  showBlockModal.value = true;
+}
+function handleBlockCreated(payload: { kind: 'active' | 'pending'; username: string }) {
+  const verb = payload.kind === 'pending'
+    ? 'превентивный бан создан (активируется при первом заходе)'
+    : 'клиент заблокирован';
+  // В CrmOrders нет глобального toast-стека — пока используем нативное уведомление
+  // браузера. Когда будет общая toast-инфраструктура (см. фоновую задачу про
+  // унификацию уведомлений) — мигрируем сюда.
+  // eslint-disable-next-line no-alert
+  window.alert(`@${payload.username}: ${verb}`);
+}
+
 const paymentModalOpen = ref(false);
 const paymentOrder = ref<Order | null>(null);
 const paymentMethod = ref<"cash">("cash");

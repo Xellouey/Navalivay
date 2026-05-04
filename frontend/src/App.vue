@@ -5,10 +5,19 @@ import { useRoute } from "vue-router";
 import VapeSmoke from "@/components/VapeSmoke.vue";
 import BottomTabBar from "@/components/BottomTabBar.vue";
 import WholesaleStatusBar from "@/components/WholesaleStatusBar.vue";
+import BlockedScreen from "@/components/BlockedScreen.vue";
 import { useWholesaleStore } from "@/stores/wholesale";
+import { useCustomerBlock } from "@/composables/useCustomerBlock";
 
 const route = useRoute();
 const wholesaleStore = useWholesaleStore();
+const { currentBlock, isBlocked, refreshBlock } = useCustomerBlock();
+
+// Экран блокировки клиента не показываем в админке —
+// у админа другая аутентификация, а не клиентский telegram_id.
+const showBlockedScreen = computed(
+  () => isBlocked.value && !route.path.startsWith("/admin"),
+);
 
 const showTabBar = computed(() => {
   const path = route.path;
@@ -34,6 +43,9 @@ onMounted(() => {
   if (typeof window !== "undefined" && window.Telegram?.WebApp) {
     window.Telegram.WebApp.ready();
   }
+  // Проверяем статус блокировки клиента сразу при заходе в миниапку.
+  // Если активен — ниже показываем BlockedScreen поверх всего.
+  refreshBlock();
 });
 </script>
 
@@ -53,6 +65,11 @@ onMounted(() => {
     <VapeSmoke />
     <BottomTabBar v-if="showTabBar" />
     <WholesaleStatusBar v-if="showWholesaleStatusBar" />
+    <BlockedScreen
+      v-if="showBlockedScreen"
+      :reason="currentBlock?.reason ?? null"
+      :block-until="currentBlock?.block_until ?? null"
+    />
   </div>
 </template>
 

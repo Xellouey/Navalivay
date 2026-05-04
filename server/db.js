@@ -34,6 +34,8 @@ import { migrateCategoryGroupMetaFields } from './migrations/add_group_meta_fiel
 import { migrateStockDeductedToOrders } from './migrations/add_stock_deducted_to_orders.js';
 import { migrateVariantIdToOrderItems } from './migrations/add_variant_id_to_order_items.js';
 import { migrateEmptySinceToGroups } from './migrations/add_empty_since_to_groups.js';
+import { migrateParkedOrderToGroups } from './migrations/add_parked_order_to_groups.js';
+import { migrateCustomerBlockLifecycle } from './migrations/add_customer_block_lifecycle.js';
 import { migratePosSales } from './migrations/add_pos_sales.js';
 import { migratePosSaleTransactionLink } from './migrations/add_pos_sale_transaction_link.js';
 import { migrateManagerActionFields } from './migrations/add_manager_action_fields.js';
@@ -177,6 +179,8 @@ export function initDb() {
   migrateVariantIdToOrderItems();
   migrateOrderItemDisplayFields();
   migrateEmptySinceToGroups();
+  migrateParkedOrderToGroups();
+  migrateCustomerBlockLifecycle();
   migratePosSales();
   migratePosSaleTransactionLink();
   migrateManagerActionFields();

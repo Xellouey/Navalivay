@@ -10,6 +10,16 @@ import {
   shiftBusinessCalendarDate,
   toSqliteUtcString,
 } from '../utils/business-time.js';
+import {
+  PENDING_ACTIVE_PREDICATE,
+  computeBlockUntil,
+  createBlock,
+  deletePendingBan,
+  getActiveBlockForCustomerId,
+  getActiveBlockForTelegramId,
+  serializeBlock,
+  unblockCustomerBlock,
+} from '../utils/customer-blocks.js';
 
 export const crmRouter = express.Router();
 
@@ -588,36 +598,147 @@ crmRouter.patch('/api/admin/crm/customers/:id', authMiddleware, (req, res) => {
   }
 });
 
-// Блокировка/разблокировка доставки
+// =========================
+// БЛОКИРОВКИ КЛИЕНТОВ
+// =========================
+// Универсальный create. Принимает либо customer_id (известный клиент),
+// либо telegram_username (для превентивных банов).
+// duration: { unit: 'minutes'|'hours'|'days'|'forever', value?: number }
+crmRouter.post('/api/admin/crm/blocks', authMiddleware, (req, res) => {
+  try {
+    const { customer_id, telegram_username, reason, duration } = req.body || {};
+    if (!customer_id && !telegram_username) {
+      return res.status(400).json({ error: 'customer_id_or_telegram_username_required' });
+    }
+    let block_until = null;
+    try {
+      block_until = computeBlockUntil(duration || { unit: 'forever' });
+    } catch (err) {
+      return res.status(400).json({ error: err.message });
+    }
+    try {
+      const result = createBlock({
+        customer_id,
+        telegram_username,
+        block_until,
+        reason: typeof reason === 'string' ? reason.trim() || null : null,
+        blocked_by: req.user?.u || 'admin',
+      });
+      return res.json({ ok: true, kind: result.kind, block: serializeBlock(result.block, result.kind) });
+    } catch (err) {
+      if (err.code === 'already_blocked') {
+        return res.status(409).json({
+          error: 'already_blocked',
+          existing: serializeBlock(err.existing, 'active'),
+        });
+      }
+      if (err.code === 'customer_not_found') {
+        return res.status(404).json({ error: 'customer_not_found' });
+      }
+      throw err;
+    }
+  } catch (error) {
+    console.error('[crm] Create block error:', error);
+    res.status(500).json({ error: 'failed', message: error.message });
+  }
+});
+
+// Снятие блокировки (active customer_blocks).
+crmRouter.delete('/api/admin/crm/blocks/:id', authMiddleware, (req, res) => {
+  try {
+    const updated = unblockCustomerBlock(req.params.id, {
+      unblocked_by: req.user?.u || 'admin',
+      unblock_reason: typeof req.body?.unblock_reason === 'string' ? req.body.unblock_reason.trim() || null : null,
+    });
+    if (!updated) {
+      // Может быть pending — попробуем удалить
+      const removedPending = deletePendingBan(req.params.id);
+      if (removedPending) {
+        return res.json({ ok: true, kind: 'pending_removed' });
+      }
+      return res.status(404).json({ error: 'not_found' });
+    }
+    res.json({ ok: true, kind: 'unblocked', block: serializeBlock(updated, 'active') });
+  } catch (error) {
+    console.error('[crm] Unblock error:', error);
+    res.status(500).json({ error: 'failed', message: error.message });
+  }
+});
+
+// Список всех активных блокировок (для раздела «Заблокированные»).
+// Включает и реальные блоки и pending — с указанием kind.
+crmRouter.get('/api/admin/crm/blocks', authMiddleware, (req, res) => {
+  try {
+    // Тот же предикат «активный блок», что и в utils/customer-blocks.js,
+    // но с явным префиксом cb.* — без хрупких строковых replace.
+    const activeBlocks = db.prepare(`
+      SELECT cb.*, c.telegram_id, c.telegram_username, c.first_name, c.last_name, c.phone
+      FROM customer_blocks cb
+      JOIN customers c ON c.id = cb.customer_id
+      WHERE cb.active = 1
+        AND (cb.block_until IS NULL OR cb.block_until > DATETIME('now'))
+      ORDER BY cb.blocked_at DESC
+    `).all();
+
+    const pendingBans = db.prepare(`
+      SELECT * FROM pending_customer_bans
+      WHERE ${PENDING_ACTIVE_PREDICATE}
+      ORDER BY created_at DESC
+    `).all();
+
+    res.json({
+      active: activeBlocks.map((row) => ({
+        ...serializeBlock(row, 'active'),
+        customer: {
+          telegram_id: row.telegram_id,
+          telegram_username: row.telegram_username,
+          first_name: row.first_name,
+          last_name: row.last_name,
+          phone: row.phone,
+        },
+      })),
+      pending: pendingBans.map((row) => serializeBlock(row, 'pending')),
+    });
+  } catch (error) {
+    console.error('[crm] List blocks error:', error);
+    res.status(500).json({ error: 'failed', message: error.message });
+  }
+});
+
+// Legacy endpoint — оставлен для обратной совместимости с кодом, который ходил
+// по /customers/:id/block (например старый CrmCustomerDetail). Внутри использует
+// тот же createBlock.
 crmRouter.post('/api/admin/crm/customers/:id/block', authMiddleware, (req, res) => {
   try {
     const { id } = req.params;
-    const { reason } = req.body;
-
-    const customer = db.prepare('SELECT * FROM customers WHERE id = ?').get(id);
-    if (!customer) {
-      return res.status(404).json({ error: 'not_found' });
+    const customer = db.prepare('SELECT id FROM customers WHERE id = ?').get(id);
+    if (!customer) return res.status(404).json({ error: 'not_found' });
+    let block_until = null;
+    try {
+      block_until = computeBlockUntil(req.body?.duration || { unit: 'forever' });
+    } catch (err) {
+      return res.status(400).json({ error: err.message });
     }
-
-    // Проверяем, есть ли уже активная блокировка
-    const existing = db.prepare(`
-      SELECT id FROM customer_blocks 
-      WHERE customer_id = ? AND block_type = 'delivery' AND active = 1
-    `).get(id);
-
-    if (existing) {
-      return res.status(400).json({ error: 'already_blocked' });
+    try {
+      const result = createBlock({
+        customer_id: id,
+        block_until,
+        reason: req.body?.reason || null,
+        blocked_by: req.user?.u || 'admin',
+      });
+      res.json({ ok: true, blockId: result.block.id });
+    } catch (err) {
+      if (err.code === 'already_blocked') {
+        // Backward-compat: legacy caller (CrmCustomers all-tab, CrmCustomerDetail)
+        // ожидает идемпотентного поведения — повторный вызов «заблокировать»
+        // когда клиент уже заблокирован не должен бросать. Возвращаем 200
+        // с id существующего блока, чтобы UI остался консистентным.
+        return res.json({ ok: true, blockId: err.existing?.id ?? null, already_blocked: true });
+      }
+      throw err;
     }
-
-    const blockId = generateId('block');
-    db.prepare(`
-      INSERT INTO customer_blocks (id, customer_id, block_type, reason, active)
-      VALUES (?, ?, 'delivery', ?, 1)
-    `).run(blockId, id, reason || null);
-
-    res.json({ ok: true, blockId });
   } catch (error) {
-    console.error('[crm] Block customer error:', error);
+    console.error('[crm] Legacy block customer error:', error);
     res.status(500).json({ error: 'failed', message: error.message });
   }
 });
@@ -625,41 +746,30 @@ crmRouter.post('/api/admin/crm/customers/:id/block', authMiddleware, (req, res) 
 crmRouter.post('/api/admin/crm/customers/:id/unblock', authMiddleware, (req, res) => {
   try {
     const { id } = req.params;
-
-    db.prepare(`
-      UPDATE customer_blocks 
-      SET active = 0 
-      WHERE customer_id = ? AND block_type = 'delivery' AND active = 1
-    `).run(id);
-
+    const block = getActiveBlockForCustomerId(id);
+    if (!block) return res.json({ ok: true });
+    unblockCustomerBlock(block.id, {
+      unblocked_by: req.user?.u || 'admin',
+      unblock_reason: req.body?.unblock_reason || null,
+    });
     res.json({ ok: true });
   } catch (error) {
-    console.error('[crm] Unblock customer error:', error);
+    console.error('[crm] Legacy unblock customer error:', error);
     res.status(500).json({ error: 'failed', message: error.message });
   }
 });
 
-// Проверка блокировки (для публичного API)
+// Проверка блокировки (публичный API — миниапка).
+// Возвращает полный объект блока для рендера экрана с таймером/датой.
 crmRouter.get('/api/customers/:telegramId/check-blocks', (req, res) => {
   try {
-    const { telegramId } = req.params;
-    
-    const customer = db.prepare(`
-      SELECT id FROM customers WHERE telegram_id = ?
-    `).get(telegramId);
-
-    if (!customer) {
-      return res.json({ blocked: false });
-    }
-
-    const block = db.prepare(`
-      SELECT * FROM customer_blocks 
-      WHERE customer_id = ? AND block_type = 'delivery' AND active = 1
-    `).get(customer.id);
-
-    res.json({ 
-      blocked: !!block,
-      reason: block?.reason || null
+    const block = getActiveBlockForTelegramId(req.params.telegramId);
+    if (!block) return res.json({ blocked: false });
+    res.json({
+      blocked: true,
+      reason: block.reason || null,
+      block_until: block.block_until || null,
+      blocked_at: block.blocked_at,
     });
   } catch (error) {
     console.error('[crm] Check blocks error:', error);

@@ -20,6 +20,12 @@ import {
   resolveWholesaleContextFromRequest,
   validateWholesaleMinimum,
 } from "../wholesale-service.js";
+import {
+  activatePendingBansForCustomer,
+  getActiveBlockForTelegramId,
+  getPendingBanForUsername,
+  serializeBlock,
+} from "../utils/customer-blocks.js";
 
 export const publicRouter = express.Router();
 
@@ -2140,6 +2146,31 @@ publicRouter.post(
         });
       }
 
+      // Блокировка клиента — отказываем в новом заказе.
+      // Сначала pending (превентивный бан по @username, клиент ещё не в БД),
+      // потом активный блок по telegram_id (если клиент уже есть).
+      //
+      // Важно: эта проверка идёт ПОСЛЕ existingActiveOrder. Это намеренно —
+      // согласно ТЗ активные заказы заблокированного клиента должны выдаваться
+      // как обычно. Если у заблокированного есть активный заказ, он получит
+      // 409 active_order_exists вместо 403 customer_blocked — экран блокировки
+      // он всё равно увидит при следующем входе через /check-blocks (он же
+      // вызывается в App.vue:onMounted).
+      const pendingBan = getPendingBanForUsername(verifiedTelegramUsername);
+      if (pendingBan) {
+        return res.status(403).json({
+          error: "customer_blocked",
+          block: serializeBlock(pendingBan, "pending"),
+        });
+      }
+      const activeBlock = getActiveBlockForTelegramId(telegramId);
+      if (activeBlock) {
+        return res.status(403).json({
+          error: "customer_blocked",
+          block: serializeBlock(activeBlock, "active"),
+        });
+      }
+
       const wholesaleContext = resolveWholesaleContextOrSendError(req, res);
       if (!wholesaleContext && res.headersSent) {
         return;
@@ -2440,6 +2471,12 @@ function upsertPublicCustomer({
       existing.id,
     );
 
+    // Активация превентивных банов: если @username клиента сменился и
+    // именно по новому username админ повесил pending — переносим в активный блок.
+    activatePendingBansForCustomer({
+      id: existing.id,
+      telegram_username: telegramUsername || existing.telegram_username,
+    });
     return existing.id;
   }
 
@@ -2459,6 +2496,14 @@ function upsertPublicCustomer({
     lastName || null,
     phone || null,
   );
+
+  // Свежесозданный клиент: проверяем есть ли pending-бан по его @username
+  // (превентивный бан, оформленный админом до первого визита). Если есть —
+  // переносим в customer_blocks с реальным customer_id.
+  activatePendingBansForCustomer({
+    id: customerId,
+    telegram_username: telegramUsername,
+  });
 
   return customerId;
 }

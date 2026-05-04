@@ -543,6 +543,7 @@ import {
 } from "@/stores/loyalty";
 import { useSettingsStore } from "@/stores/settings";
 import { useWholesaleStore } from "@/stores/wholesale";
+import { useCustomerBlock } from "@/composables/useCustomerBlock";
 import MinDeliveryBanner from "@/components/MinDeliveryBanner.vue";
 import DeliveryConditionsBanner from "@/components/DeliveryConditionsBanner.vue";
 import CustomerModalShell from "@/components/CustomerModalShell.vue";
@@ -575,6 +576,7 @@ const settingsStore = useSettingsStore();
 const catalogStore = useCatalogStore();
 const loyaltyStore = useLoyaltyStore();
 const wholesaleStore = useWholesaleStore();
+const { applyBlockFromResponse } = useCustomerBlock();
 const activeCheckoutLoyaltyKey = ref<string | null>(null);
 
 const LOYALTY_CATEGORY_ORDER = ["liquids", "disposables", "devices"];
@@ -1512,6 +1514,16 @@ async function submitOrder() {
     if (!response.ok) {
       if (result?.error === "active_order_exists") {
         await router.push("/my-order");
+        return;
+      }
+      if (result?.error === "customer_blocked") {
+        // Сервер заблокировал заказ — обновляем глобальное состояние,
+        // чтобы App.vue показал BlockedScreen поверх всего.
+        // Защитный fallback: если backend не приложил block payload,
+        // всё равно показываем экран без подробностей.
+        applyBlockFromResponse(
+          result.block ?? { reason: null, block_until: null },
+        );
         return;
       }
       if (result?.error === "min_delivery_amount_not_met") {

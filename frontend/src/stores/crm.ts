@@ -46,6 +46,56 @@ export interface CustomerBlock {
   active: number;
 }
 
+/**
+ * Активный блок реального клиента (есть в customers).
+ * Возвращается из GET /api/admin/crm/blocks как `active[]`.
+ */
+export interface ActiveCustomerBlock {
+  id: string;
+  kind: "active";
+  customer_id: string;
+  block_until: string | null; // SQLite UTC datetime, null = бессрочно
+  reason: string | null;
+  blocked_at: string;
+  blocked_by: string | null;
+  unblocked_at: string | null;
+  unblocked_by: string | null;
+  unblock_reason: string | null;
+  customer?: {
+    telegram_id: string | null;
+    telegram_username: string | null;
+    first_name: string | null;
+    last_name: string | null;
+    phone: string | null;
+  };
+}
+
+/**
+ * Pending-блок: превентивный бан по @username, клиент ещё не появлялся в БД.
+ * Активируется автоматически при первом upsertPublicCustomer.
+ */
+export interface PendingCustomerBlock {
+  id: number;
+  kind: "pending";
+  telegram_username: string;
+  block_until: string | null;
+  reason: string | null;
+  blocked_at: string;
+  blocked_by: string | null;
+}
+
+export interface CustomerBlockDuration {
+  unit: "minutes" | "hours" | "days" | "forever";
+  value?: number;
+}
+
+export interface CreateCustomerBlockPayload {
+  customer_id?: string;
+  telegram_username?: string;
+  reason?: string | null;
+  duration: CustomerBlockDuration;
+}
+
 export interface Order {
   id: string;
   order_number: number;
@@ -991,6 +1041,48 @@ export const useCrmStore = defineStore("crm", () => {
       method: "POST",
     });
     await fetchCustomer(id);
+  }
+
+  // ===== Универсальные блокировки клиентов (новый API) =====
+  const customerBlocksList = ref<{
+    active: ActiveCustomerBlock[];
+    pending: PendingCustomerBlock[];
+  }>({ active: [], pending: [] });
+  const loadingCustomerBlocks = ref(false);
+
+  async function fetchCustomerBlocksList() {
+    loadingCustomerBlocks.value = true;
+    try {
+      customerBlocksList.value = await fetchAPI<{
+        active: ActiveCustomerBlock[];
+        pending: PendingCustomerBlock[];
+      }>(`${API_BASE}/blocks`);
+      return customerBlocksList.value;
+    } finally {
+      loadingCustomerBlocks.value = false;
+    }
+  }
+
+  async function createCustomerBlock(payload: CreateCustomerBlockPayload) {
+    const result = await fetchAPI<{
+      ok: true;
+      kind: "active" | "pending";
+      block: ActiveCustomerBlock | PendingCustomerBlock;
+    }>(`${API_BASE}/blocks`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+    return result;
+  }
+
+  async function removeCustomerBlock(blockId: string | number, unblock_reason?: string) {
+    return fetchAPI<{ ok: true; kind: "unblocked" | "pending_removed" }>(
+      `${API_BASE}/blocks/${blockId}`,
+      {
+        method: "DELETE",
+        body: JSON.stringify({ unblock_reason: unblock_reason ?? null }),
+      },
+    );
   }
 
   async function deleteCustomer(id: string) {
@@ -2163,6 +2255,13 @@ export const useCrmStore = defineStore("crm", () => {
     blockCustomer,
     unblockCustomer,
     deleteCustomer,
+
+    // Универсальные блокировки (новый API: pre-ban по @username + срок)
+    customerBlocksList,
+    loadingCustomerBlocks,
+    fetchCustomerBlocksList,
+    createCustomerBlock,
+    removeCustomerBlock,
 
     // Customer Feedbacks
     customerFeedbacks,
