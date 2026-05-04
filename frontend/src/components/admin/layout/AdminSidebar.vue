@@ -53,6 +53,13 @@
                     >
                       {{ newOrdersCount > 99 ? '99+' : newOrdersCount }}
                     </span>
+                    <!-- Indicator for low-stock product lines (Закупки) -->
+                    <span
+                      v-if="link.id === 'crm-procurements' && lowStockHasAny"
+                      class="absolute -top-1.5 -right-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-[11px] font-bold text-white shadow-lg"
+                      :title="`Заканчивающихся линеек: ${lowStockCount}`"
+                      aria-label="Есть заканчивающиеся линейки"
+                    >!</span>
                   </span>
                   <div class="flex flex-col items-start gap-0.5">
                     <span class="text-sm font-semibold leading-tight text-slate-900">{{ link.name }}</span>
@@ -100,7 +107,7 @@ const props = defineProps<{
 const emit = defineEmits<{ (e: 'update:modelValue', v: string): void; (e: 'lock'): void }>()
 
 const crmStore = useCrmStore()
-const { newOrdersCount } = storeToRefs(crmStore)
+const { newOrdersCount, lowStockHasAny, lowStockCount } = storeToRefs(crmStore)
 
 const crmLinks = computed(() => props.crmLinks ?? [])
 const route = useRoute()

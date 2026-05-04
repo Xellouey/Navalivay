@@ -23,6 +23,24 @@
       <p class="mt-1 text-xs text-gray-500">Показывается на витрине как единая строка</p>
     </div>
 
+    <div>
+      <label class="block text-sm font-medium text-gray-700 mb-2">Минимальный остаток</label>
+      <input
+        v-model="form.minStockThreshold"
+        type="number"
+        min="0"
+        step="1"
+        inputmode="numeric"
+        class="w-full rounded-lg border border-gray-300 px-3 py-2 focus:ring-2 focus:ring-brand-dark focus:border-transparent text-sm"
+        placeholder="Например 45"
+      />
+      <p class="mt-1 text-xs text-gray-500">
+        Когда суммарный остаток линейки опустится ниже этого числа — она появится
+        в плашке «Заканчивающиеся» в разделе Закупки. Если поле пустое —
+        оповещение появится только при полном обнулении товара.
+      </p>
+    </div>
+
     <div class="space-y-3 rounded-2xl border border-gray-200 bg-gray-50/80 p-4">
       <div class="flex flex-wrap items-start justify-between gap-2">
         <div>
@@ -229,6 +247,7 @@ interface CategoryGroup {
   parentId?: string | null
   metaLabel?: string | null
   metaValue?: string | null
+  minStockThreshold?: number | null
   depth?: number
   averageCostAuto?: number | null
   directProductCount?: number
@@ -253,7 +272,7 @@ const props = withDefaults(defineProps<{ editingGroup?: CategoryGroup | null; is
 })
 
 const emit = defineEmits<{
-  (e: 'submit', payload: { name: string; coverImage?: string | null; hideEmpty?: boolean; parentId?: string | null; metaLabel?: string | null; metaValue?: string | null; wholesalePrices?: Record<string, number | null> }): void
+  (e: 'submit', payload: { name: string; coverImage?: string | null; hideEmpty?: boolean; parentId?: string | null; metaLabel?: string | null; metaValue?: string | null; minStockThreshold?: number | null; wholesalePrices?: Record<string, number | null> }): void
   (e: 'cancel'): void
 }>()
 
@@ -262,7 +281,8 @@ const form = reactive({
   coverImage: '',
   hideEmpty: false,
   parentId: '',
-  metaValue: ''
+  metaValue: '',
+  minStockThreshold: ''
 })
 
 const nameError = ref('')
@@ -336,6 +356,11 @@ watch(
       const label = (group.metaLabel || '').trim()
       const value = (group.metaValue || '').trim()
       form.metaValue = label && value ? `${label} ${value}` : (label || value)
+      const threshold = group.minStockThreshold
+      form.minStockThreshold =
+        threshold === null || threshold === undefined || !Number.isFinite(Number(threshold)) || Number(threshold) <= 0
+          ? ''
+          : String(threshold)
       syncWholesalePriceInputs(group)
       if ((group.coverImage || '').startsWith('data:')) {
         coverMode.value = 'file'
@@ -351,6 +376,7 @@ watch(
       form.hideEmpty = false
       form.parentId = ''
       form.metaValue = ''
+      form.minStockThreshold = ''
       syncWholesalePriceInputs(null)
       coverMode.value = 'url'
       uploadPreview.value = ''
@@ -392,6 +418,14 @@ function onSubmit() {
       return [tier.code, Number.isFinite(numeric) && numeric > 0 ? numeric : null]
     }),
   )
+  const rawThreshold = String(form.minStockThreshold ?? '').trim()
+  let minStockThreshold: number | null = null
+  if (rawThreshold) {
+    const parsed = Number(rawThreshold)
+    if (Number.isFinite(parsed) && parsed > 0) {
+      minStockThreshold = Math.floor(parsed)
+    }
+  }
   emit('submit', {
     name: form.name.trim(),
     coverImage: form.coverImage.trim() ? form.coverImage.trim() : null,
@@ -399,6 +433,7 @@ function onSubmit() {
     parentId: form.parentId ? form.parentId : null,
     metaLabel: null,
     metaValue: metaValue.length ? metaValue : null,
+    minStockThreshold,
     wholesalePrices
   })
 }

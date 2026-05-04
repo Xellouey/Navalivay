@@ -107,6 +107,7 @@ export interface CategoryGroup {
   parentId?: string | null
   metaLabel?: string | null
   metaValue?: string | null
+  minStockThreshold?: number | null
   createdAt?: string
   updatedAt?: string
   productCount?: number
@@ -226,6 +227,17 @@ export const useAdminStore = defineStore('admin', () => {
         return [String(code), Number(rawPrice)]
       }),
     )
+  }
+
+  function normalizeMinStockThreshold(value: any): number | null {
+    if (value === null || value === undefined || value === '') {
+      return null
+    }
+    const numeric = Number(value)
+    if (!Number.isFinite(numeric) || numeric <= 0) {
+      return null
+    }
+    return Math.floor(numeric)
   }
 
   function normalizeProductData(product: any): Product {
@@ -769,6 +781,7 @@ async function createCategory(category: { name: string; hideEmpty?: boolean; cov
         parentId: group.parent_group_id ?? null,
         metaLabel: group.metaLabel ?? group.meta_label ?? null,
         metaValue: group.metaValue ?? group.meta_value ?? null,
+        minStockThreshold: normalizeMinStockThreshold(group.minStockThreshold ?? group.min_stock_threshold),
         createdAt: group.createdAt,
         updatedAt: group.updatedAt,
         productCount: group.productCount ?? 0,
@@ -857,6 +870,7 @@ async function createCategory(category: { name: string; hideEmpty?: boolean; cov
         parentId: response.parent_group_id ?? null,
         metaLabel: response.metaLabel ?? response.meta_label ?? null,
         metaValue: response.metaValue ?? response.meta_value ?? null,
+        minStockThreshold: normalizeMinStockThreshold(response.minStockThreshold ?? response.min_stock_threshold),
         createdAt: response.createdAt,
         updatedAt: response.updatedAt,
         productCount: response.productCount ?? 0,
@@ -902,7 +916,7 @@ async function createCategory(category: { name: string; hideEmpty?: boolean; cov
     }
   }
 
-  async function createCategoryGroup(payload: { categoryId: string; name: string; slug?: string; coverImage?: string | null; hideEmpty?: boolean; parentId?: string | null; metaLabel?: string | null; metaValue?: string | null; wholesalePrices?: Record<string, number | null> }) {
+  async function createCategoryGroup(payload: { categoryId: string; name: string; slug?: string; coverImage?: string | null; hideEmpty?: boolean; parentId?: string | null; metaLabel?: string | null; metaValue?: string | null; minStockThreshold?: number | null; wholesalePrices?: Record<string, number | null> }) {
     try {
       isLoading.value = true
       error.value = null
@@ -919,6 +933,7 @@ async function createCategory(category: { name: string; hideEmpty?: boolean; cov
           parentId: payload.parentId ?? null,
           metaLabel: payload.metaLabel ?? null,
           metaValue: payload.metaValue ?? null,
+          minStockThreshold: payload.minStockThreshold ?? null,
           wholesalePrices: payload.wholesalePrices ?? undefined
         }
       })
@@ -934,6 +949,7 @@ async function createCategory(category: { name: string; hideEmpty?: boolean; cov
         parentId: response.parent_group_id ?? null,
         metaLabel: response.metaLabel ?? response.meta_label ?? null,
         metaValue: response.metaValue ?? response.meta_value ?? null,
+        minStockThreshold: normalizeMinStockThreshold(response.minStockThreshold ?? response.min_stock_threshold),
         createdAt: response.createdAt,
         updatedAt: response.updatedAt,
         productCount: response.productCount ?? 0,
@@ -974,6 +990,7 @@ async function createCategory(category: { name: string; hideEmpty?: boolean; cov
           parentId: updates.parentId ?? null,
           metaLabel: updates.metaLabel ?? null,
           metaValue: updates.metaValue ?? null,
+          minStockThreshold: updates.minStockThreshold ?? null,
           wholesalePrices: updates.wholesalePrices
         }
       })
@@ -990,6 +1007,7 @@ async function createCategory(category: { name: string; hideEmpty?: boolean; cov
         parentId: response.parent_group_id ?? null,
         metaLabel: response.metaLabel ?? response.meta_label ?? null,
         metaValue: response.metaValue ?? response.meta_value ?? null,
+        minStockThreshold: normalizeMinStockThreshold(response.minStockThreshold ?? response.min_stock_threshold),
         createdAt: response.createdAt,
         updatedAt: response.updatedAt,
         productCount: response.productCount ?? 0,

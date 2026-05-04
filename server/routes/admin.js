@@ -18,6 +18,7 @@ import {
   getWholesaleCoverageSummary,
   saveGroupWholesalePrices,
 } from '../wholesale-service.js';
+import { syncGroupParking, syncParkingFromFlattened } from '../utils/group-parking.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -593,17 +594,22 @@ adminRouter.post('/api/admin/products', authMiddleware, (req, res) => {
     }));
     
     console.log(`[admin] Product creation completed:`, { product, images: productImages, variants: productVariants });
-    
+
+    // Если товар создан с ненулевым stock в линейке на парковке — снять парковку
+    if (product.groupId) {
+      try { syncGroupParking(product.groupId); } catch (e) { console.error('[admin] syncGroupParking on create failed:', e); }
+    }
+
     const responseProduct = { ...product, links: productLinks };
     if (product.hasVariants) {
       responseProduct.variants = productVariants;
     } else {
       responseProduct.images = productImages;
     }
-    
-    res.json({ 
-      ok: true, 
-      id, 
+
+    res.json({
+      ok: true,
+      id,
       product: responseProduct
     });
   } catch (error) {
@@ -779,6 +785,16 @@ adminRouter.patch('/api/admin/products/:id', authMiddleware, async (req, res) =>
       db.prepare('DELETE FROM product_images WHERE variant_id IS NOT NULL AND productId = ?').run(id);
     }
 
+    // Синк парковки групп: изменился stock и/или сменился groupId — затронута старая и новая линейка.
+    try {
+      const affected = new Set();
+      if (cur.groupId) affected.add(cur.groupId);
+      if (nextGroupId) affected.add(nextGroupId);
+      affected.forEach((gid) => { try { syncGroupParking(gid); } catch (e) { console.error('[admin] syncGroupParking failed:', e); } });
+    } catch (e) {
+      console.error('[admin] parking sync wrapper failed:', e);
+    }
+
     res.json({ ok: true });
   } catch (error) {
     console.error('[admin] Error processing variants:', error);
@@ -788,7 +804,11 @@ adminRouter.patch('/api/admin/products/:id', authMiddleware, async (req, res) =>
 
 adminRouter.delete('/api/admin/products/:id', authMiddleware, (req, res) => {
   const id = req.params.id;
+  const prod = db.prepare('SELECT groupId FROM products WHERE id = ?').get(id);
   db.prepare('DELETE FROM products WHERE id = ?').run(id);
+  if (prod?.groupId) {
+    try { syncGroupParking(prod.groupId); } catch (e) { console.error('[admin] syncGroupParking on delete failed:', e); }
+  }
   res.json({ ok: true });
 });
 
@@ -1500,11 +1520,13 @@ adminRouter.get('/api/admin/category-groups', authMiddleware, (req, res) => {
       g.meta_label,
       g.meta_value,
       g.empty_since,
+      g.parked_order,
+      g.min_stock_threshold,
       g.createdAt,
       g.updatedAt,
       COUNT(p.id) AS productCount,
       COALESCE(SUM(
-        CASE 
+        CASE
           WHEN p.has_variants = 1 THEN (SELECT COALESCE(SUM(pv.stock), 0) FROM product_variants pv WHERE pv.product_id = p.id)
           ELSE COALESCE(p.stock, 0)
         END
@@ -1512,7 +1534,7 @@ adminRouter.get('/api/admin/category-groups', authMiddleware, (req, res) => {
     FROM category_groups g
     LEFT JOIN products p ON p.groupId = g.id
     ${whereClause}
-    GROUP BY g.id, g.categoryId, g.slug, g.name, g.[order], g.hide_empty, g.parent_group_id, g.meta_label, g.meta_value, g.empty_since, g.createdAt, g.updatedAt
+    GROUP BY g.id, g.categoryId, g.slug, g.name, g.[order], g.hide_empty, g.parent_group_id, g.meta_label, g.meta_value, g.empty_since, g.parked_order, g.min_stock_threshold, g.createdAt, g.updatedAt
     ORDER BY g.categoryId ASC, g.[order] ASC, g.name ASC
   `).all(...params);
 
@@ -1523,6 +1545,7 @@ adminRouter.get('/api/admin/category-groups', authMiddleware, (req, res) => {
     stockSum: Number(row.stockSum ?? 0),
     parent_group_id: row.parent_group_id ?? null,
     empty_since: row.empty_since ?? null,
+    parked_order: row.parked_order ?? null,
     children: []
   }));
 
@@ -1594,6 +1617,48 @@ adminRouter.get('/api/admin/category-groups', authMiddleware, (req, res) => {
     }
   });
 
+  // Парковка позиции линейки: по СОБСТВЕННОМУ остатку (stockSum), а не суммарному,
+  // потому что витрина скрывает линейку именно по её собственным товарам.
+  // При restore пересчитываются [order] соседей, поэтому после синка перечитываем
+  // из БД актуальные значения — иначе фронт увидит stale [order] сразу после восстановления.
+  syncParkingFromFlattened(flattened.map(g => ({
+    id: g.id,
+    categoryId: g.categoryId,
+    order: Number(g.order ?? 0),
+    totalStockSum: Number(g.stockSum ?? 0),
+    parked_order: g.parked_order ?? null,
+  })));
+
+  const refreshedIds = flattened.map(g => g.id);
+  if (refreshedIds.length > 0) {
+    const chunks = [];
+    for (let i = 0; i < refreshedIds.length; i += MAX_SQL_VARS) {
+      chunks.push(refreshedIds.slice(i, i + MAX_SQL_VARS));
+    }
+    const freshById = new Map();
+    chunks.forEach((chunk) => {
+      const placeholders = chunk.map(() => '?').join(',');
+      const freshRows = db.prepare(
+        `SELECT id, [order] AS fresh_order, parked_order FROM category_groups WHERE id IN (${placeholders})`
+      ).all(...chunk);
+      freshRows.forEach(r => freshById.set(r.id, r));
+    });
+    flattened.forEach((g) => {
+      const fresh = freshById.get(g.id);
+      if (fresh) {
+        g.order = Number(fresh.fresh_order ?? g.order ?? 0);
+        g.parked_order = fresh.parked_order ?? null;
+      }
+    });
+    // Пересортировка на случай, если restore сдвинул порядок
+    flattened.sort((a, b) => {
+      if (a.categoryId !== b.categoryId) {
+        return String(a.categoryId).localeCompare(String(b.categoryId));
+      }
+      return Number(a.order ?? 0) - Number(b.order ?? 0);
+    });
+  }
+
   res.json(enrichAdminCategoryGroups(flattened));
 });
 
@@ -1655,6 +1720,8 @@ adminRouter.post('/api/admin/category-groups', authMiddleware, async (req, res) 
     meta_value,
     wholesalePrices,
     wholesale_prices,
+    minStockThreshold,
+    min_stock_threshold,
   } = req.body || {};
 
   if (!categoryId || !name) {
@@ -1697,11 +1764,19 @@ adminRouter.post('/api/admin/category-groups', authMiddleware, async (req, res) 
   // Конвертируем изображение в WebP
   const coverImageValue = coverImage ? await convertImageToWebP(coverImage) : null;
 
+  // Минимальный порог стока: число > 0, иначе NULL.
+  const rawThreshold = minStockThreshold ?? min_stock_threshold ?? null;
+  const resolvedThreshold = (() => {
+    if (rawThreshold == null || rawThreshold === '') return null;
+    const n = Number(rawThreshold);
+    return Number.isFinite(n) && n > 0 ? Math.trunc(n) : null;
+  })();
+
   try {
     const tx = db.transaction(() => {
       db.prepare(`
-        INSERT INTO category_groups (id, categoryId, slug, name, cover_image, [order], hide_empty, meta_label, meta_value, parent_group_id, createdAt, updatedAt)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, DATETIME('now'), DATETIME('now'))
+        INSERT INTO category_groups (id, categoryId, slug, name, cover_image, [order], hide_empty, meta_label, meta_value, parent_group_id, min_stock_threshold, createdAt, updatedAt)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, DATETIME('now'), DATETIME('now'))
       `).run(
         newId,
         String(categoryId),
@@ -1713,6 +1788,7 @@ adminRouter.post('/api/admin/category-groups', authMiddleware, async (req, res) 
         resolvedMetaLabel,
         resolvedMetaValue,
         resolvedParentId,
+        resolvedThreshold,
       );
 
       saveGroupWholesalePrices(newId, wholesalePrices ?? wholesale_prices ?? {});
@@ -1739,13 +1815,14 @@ adminRouter.post('/api/admin/category-groups', authMiddleware, async (req, res) 
       g.parent_group_id,
       g.meta_label,
       g.meta_value,
+      g.min_stock_threshold,
       g.createdAt,
       g.updatedAt,
       COUNT(p.id) AS productCount
     FROM category_groups g
     LEFT JOIN products p ON p.groupId = g.id
     WHERE g.id = ?
-    GROUP BY g.id, g.categoryId, g.slug, g.name, g.cover_image, g.[order], g.hide_empty, g.parent_group_id, g.meta_label, g.meta_value, g.createdAt, g.updatedAt
+    GROUP BY g.id, g.categoryId, g.slug, g.name, g.cover_image, g.[order], g.hide_empty, g.parent_group_id, g.meta_label, g.meta_value, g.min_stock_threshold, g.createdAt, g.updatedAt
   `).get(newId);
 
   if (!result) {
@@ -1786,6 +1863,8 @@ adminRouter.put('/api/admin/category-groups/:id', authMiddleware, async (req, re
     meta_value,
     wholesalePrices,
     wholesale_prices,
+    minStockThreshold,
+    min_stock_threshold,
   } = req.body || {};
 
   const current = db.prepare('SELECT * FROM category_groups WHERE id = ?').get(id);
@@ -1858,13 +1937,24 @@ adminRouter.put('/api/admin/category-groups/:id', authMiddleware, async (req, re
     }
   }
 
+  // Минимальный порог стока: если поле передано (даже null/0/'') — обновляем,
+  // иначе оставляем текущее значение.
+  const thresholdProvided = 'minStockThreshold' in (req.body || {}) || 'min_stock_threshold' in (req.body || {});
+  const rawThreshold = minStockThreshold ?? min_stock_threshold;
+  const nextThreshold = (() => {
+    if (!thresholdProvided) return current.min_stock_threshold ?? null;
+    if (rawThreshold == null || rawThreshold === '') return null;
+    const n = Number(rawThreshold);
+    return Number.isFinite(n) && n > 0 ? Math.trunc(n) : null;
+  })();
+
   try {
     const tx = db.transaction(() => {
       db.prepare(`
         UPDATE category_groups
-        SET name = ?, slug = ?, cover_image = ?, hide_empty = ?, [order] = ?, meta_label = ?, meta_value = ?, parent_group_id = ?, updatedAt = DATETIME('now')
+        SET name = ?, slug = ?, cover_image = ?, hide_empty = ?, [order] = ?, meta_label = ?, meta_value = ?, parent_group_id = ?, min_stock_threshold = ?, updatedAt = DATETIME('now')
         WHERE id = ?
-      `).run(nextName, nextSlug, nextCover, nextHideEmpty, nextOrder, nextMetaLabel, nextMetaValue, nextParentId, id);
+      `).run(nextName, nextSlug, nextCover, nextHideEmpty, nextOrder, nextMetaLabel, nextMetaValue, nextParentId, nextThreshold, id);
 
       if (wholesalePricesProvided) {
         saveGroupWholesalePrices(id, wholesalePrices ?? wholesale_prices ?? {});
@@ -1892,13 +1982,14 @@ adminRouter.put('/api/admin/category-groups/:id', authMiddleware, async (req, re
       g.parent_group_id,
       g.meta_label,
       g.meta_value,
+      g.min_stock_threshold,
       g.createdAt,
       g.updatedAt,
       COUNT(p.id) AS productCount
     FROM category_groups g
     LEFT JOIN products p ON p.groupId = g.id
     WHERE g.id = ?
-    GROUP BY g.id, g.categoryId, g.slug, g.name, g.cover_image, g.[order], g.hide_empty, g.parent_group_id, g.meta_label, g.meta_value, g.createdAt, g.updatedAt
+    GROUP BY g.id, g.categoryId, g.slug, g.name, g.cover_image, g.[order], g.hide_empty, g.parent_group_id, g.meta_label, g.meta_value, g.min_stock_threshold, g.createdAt, g.updatedAt
   `).get(id);
 
   if (!updated) {
@@ -1931,20 +2022,48 @@ adminRouter.patch('/api/admin/category-groups/reorder', authMiddleware, (req, re
   }
 
   try {
-    const stmt = db.prepare("UPDATE category_groups SET [order] = ?, updatedAt = DATETIME('now') WHERE id = ?");
+    // Для "запаркованных" (пустых) линеек админский drag-n-drop трактуется как
+    // ПЕРЕОПРЕДЕЛЕНИЕ замороженной позиции: обновляем и [order], и parked_order
+    // на новое значение. Так пустую линейку можно осознанно двигать в админке,
+    // и она запомнит новое место "ожидания товара".
+    const ids = groups.map(g => g.id).filter(Boolean);
+    const parkedSet = new Set();
+    if (ids.length > 0) {
+      const chunks = [];
+      for (let i = 0; i < ids.length; i += MAX_SQL_VARS) {
+        chunks.push(ids.slice(i, i + MAX_SQL_VARS));
+      }
+      chunks.forEach((chunk) => {
+        const placeholders = chunk.map(() => '?').join(',');
+        const parkedRows = db.prepare(
+          `SELECT id FROM category_groups WHERE id IN (${placeholders}) AND parked_order IS NOT NULL`
+        ).all(...chunk);
+        parkedRows.forEach(r => parkedSet.add(r.id));
+      });
+    }
+
+    const stmtRegular = db.prepare("UPDATE category_groups SET [order] = ?, updatedAt = DATETIME('now') WHERE id = ?");
+    const stmtParked = db.prepare("UPDATE category_groups SET [order] = ?, parked_order = ?, updatedAt = DATETIME('now') WHERE id = ?");
+    const repositionedParked = [];
     const tx = db.transaction((items) => {
       for (const item of items) {
         if (!item.id || !Number.isFinite(item.order)) {
           throw new Error('invalid_group_data');
         }
-        const result = stmt.run(item.order, item.id);
+        let result;
+        if (parkedSet.has(item.id)) {
+          result = stmtParked.run(item.order, item.order, item.id);
+          repositionedParked.push(item.id);
+        } else {
+          result = stmtRegular.run(item.order, item.id);
+        }
         if (result.changes === 0) {
           throw new Error(`group_not_found:${item.id}`);
         }
       }
     });
     tx(groups);
-    res.json({ ok: true });
+    res.json({ ok: true, repositionedParked });
   } catch (error) {
     console.error('[admin] reorder groups failed:', error);
     res.status(500).json({ error: 'reorder_failed', message: error.message });

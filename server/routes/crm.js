@@ -25,6 +25,13 @@ import {
   getCustomerPurchaseHistory,
   searchCustomers,
 } from '../utils/pos-customers.js';
+import {
+  PAUSE_REASONS,
+  computeLowStockGroups,
+  getLowStockSummary,
+  pauseGroup,
+  resumeGroup,
+} from '../utils/low-stock-groups.js';
 
 export const crmRouter = express.Router();
 
@@ -548,6 +555,65 @@ crmRouter.get('/api/admin/crm/customers', authMiddleware, (req, res) => {
 // ВНИМАНИЕ: статические сегменты пути (search, pos-customers) объявляются
 // ДО ':id' маршрутов — иначе Express отдаст :id-обработчику и /search, и
 // /pos-customers будут резолвиться как customer с id="search".
+
+// =========================
+// Заканчивающиеся линейки (плашка в Закупках + индикатор в сайдбаре)
+// =========================
+
+// Полный список линеек требующих закупки.
+crmRouter.get('/api/admin/crm/low-stock-groups', authMiddleware, (req, res) => {
+  try {
+    const items = computeLowStockGroups();
+    res.json({ items, reasons: PAUSE_REASONS });
+  } catch (error) {
+    console.error('[crm] List low-stock groups error:', error);
+    res.status(500).json({ error: 'failed', message: error.message });
+  }
+});
+
+// Lightweight-проверка: есть ли вообще заканчивающиеся (для красной точки в сайдбаре).
+// Делает ту же работу что и list, но возвращает только { hasAny, count } —
+// без сетевых костов передачи всего массива.
+crmRouter.get('/api/admin/crm/low-stock-groups/summary', authMiddleware, (req, res) => {
+  try {
+    res.json(getLowStockSummary());
+  } catch (error) {
+    console.error('[crm] Low-stock summary error:', error);
+    res.status(500).json({ error: 'failed', message: error.message });
+  }
+});
+
+// Скрыть линейку из плашки на N дней. reason: 'short' | 'no_supply' | 'not_produced'.
+crmRouter.post('/api/admin/crm/low-stock-groups/:groupId/pause', authMiddleware, (req, res) => {
+  try {
+    const result = pauseGroup({
+      groupId: req.params.groupId,
+      reason: req.body?.reason,
+      byUser: req.user?.u || 'admin',
+    });
+    res.json({ ok: true, pause: result });
+  } catch (err) {
+    if (err.code === 'invalid_pause_reason') {
+      return res.status(400).json({ error: 'invalid_pause_reason' });
+    }
+    if (err.code === 'group_not_found') {
+      return res.status(404).json({ error: 'group_not_found' });
+    }
+    console.error('[crm] Pause low-stock group error:', err);
+    res.status(500).json({ error: 'failed', message: err.message });
+  }
+});
+
+// Снять активную паузу (вернуть линейку в плашку до истечения срока).
+crmRouter.delete('/api/admin/crm/low-stock-groups/:groupId/pause', authMiddleware, (req, res) => {
+  try {
+    const removed = resumeGroup(req.params.groupId);
+    res.json({ ok: true, removed });
+  } catch (error) {
+    console.error('[crm] Resume low-stock group error:', error);
+    res.status(500).json({ error: 'failed', message: error.message });
+  }
+});
 
 // Поиск клиентов для админских autocomplete (новый POS-флоу + любые модалки).
 crmRouter.get('/api/admin/crm/customers/search', authMiddleware, (req, res) => {

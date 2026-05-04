@@ -37,6 +37,7 @@ import { migrateEmptySinceToGroups } from './migrations/add_empty_since_to_group
 import { migrateParkedOrderToGroups } from './migrations/add_parked_order_to_groups.js';
 import { migrateCustomerBlockLifecycle } from './migrations/add_customer_block_lifecycle.js';
 import { migratePosCustomerLink } from './migrations/add_pos_customer_link.js';
+import { migrateLowStockGroups } from './migrations/add_low_stock_groups.js';
 import { migratePosSales } from './migrations/add_pos_sales.js';
 import { migratePosSaleTransactionLink } from './migrations/add_pos_sale_transaction_link.js';
 import { migrateManagerActionFields } from './migrations/add_manager_action_fields.js';
@@ -184,6 +185,7 @@ export function initDb() {
   migrateCustomerBlockLifecycle();
   migratePosSales();
   migratePosCustomerLink();
+  migrateLowStockGroups();
   migratePosSaleTransactionLink();
   migrateManagerActionFields();
   migrateCustomerPhoto();

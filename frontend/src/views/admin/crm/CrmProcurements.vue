@@ -29,6 +29,7 @@
       </div>
 
       <template v-if="profitUnlocked">
+        <LowStockGroupsPanel class="mb-6" />
         <div class="mb-6 grid grid-cols-1 gap-4 md:grid-cols-3">
           <div class="rounded-xl bg-white p-5 shadow-sm">
             <div class="text-sm text-gray-500">Черновиков</div>
@@ -1074,6 +1075,7 @@ import {
 } from "@/stores/crm";
 import { useAdminStore } from "@/stores/admin";
 import AdminModal from "@/components/AdminModal.vue";
+import LowStockGroupsPanel from "@/components/admin/LowStockGroupsPanel.vue";
 import { LockClosedIcon } from "@heroicons/vue/24/outline";
 
 interface DraftProcurementItem {
@@ -1305,6 +1307,7 @@ function normalizeProduct(row: any): CrmProductSummary {
     groupName: row.groupName ?? row.group_name ?? null,
     isVariant: row.is_variant === true,
     variantName: row.variant_name ?? null,
+    image: row.image ?? row.product_image ?? null,
   };
 }
 
@@ -1475,6 +1478,7 @@ async function startEditProcurement(id: string, existing?: Procurement | null) {
         min_stock: item.min_stock ?? 0,
         is_variant: !!item.variant_id,
         variant_name: item.variant_name ?? null,
+        product_image: item.product_image ?? null,
       }),
       quantity: Number(item.quantity || 0),
       costPerUnit: Number(item.cost_per_unit || 0),

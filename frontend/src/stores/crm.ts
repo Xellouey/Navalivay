@@ -499,6 +499,36 @@ export interface DashboardStats {
 }
 
 /**
+ * Линейка с заканчивающимся остатком — для плашки в «Закупки».
+ * Бэк: GET /api/admin/crm/low-stock-groups → { items, reasons }.
+ *
+ * Полное cover_image (может быть base64 на сотни KB) НЕ передаётся в этом
+ * payload — приходит только `hasCoverImage`. Сама картинка лениво подгружается
+ * в компоненте через GET /api/admin/category-groups/:id/image.
+ */
+export interface LowStockGroup {
+  id: string;
+  name: string;
+  slug: string | null;
+  hasCoverImage: boolean;
+  threshold: number | null;
+  totalStock: number;
+  categoryId: string | null;
+  categoryName: string | null;
+}
+
+/**
+ * Причина паузы линейки — соответствует PAUSE_REASONS на бэке
+ * (server/utils/low-stock-groups.js).
+ */
+export type LowStockPauseReason = "short" | "no_supply" | "not_produced";
+
+export interface LowStockPauseConfig {
+  label: string;
+  days: number;
+}
+
+/**
  * Маркер ошибки авторизации. Бросается из fetchAPI при 401.
  * Caller'ы могут проверить через `error instanceof UnauthorizedError`.
  * Поддерживает `cause` (ErrorOptions) — стандартный паттерн ES2022.
@@ -835,9 +865,13 @@ export const useCrmStore = defineStore("crm", () => {
     if (pollingTimer) return;
     checkForNewOrders(); // Initial check
     checkForActionRequired();
+    // Низкий приоритет — индикатор сайдбара. Ловим .catch чтобы не валить
+    // основные опросы заказов.
+    fetchLowStockSummary().catch(() => {});
     pollingTimer = setInterval(() => {
       checkForNewOrders();
       checkForActionRequired();
+      fetchLowStockSummary().catch(() => {});
     }, POLLING_INTERVAL_MS);
   }
 
@@ -2099,6 +2133,75 @@ export const useCrmStore = defineStore("crm", () => {
     );
   }
 
+  // Low stock GROUPS (линейки) — отдельная сущность, плашка в Закупках.
+  const lowStockGroups = ref<LowStockGroup[]>([]);
+  const lowStockReasons = ref<Record<LowStockPauseReason, LowStockPauseConfig>>(
+    {} as Record<LowStockPauseReason, LowStockPauseConfig>,
+  );
+  const lowStockGroupsLoading = ref(false);
+  const lowStockHasAny = ref(false);
+  const lowStockCount = ref(0);
+
+  async function fetchLowStockGroups() {
+    lowStockGroupsLoading.value = true;
+    try {
+      const data = await fetchAPI<{
+        items: LowStockGroup[];
+        reasons: Record<LowStockPauseReason, LowStockPauseConfig>;
+      }>(`${API_BASE}/low-stock-groups`);
+      lowStockGroups.value = Array.isArray(data?.items) ? data.items : [];
+      lowStockReasons.value = data?.reasons ?? ({} as Record<LowStockPauseReason, LowStockPauseConfig>);
+      // Держим summary в синхроне с детальным списком, чтобы индикатор сайдбара
+      // не «лагал» сразу после действия пользователя.
+      lowStockHasAny.value = lowStockGroups.value.length > 0;
+      lowStockCount.value = lowStockGroups.value.length;
+      return lowStockGroups.value;
+    } finally {
+      lowStockGroupsLoading.value = false;
+    }
+  }
+
+  async function fetchLowStockSummary() {
+    try {
+      const data = await fetchAPI<{ hasAny: boolean; count: number }>(
+        `${API_BASE}/low-stock-groups/summary`,
+      );
+      lowStockHasAny.value = Boolean(data?.hasAny);
+      lowStockCount.value = Number(data?.count ?? 0);
+      return data;
+    } catch (err) {
+      // Ошибка summary не должна ломать UI — просто оставляем последнее значение.
+      console.warn("[CRM] Failed to fetch low-stock summary:", err);
+      return { hasAny: lowStockHasAny.value, count: lowStockCount.value };
+    }
+  }
+
+  async function pauseLowStockGroup(groupId: string, reason: LowStockPauseReason) {
+    if (!groupId) {
+      throw new Error("group_id_required");
+    }
+    await fetchAPI(`${API_BASE}/low-stock-groups/${groupId}/pause`, {
+      method: "POST",
+      body: JSON.stringify({ reason }),
+    });
+    // Локально удаляем линейку из плашки сразу — пользователь увидит результат
+    // моментально, без ожидания нового запроса.
+    lowStockGroups.value = lowStockGroups.value.filter((g) => g.id !== groupId);
+    lowStockHasAny.value = lowStockGroups.value.length > 0;
+    lowStockCount.value = lowStockGroups.value.length;
+  }
+
+  async function resumeLowStockGroup(groupId: string) {
+    if (!groupId) {
+      throw new Error("group_id_required");
+    }
+    await fetchAPI(`${API_BASE}/low-stock-groups/${groupId}/pause`, {
+      method: "DELETE",
+    });
+    // После снятия паузы линейка может снова появиться — перечитываем список.
+    await fetchLowStockGroups();
+  }
+
   async function searchCrmProducts(
     params: { search?: string; page?: number; limit?: number } = {},
   ) {
@@ -2419,6 +2522,17 @@ export const useCrmStore = defineStore("crm", () => {
     // Low stock
     lowStockProducts,
     fetchLowStockProducts,
+
+    // Low stock GROUPS (линейки) — плашка в Закупках + индикатор в сайдбаре
+    lowStockGroups,
+    lowStockReasons,
+    lowStockGroupsLoading,
+    lowStockHasAny,
+    lowStockCount,
+    fetchLowStockGroups,
+    fetchLowStockSummary,
+    pauseLowStockGroup,
+    resumeLowStockGroup,
 
     searchCrmProducts,
     generateOrderMessage,
