@@ -87,6 +87,8 @@ const props = defineProps<Props>();
 
 interface BotStatus {
   bot_token_configured: boolean;
+  bot_token_live: boolean;
+  bot_token_error: string | null;
   bot_process_online: boolean;
   active_connection: { id: string; username: string | null } | null;
   status_templates: Array<{ event: string; title: string; is_active: 0 | 1 }>;
@@ -130,7 +132,7 @@ const eventOptions = computed(() => {
 const botAvailable = computed(() => {
   if (!status.value) return false;
   if (!status.value.bot_token_configured) return false;
-  if (!status.value.bot_process_online) return false;
+  if (!status.value.bot_token_live) return false;
   if (!status.value.active_connection) return false;
   return eventOptions.value.length > 0;
 });
@@ -138,16 +140,19 @@ const botAvailable = computed(() => {
 const unavailabilityMessage = computed(() => {
   if (!status.value) return "";
   if (!status.value.bot_token_configured) {
-    return "Бот не настроен: задайте BOT_TOKEN на сервере и перезапустите процесс бота.";
+    return "Не указан токен бота. Попросите администратора прописать его на сервере и перезапустить бота.";
   }
-  if (!status.value.bot_process_online) {
-    return "Процесс бота не запущен. Запустите npm --prefix server run start:bot.";
+  if (!status.value.bot_token_live) {
+    const reason = status.value.bot_token_error;
+    return reason
+      ? `Telegram не принял токен бота. Причина: ${reason}. Обновите токен и перезапустите бота.`
+      : "Telegram не принял токен бота. Обновите токен и перезапустите бота.";
   }
   if (!status.value.active_connection) {
-    return "Бот не подключён к менеджерскому аккаунту. Сделайте это в Telegram → Настройки → Деловой режим → Чат-боты.";
+    return "Бот не подключён к менеджерскому аккаунту. Подключите его в Telegram: Настройки → Деловой режим → Чат-боты.";
   }
   if (!eventOptions.value.length) {
-    return "Нет активных шаблонов событий. Включите хотя бы один в Настройках → Бот.";
+    return "Нет активных шаблонов событий. Включите хотя бы один в Настройках бота.";
   }
   return "Бот сейчас недоступен.";
 });
@@ -255,13 +260,10 @@ async function send() {
       const errorCode = (data as { error?: string }).error;
       throw new Error(
         errorCode === "no_active_connection"
-          ? "Нет активного подключения бота"
+          ? "Бот не подключён к менеджерскому аккаунту. Подключите его в Telegram: Настройки → Деловой режим → Чат-боты."
           : errorCode === "send_failed"
-            ? "Telegram отказался принять сообщение: " +
-              ((data as { detail?: string }).detail ?? "проверьте подключение")
-            : errorCode === "bot_offline"
-              ? "Процесс бота не запущен"
-              : (data as { message?: string }).message || `Ошибка ${response.status}`,
+            ? "Telegram не принял сообщение. Смотрите подробности в журнале бота."
+            : (data as { message?: string }).message || `Ошибка ${response.status}`,
       );
     }
     message.value = "Сообщение отправлено клиенту.";

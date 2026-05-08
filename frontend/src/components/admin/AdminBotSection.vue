@@ -359,6 +359,8 @@ interface BotConnection {
 interface BotStatus {
   auto_replies_enabled: boolean;
   bot_token_configured: boolean;
+  bot_token_live: boolean;
+  bot_token_error: string | null;
   bot_process_online: boolean;
   active_connection: BotConnection | null;
   connections: BotConnection[];
@@ -442,8 +444,8 @@ const statusEvents = computed(() => {
 
 const connectionLabel = computed(() => {
   if (!status.value) return "—";
-  if (!status.value.bot_token_configured) return "Нет BOT_TOKEN";
-  if (!status.value.bot_process_online) return "Процесс не запущен";
+  if (!status.value.bot_token_configured) return "Нет токена";
+  if (!status.value.bot_token_live) return "Токен не принят";
   if (!status.value.active_connection) return "Не подключён";
   return "Подключён";
 });
@@ -453,7 +455,7 @@ const connectionLabelClass = computed(() => {
   if (status.value.active_connection?.is_enabled && status.value.active_connection?.can_reply) {
     return "text-emerald-700";
   }
-  if (!status.value.bot_token_configured || !status.value.bot_process_online) {
+  if (!status.value.bot_token_configured || !status.value.bot_token_live) {
     return "text-amber-700";
   }
   return "text-gray-700";

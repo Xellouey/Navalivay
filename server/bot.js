@@ -453,67 +453,12 @@ if (!BOT_TOKEN) {
     }
   });
 
-  /**
-   * Публичный хелпер — вызывается из CRM endpoints, когда менеджер нажал
-   * «Уведомить клиента». Принимает payload от prepareStatusNotification.
-   * Возвращает { ok, error?, telegramMessageId? }.
-   */
-  async function sendBusinessNotification({
-    businessConnectionId,
-    chatId,
-    text,
-    customerId = null,
-    customerTelegramId = null,
-    templateKind = 'status',
-    templateId = null,
-    templateEvent = null,
-    messageType = 'status',
-    meta = null,
-  }) {
-    if (!businessConnectionId || !chatId || !text) {
-      return { ok: false, error: 'invalid_payload' };
-    }
-    try {
-      const sent = await bot.telegram.sendMessage(chatId, text, {
-        business_connection_id: businessConnectionId,
-      });
-      logBotMessage({
-        businessConnectionId,
-        chatId,
-        customerId,
-        customerTelegramId,
-        direction: 'out',
-        messageType,
-        templateKind,
-        templateId,
-        templateEvent,
-        text,
-        meta,
-      });
-      return { ok: true, telegramMessageId: sent?.message_id ?? null };
-    } catch (err) {
-      const errorText = String(err?.message || err);
-      console.error('[navalivay:bot] sendBusinessNotification error:', errorText);
-      logBotMessage({
-        businessConnectionId,
-        chatId,
-        customerId,
-        customerTelegramId,
-        direction: 'out',
-        messageType,
-        templateKind,
-        templateId,
-        templateEvent,
-        text,
-        meta: { ...(meta || {}), error: errorText },
-      });
-      return { ok: false, error: errorText };
-    }
-  }
-
-  // Экспортируем как глобальный референс — чтобы CRM-endpoints в routes/crm.js
-  // могли его дёрнуть без циклического импорта самого bot.js.
-  globalThis.__navalivayBotSendBusinessNotification = sendBusinessNotification;
+  // Исходящие notify-status / send-price отправляются напрямую из
+  // routes/crm.js через server/utils/telegram-business-api.js — это нужно,
+  // потому что в проде api и bot живут в разных PM2-процессах и не делят
+  // память (раньше был globalThis-хелпер, но он работал только локально).
+  // bot-процесс остаётся ответственным только за входящие апдейты:
+  // business_connection / business_message / edited_business_message.
 
   (async () => {
     try {

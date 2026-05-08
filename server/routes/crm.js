@@ -58,7 +58,12 @@ import {
   setAutoReplyEnabled,
   getRecentLogCount,
   listBotLog,
+  logBotMessage,
 } from '../utils/business-bot.js';
+import {
+  sendBusinessMessage,
+  checkBotTokenLive,
+} from '../utils/telegram-business-api.js';
 
 export const crmRouter = express.Router();
 
@@ -727,21 +732,29 @@ crmRouter.delete('/api/admin/crm/agreements/:id', authMiddleware, (req, res) => 
 // =============================================================================
 // Bot (Telegram Business mode)
 //
-// Все endpoints под authMiddleware. Реальная отправка через Telegram идёт
-// через функцию `globalThis.__navalivayBotSendBusinessNotification`,
-// которую регистрирует server/bot.js при старте процесса. Если бот-процесс
-// не запущен (например, BOT_TOKEN отсутствует), endpoints возвращают
-// `bot_offline` и фронт показывает понятную ошибку.
+// Все endpoints под authMiddleware. Исходящие сообщения отправляются прямым
+// вызовом Telegram Bot API через utils/telegram-business-api.js — bot-процесс
+// (long-polling Telegraf) и API-процесс (Express) на проде запущены отдельно
+// через PM2 и не делят память, поэтому нельзя дёрнуть функцию из bot-процесса
+// напрямую. Telegram сам синхронизирует delivery — ничего терять не будем.
 // =============================================================================
 
-crmRouter.get('/api/admin/crm/bot/status', authMiddleware, (req, res) => {
+crmRouter.get('/api/admin/crm/bot/status', authMiddleware, async (req, res) => {
   try {
     const connections = listBusinessConnections();
     const active = getActiveBusinessConnection();
+    // bot_token_live = реально дёргаем Telegram getMe (с кэшем 60с) — это
+    // надёжнее чем просто проверка наличия env-переменной.
+    const tokenCheck = await checkBotTokenLive();
     res.json({
       auto_replies_enabled: isAutoReplyEnabled(),
       bot_token_configured: Boolean((process.env.BOT_TOKEN || '').trim()),
-      bot_process_online: typeof globalThis.__navalivayBotSendBusinessNotification === 'function',
+      bot_token_live: tokenCheck.ok,
+      bot_token_error: tokenCheck.ok ? null : tokenCheck.reason,
+      // Совместимость с UI: «процесс онлайн» теперь = «токен живой и есть
+      // активный коннект». Так пользователь видит готовность отправки,
+      // а не наличие отдельного процесса (которого UI не должен знать).
+      bot_process_online: tokenCheck.ok && Boolean(active),
       active_connection: active,
       connections,
       quick_reply_count: listQuickReplies().length,
@@ -887,16 +900,56 @@ crmRouter.put(
 
 // ----- Send notifications --------------------------------------------------
 
-async function sendNotificationViaBot(payload) {
-  const send = globalThis.__navalivayBotSendBusinessNotification;
-  if (typeof send !== 'function') {
-    return { ok: false, error: 'bot_offline' };
+/**
+ * Отправляет сообщение через Telegram Business API напрямую (без bot-процесса)
+ * и пишет результат в bot_message_log. Контракт совместим со старым
+ * helper'ом из bot.js — call-sites notify-status и send-price ниже не
+ * меняются.
+ */
+async function sendNotificationViaBot({
+  businessConnectionId,
+  chatId,
+  text,
+  customerId = null,
+  customerTelegramId = null,
+  templateKind = 'status',
+  templateId = null,
+  templateEvent = null,
+  messageType = 'status',
+  meta = null,
+} = {}) {
+  const result = await sendBusinessMessage({ businessConnectionId, chatId, text });
+  // Журнал заполняется и для успеха, и для неудачи — иначе админ не увидит,
+  // что отправка падает (а это и был исходный симптом «бот не отвечает»).
+  // Поле outcome помогает быстро отфильтровать неуспешные в UI журнала.
+  const baseLog = {
+    businessConnectionId,
+    chatId,
+    customerId,
+    customerTelegramId,
+    direction: 'out',
+    messageType,
+    templateKind,
+    templateId,
+    templateEvent,
+    text,
+  };
+  if (result.ok) {
+    logBotMessage({
+      ...baseLog,
+      meta: { ...(meta || {}), outcome: 'sent' },
+    });
+    return { ok: true, telegramMessageId: result.telegramMessageId };
   }
-  return send(payload);
+  logBotMessage({
+    ...baseLog,
+    meta: { ...(meta || {}), outcome: 'failed', error: result.error },
+  });
+  return { ok: false, error: result.error };
 }
 
 /**
- * Преветарительный показ сообщения, которое уйдёт клиенту при смене статуса.
+ * Предварительный показ сообщения, которое уйдёт клиенту при смене статуса.
  * Фронт зовёт этот endpoint когда менеджер открывает диалог «Уведомить
  * клиента?», чтобы показать текст и решить, отправлять или нет.
  */
@@ -944,7 +997,10 @@ crmRouter.post('/api/admin/crm/bot/notify-status', authMiddleware, async (req, r
       meta: { order_id: orderId, event },
     });
     if (!sendResult.ok) {
-      return res.status(502).json({ error: 'send_failed', detail: sendResult.error });
+      // Полный текст ошибки уже легёг в bot_message_log с outcome=failed.
+      // Наружу не пробрасываем чтобы случайно не отдать описание из Telegram
+      // API (теоретически могло бы содержать чувствительные детали запроса).
+      return res.status(502).json({ error: 'send_failed' });
     }
     res.json({ ok: true, telegram_message_id: sendResult.telegramMessageId, text: prepared.text });
   } catch (err) {
@@ -1011,7 +1067,8 @@ crmRouter.post('/api/admin/crm/bot/send-price', authMiddleware, async (req, res)
       meta: { verification_code: code },
     });
     if (!sendResult.ok) {
-      return res.status(502).json({ error: 'send_failed', detail: sendResult.error });
+      // Деталь ошибки уже в журнале (bot_message_log meta.error).
+      return res.status(502).json({ error: 'send_failed' });
     }
     res.json({
       ok: true,
