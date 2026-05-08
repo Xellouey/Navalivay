@@ -215,16 +215,21 @@ function filterLowStock(rows) {
  * фронт зовёт endpoint при каждом открытии страницы и индикатор сайдбара
  * polling'ом каждые 15 сек.
  *
- * Сортировка: сначала те у кого totalStock = 0 (критично), потом остальные
- * по proximity to zero.
+ * Сортировка (по фидбэку Кости 08.05.2026): СНАЧАЛА «заканчивается»
+ * (totalStock > 0, но ниже порога — успеваем дозаказать пока есть продажи),
+ * потом «закончилось» (totalStock === 0 — продажи остановились, спешка
+ * меньше). Внутри «заканчивается» — по ratio: чем ближе к нулю, тем выше.
+ *
+ * Костя: «сделать попроще, чтобы то что заканчивается было выше чем то
+ * что закончилось».
  */
 export function computeLowStockGroups() {
   const result = filterLowStock(selectGroupStockAggregates());
-  // Сортировка: сначала zero-stock (критично), потом по proximity to threshold
   result.sort((a, b) => {
-    if (a.totalStock === 0 && b.totalStock !== 0) return -1;
-    if (a.totalStock !== 0 && b.totalStock === 0) return 1;
-    // У обеих threshold или у обеих 0 — сортируем по обратному соотношению
+    // 1) «Заканчивается» (>0) идёт раньше «Закончилось» (=0)
+    if (a.totalStock > 0 && b.totalStock === 0) return -1;
+    if (a.totalStock === 0 && b.totalStock > 0) return 1;
+    // 2) Внутри «заканчивается» — меньшее соотношение = критичнее = выше
     const aRatio = a.threshold ? a.totalStock / a.threshold : 0;
     const bRatio = b.threshold ? b.totalStock / b.threshold : 0;
     return aRatio - bRatio;

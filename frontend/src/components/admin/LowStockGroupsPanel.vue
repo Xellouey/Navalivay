@@ -14,7 +14,7 @@
           <span class="text-xs font-medium text-amber-700">({{ groups.length }})</span>
         </h2>
         <p class="mt-1 text-xs text-amber-800/80">
-          Линейки, у которых суммарный остаток ниже минимального порога. Нажмите «Скрыть» рядом с тайлом, чтобы убрать линейку из плашки.
+          Сверху линейки, у которых остаток ещё есть, но уже ниже порога. Снизу те, что закончились полностью. Нажмите «Скрыть» рядом с карточкой, чтобы убрать линейку из плашки.
         </p>
       </div>
       <button
@@ -26,92 +26,62 @@
       </button>
     </header>
 
-    <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-      <article
-        v-for="group in visibleGroups"
-        :key="group.id"
-        :data-low-stock-group-id="group.id"
-        class="flex gap-3 rounded-lg border border-amber-200 bg-white p-3 shadow-sm"
-      >
-        <div class="flex-shrink-0">
-          <div
-            v-if="group.hasCoverImage && coverImages[group.id]"
-            class="h-16 w-16 overflow-hidden rounded-md bg-gray-100"
-          >
-            <img
-              :src="coverImages[group.id]"
-              :alt="group.name"
-              class="h-full w-full object-cover"
-              loading="lazy"
-            />
-          </div>
-          <div
-            v-else
-            class="flex h-16 w-16 items-center justify-center rounded-md bg-amber-100 text-xs font-medium uppercase text-amber-700"
-            aria-hidden="true"
-          >
-            {{ initialsFor(group.name) }}
-          </div>
-        </div>
-        <div class="min-w-0 flex-1">
-          <h3 class="truncate text-sm font-semibold text-gray-900" :title="group.name">
-            {{ group.name }}
-          </h3>
-          <p
-            v-if="group.categoryName"
-            class="truncate text-[11px] text-gray-500"
-            :title="group.categoryName"
-          >
-            {{ group.categoryName }}
-          </p>
-          <p class="mt-1 text-xs text-amber-800">
-            <template v-if="group.threshold && group.threshold > 0">
-              Осталось менее {{ group.threshold }} шт
-            </template>
-            <template v-else>
-              Линейка обнулилась
-            </template>
-          </p>
-          <p
-            class="mt-0.5 text-sm font-bold"
-            :class="group.totalStock === 0 ? 'text-red-600' : 'text-orange-600'"
-          >
-            Фактически: {{ group.totalStock }} шт
-          </p>
-          <div class="mt-2">
-            <div class="relative inline-block">
-              <button
-                type="button"
-                class="inline-flex items-center gap-1 rounded-md border border-gray-300 bg-white px-2.5 py-1 text-xs font-medium text-gray-700 transition hover:bg-gray-50"
-                :disabled="busyGroupId === group.id"
-                @click.stop="toggleMenu(group.id)"
-              >
-                <span v-if="busyGroupId === group.id">…</span>
-                <template v-else>
-                  Скрыть
-                  <svg class="h-3 w-3" viewBox="0 0 12 12" fill="none">
-                    <path d="M2 4l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
-                  </svg>
-                </template>
-              </button>
-              <div
-                v-if="openMenuId === group.id"
-                class="absolute right-0 z-20 mt-1.5 flex w-56 flex-col gap-1.5 rounded-xl bg-white p-2 shadow-xl ring-1 ring-black/5 sm:left-0 sm:right-auto"
-              >
-                <button
-                  v-for="(reason, key) in reasonsList"
-                  :key="key"
-                  type="button"
-                  class="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-left text-xs font-medium text-gray-700 shadow-sm transition hover:bg-gray-50 active:bg-gray-100"
-                  @click.stop="onPause(group.id, key as LowStockPauseReason)"
-                >
-                  {{ reason.label }}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      </article>
+    <!-- Две секции: «Заканчивается» сверху (важнее — успеваем дозаказать),
+         «Закончилось» снизу (красные тайлы). По фидбэку Кости 08.05.2026:
+         оранжевый и красный сливались в одной плашке, разделение и явные
+         подзаголовки решают эту проблему. -->
+    <div v-if="endingVisible.length" class="mb-4">
+      <div class="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-orange-700">
+        <span class="h-2 w-2 rounded-full bg-orange-500" aria-hidden="true"></span>
+        Заканчивается
+        <span class="text-orange-500/80">({{ endingGroups.length }})</span>
+      </div>
+      <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <article
+          v-for="group in endingVisible"
+          :key="group.id"
+          :data-low-stock-group-id="group.id"
+          class="flex gap-3 rounded-lg border border-orange-200 bg-white p-3 shadow-sm"
+        >
+          <LowStockGroupTile
+            :group="group"
+            :cover-image="coverImages[group.id]"
+            :busy="busyGroupId === group.id"
+            :menu-open="openMenuId === group.id"
+            :reasons="reasonsList"
+            severity="ending"
+            @toggle-menu="toggleMenu(group.id)"
+            @pause="(reason) => onPause(group.id, reason)"
+          />
+        </article>
+      </div>
+    </div>
+
+    <div v-if="endedVisible.length">
+      <div class="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-red-700">
+        <span class="h-2 w-2 rounded-full bg-red-500" aria-hidden="true"></span>
+        Нет в наличии
+        <span class="text-red-500/80">({{ endedGroups.length }})</span>
+      </div>
+      <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <article
+          v-for="group in endedVisible"
+          :key="group.id"
+          :data-low-stock-group-id="group.id"
+          class="flex gap-3 rounded-lg border border-red-200 bg-red-50/40 p-3 shadow-sm"
+        >
+          <LowStockGroupTile
+            :group="group"
+            :cover-image="coverImages[group.id]"
+            :busy="busyGroupId === group.id"
+            :menu-open="openMenuId === group.id"
+            :reasons="reasonsList"
+            severity="ended"
+            @toggle-menu="toggleMenu(group.id)"
+            @pause="(reason) => onPause(group.id, reason)"
+          />
+        </article>
+      </div>
     </div>
 
     <button
@@ -130,6 +100,7 @@
 import { computed, onMounted, onBeforeUnmount, reactive, ref, watch } from "vue";
 import { storeToRefs } from "pinia";
 import { useCrmStore, type LowStockPauseReason, type LowStockPauseConfig } from "@/stores/crm";
+import LowStockGroupTile from "@/components/admin/LowStockGroupTile.vue";
 
 const INITIAL_VISIBLE_COUNT = 3;
 
@@ -167,6 +138,19 @@ const visibleGroups = computed(() => {
 });
 
 const canExpand = computed(() => groups.value.length > INITIAL_VISIBLE_COUNT);
+
+// Разделение на 2 секции по фидбэку Кости (08.05.2026):
+// «заканчивается» (totalStock > 0) — сверху, важнее реагировать;
+// «закончилось» (totalStock === 0) — снизу. Бэк уже сортирует
+// в этом порядке, так что endingGroups идут в начале groups[].
+const endingGroups = computed(() => groups.value.filter((g) => g.totalStock > 0));
+const endedGroups = computed(() => groups.value.filter((g) => g.totalStock === 0));
+const endingVisible = computed(() =>
+  visibleGroups.value.filter((g) => g.totalStock > 0),
+);
+const endedVisible = computed(() =>
+  visibleGroups.value.filter((g) => g.totalStock === 0),
+);
 
 const reasonsList = computed(() => {
   const fromServer = lowStockReasons.value;

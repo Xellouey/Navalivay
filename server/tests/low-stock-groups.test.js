@@ -174,14 +174,17 @@ function runTests() {
   const finalList = computeLowStockGroups();
   assertEq(finalList.find((g) => g.id === 'g5'), undefined, 'g5 не появилась в плашке (пустая линейка)');
 
-  console.log('\n=== Test 11: Сортировка — zero-stock первым, потом по ratio ===');
-  // Снимем все паузы и проверим сортировку
+  console.log('\n=== Test 11: Сортировка — «заканчивается» сверху, «закончилось» внизу ===');
+  // Снимем все паузы и проверим сортировку.
+  // По фидбэку Кости 08.05.2026: «то что заканчивается должно быть выше
+  // чем то что закончилось» — успеваем дозаказать пока есть продажи.
   resumeGroup('g1');
   resumeGroup('g3');
-  // Сейчас в плашке: g1 (8/10 = 0.8) и g3 (0/null = 0)
+  // Сейчас в плашке: g1 (totalStock=8, threshold=10 — «заканчивается»),
+  // g3 (totalStock=0 — «закончилось»). Ожидаем g1 раньше g3.
   const sorted = computeLowStockGroups();
-  assertEq(sorted[0].id, 'g3', 'zero-stock g3 идёт первой');
-  assertEq(sorted[1].id, 'g1', 'g1 (totalStock=8, threshold=10) идёт второй');
+  assertEq(sorted[0].id, 'g1', '«заканчивается» (g1: 8/10) идёт ПЕРВЫМ');
+  assertEq(sorted[1].id, 'g3', '«закончилось» (g3: 0) идёт ПОСЛЕ');
 
   console.log('\n=== Test 12: повторный pauseGroup НЕ плодит дублей в БД ===');
   // Симуляция двойного клика: 5 подряд pauseGroup для одной линейки
