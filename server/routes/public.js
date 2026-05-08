@@ -31,6 +31,10 @@ import {
   validateAcceptedAgreementIds,
   buildAcceptedSnapshot,
 } from "../utils/agreements.js";
+import {
+  confirmVerificationOnAccess,
+  isCustomerVerified,
+} from "../utils/business-bot.js";
 
 export const publicRouter = express.Router();
 
@@ -1535,6 +1539,35 @@ publicRouter.get("/api/settings", (req, res) => {
   }
 });
 
+// Подтверждение бот-кода доступа: клиент пришёл в Mini App с кодом из чата
+// (deep-link `?startapp=NV-XXXXXX` распарсивается на фронте и передаётся
+// сюда). Если код совпал с записью у клиента по telegram_id — клиент
+// маркируется как verified. Старые клиенты (total_orders > 0) считаются
+// verified автоматически, см. isCustomerVerified.
+publicRouter.post(
+  "/api/customer/bot-verify",
+  publicMiniAppMutationLimiter,
+  requireTelegramMiniAppAuth({ allowInsecureFallback: allowInsecureTelegramFallback }),
+  (req, res) => {
+    try {
+      const telegramId = String(req.telegramAuth?.telegramId || "").trim();
+      if (!telegramId) {
+        return res.status(400).json({ error: "telegram_id_required" });
+      }
+      const code = String(req.body?.code ?? "").trim();
+      const confirmed = confirmVerificationOnAccess({
+        telegramId,
+        code: code || null,
+      });
+      const verified = isCustomerVerified(telegramId);
+      res.json({ ok: confirmed, verified });
+    } catch (err) {
+      console.error("[public] bot-verify error:", err);
+      res.status(500).json({ error: "failed", message: err.message });
+    }
+  },
+);
+
 // Активные соглашения для чекаута (публично, без auth — клиент должен видеть
 // заголовки и body чтобы прочитать в модалке перед оформлением заказа).
 // Body шлём целиком — это короткие маркетинговые/юридические тексты, не
@@ -1650,6 +1683,12 @@ publicRouter.get(
         }
       }
 
+      // bot_verified: клиент считается верифицированным, если у него есть
+      // bot_verified_at либо хотя бы один заказ (старые клиенты). Используем
+      // util чтобы логика была в одном месте — те же правила применяются
+      // на стороне бота при выдаче доступа.
+      const botVerified = isCustomerVerified(customer.telegram_id);
+
       res.json({
         found: true,
         id: customer.id,
@@ -1661,6 +1700,7 @@ publicRouter.get(
         total_orders: customer.total_orders || 0,
         total_spent: customer.total_spent || 0,
         member_since: customer.created_at || null,
+        bot_verified: botVerified,
       });
     } catch (error) {
       console.error("[public] Failed to get customer profile:", error);

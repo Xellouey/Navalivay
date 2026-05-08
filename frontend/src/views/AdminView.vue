@@ -851,6 +851,7 @@
               </section>
 
               <AdminAgreementsSection />
+              <AdminBotSection />
             </div>
           </div>
           </template>
@@ -1208,6 +1209,7 @@ import AdminProductsTable from '@/components/admin/AdminProductsTable.vue'
 import AdminCategoryGroupForm from '@/components/admin/AdminCategoryGroupForm.vue'
 import AdminWholesaleLinksPanel from '@/components/admin/AdminWholesaleLinksPanel.vue'
 import AdminAgreementsSection from '@/components/admin/AdminAgreementsSection.vue'
+import AdminBotSection from '@/components/admin/AdminBotSection.vue'
 import CashierLockScreen from '@/components/admin/CashierLockScreen.vue'
 import CountUp from '@/components/CountUp.vue'
 import CountUpCurrency from '@/components/CountUpCurrency.vue'

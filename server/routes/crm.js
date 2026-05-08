@@ -38,6 +38,26 @@ import {
   updateAgreement,
   deleteAgreement,
 } from '../utils/agreements.js';
+import {
+  BOT_STATUS_EVENTS,
+  listBusinessConnections,
+  getActiveBusinessConnection,
+  listQuickReplies,
+  createQuickReply,
+  updateQuickReply,
+  deleteQuickReply,
+  listStatusTemplates,
+  upsertStatusTemplate,
+  prepareStatusNotification,
+  generateVerificationCode,
+  attachVerificationCode,
+  getStatusTemplate,
+  renderTemplate,
+  isAutoReplyEnabled,
+  setAutoReplyEnabled,
+  getRecentLogCount,
+  listBotLog,
+} from '../utils/business-bot.js';
 
 export const crmRouter = express.Router();
 
@@ -687,6 +707,321 @@ crmRouter.delete('/api/admin/crm/agreements/:id', authMiddleware, (req, res) => 
     res.json({ ok: true, removed });
   } catch (err) {
     console.error('[crm] Delete agreement error:', err);
+    res.status(500).json({ error: 'failed', message: err.message });
+  }
+});
+
+// =============================================================================
+// Bot (Telegram Business mode)
+//
+// Все endpoints под authMiddleware. Реальная отправка через Telegram идёт
+// через функцию `globalThis.__navalivayBotSendBusinessNotification`,
+// которую регистрирует server/bot.js при старте процесса. Если бот-процесс
+// не запущен (например, BOT_TOKEN отсутствует), endpoints возвращают
+// `bot_offline` и фронт показывает понятную ошибку.
+// =============================================================================
+
+crmRouter.get('/api/admin/crm/bot/status', authMiddleware, (req, res) => {
+  try {
+    const connections = listBusinessConnections();
+    const active = getActiveBusinessConnection();
+    res.json({
+      auto_replies_enabled: isAutoReplyEnabled(),
+      bot_token_configured: Boolean((process.env.BOT_TOKEN || '').trim()),
+      bot_process_online: typeof globalThis.__navalivayBotSendBusinessNotification === 'function',
+      active_connection: active,
+      connections,
+      quick_reply_count: listQuickReplies().length,
+      quick_reply_active_count: listQuickReplies({ activeOnly: true }).length,
+      status_templates: listStatusTemplates(),
+      recent_log_count: getRecentLogCount({ sinceHours: 24 }),
+    });
+  } catch (err) {
+    console.error('[crm] Bot status error:', err);
+    res.status(500).json({ error: 'failed', message: err.message });
+  }
+});
+
+crmRouter.put('/api/admin/crm/bot/settings', authMiddleware, (req, res) => {
+  try {
+    const next =
+      req.body?.auto_replies_enabled === undefined
+        ? null
+        : Boolean(req.body.auto_replies_enabled);
+    if (next === null) {
+      return res.status(400).json({ error: 'auto_replies_enabled_required' });
+    }
+    const value = setAutoReplyEnabled(next);
+    res.json({ ok: true, auto_replies_enabled: value });
+  } catch (err) {
+    console.error('[crm] Bot settings error:', err);
+    res.status(500).json({ error: 'failed', message: err.message });
+  }
+});
+
+// ----- Quick replies (FAQ) -------------------------------------------------
+
+crmRouter.get('/api/admin/crm/bot/quick-replies', authMiddleware, (req, res) => {
+  try {
+    res.json({ items: listQuickReplies() });
+  } catch (err) {
+    console.error('[crm] Bot quick-replies list error:', err);
+    res.status(500).json({ error: 'failed', message: err.message });
+  }
+});
+
+function quickReplyErrorToHttp(err) {
+  if (
+    err.code === 'title_required' ||
+    err.code === 'title_too_long' ||
+    err.code === 'response_required' ||
+    err.code === 'response_too_long' ||
+    err.code === 'keywords_too_long'
+  ) {
+    return { status: 400, body: { error: err.code } };
+  }
+  if (err.code === 'quick_reply_not_found') {
+    return { status: 404, body: { error: err.code } };
+  }
+  return null;
+}
+
+crmRouter.post('/api/admin/crm/bot/quick-replies', authMiddleware, (req, res) => {
+  try {
+    const item = createQuickReply({
+      title: req.body?.title,
+      keywords: req.body?.keywords,
+      response_text: req.body?.response_text,
+      is_active: req.body?.is_active,
+      sort_order: req.body?.sort_order,
+    });
+    res.json({ ok: true, item });
+  } catch (err) {
+    const mapped = quickReplyErrorToHttp(err);
+    if (mapped) return res.status(mapped.status).json(mapped.body);
+    console.error('[crm] Bot quick-reply create error:', err);
+    res.status(500).json({ error: 'failed', message: err.message });
+  }
+});
+
+crmRouter.put('/api/admin/crm/bot/quick-replies/:id', authMiddleware, (req, res) => {
+  try {
+    const item = updateQuickReply(req.params.id, {
+      title: req.body?.title,
+      keywords: req.body?.keywords,
+      response_text: req.body?.response_text,
+      is_active: req.body?.is_active,
+      sort_order: req.body?.sort_order,
+    });
+    res.json({ ok: true, item });
+  } catch (err) {
+    const mapped = quickReplyErrorToHttp(err);
+    if (mapped) return res.status(mapped.status).json(mapped.body);
+    console.error('[crm] Bot quick-reply update error:', err);
+    res.status(500).json({ error: 'failed', message: err.message });
+  }
+});
+
+crmRouter.delete('/api/admin/crm/bot/quick-replies/:id', authMiddleware, (req, res) => {
+  try {
+    const removed = deleteQuickReply(req.params.id);
+    if (!removed) return res.status(404).json({ error: 'quick_reply_not_found' });
+    res.json({ ok: true, removed });
+  } catch (err) {
+    console.error('[crm] Bot quick-reply delete error:', err);
+    res.status(500).json({ error: 'failed', message: err.message });
+  }
+});
+
+// ----- Status templates ----------------------------------------------------
+
+crmRouter.get('/api/admin/crm/bot/status-templates', authMiddleware, (req, res) => {
+  try {
+    res.json({
+      events: BOT_STATUS_EVENTS,
+      items: listStatusTemplates(),
+    });
+  } catch (err) {
+    console.error('[crm] Bot status-templates list error:', err);
+    res.status(500).json({ error: 'failed', message: err.message });
+  }
+});
+
+crmRouter.put(
+  '/api/admin/crm/bot/status-templates/:event',
+  authMiddleware,
+  (req, res) => {
+    try {
+      const item = upsertStatusTemplate(req.params.event, {
+        title: req.body?.title,
+        body: req.body?.body,
+        is_active: req.body?.is_active,
+      });
+      res.json({ ok: true, item });
+    } catch (err) {
+      if (
+        err.code === 'invalid_event' ||
+        err.code === 'title_too_long' ||
+        err.code === 'body_too_long'
+      ) {
+        return res.status(400).json({ error: err.code });
+      }
+      console.error('[crm] Bot status-template upsert error:', err);
+      res.status(500).json({ error: 'failed', message: err.message });
+    }
+  },
+);
+
+// ----- Send notifications --------------------------------------------------
+
+async function sendNotificationViaBot(payload) {
+  const send = globalThis.__navalivayBotSendBusinessNotification;
+  if (typeof send !== 'function') {
+    return { ok: false, error: 'bot_offline' };
+  }
+  return send(payload);
+}
+
+/**
+ * Преветарительный показ сообщения, которое уйдёт клиенту при смене статуса.
+ * Фронт зовёт этот endpoint когда менеджер открывает диалог «Уведомить
+ * клиента?», чтобы показать текст и решить, отправлять или нет.
+ */
+crmRouter.post('/api/admin/crm/bot/notify-status/preview', authMiddleware, (req, res) => {
+  try {
+    const event = String(req.body?.event ?? '');
+    const orderId = String(req.body?.order_id ?? '');
+    if (!event || !orderId) {
+      return res.status(400).json({ error: 'event_and_order_id_required' });
+    }
+    const prepared = prepareStatusNotification({ orderId, event });
+    res.json(prepared);
+  } catch (err) {
+    console.error('[crm] Bot notify-status preview error:', err);
+    res.status(500).json({ error: 'failed', message: err.message });
+  }
+});
+
+/** Отправка системного уведомления о статусе заказа. */
+crmRouter.post('/api/admin/crm/bot/notify-status', authMiddleware, async (req, res) => {
+  try {
+    const event = String(req.body?.event ?? '');
+    const orderId = String(req.body?.order_id ?? '');
+    if (!event || !orderId) {
+      return res.status(400).json({ error: 'event_and_order_id_required' });
+    }
+    const prepared = prepareStatusNotification({ orderId, event });
+    if (!prepared.ok) {
+      return res.status(400).json({ error: prepared.reason });
+    }
+    const active = getActiveBusinessConnection();
+    if (!active) {
+      return res.status(400).json({ error: 'no_active_connection' });
+    }
+    const sendResult = await sendNotificationViaBot({
+      businessConnectionId: active.id,
+      chatId: prepared.chatId,
+      text: prepared.text,
+      customerId: prepared.customerId,
+      customerTelegramId: prepared.customerTelegramId,
+      templateKind: 'status',
+      templateId: prepared.templateId,
+      templateEvent: prepared.templateEvent,
+      messageType: 'status',
+      meta: { order_id: orderId, event },
+    });
+    if (!sendResult.ok) {
+      return res.status(502).json({ error: 'send_failed', detail: sendResult.error });
+    }
+    res.json({ ok: true, telegram_message_id: sendResult.telegramMessageId, text: prepared.text });
+  } catch (err) {
+    console.error('[crm] Bot notify-status error:', err);
+    res.status(500).json({ error: 'failed', message: err.message });
+  }
+});
+
+/**
+ * Выдача прайса с кодом верификации. Менеджер нажимает кнопку «Отправить
+ * прайс» в карточке клиента — бэк генерирует код, привязывает к customers,
+ * подставляет в шаблон `price_list` и шлёт через бот от имени менеджера.
+ */
+crmRouter.post('/api/admin/crm/bot/send-price', authMiddleware, async (req, res) => {
+  try {
+    const customerId = String(req.body?.customer_id ?? '');
+    if (!customerId) {
+      return res.status(400).json({ error: 'customer_id_required' });
+    }
+    const customer = db
+      .prepare(`SELECT * FROM customers WHERE id = ?`)
+      .get(customerId);
+    if (!customer) {
+      return res.status(404).json({ error: 'customer_not_found' });
+    }
+    if (!customer.telegram_id) {
+      return res.status(400).json({ error: 'customer_has_no_telegram_id' });
+    }
+    const template = getStatusTemplate('price_list');
+    if (!template || !template.is_active) {
+      return res.status(400).json({ error: 'price_list_template_inactive' });
+    }
+    const active = getActiveBusinessConnection();
+    if (!active) {
+      return res.status(400).json({ error: 'no_active_connection' });
+    }
+    const code = generateVerificationCode();
+    attachVerificationCode({ telegramId: customer.telegram_id, code });
+    const variables = {
+      verification_code: code,
+      customer_name:
+        [customer.first_name, customer.last_name].filter(Boolean).join(' ') ||
+        (customer.telegram_username ? `@${customer.telegram_username}` : 'клиент'),
+      customer_username: customer.telegram_username || '',
+      customer_telegram_id: customer.telegram_id,
+      store_name: 'НАВАЛИВАЙ',
+    };
+    const text = renderTemplate(template.body, variables);
+    // Защита от пустого шаблона (админ мог стереть body, но не снять is_active).
+    // В этом случае не отправляем — клиент бы получил пустое сообщение.
+    if (!text.trim()) {
+      return res.status(400).json({ error: 'template_empty' });
+    }
+    const sendResult = await sendNotificationViaBot({
+      businessConnectionId: active.id,
+      chatId: String(customer.telegram_id),
+      text,
+      customerId: customer.id,
+      customerTelegramId: customer.telegram_id,
+      templateKind: 'status',
+      templateId: template.id,
+      templateEvent: 'price_list',
+      messageType: 'price',
+      meta: { verification_code: code },
+    });
+    if (!sendResult.ok) {
+      return res.status(502).json({ error: 'send_failed', detail: sendResult.error });
+    }
+    res.json({
+      ok: true,
+      verification_code: code,
+      telegram_message_id: sendResult.telegramMessageId,
+      text,
+    });
+  } catch (err) {
+    console.error('[crm] Bot send-price error:', err);
+    res.status(500).json({ error: 'failed', message: err.message });
+  }
+});
+
+// ----- Log -----------------------------------------------------------------
+
+crmRouter.get('/api/admin/crm/bot/log', authMiddleware, (req, res) => {
+  try {
+    const limit = Number(req.query.limit) || 50;
+    const offset = Number(req.query.offset) || 0;
+    const chatId = req.query.chat_id ? String(req.query.chat_id) : null;
+    res.json({ items: listBotLog({ limit, offset, chatId }) });
+  } catch (err) {
+    console.error('[crm] Bot log error:', err);
     res.status(500).json({ error: 'failed', message: err.message });
   }
 });

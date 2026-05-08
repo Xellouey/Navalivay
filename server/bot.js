@@ -1,6 +1,12 @@
 import 'dotenv/config';
 import { Telegraf, Markup } from 'telegraf';
 import { db } from './db.js';
+import {
+  registerBusinessConnection,
+  removeBusinessConnection,
+  handleIncomingBusinessMessage,
+  logBotMessage,
+} from './utils/business-bot.js';
 
 function generateId(prefix) {
   return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
@@ -276,6 +282,238 @@ if (!BOT_TOKEN) {
       await ctx.reply('Произошла ошибка при создании заказа. Менеджер свяжется с вами вручную.');
     }
   });
+
+  // ===========================================================================
+  // Telegram Business mode
+  //
+  // Когда владелец Telegram-Premium аккаунта подключает нашего бота как
+  // ассистента (Settings → Business → Chatbots), Telegram присылает апдейт
+  // `business_connection`. Затем все DM этого владельца с другими юзерами
+  // дублируются нам как `business_message`/`edited_business_message`/
+  // `deleted_business_messages`. Мы сами отвечаем через `sendMessage` с
+  // `business_connection_id`, и сообщение приходит клиенту от имени владельца.
+  //
+  // Мы НЕ отвечаем на сообщения, которые написал сам владелец (они тоже
+  // приходят как business_message, но from.id === ownerUserId).
+  // ===========================================================================
+
+  function findCustomerByTelegramId(telegramId) {
+    if (!telegramId) return null;
+    return db
+      .prepare(`SELECT id, telegram_id FROM customers WHERE telegram_id = ?`)
+      .get(String(telegramId));
+  }
+
+  bot.on('business_connection', async (ctx) => {
+    try {
+      const conn = ctx.update?.business_connection;
+      if (!conn?.id) return;
+      const isEnabled = conn.is_enabled !== false;
+      // Telegram переименовал поле в Bot API 9.0: `can_reply` → `rights.can_reply`.
+      // Поддерживаем оба варианта.
+      const canReply = Boolean(conn.can_reply ?? conn.rights?.can_reply);
+      if (!isEnabled || !conn.user?.id) {
+        // Подключение отключено владельцем — помечаем в БД, но историю не теряем.
+        if (conn.id) removeBusinessConnection(conn.id);
+        return;
+      }
+      registerBusinessConnection({
+        id: conn.id,
+        userId: conn.user.id,
+        userChatId: conn.user_chat_id,
+        username: conn.user?.username ?? null,
+        firstName: conn.user?.first_name ?? null,
+        lastName: conn.user?.last_name ?? null,
+        isEnabled: true,
+        canReply,
+      });
+      console.log(
+        '[navalivay:bot] business_connection registered:',
+        conn.id,
+        'owner=', conn.user.id,
+        'can_reply=', canReply,
+      );
+    } catch (err) {
+      console.error('[navalivay:bot] business_connection handler error:', err);
+    }
+  });
+
+  bot.on('business_message', async (ctx) => {
+    try {
+      const msg = ctx.update?.business_message;
+      if (!msg) return;
+      const businessConnectionId = msg.business_connection_id || null;
+      const fromUserId = msg.from?.id ? String(msg.from.id) : null;
+      const chatId = msg.chat?.id ? String(msg.chat.id) : null;
+      const text = msg.text ?? msg.caption ?? '';
+      if (!businessConnectionId || !fromUserId || !chatId) return;
+
+      // Находим owner по записи о подключении.
+      const connection = db
+        .prepare(`SELECT user_id FROM business_connections WHERE id = ?`)
+        .get(businessConnectionId);
+      const ownerUserId = connection?.user_id ? String(connection.user_id) : null;
+      if (!ownerUserId) {
+        // Получили сообщение по неизвестному коннекту — лог-запись для дебага,
+        // но без действий.
+        logBotMessage({
+          businessConnectionId,
+          chatId,
+          customerTelegramId: fromUserId,
+          direction: 'in',
+          messageType: 'incoming',
+          text,
+          meta: { warning: 'no_connection_record' },
+        });
+        return;
+      }
+
+      const isOwnerMessage = fromUserId === ownerUserId;
+      const customer = isOwnerMessage ? null : findCustomerByTelegramId(fromUserId);
+
+      // Логируем входящее сообщение (от клиента или от менеджера — последнее
+      // оставляем как 'in' с меткой meta.from_owner=true для отчётов).
+      logBotMessage({
+        businessConnectionId,
+        chatId,
+        customerId: customer?.id ?? null,
+        customerTelegramId: isOwnerMessage ? null : fromUserId,
+        direction: 'in',
+        messageType: 'incoming',
+        text,
+        meta: isOwnerMessage ? { from_owner: true } : null,
+      });
+
+      if (isOwnerMessage) return; // на свои сообщения не отвечаем
+
+      const reply = handleIncomingBusinessMessage({
+        businessConnectionId,
+        fromUserId,
+        ownerUserId,
+        text,
+      });
+      if (!reply) return;
+
+      try {
+        await bot.telegram.sendMessage(chatId, reply.text, {
+          business_connection_id: businessConnectionId,
+        });
+        logBotMessage({
+          businessConnectionId,
+          chatId,
+          customerId: customer?.id ?? null,
+          customerTelegramId: fromUserId,
+          direction: 'out',
+          messageType: 'quick_reply',
+          templateKind: reply.templateKind,
+          templateId: reply.templateId,
+          text: reply.text,
+          meta: { quick_reply_title: reply.quickReplyTitle },
+        });
+      } catch (sendErr) {
+        console.error('[navalivay:bot] business send error:', sendErr?.message || sendErr);
+        logBotMessage({
+          businessConnectionId,
+          chatId,
+          customerId: customer?.id ?? null,
+          customerTelegramId: fromUserId,
+          direction: 'out',
+          messageType: 'quick_reply',
+          templateKind: reply.templateKind,
+          templateId: reply.templateId,
+          text: reply.text,
+          meta: { error: String(sendErr?.message || sendErr) },
+        });
+      }
+    } catch (err) {
+      console.error('[navalivay:bot] business_message handler error:', err);
+    }
+  });
+
+  // Telegraf не имеет дефолтного хелпера для удалённых сообщений — слушаем
+  // апдейт явно. Лог пишем для аудита, никаких действий не делаем.
+  bot.on('deleted_business_messages', async (ctx) => {
+    try {
+      const upd = ctx.update?.deleted_business_messages;
+      if (!upd?.chat?.id) {
+        // Без chat_id запись засоряет таблицу (NOT NULL заставлял бы '0'),
+        // и фильтрация по chat_id в админке поломалась бы. Просто пропускаем.
+        return;
+      }
+      logBotMessage({
+        businessConnectionId: upd.business_connection_id || null,
+        chatId: String(upd.chat.id),
+        direction: 'in',
+        messageType: 'incoming',
+        text: null,
+        meta: { event: 'deleted', message_ids: upd.message_ids },
+      });
+    } catch (err) {
+      console.error('[navalivay:bot] deleted_business_messages error:', err);
+    }
+  });
+
+  /**
+   * Публичный хелпер — вызывается из CRM endpoints, когда менеджер нажал
+   * «Уведомить клиента». Принимает payload от prepareStatusNotification.
+   * Возвращает { ok, error?, telegramMessageId? }.
+   */
+  async function sendBusinessNotification({
+    businessConnectionId,
+    chatId,
+    text,
+    customerId = null,
+    customerTelegramId = null,
+    templateKind = 'status',
+    templateId = null,
+    templateEvent = null,
+    messageType = 'status',
+    meta = null,
+  }) {
+    if (!businessConnectionId || !chatId || !text) {
+      return { ok: false, error: 'invalid_payload' };
+    }
+    try {
+      const sent = await bot.telegram.sendMessage(chatId, text, {
+        business_connection_id: businessConnectionId,
+      });
+      logBotMessage({
+        businessConnectionId,
+        chatId,
+        customerId,
+        customerTelegramId,
+        direction: 'out',
+        messageType,
+        templateKind,
+        templateId,
+        templateEvent,
+        text,
+        meta,
+      });
+      return { ok: true, telegramMessageId: sent?.message_id ?? null };
+    } catch (err) {
+      const errorText = String(err?.message || err);
+      console.error('[navalivay:bot] sendBusinessNotification error:', errorText);
+      logBotMessage({
+        businessConnectionId,
+        chatId,
+        customerId,
+        customerTelegramId,
+        direction: 'out',
+        messageType,
+        templateKind,
+        templateId,
+        templateEvent,
+        text,
+        meta: { ...(meta || {}), error: errorText },
+      });
+      return { ok: false, error: errorText };
+    }
+  }
+
+  // Экспортируем как глобальный референс — чтобы CRM-endpoints в routes/crm.js
+  // могли его дёрнуть без циклического импорта самого bot.js.
+  globalThis.__navalivayBotSendBusinessNotification = sendBusinessNotification;
 
   (async () => {
     try {

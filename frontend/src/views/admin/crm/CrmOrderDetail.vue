@@ -519,6 +519,13 @@
           </div>
         </section>
 
+        <!-- Уведомление клиента через бота (Business mode) -->
+        <OrderBotNotifier
+          v-if="currentOrder?.id"
+          :order-id="currentOrder.id"
+          :order-status="currentOrder.status"
+        />
+
         <!-- История изменений статуса -->
         <section v-if="orderHistory.length" class="rounded-2xl bg-white p-6 shadow-sm">
           <h2 class="mb-4 text-lg font-semibold text-gray-900">История изменений</h2>
@@ -557,6 +564,7 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useCrmStore, type CrmProductSummary, type Order } from '@/stores/crm'
 import ManagerActionSummary from '@/components/crm/ManagerActionSummary.vue'
+import OrderBotNotifier from '@/components/admin/OrderBotNotifier.vue'
 
 const props = defineProps<{ id: string }>()
 
