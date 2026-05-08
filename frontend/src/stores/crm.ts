@@ -259,7 +259,11 @@ export interface ProcurementItem {
   procurement_id: string;
   product_id: string;
   product_title: string;
+  product_image?: string | null;
   group_name?: string | null;
+  variant_id?: string | null;
+  variant_name?: string | null;
+  variant_stock?: number | null;
   quantity: number;
   cost_per_unit: number;
   total_cost: number;
@@ -531,12 +535,16 @@ export interface LowStockPauseConfig {
 /**
  * Маркер ошибки авторизации. Бросается из fetchAPI при 401.
  * Caller'ы могут проверить через `error instanceof UnauthorizedError`.
- * Поддерживает `cause` (ErrorOptions) — стандартный паттерн ES2022.
+ * Поддерживает `cause` — присваивается вручную, потому что текущий
+ * tsconfig.lib не тянет ES2022-сигнатуру конструктора Error(options).
  */
 export class UnauthorizedError extends Error {
-  constructor(message = "Unauthorized", options?: ErrorOptions) {
-    super(message, options);
+  constructor(message = "Unauthorized", options?: { cause?: unknown }) {
+    super(message);
     this.name = "UnauthorizedError";
+    if (options?.cause !== undefined) {
+      (this as Error & { cause?: unknown }).cause = options.cause;
+    }
   }
 }
 
@@ -1353,8 +1361,8 @@ export const useCrmStore = defineStore("crm", () => {
     id: string,
     data: {
       status?: string;
-      delivery_address?: string;
-      notes?: string;
+      delivery_address?: string | null;
+      notes?: string | null;
       discount_amount?: number;
       discount_percent?: number;
       items?: Array<{

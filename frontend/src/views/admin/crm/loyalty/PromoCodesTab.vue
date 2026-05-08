@@ -540,6 +540,7 @@ async function handleSubmit() {
       valid_from: useNewValidity ? null : (form.value.valid_from || null),
       valid_until: useNewValidity ? null : (form.value.valid_until || null),
       active: form.value.active ? 1 : 0,
+      has_gift: form.value.has_gift ? 1 : 0,
     }
 
     if (editingPromo.value) {

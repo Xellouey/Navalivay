@@ -52,6 +52,7 @@ export interface ProductVariant {
   stock?: number
   position?: number
   images: string[]
+  isAvailable?: boolean
 }
 
 export interface Product {
@@ -504,7 +505,8 @@ export const useCatalogStore = defineStore('catalog', () => {
 
     const myGen = ++fetchAllProductsLatestGen
 
-    const promise = (async () => {
+    let promise: Promise<void> | undefined
+    promise = (async () => {
       try {
         const response = await fetch('/api/products?limit=1000&offset=0', {
           headers: getWholesaleHeaders(),
@@ -521,7 +523,7 @@ export const useCatalogStore = defineStore('catalog', () => {
       } catch (err) {
         console.error('Error fetching all products for counts:', err)
       } finally {
-        if (fetchAllProductsInFlight.get(key) === promise) {
+        if (promise && fetchAllProductsInFlight.get(key) === promise) {
           fetchAllProductsInFlight.delete(key)
         }
       }

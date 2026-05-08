@@ -190,7 +190,7 @@ const selectMainTab = (tabId: string) => {
   closeMenu()
 }
 
-const navigateToCrm = (navigate: () => void | Promise<void>) => {
+const navigateToCrm = (navigate: (e?: MouseEvent) => unknown) => {
   void navigate()
   closeMenu()
 }

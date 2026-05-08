@@ -291,7 +291,7 @@
         <div class="flex items-center justify-between">
           <h4 class="text-sm font-medium text-gray-700">Вариант {{ index + 1 }}</h4>
           <button
-            v-if="form.variants.length > 1"
+            v-if="(form.variants?.length ?? 0) > 1"
             type="button"
             class="
               px-3 py-1.5 rounded-lg text-sm font-medium

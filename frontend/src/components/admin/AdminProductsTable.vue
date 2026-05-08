@@ -1228,7 +1228,10 @@ interface Product {
   categoryId: string
   groupId?: string | null
   groupName?: string | null
+  groupImage?: string | null
+  categoryImage?: string | null
   title?: string
+  description?: string
   priceRub: number
   createdAt?: string
   images?: string[]
@@ -1431,7 +1434,7 @@ function measureColumnWidths() {
   const table = tableRef.value
   if (!table) return
 
-  const rows = Array.from(table.querySelectorAll('tbody tr'))
+  const rows = Array.from(table.querySelectorAll<HTMLTableRowElement>('tbody tr'))
   const dataRows = rows.filter(row => {
     const cells = Array.from(row.cells)
     if (!cells.length) return false
@@ -1461,7 +1464,7 @@ function measureColumnWidths() {
   host.appendChild(measureContainer)
 
   dataRows.forEach(row => {
-    Array.from(row.cells).forEach((cell, index) => {
+    Array.from(row.cells).forEach((cell: HTMLTableCellElement, index) => {
       if (index >= COLUMN_COUNT) return
       const clone = cell.cloneNode(true) as HTMLElement
       clone.style.width = 'auto'
