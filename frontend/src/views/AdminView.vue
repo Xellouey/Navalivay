@@ -702,12 +702,23 @@
                 </form>
               </section>
 
-              <!-- Настройки доставки -->
+              <!-- Настройки доставки (раздел свёрнут — почти не используется) -->
               <section class="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm col-span-full">
-                <div class="space-y-1">
-                  <h3 class="text-lg font-semibold text-gray-900">Настройки доставки</h3>
-                  <p class="text-sm text-gray-500">Минимальная сумма заказа, баннеры и редирект в Telegram</p>
-                </div>
+                <details class="group">
+                  <summary class="flex cursor-pointer list-none items-start justify-between gap-3 rounded-lg p-1 -m-1 hover:bg-gray-50">
+                    <div class="space-y-1">
+                      <h3 class="text-lg font-semibold text-gray-900">Настройки доставки</h3>
+                      <p class="text-sm text-gray-500">Минимальная сумма заказа, баннеры и редирект в Telegram. Раздел старый, оставлен на случай если понадобится.</p>
+                    </div>
+                    <span
+                      class="mt-1 inline-flex h-6 w-6 flex-shrink-0 items-center justify-center text-gray-400 transition-transform group-open:rotate-180"
+                      aria-hidden="true"
+                    >
+                      <svg class="h-4 w-4" viewBox="0 0 12 12" fill="none">
+                        <path d="M2 4l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+                      </svg>
+                    </span>
+                  </summary>
 
                 <form @submit.prevent="handleDeliverySettingsUpdate" class="mt-6 space-y-6">
                   <!-- Минимальная сумма для доставки -->
@@ -848,6 +859,7 @@
                     {{ deliverySettingsSaving ? 'Сохранение...' : 'Сохранить настройки доставки' }}
                   </button>
                 </form>
+                </details>
               </section>
 
               <AdminAgreementsSection />
