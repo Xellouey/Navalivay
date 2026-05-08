@@ -7,18 +7,20 @@
     data-no-smoke
   >
     <div class="blocked-card">
+      <div class="blocked-pill">Блокировка</div>
+
       <div class="blocked-icon" aria-hidden="true">
-        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
           <circle cx="12" cy="12" r="10" />
           <line x1="4.93" y1="4.93" x2="19.07" y2="19.07" />
         </svg>
       </div>
 
-      <h1 id="blocked-screen-title" class="blocked-title">Доступ к заказам ограничен</h1>
-
-      <p v-if="reason" class="blocked-reason">
-        {{ reason }}
-      </p>
+      <div class="blocked-copy">
+        <h1 id="blocked-screen-title" class="blocked-title">Доступ к заказам ограничен</h1>
+        <p class="blocked-subtitle">{{ reasonHeading }}</p>
+        <p v-if="reason" class="blocked-reason">{{ reason }}</p>
+      </div>
 
       <div class="blocked-info">
         <p class="blocked-info-label">{{ countdownLabel }}</p>
@@ -26,7 +28,7 @@
       </div>
 
       <p class="blocked-hint">
-        Если считаешь, что блокировка — ошибка, напиши менеджеру.
+        Если блокировка по ошибке — напиши нам в Telegram.
       </p>
     </div>
   </div>
@@ -96,6 +98,12 @@ watch(remainingMs, (val) => {
 
 const reason = computed(() => (props.reason || '').trim() || null)
 
+// Подзаголовок-вступление для блока с причиной. По фидбэку Кости (08.05.2026):
+// раньше «Не прошли авторизацию у менеджера» сливалось с заголовком и было
+// неясно, что это конкретная причина. Теперь — явное «Причина блокировки:» как
+// якорь, и сам текст причины — отдельной строкой.
+const reasonHeading = computed(() => (reason.value ? 'Причина блокировки:' : 'Причина не указана.'))
+
 /**
  * Метка-описатель и значение в зависимости от срока:
  *   - бессрочно → «Блокировка бессрочна»
@@ -109,9 +117,9 @@ const countdownLabel = computed(() => {
   // только бэкенд тоже посчитает блок истёкшим.
   if (remainingMs.value === 0) return 'Проверяем доступ…'
   if (remainingMs.value !== null && remainingMs.value < 24 * 60 * 60 * 1000) {
-    return 'Доступ к заказам откроется через'
+    return 'Доступ откроется через'
   }
-  return 'Доступ к заказам откроется'
+  return 'Доступ откроется'
 })
 
 const countdownValue = computed(() => {
@@ -169,17 +177,20 @@ function pluralizeHours(n: number): string {
   align-items: center;
   justify-content: center;
   padding: 24px;
-  background: rgba(245, 247, 250, 0.96);
-  backdrop-filter: blur(6px);
+  background: rgba(8, 9, 12, 0.78);
+  backdrop-filter: blur(8px);
 }
 
 .blocked-card {
+  position: relative;
+  overflow: hidden;
   width: 100%;
   max-width: 420px;
-  background: #ffffff;
   border-radius: 24px;
-  padding: 28px 24px;
-  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.08);
+  padding: 24px 22px 26px;
+  background: linear-gradient(135deg, #18181b 0%, #2a2a2f 52%, #17171a 100%);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 28px 60px rgba(8, 10, 16, 0.55);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -187,62 +198,134 @@ function pluralizeHours(n: number): string {
   gap: 16px;
 }
 
-.blocked-icon {
-  width: 72px;
-  height: 72px;
+/* Декоративное свечение в углу — как в order-status-card */
+.blocked-card::before {
+  content: "";
+  position: absolute;
+  inset: auto -14% -42% auto;
+  width: 200px;
+  height: 200px;
   border-radius: 50%;
-  background: rgba(211, 47, 47, 0.1);
+  background: radial-gradient(circle, rgba(239, 68, 68, 0.18) 0%, rgba(239, 68, 68, 0) 72%);
+  pointer-events: none;
+}
+
+.blocked-pill {
+  position: relative;
+  z-index: 1;
+  align-self: center;
+  padding: 8px 16px;
+  border-radius: 14px;
+  font-family: -apple-system, "SF Pro Display", sans-serif;
+  font-size: 12px;
+  line-height: 14px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: #ffffff;
+  background: linear-gradient(90deg, #ef4444 0%, #b91c1c 100%);
+  box-shadow: 0 10px 22px rgba(239, 68, 68, 0.32);
+}
+
+.blocked-icon {
+  position: relative;
+  z-index: 1;
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--navalivay-red, #d32f2f);
+  color: #ffffff;
+  background: rgba(239, 68, 68, 0.18);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.06),
+    0 0 24px rgba(239, 68, 68, 0.55),
+    inset 0 0 18px rgba(239, 68, 68, 0.25);
+}
+
+.blocked-copy {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
 }
 
 .blocked-title {
   margin: 0;
-  font-family: 'Montserrat', sans-serif;
-  font-size: 20px;
+  font-family: "Montserrat", sans-serif;
+  font-size: 22px;
   line-height: 26px;
   font-weight: 700;
-  color: #191919;
+  color: #ffffff;
+}
+
+.blocked-subtitle {
+  margin: 0;
+  font-family: -apple-system, "SF Pro Display", sans-serif;
+  font-size: 13px;
+  line-height: 16px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.55);
 }
 
 .blocked-reason {
   margin: 0;
-  font-family: -apple-system, 'SF Pro Display', sans-serif;
-  font-size: 15px;
-  line-height: 20px;
-  color: #4b5563;
-  font-weight: 500;
+  font-family: -apple-system, "SF Pro Display", sans-serif;
+  font-size: 16px;
+  line-height: 22px;
+  font-weight: 600;
+  color: #ffffff;
+  max-width: 320px;
 }
 
 .blocked-info {
+  position: relative;
+  z-index: 1;
   width: 100%;
-  background: #f5f7fa;
-  border-radius: 14px;
-  padding: 14px 16px;
+  border-radius: 16px;
+  padding: 16px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 
 .blocked-info-label {
   margin: 0;
-  font-size: 13px;
-  line-height: 16px;
-  color: #6b7280;
+  font-family: -apple-system, "SF Pro Display", sans-serif;
+  font-size: 12px;
+  line-height: 14px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.6);
 }
 
 .blocked-info-value {
-  margin: 6px 0 0;
-  font-family: 'Montserrat', sans-serif;
-  font-size: 18px;
-  line-height: 22px;
+  margin: 0;
+  font-family: "Montserrat", sans-serif;
+  font-size: 22px;
+  line-height: 26px;
   font-weight: 700;
-  color: var(--navalivay-red, #d32f2f);
+  color: #fbbf24;
+  text-shadow: 0 0 18px rgba(251, 191, 36, 0.35);
 }
 
 .blocked-hint {
+  position: relative;
+  z-index: 1;
   margin: 0;
+  font-family: -apple-system, "SF Pro Display", sans-serif;
   font-size: 12px;
   line-height: 16px;
-  color: #9ca3af;
+  color: rgba(255, 255, 255, 0.55);
+  max-width: 300px;
 }
 </style>
