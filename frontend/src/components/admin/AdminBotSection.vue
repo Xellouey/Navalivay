@@ -65,21 +65,6 @@
         </div>
       </div>
 
-      <details v-if="!status.bot_token_configured || !status.bot_process_online" class="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-800">
-        <summary class="cursor-pointer font-semibold">Бот недоступен. Что проверить?</summary>
-        <ul class="mt-2 list-disc space-y-1 pl-5">
-          <li v-if="!status.bot_token_configured">
-            Не задана переменная окружения <code>BOT_TOKEN</code> у серверного процесса.
-          </li>
-          <li v-if="!status.bot_process_online">
-            Процесс <code>npm --prefix server run start:bot</code> не запущен либо упал на старте.
-          </li>
-          <li>
-            После исправления нажмите «Обновить» в этом разделе.
-          </li>
-        </ul>
-      </details>
-
       <!-- Tabs ---------------------------------------------------------------->
       <nav class="mt-6 flex flex-wrap gap-2 border-b border-gray-200 pb-2 text-sm">
         <button

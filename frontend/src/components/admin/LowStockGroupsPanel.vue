@@ -96,13 +96,13 @@
               </button>
               <div
                 v-if="openMenuId === group.id"
-                class="absolute right-0 z-20 mt-1 w-56 overflow-hidden rounded-lg border border-gray-200 bg-white shadow-lg sm:left-0 sm:right-auto"
+                class="absolute right-0 z-20 mt-1.5 flex w-56 flex-col gap-1.5 rounded-xl bg-white p-2 shadow-xl ring-1 ring-black/5 sm:left-0 sm:right-auto"
               >
                 <button
                   v-for="(reason, key) in reasonsList"
                   :key="key"
                   type="button"
-                  class="block w-full px-3 py-2 text-left text-xs text-gray-700 transition hover:bg-gray-100"
+                  class="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-left text-xs font-medium text-gray-700 shadow-sm transition hover:bg-gray-50 active:bg-gray-100"
                   @click.stop="onPause(group.id, key as LowStockPauseReason)"
                 >
                   {{ reason.label }}
@@ -138,8 +138,8 @@ const INITIAL_VISIBLE_COUNT = 3;
 // клике до завершения первого fetch).
 const DEFAULT_REASONS: Record<LowStockPauseReason, LowStockPauseConfig> = {
   short: { label: "Скрыть на 3 дня", days: 3 },
-  no_supply: { label: "Нет у поставщика (5 дней)", days: 5 },
-  not_produced: { label: "Не производится (20 дней)", days: 20 },
+  no_supply: { label: "Скрыть на 5 дней", days: 5 },
+  not_produced: { label: "Скрыть на 20 дней", days: 20 },
 };
 
 const crmStore = useCrmStore();

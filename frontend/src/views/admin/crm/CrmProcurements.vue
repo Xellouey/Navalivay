@@ -657,17 +657,37 @@
                   :key="item.id"
                 >
                   <td class="px-4 py-3">
-                    <div class="font-medium text-gray-900">
-                      {{ item.product_title }}
-                      <span v-if="item.variant_name" class="text-gray-500 font-normal">
-                        , {{ item.variant_name }}
-                      </span>
-                    </div>
-                    <div
-                      v-if="item.group_name"
-                      class="text-xs font-semibold text-blue-600"
-                    >
-                      {{ item.group_name }}
+                    <div class="flex items-start gap-3">
+                      <img
+                        v-if="item.product_image"
+                        :src="item.product_image"
+                        class="h-10 w-10 flex-shrink-0 rounded object-cover ring-1 ring-gray-200"
+                        :alt="item.product_title"
+                        loading="lazy"
+                      />
+                      <div
+                        v-else
+                        class="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded bg-gray-100"
+                        aria-hidden="true"
+                      >
+                        <svg class="h-5 w-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                        </svg>
+                      </div>
+                      <div class="min-w-0 flex-1">
+                        <div class="font-medium text-gray-900">
+                          {{ item.product_title }}
+                          <span v-if="item.variant_name" class="text-gray-500 font-normal">
+                            , {{ item.variant_name }}
+                          </span>
+                        </div>
+                        <div
+                          v-if="item.group_name"
+                          class="text-xs font-semibold text-blue-600"
+                        >
+                          {{ item.group_name }}
+                        </div>
+                      </div>
                     </div>
                   </td>
                   <td class="px-4 py-3 text-sm text-gray-600">

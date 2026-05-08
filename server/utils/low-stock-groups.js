@@ -20,8 +20,8 @@ import { db } from '../db.js';
 
 export const PAUSE_REASONS = Object.freeze({
   short: { label: 'Скрыть на 3 дня', days: 3 },
-  no_supply: { label: 'Нет у поставщика (5 дней)', days: 5 },
-  not_produced: { label: 'Не производится (20 дней)', days: 20 },
+  no_supply: { label: 'Скрыть на 5 дней', days: 5 },
+  not_produced: { label: 'Скрыть на 20 дней', days: 20 },
 });
 
 function toSqliteUtcString(date) {
