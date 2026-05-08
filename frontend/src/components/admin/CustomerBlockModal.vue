@@ -1,5 +1,5 @@
 <template>
-  <AdminModal :is-open="isOpen" title="Заблокировать клиента" size="md" @close="handleClose">
+  <AdminModal :is-open="isOpen" title="Заблокировать клиента" size="md" :show-actions="false" @close="handleClose">
     <form class="space-y-4" @submit.prevent="submit">
       <div class="space-y-1.5">
         <label class="block text-sm font-medium text-gray-700">Telegram username</label>
@@ -16,8 +16,8 @@
           />
         </div>
         <p class="text-xs text-gray-500">
-          Если клиент уже есть в базе — блок навешивается на его аккаунт по telegram_id.
-          Если клиента нет — будет создан превентивный бан, активируется при первом заходе в миниапку.
+          Если клиент уже есть в базе, блок навесится на его аккаунт по telegram_id.
+          Если клиента нет, будет создан превентивный бан и активируется при первом заходе в миниапку.
         </p>
       </div>
 
@@ -232,7 +232,7 @@ async function submit() {
     emit('close')
   } catch (err: any) {
     if (err?.message === 'already_blocked') {
-      errorMessage.value = 'Этот клиент уже заблокирован — сначала снимите старый блок.'
+      errorMessage.value = 'Этот клиент уже заблокирован. Сначала снимите старый блок.'
     } else if (err?.message === 'customer_not_found') {
       errorMessage.value = 'Клиент с таким ID не найден.'
     } else {

@@ -157,18 +157,18 @@ function previewErrorMessage(reason: string | undefined): string {
     case "order_not_found":
       return "Заказ не найден.";
     case "order_has_no_customer":
-      return "К заказу не привязан клиент — некому слать сообщение.";
+      return "К заказу не привязан клиент. Некому слать сообщение.";
     case "customer_has_no_telegram_id":
-      return "У клиента нет telegram_id — не сможем найти его в Business-чате.";
+      return "У клиента нет telegram_id. Не сможем найти его в Business-чате.";
     case "template_inactive_or_missing":
-      return "Шаблон для этого события не активен — включите в Настройках.";
+      return "Шаблон для этого события не активен. Включите в Настройках.";
     case "invalid_event":
       return "Неизвестное событие.";
     case "template_empty":
-      return "Шаблон пустой — заполните текст в Настройках → Бот.";
+      return "Шаблон пустой. Заполните текст в Настройках → Бот.";
     default:
       if (reason && reason.startsWith("http_")) {
-        return `Ошибка ${reason.replace("http_", "HTTP ")} — попробуйте обновить страницу.`;
+        return `Ошибка ${reason.replace("http_", "HTTP ")}. Попробуйте обновить страницу.`;
       }
       return reason || "Не удалось подготовить сообщение.";
   }

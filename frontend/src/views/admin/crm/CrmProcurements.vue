@@ -455,7 +455,7 @@
                           <div class="font-medium text-gray-900">
                             {{ item.product.title }}
                             <span v-if="item.product.variantName" class="text-gray-500 font-normal">
-                              — {{ item.product.variantName }}
+                              , {{ item.product.variantName }}
                             </span>
                           </div>
                           <div
@@ -660,7 +660,7 @@
                     <div class="font-medium text-gray-900">
                       {{ item.product_title }}
                       <span v-if="item.variant_name" class="text-gray-500 font-normal">
-                        — {{ item.variant_name }}
+                        , {{ item.variant_name }}
                       </span>
                     </div>
                     <div

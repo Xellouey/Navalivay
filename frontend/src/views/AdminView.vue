@@ -1299,7 +1299,7 @@ const overviewRangeLabel = computed(() => {
     const day = d.getUTCDay() || 7
     const monday = new Date(d.getTime() - (day - 1) * 86400000 + off * 7 * 86400000)
     const sunday = new Date(monday.getTime() + 6 * 86400000)
-    return `${monday.toLocaleDateString('ru-RU')} — ${sunday.toLocaleDateString('ru-RU')}`
+    return `${monday.toLocaleDateString('ru-RU')} - ${sunday.toLocaleDateString('ru-RU')}`
   }
   if (overviewPeriod.value === 'month') {
     const y = now.getUTCFullYear(); const m = now.getUTCMonth() + off
@@ -1857,7 +1857,7 @@ function formatCustomRangeBoundary(iso: string): string {
 const dashboardHeader = computed(() => {
   if (overviewPeriod.value === 'custom') {
     if (customRangeFrom.value && customRangeTo.value) {
-      return `Показатели: ${formatCustomRangeBoundary(customRangeFrom.value)} — ${formatCustomRangeBoundary(customRangeTo.value)}`
+      return `Показатели: ${formatCustomRangeBoundary(customRangeFrom.value)} - ${formatCustomRangeBoundary(customRangeTo.value)}`
     }
     return 'Показатели за выбранный диапазон'
   }

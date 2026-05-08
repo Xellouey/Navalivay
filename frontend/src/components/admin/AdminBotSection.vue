@@ -66,7 +66,7 @@
       </div>
 
       <details v-if="!status.bot_token_configured || !status.bot_process_online" class="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-800">
-        <summary class="cursor-pointer font-semibold">Бот недоступен — что проверить?</summary>
+        <summary class="cursor-pointer font-semibold">Бот недоступен. Что проверить?</summary>
         <ul class="mt-2 list-disc space-y-1 pl-5">
           <li v-if="!status.bot_token_configured">
             Не задана переменная окружения <code>BOT_TOKEN</code> у серверного процесса.
@@ -117,7 +117,7 @@
           v-if="!quickReplies.length"
           class="rounded-xl border border-dashed border-gray-300 bg-gray-50 px-6 py-8 text-center text-sm text-gray-500"
         >
-          Быстрых ответов ещё нет. Добавьте хотя бы один — и включите авто-ответы выше.
+          Быстрых ответов ещё нет. Добавьте хотя бы один и включите авто-ответы выше.
         </div>
         <ul v-else class="space-y-2">
           <li
@@ -215,8 +215,8 @@
             ></textarea>
             <p class="mt-1 text-[11px] text-gray-500">
               <template v-if="statusBodyDirty[event]">
-                <span class="font-semibold text-amber-700">Не сохранено</span>
-                — кликните вне поля чтобы применить.
+                <span class="font-semibold text-amber-700">Не сохранено.</span>
+                Кликните вне поля чтобы применить.
               </template>
               <template v-else>
                 Изменения сохраняются автоматически когда вы кликните вне поля.
@@ -229,10 +229,10 @@
       <!-- Tab: Log ----------------------------------------------------------->
       <div v-if="activeTab === 'log'" class="mt-4 space-y-3">
         <p class="text-sm text-gray-600">
-          Последние сообщения, обработанные ботом. Серое — клиент → менеджер, синее — бот → клиент.
+          Последние сообщения, обработанные ботом. Серое: клиент → менеджер. Синее: бот → клиент.
         </p>
         <div v-if="!logItems.length" class="rounded-xl border border-dashed border-gray-300 bg-gray-50 px-6 py-8 text-center text-sm text-gray-500">
-          Пока ничего не записано — журнал начнёт заполняться после подключения бота.
+          Пока ничего не записано. Журнал начнёт заполняться после подключения бота.
         </div>
         <ul v-else class="space-y-2">
           <li
@@ -287,7 +287,7 @@
             placeholder="работаете, часы, до скольки"
           />
           <p class="text-[11px] text-gray-500">
-            Регистр и ё/е — без разницы. Бот срабатывает на полное слово в сообщении или вхождение подстроки.
+            Регистр и ё/е без разницы. Бот срабатывает на полное слово в сообщении или вхождение подстроки.
           </p>
         </div>
         <div class="space-y-2">
@@ -677,7 +677,7 @@ async function submitQuickReply() {
         response_required: "Текст ответа обязателен",
         response_too_long: "Текст ответа слишком длинный (максимум 4000)",
         keywords_too_long: "Слишком много ключевых слов (всего > 1000 символов)",
-        quick_reply_not_found: "Запись не найдена — обновите список",
+        quick_reply_not_found: "Запись не найдена. Обновите список",
       };
       formError.value = map[code] || data?.message || "Не удалось сохранить";
       return;

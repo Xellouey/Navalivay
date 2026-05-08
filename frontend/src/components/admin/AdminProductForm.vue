@@ -482,7 +482,7 @@
         <label class="text-sm font-medium break-words" :class="!hasMedia ? 'text-red-600' : 'text-gray-700'">
           Медиа (фото или ссылки)
           <span v-if="!hasMedia" class="text-red-500 text-xs block sm:inline">
-            — добавьте хотя бы одно фото или ссылку
+            добавьте хотя бы одно фото или ссылку
           </span>
         </label>
         <div class="flex items-center gap-2 sm:gap-3 w-full sm:w-auto">
