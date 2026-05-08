@@ -49,7 +49,6 @@ import {
   deleteQuickReply,
   listStatusTemplates,
   upsertStatusTemplate,
-  prepareStatusNotification,
   generateVerificationCode,
   attachVerificationCode,
   getStatusTemplate,
@@ -948,66 +947,14 @@ async function sendNotificationViaBot({
   return { ok: false, error: result.error };
 }
 
-/**
- * Предварительный показ сообщения, которое уйдёт клиенту при смене статуса.
- * Фронт зовёт этот endpoint когда менеджер открывает диалог «Уведомить
- * клиента?», чтобы показать текст и решить, отправлять или нет.
- */
-crmRouter.post('/api/admin/crm/bot/notify-status/preview', authMiddleware, (req, res) => {
-  try {
-    const event = String(req.body?.event ?? '');
-    const orderId = String(req.body?.order_id ?? '');
-    if (!event || !orderId) {
-      return res.status(400).json({ error: 'event_and_order_id_required' });
-    }
-    const prepared = prepareStatusNotification({ orderId, event });
-    res.json(prepared);
-  } catch (err) {
-    console.error('[crm] Bot notify-status preview error:', err);
-    res.status(500).json({ error: 'failed', message: err.message });
-  }
-});
-
-/** Отправка системного уведомления о статусе заказа. */
-crmRouter.post('/api/admin/crm/bot/notify-status', authMiddleware, async (req, res) => {
-  try {
-    const event = String(req.body?.event ?? '');
-    const orderId = String(req.body?.order_id ?? '');
-    if (!event || !orderId) {
-      return res.status(400).json({ error: 'event_and_order_id_required' });
-    }
-    const prepared = prepareStatusNotification({ orderId, event });
-    if (!prepared.ok) {
-      return res.status(400).json({ error: prepared.reason });
-    }
-    const active = getActiveBusinessConnection();
-    if (!active) {
-      return res.status(400).json({ error: 'no_active_connection' });
-    }
-    const sendResult = await sendNotificationViaBot({
-      businessConnectionId: active.id,
-      chatId: prepared.chatId,
-      text: prepared.text,
-      customerId: prepared.customerId,
-      customerTelegramId: prepared.customerTelegramId,
-      templateKind: 'status',
-      templateId: prepared.templateId,
-      templateEvent: prepared.templateEvent,
-      messageType: 'status',
-      meta: { order_id: orderId, event },
-    });
-    if (!sendResult.ok) {
-      // Полный текст ошибки уже легёг в bot_message_log с outcome=failed.
-      // Наружу не пробрасываем чтобы случайно не отдать описание из Telegram
-      // API (теоретически могло бы содержать чувствительные детали запроса).
-      return res.status(502).json({ error: 'send_failed' });
-    }
-    res.json({ ok: true, telegram_message_id: sendResult.telegramMessageId, text: prepared.text });
-  } catch (err) {
-    console.error('[crm] Bot notify-status error:', err);
-    res.status(500).json({ error: 'failed', message: err.message });
-  }
-});
+// Старые endpoints /bot/notify-status и /bot/notify-status/preview удалены
+// в код-ревью авто-нотификаций (8.05.2026). Раньше менеджер вручную нажимал
+// «Отправить клиенту» в OrderBotNotifier, фронт показывал preview и слал
+// /notify-status. Теперь триггер — сам PATCH /orders/:id (см.
+// utils/auto-notify.js), preview не нужен (текст вычисляется и логируется
+// сервером), а ручной канал перенесён в /bot/send-custom (свободный текст).
+// Если в будущем понадобится ручная отправка по конкретному event-шаблону
+// — восстановить из git history (commit перед этим code review).
 
 /**
  * Выдача прайса с кодом верификации. Менеджер нажимает кнопку «Отправить
@@ -1078,6 +1025,75 @@ crmRouter.post('/api/admin/crm/bot/send-price', authMiddleware, async (req, res)
     });
   } catch (err) {
     console.error('[crm] Bot send-price error:', err);
+    res.status(500).json({ error: 'failed', message: err.message });
+  }
+});
+
+/**
+ * Свободное сообщение клиенту от менеджера (бронь вкуса, ответ на нестандартный
+ * вопрос, договорённость о времени и т.п.). Костя 29.04.2026: «возможность
+ * написать человеку никуда убрать не надо, может что-то ему сказать».
+ *
+ * Принимает либо order_id (берём customer_id оттуда), либо явный customer_id.
+ * Текст ничем не валидируется кроме длины — это ручное сообщение от человека.
+ */
+crmRouter.post('/api/admin/crm/bot/send-custom', authMiddleware, async (req, res) => {
+  try {
+    const text = String(req.body?.text ?? '').trim();
+    if (!text) {
+      return res.status(400).json({ error: 'text_required' });
+    }
+    if (text.length > 4000) {
+      return res.status(400).json({ error: 'text_too_long' });
+    }
+    const orderId = req.body?.order_id ? String(req.body.order_id) : null;
+    let customerId = req.body?.customer_id ? String(req.body.customer_id) : null;
+    if (!customerId && orderId) {
+      const order = db
+        .prepare(`SELECT customer_id FROM orders WHERE id = ?`)
+        .get(orderId);
+      if (!order) {
+        return res.status(404).json({ error: 'order_not_found' });
+      }
+      customerId = order.customer_id ? String(order.customer_id) : null;
+    }
+    if (!customerId) {
+      return res.status(400).json({ error: 'customer_id_or_order_id_required' });
+    }
+    const customer = db
+      .prepare(`SELECT * FROM customers WHERE id = ?`)
+      .get(customerId);
+    if (!customer) {
+      return res.status(404).json({ error: 'customer_not_found' });
+    }
+    if (!customer.telegram_id) {
+      return res.status(400).json({ error: 'customer_has_no_telegram_id' });
+    }
+    const active = getActiveBusinessConnection();
+    if (!active) {
+      return res.status(400).json({ error: 'no_active_connection' });
+    }
+    const sendResult = await sendNotificationViaBot({
+      businessConnectionId: active.id,
+      chatId: String(customer.telegram_id),
+      text,
+      customerId: customer.id,
+      customerTelegramId: customer.telegram_id,
+      templateKind: null,
+      templateId: null,
+      templateEvent: null,
+      messageType: 'manual',
+      meta: orderId ? { order_id: orderId } : null,
+    });
+    if (!sendResult.ok) {
+      return res.status(502).json({ error: 'send_failed' });
+    }
+    res.json({
+      ok: true,
+      telegram_message_id: sendResult.telegramMessageId,
+    });
+  } catch (err) {
+    console.error('[crm] Bot send-custom error:', err);
     res.status(500).json({ error: 'failed', message: err.message });
   }
 });

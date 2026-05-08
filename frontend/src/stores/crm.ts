@@ -533,6 +533,21 @@ export interface LowStockPauseConfig {
 }
 
 /**
+ * Результат авто-отправки уведомления при смене статуса заказа.
+ * Возвращается из PATCH /api/admin/crm/orders/:id рядом с обновлённым заказом.
+ *  - sent=true       → клиенту улетело сообщение
+ *  - sent=false + skipped=true → не отправляли намеренно (например, клиент не верифицирован)
+ *  - sent=false без skipped → попытка была, но Telegram отказал
+ */
+export interface AutoNotificationResult {
+  sent: boolean;
+  skipped?: boolean;
+  reason?: string;
+  event?: string;
+  telegram_message_id?: number | null;
+}
+
+/**
  * Маркер ошибки авторизации. Бросается из fetchAPI при 401.
  * Caller'ы могут проверить через `error instanceof UnauthorizedError`.
  * Поддерживает `cause` — присваивается вручную, потому что текущий
@@ -1383,15 +1398,18 @@ export const useCrmStore = defineStore("crm", () => {
       reactivate?: boolean;
     },
   ) {
-    const order = await fetchAPI<Order>(`${API_BASE}/orders/${id}`, {
-      method: "PATCH",
-      body: JSON.stringify(data),
-    });
+    const response = await fetchAPI<Order & { auto_notification?: AutoNotificationResult | null }>(
+      `${API_BASE}/orders/${id}`,
+      { method: "PATCH", body: JSON.stringify(data) },
+    );
+    // Отделяем технический результат авто-уведомления от полей самого заказа,
+    // чтобы он не утекал в orders.value (там должен лежать чистый Order).
+    const { auto_notification: autoNotification, ...order } = response;
     const index = orders.value.findIndex((o) => o.id === id);
     if (index !== -1) {
-      orders.value[index] = order;
+      orders.value[index] = order as Order;
     }
-    return order;
+    return { ...(order as Order), auto_notification: autoNotification ?? null };
   }
 
   async function resolveManagerAction(id: string) {

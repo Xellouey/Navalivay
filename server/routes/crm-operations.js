@@ -17,6 +17,7 @@ import {
   releasePromoUsageForOrder,
   reservePromoUsageForOrder,
 } from "../promo-code-service.js";
+import { autoNotifyForStatusChange } from "../utils/auto-notify.js";
 
 export const crmOperationsRouter = express.Router();
 
@@ -864,7 +865,7 @@ crmOperationsRouter.post(
 crmOperationsRouter.patch(
   "/api/admin/crm/orders/:id",
   authMiddleware,
-  (req, res) => {
+  async (req, res) => {
     try {
       const { id } = req.params;
       const {
@@ -1463,7 +1464,39 @@ crmOperationsRouter.patch(
         );
       }
 
-      res.json({ ...updated, items: updatedItems });
+      // Авто-уведомление клиенту при смене статуса (Костя 8.05.2026: «нужно
+      // нажали собрано → ему отослалось»). Любая ошибка отправки не должна
+      // ломать PATCH — фронт показывает плашку по полю auto_notification.
+      //
+      // Race window (acknowledged): tx() со сменой статуса уже зафиксирован
+      // выше, recordStatusChange() — отдельная вставка после tx(). Если
+      // процесс упадёт здесь, в БД может оказаться new статус без записи
+      // в bot_message_log, а у клиента — отправленное сообщение Telegram
+      // (или наоборот). Это допустимо: альтернатива (sendMessage внутри
+      // транзакции SQLite) держала бы блокировку на сетевом таймауте, что
+      // куда хуже. Менеджер видит факт отправки/skip в UI по плашке
+      // saveSuccess сразу после ответа, может перезапустить через
+      // /bot/send-custom если что-то не дошло.
+      let autoNotification = null;
+      if (updated.status !== order.status) {
+        try {
+          autoNotification = await autoNotifyForStatusChange({
+            orderId: id,
+            newStatus: updated.status,
+            previousStatus: order.status,
+            reactivate: Boolean(reactivate),
+          });
+        } catch (notifyErr) {
+          // Намеренно НЕ пробрасываем notifyErr.message в response — это
+          // могло бы утечь stack trace, путь к БД, имя env-переменной и
+          // т.п. (любая программная ошибка внутри auto-notify даёт сюда).
+          // Telegram-ошибки мы и так маппим в reason внутри auto-notify.
+          console.error("[crm] auto-notify internal error:", notifyErr);
+          autoNotification = { sent: false, reason: "notify_internal_error" };
+        }
+      }
+
+      res.json({ ...updated, items: updatedItems, auto_notification: autoNotification });
     } catch (error) {
       console.error("[crm] Update order error:", error);
       const clientErrors = new Set([

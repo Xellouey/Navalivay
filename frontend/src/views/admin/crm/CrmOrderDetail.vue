@@ -519,11 +519,12 @@
           </div>
         </section>
 
-        <!-- Уведомление клиента через бота (Business mode) -->
+        <!-- Уведомление клиента через бота (Business mode) — для свободного
+             текста (бронь вкуса, договорённость, ответ на вопрос). Авто-
+             отправка по смене статуса делается на бэке в PATCH /orders/:id. -->
         <OrderBotNotifier
           v-if="currentOrder?.id"
           :order-id="currentOrder.id"
-          :order-status="currentOrder.status"
         />
 
         <!-- История изменений статуса -->
@@ -562,7 +563,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
-import { useCrmStore, type CrmProductSummary, type Order } from '@/stores/crm'
+import { useCrmStore, type CrmProductSummary, type Order, type AutoNotificationResult } from '@/stores/crm'
 import ManagerActionSummary from '@/components/crm/ManagerActionSummary.vue'
 import OrderBotNotifier from '@/components/admin/OrderBotNotifier.vue'
 
@@ -989,17 +990,68 @@ async function saveChanges() {
     const updated = await crmStore.updateOrder(currentOrder.value.id, payload)
     currentOrder.value = updated
     initializeForm(updated)
-    saveSuccess.value = 'Изменения сохранены. Остатки и суммы пересчитаны.'
+    saveSuccess.value = buildSaveSuccessMessage(updated.auto_notification)
     if (successTimer) clearTimeout(successTimer)
     successTimer = setTimeout(() => {
       saveSuccess.value = ''
-    }, 4000)
+    }, 6000)
   } catch (error: any) {
     console.error('[CRM] update order error', error)
     saveError.value = formatErrorMessage(error?.message || error?.error || 'Не удалось сохранить изменения')
   } finally {
     isSaving.value = false
   }
+}
+
+function buildSaveSuccessMessage(notify: AutoNotificationResult | null | undefined): string {
+  const base = 'Изменения сохранены. Остатки и суммы пересчитаны.'
+  if (!notify) return base
+  if (notify.sent) {
+    return `${base} Клиенту ушло уведомление в Telegram.`
+  }
+  if (notify.skipped) {
+    // Часть skip-причин (status_unchanged, no_event_for_status) не нуждаются
+    // в пояснении менеджеру — они означают «нечего слать», и тогда возвращаем
+    // только базу без хвоста, иначе будет лишний пробел в конце.
+    const skipText = describeSkipReason(notify.reason)
+    return skipText ? `${base} ${skipText}` : base
+  }
+  return `${base} Уведомление клиенту не ушло: ${describeSendError(notify.reason)}.`
+}
+
+function describeSkipReason(reason: string | undefined): string {
+  switch (reason) {
+    case 'reactivation_skipped':
+      return 'При восстановлении заказа клиенту не пишем — это техническая операция.'
+    case 'status_unchanged':
+    case 'no_event_for_status':
+      return ''
+    case 'customer_not_verified':
+      return 'Клиент ещё не ввёл код из прайса — пока бот ему писать не может. Выдайте прайс при следующей покупке.'
+    case 'customer_has_no_telegram_id':
+      return 'У клиента не привязан Telegram — отправить некуда.'
+    case 'order_has_no_customer':
+      return 'К заказу не привязан клиент — отправлять некому.'
+    case 'template_inactive_or_missing':
+      return 'Шаблон для этого статуса выключен — включите его в настройках бота.'
+    case 'template_empty':
+      return 'Шаблон для этого статуса пуст — заполните текст в настройках бота.'
+    case 'no_active_connection':
+      return 'Бот не подключён к Telegram-аккаунту магазина. Подключите его в Telegram: Настройки → Деловой режим → Чат-боты.'
+    default:
+      return reason ? `Уведомление пропущено: ${reason}` : ''
+  }
+}
+
+function describeSendError(reason: string | undefined): string {
+  if (!reason) return 'неизвестная ошибка'
+  if (reason === 'send_failed') return 'Telegram не принял сообщение, подробности в журнале бота'
+  // notify_internal_error — внутренняя ошибка auto-notify (бэк намеренно не
+  // отдаёт детали в response, чтобы не утекли в UI). Показываем общий текст.
+  if (reason === 'notify_internal_error') return 'на сервере что-то сломалось, проверьте журнал бота'
+  if (reason === 'bot_token_missing') return 'у бота нет токена, попросите администратора прописать его на сервере'
+  if (reason === 'invalid_payload') return 'на сервере собрался неполный пакет данных, проверьте журнал бота'
+  return reason
 }
 
 async function removePayment() {
