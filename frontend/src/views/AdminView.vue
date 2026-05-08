@@ -1010,6 +1010,19 @@
                     </div>
                   </div>
                 </div>
+                <button
+                  type="button"
+                  class="mt-2 inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium transition disabled:cursor-not-allowed disabled:opacity-60"
+                  :class="minStockBadgeClasses(group)"
+                  :disabled="groupModalLoading"
+                  :title="minStockBadgeTitle(group)"
+                  @click="openMinStockEditor(group)"
+                >
+                  <svg class="h-3 w-3" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+                    <path d="M2 6h8M6 2v8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+                  </svg>
+                  {{ minStockBadgeLabel(group) }}
+                </button>
               </div>
               </div>
               <div class="flex flex-col gap-2 sm:items-end">
@@ -1073,6 +1086,20 @@
         @cancel="closeGroupForm"
       />
     </AdminModal>
+
+    <!-- Quick-edit модалка для минимального остатка линейки.
+         Костин TZ: «вдруг мы его захотим поменять, не надо заходить в каждую категорию».
+         Открывается кликом по pill «Не менее N шт» в строке линейки. -->
+    <AdminGroupMinStockEditor
+      :is-open="minStockEditorOpen"
+      :group-name="minStockEditorGroup?.name || ''"
+      :current-threshold="minStockEditorGroup?.minStockThreshold ?? null"
+      :current-stock="Number(minStockEditorGroup?.totalStockSum ?? minStockEditorGroup?.stockSum ?? 0)"
+      :busy="minStockEditorBusy"
+      :error-text="minStockEditorError"
+      @close="closeMinStockEditor"
+      @apply="applyMinStockThreshold"
+    />
 
     <AdminModal
       :isOpen="showWholesaleLinksModal"
@@ -1219,6 +1246,7 @@ import AdminLayout from '@/components/admin/layout/AdminLayout.vue'
 import AdminSectionHero from '@/components/admin/layout/AdminSectionHero.vue'
 import AdminProductsTable from '@/components/admin/AdminProductsTable.vue'
 import AdminCategoryGroupForm from '@/components/admin/AdminCategoryGroupForm.vue'
+import AdminGroupMinStockEditor from '@/components/admin/AdminGroupMinStockEditor.vue'
 import AdminWholesaleLinksPanel from '@/components/admin/AdminWholesaleLinksPanel.vue'
 import AdminAgreementsSection from '@/components/admin/AdminAgreementsSection.vue'
 import AdminBotSection from '@/components/admin/AdminBotSection.vue'
@@ -1357,6 +1385,15 @@ const editingGroup = ref<CategoryGroup | null>(null)
 const editableGroups = ref<CategoryGroupWithDepth[]>([])
 const groupModalRef = ref<InstanceType<typeof AdminModal> | null>(null)
 const savedGroupModalScrollTop = ref(0)
+
+// Quick-edit мин. остатка из строки линейки (без открытия большой формы).
+// Хранит ссылку на CategoryGroupWithDepth (для актуального totalStockSum
+// и minStockThreshold), без отдельной копии — реактивность вытащит свежий
+// snapshot при каждом открытии.
+const minStockEditorOpen = ref(false)
+const minStockEditorGroup = ref<CategoryGroupWithDepth | null>(null)
+const minStockEditorBusy = ref(false)
+const minStockEditorError = ref<string | null>(null)
 
 const showCrossSellModal = ref(false)
 const crossSellSubmitting = ref(false)
@@ -2736,6 +2773,95 @@ async function deleteGroup(group: CategoryGroupWithDepth) {
     showToast('Не удалось удалить линейку', 'error')
   } finally {
     groupModalLoading.value = false
+  }
+}
+
+// === Quick-edit минимального остатка линейки ============================
+//
+// Логика:
+//  - Pill в строке линейки показывает текущий порог («Не менее 45 шт»),
+//    либо нейтральный плейсхолдер «Минимальный остаток» если порог не задан.
+//  - Цвет pill подсказывает статус: красный — линейка уже ниже порога
+//    (попала в плашку «Заканчивающиеся»), оранжевый — порог задан и stock
+//    в норме, серый — порог не задан.
+//  - Клик открывает мини-модалку с одним полем + пресетами + текущим stock.
+//  - Применить → updateCategoryGroup({ minStockThreshold }), оптимистично
+//    обновляем editableGroups, без перезагрузки всего списка.
+
+function getGroupStock(group: CategoryGroupWithDepth): number {
+  return Number(group.totalStockSum ?? group.stockSum ?? 0)
+}
+
+function minStockBadgeLabel(group: CategoryGroupWithDepth): string {
+  const threshold = group.minStockThreshold
+  if (threshold && threshold > 0) {
+    return `Не менее ${threshold} шт`
+  }
+  return 'Минимальный остаток'
+}
+
+function minStockBadgeTitle(group: CategoryGroupWithDepth): string {
+  const stock = getGroupStock(group)
+  const threshold = group.minStockThreshold
+  if (threshold && threshold > 0) {
+    return `Сейчас: ${stock} шт. Порог: ${threshold} шт. Нажмите, чтобы изменить.`
+  }
+  return `Сейчас: ${stock} шт. Нажмите, чтобы задать порог.`
+}
+
+function minStockBadgeClasses(group: CategoryGroupWithDepth): string[] {
+  const threshold = group.minStockThreshold
+  const stock = getGroupStock(group)
+  if (threshold && threshold > 0) {
+    if (stock < threshold) {
+      return ['border', 'border-red-200', 'bg-red-50', 'text-red-700', 'hover:bg-red-100']
+    }
+    return ['border', 'border-amber-200', 'bg-amber-50', 'text-amber-800', 'hover:bg-amber-100']
+  }
+  return ['border', 'border-dashed', 'border-gray-300', 'bg-gray-50', 'text-gray-600', 'hover:bg-gray-100']
+}
+
+function openMinStockEditor(group: CategoryGroupWithDepth) {
+  minStockEditorGroup.value = group
+  minStockEditorError.value = null
+  minStockEditorOpen.value = true
+}
+
+function closeMinStockEditor() {
+  if (minStockEditorBusy.value) return
+  minStockEditorOpen.value = false
+  minStockEditorGroup.value = null
+  minStockEditorError.value = null
+}
+
+async function applyMinStockThreshold(value: number | null) {
+  const group = minStockEditorGroup.value
+  if (!group?.id) return
+  minStockEditorBusy.value = true
+  minStockEditorError.value = null
+  try {
+    const updated = await adminStore.updateCategoryGroup(group.id, {
+      minStockThreshold: value,
+    })
+    // Оптимистично заменяем поле в локальном editableGroups, чтобы pill
+    // обновился сразу. Полная перезагрузка fetchCategoryGroups была бы
+    // тяжелее для UX (моргает весь список), а здесь точечно меняем только
+    // нужную запись.
+    const idx = editableGroups.value.findIndex((g) => g.id === group.id)
+    if (idx !== -1) {
+      editableGroups.value[idx] = {
+        ...editableGroups.value[idx],
+        minStockThreshold: updated?.minStockThreshold ?? value,
+      }
+    }
+    showToast(value === null ? 'Порог снят' : `Порог обновлён: ${value} шт`, 'success')
+    minStockEditorOpen.value = false
+    minStockEditorGroup.value = null
+  } catch (error) {
+    console.error('Failed to update min stock threshold:', error)
+    minStockEditorError.value = error instanceof Error ? error.message : 'Не удалось сохранить порог'
+  } finally {
+    minStockEditorBusy.value = false
   }
 }
 
