@@ -1239,11 +1239,13 @@ onMounted(async () => {
   await refreshLoyaltyPreview();
   if (!wholesaleStore.isWholesale) {
     try {
+      // Тянем snapshot чтобы посчитать накопленную скидку «за покупки»,
+      // которая используется в сумме чека (loyaltyDiscountAmount).
+      // Авто-показ LoyaltyBonusPopup при заходе в чекаут убран по просьбе
+      // заказчика — попап «У вас уже есть доступные бонусы» дублировал
+      // информацию, которая и так видна в карточке бонусов на витрине
+      // и в профиле, и просто отвлекал.
       await loyaltyStore.fetchSnapshot(getTelegramIdentity());
-      if (loyaltyStore.canShowAvailableBonusPopup()) {
-        loyaltyStore.markPopupSeen();
-        showLoyaltyPopup.value = true;
-      }
     } catch (error) {
       console.warn("[Checkout] Failed to fetch loyalty snapshot", error);
     }

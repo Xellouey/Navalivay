@@ -273,12 +273,12 @@ onBeforeUnmount(() => {
 onMounted(async () => {
   const identity = getTelegramIdentity();
 
+  // Snapshot нужен чтобы карточка «Скидки за покупки» на этой же странице
+  // отрисовала актуальный прогресс. Авто-показ LoyaltyBonusPopup при заходе
+  // в профиль убран по просьбе заказчика — попап «У вас уже есть доступные
+  // бонусы» дублировал ту же информацию, которая и так видна на странице
+  // профиля сразу под карточкой бонусов.
   await Promise.allSettled([userStore.fetchProfile(), loyaltyStore.fetchSnapshot(identity)]);
-
-  if (loyaltyStore.canShowAvailableBonusPopup()) {
-    loyaltyStore.markPopupSeen();
-    showLoyaltyPopup.value = true;
-  }
 });
 
 function loyaltyCategoryLabel(category: LoyaltySnapshotCategory) {
