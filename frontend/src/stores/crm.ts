@@ -1130,9 +1130,17 @@ export const useCrmStore = defineStore("crm", () => {
 
   // ===== POS-клиенты (касса): поиск, создание/merge, история покупок =====
 
-  async function searchCustomersForPos(q: string, limit = 20) {
-    if (!q || !q.trim()) return [] as Customer[];
-    const params = new URLSearchParams({ q: q.trim(), limit: String(limit) });
+  async function searchCustomersForPos(
+    q: string,
+    limit = 20,
+    options: { includeRecent?: boolean } = {},
+  ) {
+    const trimmed = (q || "").trim();
+    // includeRecent=true → бэк возвращает последних клиентов при пустом q
+    // (для постоянно видимого «блокнота» на кассирском экране).
+    if (!trimmed && !options.includeRecent) return [] as Customer[];
+    const params = new URLSearchParams({ q: trimmed, limit: String(limit) });
+    if (options.includeRecent) params.set("recent", "1");
     const result = await fetchAPI<{ items: Customer[] }>(
       `${API_BASE}/customers/search?${params.toString()}`,
     );

@@ -221,6 +221,51 @@ function runTests() {
   assertEq(searchCustomers({ q: '   ' }), [], 'whitespace only');
   assertEq(searchCustomers({}), [], 'без q');
 
+  console.log('\n=== Test 9b: searchCustomers includeRecent — последние клиенты при пустом q ===');
+  // Без includeRecent — пустой массив (старое поведение autocomplete).
+  assertEq(searchCustomers({ q: '', includeRecent: false }), [], 'recent off → []');
+  // С includeRecent — все 5 наших клиентов из setupSchema (Alice/Bob/Olga/...).
+  const recent = searchCustomers({ q: '', includeRecent: true, limit: 50 });
+  assertTrue(recent.length >= 5, 'includeRecent=true → есть последние клиенты');
+  assertTrue(
+    recent.every((r) => r.id && (r.first_name || r.telegram_username || r.phone)),
+    'каждый row — реальный клиент с identifier',
+  );
+  // Проверим что limit работает.
+  const recentLimited = searchCustomers({ q: '', includeRecent: true, limit: 2 });
+  assertEq(recentLimited.length, 2, 'limit=2 → 2 записи');
+  // Проверим что blocked_count считается (даже если 0).
+  assertTrue(
+    recent.every((r) => typeof r.blocked_count === 'number'),
+    'blocked_count всегда есть в payload',
+  );
+  // q непустой → includeRecent игнорируется (поиск работает как раньше).
+  const stillSearch = searchCustomers({ q: 'Alice', includeRecent: true });
+  assertTrue(
+    stillSearch.length > 0 && stillSearch.every((r) => /alice/i.test(JSON.stringify(r))),
+    'q="Alice" + includeRecent — всё равно поиск, не recent-fallback',
+  );
+
+  // Контракт recent — активные сверху (по last_visit_at DESC), затем по
+  // last_order_at DESC, затем created_at DESC; клиенты без last_visit_at —
+  // в самом конце (NULL-LAST через `IS NULL` индикатор в ORDER BY).
+  console.log('\n=== Test 9c: searchCustomers includeRecent — корректный ORDER BY ===');
+  // Подготовим 3 клиента с разной last_visit_at для детерминированного теста.
+  db.prepare(`DELETE FROM customers WHERE id LIKE 'c_order_%'`).run();
+  db.prepare(`INSERT INTO customers (id, first_name, last_visit_at, created_at, updated_at)
+              VALUES ('c_order_old', 'Старый', '2026-04-01 10:00:00', DATETIME('now'), DATETIME('now'))`).run();
+  db.prepare(`INSERT INTO customers (id, first_name, last_visit_at, created_at, updated_at)
+              VALUES ('c_order_new', 'Свежий', '2026-04-15 10:00:00', DATETIME('now'), DATETIME('now'))`).run();
+  db.prepare(`INSERT INTO customers (id, first_name, last_visit_at, created_at, updated_at)
+              VALUES ('c_order_null', 'БезВизита', NULL, DATETIME('now'), DATETIME('now'))`).run();
+  const ordered = searchCustomers({ q: '', includeRecent: true, limit: 100 });
+  const idxNew = ordered.findIndex((r) => r.id === 'c_order_new');
+  const idxOld = ordered.findIndex((r) => r.id === 'c_order_old');
+  const idxNull = ordered.findIndex((r) => r.id === 'c_order_null');
+  assertTrue(idxNew >= 0 && idxOld >= 0 && idxNull >= 0, 'все 3 контрольных есть в выдаче');
+  assertTrue(idxNew < idxOld, 'свежий visit раньше старого в списке');
+  assertTrue(idxOld < idxNull, 'клиент без last_visit_at в самом конце (NULLS LAST через IS NULL)');
+
   console.log('\n=== Test 10: getCustomerPurchaseHistory — merge orders + pos_sales ===');
   // Готовим заказ и POS-чек для c_alice (с разными форматами datetime — regression C3)
   db.prepare(`INSERT INTO orders (id, order_number, customer_id, total_amount, final_amount, status, delivery_type, created_at)

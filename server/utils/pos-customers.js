@@ -63,20 +63,45 @@ export function findCustomerByPhoneDigits(digits) {
 }
 
 /**
- * Универсальный поиск клиентов для админских autocomplete.
+ * Универсальный поиск клиентов для админских autocomplete + «блокнота» кассы.
  *   - q — строка запроса (имя/фамилия/username/phone-цифры)
  *   - limit — максимум результатов
+ *   - includeRecent — если q пустой, возвращать последних клиентов (для
+ *     постоянно видимого блокнота на кассирском экране — TZ Кости:
+ *     «у тебя по сути внутри некий блокнот... тут же поиск по клиенту»).
+ *     При false (по умолчанию) сохраняется старое поведение: пустой q → [].
  *
  * Логика:
  *   - Если в q есть цифры → ищем по phone digits (substring match).
  *   - Параллельно — LIKE по first_name, last_name, telegram_username
  *     с COLLATE NOCASE для русских имён.
- *   - UNION — без дублей.
+ *   - При includeRecent=true и пустом q → последние N клиентов по
+ *     last_visit_at / created_at.
  */
-export function searchCustomers({ q, limit = 20 } = {}) {
+export function searchCustomers({ q, limit = 20, includeRecent = false } = {}) {
   const query = typeof q === 'string' ? q.trim() : '';
-  if (query.length === 0) return [];
   const safeLimit = Math.min(Math.max(Number(limit) || 20, 1), 100);
+
+  if (query.length === 0) {
+    if (!includeRecent) return [];
+    // Дефолтный список «блокнота»: последние клиенты, отсортированы по
+    // активности. blocked_count подгружаем тем же подзапросом, что и в
+    // поиске, чтобы UI кассы мог рисовать ⚠ для забаненных.
+    return db
+      .prepare(
+        `SELECT c.*,
+                (SELECT COUNT(*) FROM customer_blocks
+                  WHERE customer_id = c.id
+                    AND active = 1
+                    AND (block_until IS NULL OR block_until > DATETIME('now'))) AS blocked_count
+           FROM customers c
+          ORDER BY (c.last_visit_at IS NULL), c.last_visit_at DESC,
+                   (c.last_order_at IS NULL), c.last_order_at DESC,
+                   c.created_at DESC
+          LIMIT ?`,
+      )
+      .all(safeLimit);
+  }
 
   // Эскейпим LIKE-метасимволы (`%`, `_`, `\`) чтобы пользовательский ввод
   // вроде `_` или `%` не превращался в wildcard и не вытаскивал всех.
@@ -104,7 +129,7 @@ export function searchCustomers({ q, limit = 20 } = {}) {
             AND c.phone IS NOT NULL
             AND REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(c.phone, '+', ''), '-', ''), ' ', ''), '(', ''), ')', ''), '.', '') LIKE ?
           )
-        ORDER BY c.last_visit_at DESC NULLS LAST, c.created_at DESC
+        ORDER BY (c.last_visit_at IS NULL), c.last_visit_at DESC, c.created_at DESC
         LIMIT ?`,
     )
     .all(like, like, like, digits, digitsLike, safeLimit);

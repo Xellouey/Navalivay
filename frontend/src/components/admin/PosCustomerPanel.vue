@@ -1,6 +1,9 @@
 <template>
   <div class="pos-customer-panel">
-    <!-- Selected customer summary -->
+    <!-- =========================================================
+         1) Карточка «Клиент чека» — компактная, всегда сверху
+         (placeholder когда никто не привязан).
+         ========================================================= -->
     <div v-if="modelValue" class="pos-customer-selected">
       <div class="flex items-start justify-between gap-2">
         <div class="min-w-0">
@@ -39,7 +42,7 @@
             {{ historyLoading ? '…' : `${history.length} покупок` }}
           </span>
         </div>
-        <ul v-if="history.length" class="space-y-1 max-h-40 overflow-y-auto">
+        <ul v-if="history.length" class="space-y-1 max-h-32 overflow-y-auto">
           <li
             v-for="item in history.slice(0, 8)"
             :key="`${item.source}-${item.id}`"
@@ -58,43 +61,111 @@
           </li>
         </ul>
         <p v-else-if="!historyLoading" class="text-xs text-gray-400">
-          Покупок ещё нет — это первый чек.
+          Покупок ещё нет, это первый чек.
         </p>
       </div>
     </div>
+    <div v-else class="pos-customer-placeholder">
+      <p class="text-xs uppercase tracking-wide text-gray-500">Клиент чека</p>
+      <p class="mt-1 text-sm text-gray-500">
+        Не привязан. Найдите в блокноте ниже или создайте нового.
+      </p>
+    </div>
 
-    <!-- Search + add (когда клиент не выбран) -->
-    <div v-else>
-      <label class="block text-sm font-medium text-gray-700 mb-2">Клиент чека</label>
+    <!-- =========================================================
+         2) «Блокнот клиентов» — ВСЕГДА видимый список с поиском
+         и кнопкой создания. Не зависит от того, привязан ли
+         кто-то к текущему чеку. Точно как описывал Костя:
+         «у тебя по сути внутри некий блокнот... тут же поиск
+         по клиенту → ввести номер телефона».
+         ========================================================= -->
+    <div class="pos-customer-notebook">
+      <div class="flex items-center justify-between mb-2">
+        <label class="text-sm font-medium text-gray-700">Блокнот клиентов</label>
+        <span v-if="notebookItems.length" class="text-[11px] text-gray-400">
+          {{ searchQuery.trim() ? 'найдено' : 'недавние' }}: {{ notebookItems.length }}
+        </span>
+      </div>
+
       <div class="relative">
         <MagnifyingGlassIcon class="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
         <input
           v-model="searchQuery"
           type="text"
           placeholder="Имя или телефон…"
-          class="w-full rounded-lg border border-gray-300 pl-9 pr-3 py-2 text-sm focus:border-gray-500 focus:outline-none focus:ring-2 focus:ring-gray-200"
+          class="w-full rounded-lg border border-gray-300 pl-9 pr-9 py-2 text-sm focus:border-gray-500 focus:outline-none focus:ring-2 focus:ring-gray-200"
         />
+        <button
+          v-if="searchQuery"
+          type="button"
+          class="absolute right-2 top-1/2 -translate-y-1/2 rounded-full p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-700"
+          aria-label="Очистить поиск"
+          @click="searchQuery = ''"
+        >
+          <XMarkIcon class="h-4 w-4" />
+        </button>
       </div>
 
-      <!-- Search results -->
-      <div v-if="searchQuery" class="mt-2 max-h-56 overflow-y-auto rounded-lg border border-gray-200 bg-white">
-        <div v-if="searching" class="px-3 py-2 text-xs text-gray-500">Ищем…</div>
-        <ul v-else-if="searchResults.length">
+      <!-- Список (поиск или последние) -->
+      <div class="mt-2 rounded-lg border border-gray-200 bg-white">
+        <div v-if="searching" class="px-3 py-3 text-xs text-gray-500 text-center">
+          Ищем…
+        </div>
+        <ul v-else-if="notebookItems.length" class="max-h-72 overflow-y-auto divide-y divide-gray-100">
           <li
-            v-for="customer in searchResults"
+            v-for="customer in notebookItems"
             :key="customer.id"
-            class="px-3 py-2 text-sm hover:bg-gray-50 cursor-pointer border-b last:border-b-0 border-gray-100"
+            class="px-3 py-2 text-sm cursor-pointer transition-colors"
+            :class="
+              isSelected(customer)
+                ? 'bg-emerald-50 hover:bg-emerald-100'
+                : 'hover:bg-gray-50'
+            "
             @click="selectCustomer(customer)"
           >
-            <div class="font-medium text-gray-900">{{ formatCustomerName(customer) }}</div>
-            <div class="flex items-center gap-2 text-xs text-gray-500">
-              <span v-if="customer.phone">{{ customer.phone }}</span>
-              <span v-if="customer.telegram_username" class="text-blue-600">@{{ customer.telegram_username }}</span>
+            <div class="flex items-start gap-2">
+              <span
+                class="mt-0.5 flex h-4 w-4 flex-shrink-0 items-center justify-center text-emerald-600"
+                :aria-label="isSelected(customer) ? 'Привязан к текущему чеку' : ''"
+              >
+                <!-- Только зелёная ✓ для привязанного клиента. У остальных
+                     иконку не рисуем — иначе UX читается как «радиогруппа»
+                     с неактивным выбором, что неточно: можно привязать любого
+                     просто кликом по строке. -->
+                <CheckIcon v-if="isSelected(customer)" class="h-4 w-4" />
+              </span>
+              <div class="min-w-0 flex-1">
+                <div class="font-medium text-gray-900 truncate">
+                  {{ formatCustomerName(customer) }}
+                </div>
+                <div class="flex flex-wrap items-center gap-2 text-xs text-gray-500">
+                  <span v-if="customer.phone">{{ customer.phone }}</span>
+                  <span v-if="customer.telegram_username" class="text-blue-600">
+                    @{{ customer.telegram_username }}
+                  </span>
+                  <span
+                    v-if="(customer.total_orders ?? 0) > 0"
+                    class="text-gray-400"
+                  >
+                    {{ customer.total_orders }} покуп.
+                  </span>
+                </div>
+              </div>
+              <span
+                v-if="customer.blocked_count && customer.blocked_count > 0"
+                class="ml-1 rounded bg-red-50 px-1.5 py-0.5 text-[10px] font-semibold text-red-700"
+                title="Клиент заблокирован"
+              >⚠</span>
             </div>
           </li>
         </ul>
-        <div v-else class="px-3 py-2 text-xs text-gray-500">
-          Никого не нашли — добавьте нового
+        <div v-else class="px-3 py-3 text-xs text-gray-500 text-center">
+          <template v-if="searchQuery.trim()">
+            Никого не нашли. Создайте нового кнопкой ниже.
+          </template>
+          <template v-else>
+            В блокноте пока пусто. Добавьте первого клиента.
+          </template>
         </div>
       </div>
 
@@ -104,7 +175,7 @@
         @click="openCreateModal"
       >
         <PlusIcon class="h-4 w-4" />
-        + Добавить клиента
+        Добавить клиента
       </button>
     </div>
 
@@ -128,7 +199,7 @@
         tabindex="-1"
         class="fixed inset-0 z-[210] flex items-center justify-center bg-black/50 px-4"
         @click.self="closeCreateModal"
-        @keydown.esc="closeCreateModal"
+        @keydown.esc.window="closeCreateModal"
       >
         <div class="w-full max-w-sm rounded-2xl bg-white p-5 shadow-xl">
           <h3 id="pos-customer-modal-title" class="text-lg font-semibold text-gray-900 mb-3">Новый клиент кассы</h3>
@@ -154,9 +225,17 @@
                 required
               />
               <p class="text-xs text-gray-500 mt-1">
-                Если такой телефон уже есть в базе — мы привяжем чек к существующему клиенту.
+                Если такой телефон уже есть в базе, мы привяжем чек к существующему клиенту.
               </p>
             </div>
+            <!--
+              TODO(skidochnye-karty): Костя несколько раз упоминал «скидочные
+              карты для проходняка, привязываем к их номерам телефона». На
+              момент v1 единственная связка — клиент↔телефон. Когда Костя
+              опишет, как карта выглядит (номер, штрихкод, диапазон номеров,
+              отдельная сущность или просто бонус), сюда придёт поле «номер
+              карты» и индикатор «есть карта» в строках блокнота.
+            -->
             <div v-if="createError" class="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
               {{ createError }}
             </div>
@@ -184,8 +263,8 @@
 </template>
 
 <script setup lang="ts">
-import { nextTick, onBeforeUnmount, ref, watch } from 'vue'
-import { MagnifyingGlassIcon, PlusIcon } from '@heroicons/vue/24/outline'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { CheckIcon, MagnifyingGlassIcon, PlusIcon, XMarkIcon } from '@heroicons/vue/24/outline'
 import { useCrmStore, type Customer } from '@/stores/crm'
 
 const props = defineProps<{
@@ -199,29 +278,64 @@ const emit = defineEmits<{
 
 const crmStore = useCrmStore()
 
+// Блокнот: results = либо search-hits (если есть q), либо «недавние» при пустом q.
 const searchQuery = ref('')
 const searchResults = ref<Customer[]>([])
+const recentResults = ref<Customer[]>([])
 const searching = ref(false)
 let searchDebounce: ReturnType<typeof setTimeout> | null = null
-// Sequence number защищает от race условия: быстрая печать может вызвать 2-3
+// Sequence number защищает от race-условия: быстрая печать может вызвать 2-3
 // fetch'а одновременно, медленный (старый) запрос может приземлиться позже
 // быстрого (нового) и затереть актуальный результат. Игнорируем устаревшие.
 let searchSeq = 0
+let recentSeq = 0
 
-// Debounce поиска: иначе на каждый символ дёргаем backend.
+const NOTEBOOK_LIMIT = 30
+
+const notebookItems = computed<Customer[]>(() =>
+  searchQuery.value.trim() ? searchResults.value : recentResults.value,
+)
+
+function isSelected(customer: Customer): boolean {
+  return Boolean(props.modelValue && customer.id === props.modelValue.id)
+}
+
+async function loadRecent() {
+  const my = ++recentSeq
+  try {
+    const items = await crmStore.searchCustomersForPos('', NOTEBOOK_LIMIT, {
+      includeRecent: true,
+    })
+    if (my !== recentSeq) return
+    recentResults.value = items
+  } catch (err) {
+    if (my !== recentSeq) return
+    console.error('[pos-customer] recent load failed', err)
+    recentResults.value = []
+  }
+}
+
+// Debounce поиска — иначе на каждый символ дёргаем backend.
+//
+// Когда q очищается (бекспейсом или ✕-кнопкой), мы сразу перезагружаем
+// «недавние» — иначе после долгой работы кассиром recentResults рискует
+// устареть (другой админ добавил/удалил клиента в CRM), а клик в empty-state
+// «В блокноте пока пусто» ввёл бы пользователя в заблуждение — лучше
+// гарантировать свежие данные на каждом возврате к recent-режиму.
 watch(searchQuery, (q) => {
   if (searchDebounce !== null) clearTimeout(searchDebounce)
   if (!q.trim()) {
     searchResults.value = []
     searching.value = false
+    loadRecent()
     return
   }
   searching.value = true
   const my = ++searchSeq
   searchDebounce = setTimeout(async () => {
     try {
-      const items = await crmStore.searchCustomersForPos(q, 10)
-      if (my !== searchSeq) return // устаревший ответ — игнорим
+      const items = await crmStore.searchCustomersForPos(q, NOTEBOOK_LIMIT)
+      if (my !== searchSeq) return
       searchResults.value = items
     } catch (err) {
       if (my !== searchSeq) return
@@ -231,6 +345,10 @@ watch(searchQuery, (q) => {
       if (my === searchSeq) searching.value = false
     }
   }, 250)
+})
+
+onMounted(() => {
+  loadRecent()
 })
 
 onBeforeUnmount(() => {
@@ -246,8 +364,9 @@ onBeforeUnmount(() => {
 
 function selectCustomer(customer: Customer) {
   emit('update:modelValue', customer)
-  searchQuery.value = ''
-  searchResults.value = []
+  // Поисковая строка остаётся, чтобы кассир мог быстро привязать другого
+  // клиента, не перепечатывая запрос. Активный клиент подсвечивается ✓
+  // в списке, поэтому ясно, кто сейчас на чеке.
 }
 
 // Создание нового клиента
@@ -262,8 +381,17 @@ let mergeBannerTimer: ReturnType<typeof setTimeout> | null = null
 
 function openCreateModal() {
   newName.value = ''
-  // Если в поле поиска была цифра — предзаполняем телефон
-  newPhone.value = /\d/.test(searchQuery.value) ? searchQuery.value : ''
+  // Если в поле поиска была цифра — предзаполняем телефон.
+  // Если буквы — предзаполняем имя.
+  const q = searchQuery.value.trim()
+  if (q && /\d/.test(q)) {
+    newPhone.value = q
+  } else if (q) {
+    newName.value = q
+    newPhone.value = ''
+  } else {
+    newPhone.value = ''
+  }
   createError.value = ''
   showCreateModal.value = true
   nextTick(() => newNameInputRef.value?.focus())
@@ -288,10 +416,14 @@ async function submitCreate() {
     if (result.merged) {
       // Inline-баннер вместо window.alert — не блокирует интерфейс кассы.
       mergeBanner.value =
-        `Этот телефон уже был в базе — привязали к: ${formatCustomerName(result.customer)}`
+        `Этот телефон уже был в базе, привязали к: ${formatCustomerName(result.customer)}`
       if (mergeBannerTimer !== null) clearTimeout(mergeBannerTimer)
       mergeBannerTimer = setTimeout(() => { mergeBanner.value = '' }, 6000)
     }
+    // Чистим поисковую строку — watch сам подхватит и перечитает «недавние»,
+    // новый клиент окажется наверху списка. recentSeq внутри loadRecent
+    // защищает от race-условий, поэтому отдельный await тут не нужен.
+    searchQuery.value = ''
   } catch (err: any) {
     if (err?.message === 'phone_invalid') {
       createError.value = 'Введите корректный телефон (10–15 цифр)'
@@ -305,7 +437,7 @@ async function submitCreate() {
   }
 }
 
-// История покупок выбранного клиента
+// История покупок выбранного клиента (для карточки сверху)
 const history = ref<
   Array<{ id: string; source: 'order' | 'pos'; amount: number; created_at: string }>
 >([])
@@ -323,7 +455,7 @@ watch(
     historyLoading.value = true
     try {
       const items = await crmStore.fetchCustomerPurchaseHistory(customerId, 30)
-      if (my !== historySeq) return // быстро переключили клиента — игнорим устаревший ответ
+      if (my !== historySeq) return
       history.value = items as typeof history.value
     } catch (err) {
       if (my !== historySeq) return
@@ -353,7 +485,7 @@ function formatHistoryDate(iso: string): string {
 }
 
 function formatAmount(value: number | null | undefined): string {
-  if (value == null) return '—'
+  if (value == null) return ''
   return Number(value).toLocaleString('ru-RU', { minimumFractionDigits: 0, maximumFractionDigits: 2 })
 }
 </script>
@@ -361,6 +493,9 @@ function formatAmount(value: number | null | undefined): string {
 <style scoped>
 .pos-customer-panel {
   font-size: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
 
 .pos-customer-selected {
@@ -368,6 +503,18 @@ function formatAmount(value: number | null | undefined): string {
   border: 1px solid #e5e7eb;
   border-radius: 12px;
   padding: 12px;
+}
+
+.pos-customer-placeholder {
+  background: #f9fafb;
+  border: 1px dashed #d1d5db;
+  border-radius: 12px;
+  padding: 12px;
+}
+
+.pos-customer-notebook {
+  display: flex;
+  flex-direction: column;
 }
 
 .fade-enter-active,

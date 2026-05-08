@@ -1027,12 +1027,16 @@ crmRouter.get('/api/admin/crm/bot/log', authMiddleware, (req, res) => {
 });
 
 // Поиск клиентов для админских autocomplete (новый POS-флоу + любые модалки).
+// `recent=1` — при пустом q вернуть последних N клиентов (для «блокнота» кассы).
 crmRouter.get('/api/admin/crm/customers/search', authMiddleware, (req, res) => {
   try {
     const q = typeof req.query.q === 'string' ? req.query.q : '';
     const limitRaw = Number(req.query.limit);
     const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? limitRaw : 20;
-    const items = searchCustomers({ q, limit });
+    const includeRecent = ['1', 'true', 'yes', 'on'].includes(
+      String(req.query.recent ?? '').toLowerCase(),
+    );
+    const items = searchCustomers({ q, limit, includeRecent });
     res.json({ items });
   } catch (error) {
     console.error('[crm] Search customers error:', error);
