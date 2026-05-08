@@ -22,7 +22,7 @@
 
     <CustomerModalShell
       :open="Boolean(activeAgreement)"
-      :title="activeAgreement?.title || ''"
+      :title="modalTitle"
       close-label="Закрыть окно"
       @close="closeModal"
     >
@@ -52,6 +52,8 @@ import CustomerModalShell from "@/components/CustomerModalShell.vue";
 interface Agreement {
   id: number;
   title: string;
+  /** Опциональный заголовок модалки. Если пустой, fallback на title. */
+  modal_title?: string;
   body: string;
 }
 
@@ -92,6 +94,16 @@ function openModal(agreement: Agreement) {
 function closeModal() {
   activeAgreement.value = null;
 }
+
+// Заголовок модалки: если у соглашения есть собственный modal_title (поле
+// «Заголовок модалки» в админке) — используем его. Иначе fallback на title
+// (то самое слово-ссылка из чекбокса). Без fallback'а у админов которые не
+// заполнили modal_title было бы пусто.
+const modalTitle = computed(() => {
+  const agreement = activeAgreement.value;
+  if (!agreement) return "";
+  return (agreement.modal_title || "").trim() || agreement.title;
+});
 
 const modalParagraphs = computed(() => {
   const body = (activeAgreement.value?.body || "").trim();

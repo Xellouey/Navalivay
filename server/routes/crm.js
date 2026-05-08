@@ -662,12 +662,18 @@ crmRouter.post('/api/admin/crm/agreements', authMiddleware, (req, res) => {
     const item = createAgreement({
       title: req.body?.title,
       body: req.body?.body,
+      modal_title: req.body?.modal_title,
       is_active: req.body?.is_active,
       sort_order: req.body?.sort_order,
     });
     res.json({ ok: true, item });
   } catch (err) {
-    if (err.code === 'title_required' || err.code === 'title_too_long' || err.code === 'body_too_long') {
+    if (
+      err.code === 'title_required' ||
+      err.code === 'title_too_long' ||
+      err.code === 'body_too_long' ||
+      err.code === 'modal_title_too_long'
+    ) {
       return res.status(400).json({ error: err.code });
     }
     console.error('[crm] Create agreement error:', err);
@@ -680,6 +686,7 @@ crmRouter.put('/api/admin/crm/agreements/:id', authMiddleware, (req, res) => {
     const item = updateAgreement(req.params.id, {
       title: req.body?.title,
       body: req.body?.body,
+      modal_title: req.body?.modal_title,
       is_active: req.body?.is_active,
       sort_order: req.body?.sort_order,
     });
@@ -688,7 +695,12 @@ crmRouter.put('/api/admin/crm/agreements/:id', authMiddleware, (req, res) => {
     if (err.code === 'agreement_not_found') {
       return res.status(404).json({ error: err.code });
     }
-    if (err.code === 'title_required' || err.code === 'title_too_long' || err.code === 'body_too_long') {
+    if (
+      err.code === 'title_required' ||
+      err.code === 'title_too_long' ||
+      err.code === 'body_too_long' ||
+      err.code === 'modal_title_too_long'
+    ) {
       return res.status(400).json({ error: err.code });
     }
     console.error('[crm] Update agreement error:', err);

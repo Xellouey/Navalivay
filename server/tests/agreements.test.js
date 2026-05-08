@@ -212,6 +212,55 @@ function runTests() {
   console.log('\n=== Test 20: deleteAgreement несуществующего id возвращает 0 ===');
   const removedNothing = deleteAgreement(999999);
   assertEq(removedNothing, 0, 'deleteAgreement(999999) → 0 (нет такого id)');
+
+  console.log('\n=== Test 21: modal_title — отдельный заголовок модалки ===');
+  setup();
+  // Костин кейс: title = «правилами заказа» (грамматика для ссылки),
+  // modal_title = «Правила заказа» (нормальный заголовок модалки).
+  const wm = createAgreement({
+    title: 'правилами заказа',
+    body: 'Подробные правила...',
+    modal_title: 'Правила заказа',
+    is_active: 1,
+  });
+  assertEq(wm.title, 'правилами заказа', 'title сохранился');
+  assertEq(wm.modal_title, 'Правила заказа', 'modal_title сохранился отдельно');
+
+  // Без modal_title — null, фронт fallback'ит на title
+  const noModal = createAgreement({ title: 'условиями оплаты', body: 'X' });
+  assertEq(noModal.modal_title, '', 'без modal_title → пустая строка (fallback на title во фронте)');
+
+  // Update modal_title точечно
+  const wmUpdated = updateAgreement(wm.id, { modal_title: 'Новые правила' });
+  assertEq(wmUpdated.modal_title, 'Новые правила', 'modal_title обновляется патчем');
+  assertEq(wmUpdated.title, 'правилами заказа', 'title не тронут');
+
+  // Очистить modal_title через пустую строку
+  const cleared = updateAgreement(wm.id, { modal_title: '' });
+  assertEq(cleared.modal_title, '', 'пустая строка очищает modal_title');
+
+  // Слишком длинный — throw
+  let threwModal = false;
+  try {
+    createAgreement({ title: 'X', body: 'X', modal_title: 'Y'.repeat(201) });
+  } catch (err) {
+    threwModal = err.code === 'modal_title_too_long';
+  }
+  assertEq(threwModal, true, 'modal_title > 200 символов → modal_title_too_long');
+
+  console.log('\n=== Test 22: snapshot включает modal_title ===');
+  setup();
+  const snapA = createAgreement({
+    title: 'правилами',
+    body: 'B1',
+    modal_title: 'Правила заказа',
+    is_active: 1,
+  });
+  const snapB = createAgreement({ title: 'офертой', body: 'B2', is_active: 1 });
+  const snapJson = JSON.parse(buildAcceptedSnapshot([snapA.id, snapB.id]));
+  assertEq(snapJson.items.length, 2, 'snapshot содержит обе записи');
+  assertEq(snapJson.items[0].modal_title, 'Правила заказа', 'modal_title в snapshot');
+  assertEq(snapJson.items[1].modal_title, null, 'без modal_title → null в snapshot');
 }
 
 try {

@@ -22,6 +22,9 @@ function rowToAgreement(row) {
     id: Number(row.id),
     title: String(row.title ?? ''),
     body: String(row.body ?? ''),
+    // modal_title — отдельный заголовок для модалки с полным текстом.
+    // Если пустой/NULL, фронт показывает в модалке title (старое поведение).
+    modal_title: row.modal_title ? String(row.modal_title) : '',
     is_active: Number(row.is_active) ? 1 : 0,
     sort_order: Number(row.sort_order ?? 0),
     created_at: row.created_at ?? null,
@@ -32,7 +35,7 @@ function rowToAgreement(row) {
 export function listActiveAgreements() {
   const rows = db
     .prepare(
-      `SELECT id, title, body, is_active, sort_order, created_at, updated_at
+      `SELECT id, title, body, modal_title, is_active, sort_order, created_at, updated_at
          FROM agreements
         WHERE is_active = 1
         ORDER BY sort_order ASC, id ASC`,
@@ -44,7 +47,7 @@ export function listActiveAgreements() {
 export function listAllAgreements() {
   const rows = db
     .prepare(
-      `SELECT id, title, body, is_active, sort_order, created_at, updated_at
+      `SELECT id, title, body, modal_title, is_active, sort_order, created_at, updated_at
          FROM agreements
         ORDER BY sort_order ASC, id ASC`,
     )
@@ -57,7 +60,7 @@ export function getAgreementById(id) {
   if (!Number.isFinite(numericId) || numericId <= 0) return null;
   const row = db
     .prepare(
-      `SELECT id, title, body, is_active, sort_order, created_at, updated_at
+      `SELECT id, title, body, modal_title, is_active, sort_order, created_at, updated_at
          FROM agreements
         WHERE id = ?`,
     )
@@ -92,6 +95,18 @@ function normalizeBody(body) {
   return value;
 }
 
+function normalizeModalTitle(value) {
+  // modal_title — опциональный заголовок модалки. Пустой → null (fallback на title).
+  const trimmed = String(value ?? '').trim();
+  if (!trimmed) return null;
+  if (trimmed.length > 200) {
+    const err = new Error('modal_title_too_long');
+    err.code = 'modal_title_too_long';
+    throw err;
+  }
+  return trimmed;
+}
+
 function normalizeIsActive(value) {
   // Строгая интерпретация: только true / 1 / '1' → активно, всё остальное → 0.
   // Защита от ситуаций когда фронт-форма случайно прислала строку "0" — она
@@ -110,18 +125,19 @@ function normalizeSortOrder(value) {
   return Math.max(0, Math.trunc(n));
 }
 
-export function createAgreement({ title, body, is_active, sort_order } = {}) {
+export function createAgreement({ title, body, modal_title, is_active, sort_order } = {}) {
   const normalizedTitle = normalizeTitleOrThrow(title);
   const normalizedBody = normalizeBody(body);
+  const normalizedModalTitle = normalizeModalTitle(modal_title);
   // Дефолт при создании — активно (если поле не передано).
   const normalizedActive = is_active === undefined ? 1 : normalizeIsActive(is_active);
   const normalizedOrder = normalizeSortOrder(sort_order);
   const result = db
     .prepare(
-      `INSERT INTO agreements (title, body, is_active, sort_order)
-       VALUES (?, ?, ?, ?)`,
+      `INSERT INTO agreements (title, body, modal_title, is_active, sort_order)
+       VALUES (?, ?, ?, ?, ?)`,
     )
-    .run(normalizedTitle, normalizedBody, normalizedActive, normalizedOrder);
+    .run(normalizedTitle, normalizedBody, normalizedModalTitle, normalizedActive, normalizedOrder);
   return getAgreementById(result.lastInsertRowid);
 }
 
@@ -137,15 +153,19 @@ export function updateAgreement(id, payload = {}) {
   // есть. Это совпадает с поведением остальных admin endpoints проекта.
   const nextTitle = payload.title !== undefined ? normalizeTitleOrThrow(payload.title) : existing.title;
   const nextBody = payload.body !== undefined ? normalizeBody(payload.body) : existing.body;
+  const nextModalTitle =
+    payload.modal_title !== undefined
+      ? normalizeModalTitle(payload.modal_title)
+      : existing.modal_title || null;
   const nextActive =
     payload.is_active !== undefined ? normalizeIsActive(payload.is_active) : existing.is_active;
   const nextOrder =
     payload.sort_order !== undefined ? normalizeSortOrder(payload.sort_order) : existing.sort_order;
   db.prepare(
     `UPDATE agreements
-        SET title = ?, body = ?, is_active = ?, sort_order = ?, updated_at = DATETIME('now')
+        SET title = ?, body = ?, modal_title = ?, is_active = ?, sort_order = ?, updated_at = DATETIME('now')
       WHERE id = ?`,
-  ).run(nextTitle, nextBody, nextActive, nextOrder, numericId);
+  ).run(nextTitle, nextBody, nextModalTitle, nextActive, nextOrder, numericId);
   return getAgreementById(numericId);
 }
 
@@ -199,7 +219,12 @@ export function buildAcceptedSnapshot(acceptedIds) {
   );
   const items = active
     .filter((a) => acceptedSet.has(a.id))
-    .map((a) => ({ id: a.id, title: a.title, body: a.body }));
+    .map((a) => ({
+      id: a.id,
+      title: a.title,
+      modal_title: a.modal_title || null,
+      body: a.body,
+    }));
   if (items.length === 0) return null;
   return JSON.stringify({
     accepted_at: new Date().toISOString(),

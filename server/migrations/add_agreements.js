@@ -43,4 +43,16 @@ export function migrateAgreements() {
     db.exec(`ALTER TABLE orders ADD COLUMN accepted_agreements TEXT`);
     console.log('[migration] Added orders.accepted_agreements column');
   }
+
+  // 3) Колонка agreements.modal_title — отдельный заголовок для модалки
+  // с полным текстом. Без него заголовок модалки дублирует ссылку из
+  // чекбокса (например: «правилами заказа» — кликнул, в модалке тоже
+  // «правилами заказа»). С modal_title админ может поставить нормальный
+  // заголовок («Правила заказа»), сохранив грамматику ссылки.
+  const agreementCols = db.prepare(`PRAGMA table_info(agreements)`).all();
+  const hasModalTitle = agreementCols.some((col) => col.name === 'modal_title');
+  if (!hasModalTitle) {
+    db.exec(`ALTER TABLE agreements ADD COLUMN modal_title TEXT`);
+    console.log('[migration] Added agreements.modal_title column');
+  }
 }

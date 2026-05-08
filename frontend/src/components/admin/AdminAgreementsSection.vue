@@ -89,17 +89,35 @@
       <form @submit.prevent="handleSubmit" class="space-y-4">
         <div class="space-y-2">
           <label class="text-sm font-medium text-gray-700">
-            Заголовок (виден на чекбоксе)
+            Текст-ссылка на чекбоксе (грамматика для «Соглашаюсь с …»)
           </label>
           <input
             v-model="form.title"
             type="text"
             required
             maxlength="200"
-            placeholder="Например: Согласен с правилами заказа"
+            placeholder="Например: правилами заказа"
             class="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm focus:border-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-200"
           />
-          <p class="text-xs text-gray-500">{{ form.title.length }} / 200 символов</p>
+          <p class="text-xs text-gray-500">
+            Клиент увидит: «Соглашаюсь с <span class="text-blue-600 underline">{{ form.title || '…' }}</span>». {{ form.title.length }} / 200 символов
+          </p>
+        </div>
+
+        <div class="space-y-2">
+          <label class="text-sm font-medium text-gray-700">
+            Заголовок модалки (когда клиент кликнул по ссылке)
+          </label>
+          <input
+            v-model="form.modal_title"
+            type="text"
+            maxlength="200"
+            placeholder="Например: Правила заказа"
+            class="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm focus:border-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-200"
+          />
+          <p class="text-xs text-gray-500">
+            Если пусто, в модалке покажется текст-ссылка из поля выше («{{ form.title || '…' }}»). {{ form.modal_title.length }} / 200 символов
+          </p>
         </div>
 
         <div class="space-y-2">
@@ -166,6 +184,8 @@ interface Agreement {
   id: number;
   title: string;
   body: string;
+  // Опциональный заголовок модалки. Пустая строка → fallback на title.
+  modal_title: string;
   // Бэк-контракт (rowToAgreement в server/utils/agreements.js): всегда 0 | 1.
   is_active: 0 | 1;
   sort_order: number;
@@ -185,6 +205,7 @@ const formError = ref<string | null>(null);
 const form = reactive({
   title: "",
   body: "",
+  modal_title: "",
   is_active: true,
   sort_order: 0,
 });
@@ -220,6 +241,7 @@ async function fetchItems() {
 function resetForm() {
   form.title = "";
   form.body = "";
+  form.modal_title = "";
   form.is_active = true;
   form.sort_order = items.value.length
     ? Math.max(...items.value.map((it) => Number(it.sort_order ?? 0))) + 10
@@ -238,6 +260,7 @@ function openEditForm(item: Agreement) {
   formError.value = null;
   form.title = item.title;
   form.body = item.body;
+  form.modal_title = item.modal_title || "";
   form.is_active = Boolean(item.is_active);
   form.sort_order = Number(item.sort_order ?? 0);
   formOpen.value = true;
@@ -257,6 +280,7 @@ async function handleSubmit() {
     const payload = {
       title: form.title.trim(),
       body: form.body,
+      modal_title: form.modal_title.trim(),
       is_active: form.is_active ? 1 : 0,
       sort_order: form.sort_order,
     };
@@ -282,6 +306,8 @@ async function handleSubmit() {
         formError.value = "Заголовок слишком длинный (максимум 200 символов)";
       } else if (code === "body_too_long") {
         formError.value = "Текст соглашения слишком длинный (максимум 20000 символов)";
+      } else if (code === "modal_title_too_long") {
+        formError.value = "Заголовок модалки слишком длинный (максимум 200 символов)";
       } else if (code === "agreement_not_found") {
         formError.value = "Соглашение не найдено, возможно, оно уже удалено";
       } else {
