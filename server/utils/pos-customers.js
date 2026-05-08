@@ -68,13 +68,17 @@ export function findCustomerByPhoneDigits(digits) {
  * кто физически приходил в магазин, а не онлайн-покупатели Mini App.
  *
  * Признаки POS-клиента:
- *   1. Создан через кассу — `telegram_id IS NULL` (createOrMergePosCustomer
- *      не заполняет telegram_id), либо
- *   2. У него хотя бы один POS-чек в pos_sales — даже если изначально
- *      пришёл онлайн (например, после merge по телефону).
+ *   1. Создан через кассу — НЕТ ни telegram_id, ни telegram_username
+ *      (createOrMergePosCustomer заполняет только phone + first/last_name).
+ *      В legacy-данных встречаются клиенты с telegram_username но без
+ *      telegram_id (старый Mini-App flow), такие — НЕ проходняк, поэтому
+ *      проверяем оба поля.
+ *   2. Либо у него хотя бы один POS-чек в pos_sales — это покрывает
+ *      merge-кейс, когда кассир пробил чек на Telegram-клиента (по
+ *      совпадению телефона), и тот должен снова быть в блокноте.
  */
 const POS_ONLY_CONDITION = `(
-  c.telegram_id IS NULL
+  (c.telegram_id IS NULL AND (c.telegram_username IS NULL OR c.telegram_username = ''))
   OR EXISTS (SELECT 1 FROM pos_sales ps WHERE ps.customer_id = c.id)
 )`;
 

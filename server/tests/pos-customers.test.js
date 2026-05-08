@@ -300,6 +300,33 @@ function runTests() {
   const sBobAll = searchCustomers({ q: 'Боб', posOnly: false });
   assertTrue(sBobAll.some((r) => r.id === 'c_bob'), 'без posOnly: c_bob находится при поиске «Боб»');
 
+  console.log('\n=== Test 9f: posOnly скрывает legacy-клиентов с username но без telegram_id ===');
+  // Реальный prod-кейс: в БД есть онлайн-клиенты у которых telegram_id=NULL,
+  // но telegram_username заполнен (legacy mini-app flow). Это НЕ проходняк,
+  // блокнот кассы их показывать не должен.
+  db.prepare(`INSERT INTO customers (id, telegram_id, telegram_username, first_name, last_name, phone, first_visit_at, total_orders, total_spent)
+              VALUES ('c_legacy_online', NULL, 'someuser_online', NULL, NULL, NULL, DATETIME('now'), 1, 50)`).run();
+  const legacyAll = searchCustomers({ q: '', includeRecent: true, limit: 200, posOnly: false });
+  assertTrue(
+    legacyAll.some((r) => r.id === 'c_legacy_online'),
+    'без posOnly: legacy-клиент с username (без telegram_id) виден',
+  );
+  const legacyPos = searchCustomers({ q: '', includeRecent: true, limit: 200, posOnly: true });
+  assertEq(
+    legacyPos.some((r) => r.id === 'c_legacy_online'),
+    false,
+    'с posOnly: legacy-клиент с username скрыт (он не проходняк)',
+  );
+  // Поиск по username тоже должен скрывать
+  const legacySearch = searchCustomers({ q: 'someuser_online', posOnly: true });
+  assertEq(
+    legacySearch.some((r) => r.id === 'c_legacy_online'),
+    false,
+    'с posOnly + поиск по username: legacy-клиент скрыт',
+  );
+  // Cleanup
+  db.prepare(`DELETE FROM customers WHERE id = 'c_legacy_online'`).run();
+
   // Cleanup: удаляем тестовый pos_sale на c_alice, чтобы не засорить
   // следующие тесты (Test 10 опирается на ровно 0 pos_sales у c_alice
   // в момент его старта — иначе getCustomerPurchaseHistory вернёт лишнюю
