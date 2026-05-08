@@ -24,6 +24,7 @@ import {
   createOrMergePosCustomer,
   getCustomerPurchaseHistory,
   searchCustomers,
+  softDeleteCustomer,
 } from '../utils/pos-customers.js';
 import {
   PAUSE_REASONS,
@@ -1078,6 +1079,20 @@ crmRouter.post('/api/admin/crm/pos-customers', authMiddleware, (req, res) => {
       return res.status(400).json({ error: err.code });
     }
     console.error('[crm] Create POS customer error:', err);
+    res.status(500).json({ error: 'failed', message: err.message });
+  }
+});
+
+// Soft-delete клиента из блокнота кассы (помечает deleted_at = NOW).
+// История чеков (pos_sales) и заказов (orders) не трогается. Возвращает
+// 404 если клиента нет или он уже soft-deleted.
+crmRouter.delete('/api/admin/crm/pos-customers/:id', authMiddleware, (req, res) => {
+  try {
+    const removed = softDeleteCustomer(req.params.id);
+    if (!removed) return res.status(404).json({ error: 'customer_not_found' });
+    res.json({ ok: true, removed });
+  } catch (err) {
+    console.error('[crm] Soft-delete customer error:', err);
     res.status(500).json({ error: 'failed', message: err.message });
   }
 });

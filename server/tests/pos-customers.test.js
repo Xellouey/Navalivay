@@ -35,6 +35,8 @@ const {
   searchCustomers,
   getCustomerPurchaseHistory,
   createOrMergePosCustomer,
+  softDeleteCustomer,
+  restoreCustomer,
 } = await import('../utils/pos-customers.js');
 
 const results = { passed: 0, failed: 0 };
@@ -332,6 +334,45 @@ function runTests() {
   // в момент его старта — иначе getCustomerPurchaseHistory вернёт лишнюю
   // запись и собьёт сортировку).
   db.prepare(`DELETE FROM pos_sales WHERE id = 'p_alice_pos'`).run();
+
+  console.log('\n=== Test 9g: softDeleteCustomer + фильтр deleted_at в выдаче ===');
+  // Создадим тестового клиента, удалим, проверим что исчез из блокнота.
+  db.prepare(`INSERT INTO customers (id, telegram_id, telegram_username, first_name, phone, first_visit_at, total_orders, total_spent)
+              VALUES ('c_to_delete', NULL, NULL, 'Удалёнчик', '+375111111111', DATETIME('now'), 0, 0)`).run();
+  const beforeDelete = searchCustomers({ q: 'Удалёнчик', posOnly: true });
+  assertTrue(beforeDelete.some((r) => r.id === 'c_to_delete'), 'до softDelete клиент виден');
+
+  const removed = softDeleteCustomer('c_to_delete');
+  assertEq(removed, 1, 'softDeleteCustomer вернул 1 (одну строку обновили)');
+
+  const afterDelete = searchCustomers({ q: 'Удалёнчик', posOnly: true });
+  assertEq(afterDelete.some((r) => r.id === 'c_to_delete'), false, 'после softDelete клиент скрыт');
+  // Также проверим что recent-блокнот тоже не показывает удалённого
+  const afterDeleteRecent = searchCustomers({ q: '', includeRecent: true, limit: 200, posOnly: true });
+  assertEq(afterDeleteRecent.some((r) => r.id === 'c_to_delete'), false, 'recent: клиент скрыт после softDelete');
+
+  // Запись в БД осталась — найти можно прямо
+  const stillInDb = db.prepare('SELECT deleted_at FROM customers WHERE id = ?').get('c_to_delete');
+  assertTrue(!!stillInDb, 'запись осталась в БД (soft delete)');
+  assertTrue(!!stillInDb.deleted_at, 'deleted_at заполнен');
+
+  // Повторный softDelete не делает ничего
+  const removedAgain = softDeleteCustomer('c_to_delete');
+  assertEq(removedAgain, 0, 'повторный softDelete на удалённом → 0 (idempotent)');
+
+  // Несуществующий id → 0
+  assertEq(softDeleteCustomer('c_nope'), 0, 'softDelete несуществующего → 0');
+  assertEq(softDeleteCustomer(''), 0, 'softDelete пустого id → 0');
+  assertEq(softDeleteCustomer(null), 0, 'softDelete null → 0');
+
+  // restoreCustomer возвращает клиента в выдачу
+  const restored = restoreCustomer('c_to_delete');
+  assertEq(restored, 1, 'restoreCustomer вернул 1');
+  const afterRestore = searchCustomers({ q: 'Удалёнчик', posOnly: true });
+  assertTrue(afterRestore.some((r) => r.id === 'c_to_delete'), 'после restore клиент снова виден');
+
+  // Cleanup
+  db.prepare(`DELETE FROM customers WHERE id = 'c_to_delete'`).run();
 
   console.log('\n=== Test 10: getCustomerPurchaseHistory — merge orders + pos_sales ===');
   // Готовим заказ и POS-чек для c_alice (с разными форматами datetime — regression C3)

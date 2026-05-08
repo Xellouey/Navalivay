@@ -40,6 +40,7 @@ import { migratePosCustomerLink } from './migrations/add_pos_customer_link.js';
 import { migrateLowStockGroups } from './migrations/add_low_stock_groups.js';
 import { migrateAgreements } from './migrations/add_agreements.js';
 import { migrateBusinessBot } from './migrations/add_business_bot.js';
+import { migrateCustomerDeletedAt } from './migrations/add_customer_deleted_at.js';
 import { migratePosSales } from './migrations/add_pos_sales.js';
 import { migratePosSaleTransactionLink } from './migrations/add_pos_sale_transaction_link.js';
 import { migrateManagerActionFields } from './migrations/add_manager_action_fields.js';
@@ -190,6 +191,7 @@ export function initDb() {
   migrateLowStockGroups();
   migrateAgreements();
   migrateBusinessBot();
+  migrateCustomerDeletedAt();
   migratePosSaleTransactionLink();
   migrateManagerActionFields();
   migrateCustomerPhoto();

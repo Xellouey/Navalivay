@@ -1159,6 +1159,18 @@ export const useCrmStore = defineStore("crm", () => {
     );
   }
 
+  /**
+   * Soft-delete клиента из блокнота кассы. Запись остаётся в БД, история
+   * чеков сохраняется, но клиент пропадает из всех списков-выдач.
+   * Используется кнопкой «Удалить» в PosCustomerPanel.
+   */
+  async function deletePosCustomer(customerId: string) {
+    return fetchAPI<{ ok: true; removed: number }>(
+      `${API_BASE}/pos-customers/${encodeURIComponent(customerId)}`,
+      { method: "DELETE" },
+    );
+  }
+
   async function fetchCustomerPurchaseHistory(customerId: string, limit = 50) {
     const params = new URLSearchParams({ limit: String(limit) });
     const result = await fetchAPI<{
@@ -2426,6 +2438,7 @@ export const useCrmStore = defineStore("crm", () => {
     // POS-клиенты (касса)
     searchCustomersForPos,
     createPosCustomer,
+    deletePosCustomer,
     fetchCustomerPurchaseHistory,
 
     // Customer Feedbacks

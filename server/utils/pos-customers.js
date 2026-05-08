@@ -105,6 +105,10 @@ export function searchCustomers({ q, limit = 20, includeRecent = false, posOnly 
   const query = typeof q === 'string' ? q.trim() : '';
   const safeLimit = Math.min(Math.max(Number(limit) || 20, 1), 100);
   const posFilter = posOnly ? `AND ${POS_ONLY_CONDITION}` : '';
+  // Soft-delete: записи с deleted_at не должны появляться в выдаче (ни в
+  // блокноте кассы, ни в общем CRM-autocomplete). История чеков сохраняется
+  // в pos_sales/orders, но клиент скрыт.
+  const deletedFilter = `AND c.deleted_at IS NULL`;
 
   if (query.length === 0) {
     if (!includeRecent) return [];
@@ -120,7 +124,7 @@ export function searchCustomers({ q, limit = 20, includeRecent = false, posOnly 
                     AND active = 1
                     AND (block_until IS NULL OR block_until > DATETIME('now'))) AS blocked_count
            FROM customers c
-          WHERE 1 ${posFilter}
+          WHERE 1 ${deletedFilter} ${posFilter}
           ORDER BY (c.last_visit_at IS NULL), c.last_visit_at DESC,
                    (c.last_order_at IS NULL), c.last_order_at DESC,
                    c.created_at DESC
@@ -155,7 +159,7 @@ export function searchCustomers({ q, limit = 20, includeRecent = false, posOnly 
             AND c.phone IS NOT NULL
             AND REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(c.phone, '+', ''), '-', ''), ' ', ''), '(', ''), ')', ''), '.', '') LIKE ?
           )
-        ) ${posFilter}
+        ) ${deletedFilter} ${posFilter}
         ORDER BY (c.last_visit_at IS NULL), c.last_visit_at DESC, c.created_at DESC
         LIMIT ?`,
     )
@@ -343,4 +347,48 @@ export function createOrMergePosCustomer({ name, phone, createdBy } = {}) {
   });
 
   return tx();
+}
+
+/**
+ * Soft-delete клиента: ставим deleted_at = NOW. Запись остаётся в БД,
+ * история чеков (pos_sales) и заказов (orders) тоже — мы не трогаем
+ * связанные таблицы. Из блокнота кассы и других списков клиент пропадает
+ * (см. searchCustomers — там фильтр на deleted_at IS NULL).
+ *
+ * Возвращает количество затронутых строк (0 если id не найден или уже
+ * удалён ранее).
+ */
+export function softDeleteCustomer(customerId) {
+  const id = String(customerId ?? '').trim();
+  if (!id) return 0;
+  const result = db
+    .prepare(
+      `UPDATE customers
+          SET deleted_at = DATETIME('now'),
+              updated_at = DATETIME('now')
+        WHERE id = ?
+          AND deleted_at IS NULL`,
+    )
+    .run(id);
+  return result.changes;
+}
+
+/**
+ * Восстанавливает мягко удалённого клиента (deleted_at → NULL).
+ * Не используется в UI v1, но полезно админу через прямой API/SQL,
+ * если клиент был удалён по ошибке.
+ */
+export function restoreCustomer(customerId) {
+  const id = String(customerId ?? '').trim();
+  if (!id) return 0;
+  const result = db
+    .prepare(
+      `UPDATE customers
+          SET deleted_at = NULL,
+              updated_at = DATETIME('now')
+        WHERE id = ?
+          AND deleted_at IS NOT NULL`,
+    )
+    .run(id);
+  return result.changes;
 }

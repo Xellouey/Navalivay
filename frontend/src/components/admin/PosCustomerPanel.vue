@@ -156,6 +156,23 @@
                 class="ml-1 rounded bg-red-50 px-1.5 py-0.5 text-[10px] font-semibold text-red-700"
                 title="Клиент заблокирован"
               >⚠</span>
+              <!--
+                Кнопка soft-delete. Показываем только если клиент НЕ привязан
+                к текущему чеку (иначе случайный клик при покупке = потеря
+                привязки + удаление). @click.stop останавливает bubble на
+                <li>, который иначе бы переключил привязку к этому клиенту.
+              -->
+              <button
+                v-if="!isSelected(customer)"
+                type="button"
+                class="ml-1 flex-shrink-0 rounded p-1 text-gray-300 transition hover:bg-red-50 hover:text-red-600"
+                :title="`Удалить «${formatCustomerName(customer)}» из блокнота`"
+                :disabled="busyDeleteId === customer.id"
+                @click.stop="deleteCustomer(customer)"
+              >
+                <TrashIcon v-if="busyDeleteId !== customer.id" class="h-3.5 w-3.5" />
+                <span v-else class="block h-3.5 w-3.5 text-[10px] leading-3.5">…</span>
+              </button>
             </div>
           </li>
         </ul>
@@ -270,7 +287,7 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { CheckIcon, MagnifyingGlassIcon, PlusIcon, XMarkIcon } from '@heroicons/vue/24/outline'
+import { CheckIcon, MagnifyingGlassIcon, PlusIcon, TrashIcon, XMarkIcon } from '@heroicons/vue/24/outline'
 import { useCrmStore, type Customer } from '@/stores/crm'
 
 const props = defineProps<{
@@ -373,6 +390,31 @@ function selectCustomer(customer: Customer) {
   // Поисковая строка остаётся, чтобы кассир мог быстро привязать другого
   // клиента, не перепечатывая запрос. Активный клиент подсвечивается ✓
   // в списке, поэтому ясно, кто сейчас на чеке.
+}
+
+// Soft-delete клиента из блокнота. Двойная защита от случайного клика:
+// (1) кнопка не показывается у привязанного к чеку, (2) confirm перед
+// запросом. После успеха обновляем оба источника (search + recent).
+const busyDeleteId = ref<string | null>(null)
+async function deleteCustomer(customer: Customer) {
+  if (busyDeleteId.value) return
+  if (!confirm(`Удалить «${formatCustomerName(customer)}» из блокнота?`)) return
+  busyDeleteId.value = customer.id
+  try {
+    await crmStore.deletePosCustomer(customer.id)
+    // Локально убираем из обоих списков, чтобы пользователь сразу увидел
+    // результат, не дожидаясь refetch.
+    searchResults.value = searchResults.value.filter((r) => r.id !== customer.id)
+    recentResults.value = recentResults.value.filter((r) => r.id !== customer.id)
+  } catch (err) {
+    console.error('[pos-customer] delete failed', err)
+    alert(err instanceof Error ? err.message : 'Не удалось удалить клиента')
+    // На ошибке стоит перечитать актуальное состояние, вдруг кто-то
+    // удалил параллельно (тогда наш запрос вернул 404).
+    await loadRecent()
+  } finally {
+    busyDeleteId.value = null
+  }
 }
 
 // Создание нового клиента
