@@ -1028,15 +1028,20 @@ crmRouter.get('/api/admin/crm/bot/log', authMiddleware, (req, res) => {
 
 // Поиск клиентов для админских autocomplete (новый POS-флоу + любые модалки).
 // `recent=1` — при пустом q вернуть последних N клиентов (для «блокнота» кассы).
+// `pos_only=1` — фильтрует выдачу до клиентов с признаком «проходняк»
+// (telegram_id IS NULL ИЛИ имеет хотя бы один pos_sale). Используется блокнотом
+// кассы чтобы не подмешивать туда онлайн-покупателей Mini App.
+function parseTruthyParam(value) {
+  return ['1', 'true', 'yes', 'on'].includes(String(value ?? '').toLowerCase());
+}
 crmRouter.get('/api/admin/crm/customers/search', authMiddleware, (req, res) => {
   try {
     const q = typeof req.query.q === 'string' ? req.query.q : '';
     const limitRaw = Number(req.query.limit);
     const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? limitRaw : 20;
-    const includeRecent = ['1', 'true', 'yes', 'on'].includes(
-      String(req.query.recent ?? '').toLowerCase(),
-    );
-    const items = searchCustomers({ q, limit, includeRecent });
+    const includeRecent = parseTruthyParam(req.query.recent);
+    const posOnly = parseTruthyParam(req.query.pos_only);
+    const items = searchCustomers({ q, limit, includeRecent, posOnly });
     res.json({ items });
   } catch (error) {
     console.error('[crm] Search customers error:', error);

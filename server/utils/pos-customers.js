@@ -63,6 +63,22 @@ export function findCustomerByPhoneDigits(digits) {
 }
 
 /**
+ * Условие «клиент относится к блокноту проходняка» — по TZ Кости:
+ * «база клиентов на проходняк». В блокноте кассы должны быть только те,
+ * кто физически приходил в магазин, а не онлайн-покупатели Mini App.
+ *
+ * Признаки POS-клиента:
+ *   1. Создан через кассу — `telegram_id IS NULL` (createOrMergePosCustomer
+ *      не заполняет telegram_id), либо
+ *   2. У него хотя бы один POS-чек в pos_sales — даже если изначально
+ *      пришёл онлайн (например, после merge по телефону).
+ */
+const POS_ONLY_CONDITION = `(
+  c.telegram_id IS NULL
+  OR EXISTS (SELECT 1 FROM pos_sales ps WHERE ps.customer_id = c.id)
+)`;
+
+/**
  * Универсальный поиск клиентов для админских autocomplete + «блокнота» кассы.
  *   - q — строка запроса (имя/фамилия/username/phone-цифры)
  *   - limit — максимум результатов
@@ -70,6 +86,9 @@ export function findCustomerByPhoneDigits(digits) {
  *     постоянно видимого блокнота на кассирском экране — TZ Кости:
  *     «у тебя по сути внутри некий блокнот... тут же поиск по клиенту»).
  *     При false (по умолчанию) сохраняется старое поведение: пустой q → [].
+ *   - posOnly — фильтрует выдачу до POS-клиентов (см. POS_ONLY_CONDITION).
+ *     Используется блокнотом кассы. По умолчанию false — обычный
+ *     autocomplete CRM показывает всех.
  *
  * Логика:
  *   - Если в q есть цифры → ищем по phone digits (substring match).
@@ -78,15 +97,17 @@ export function findCustomerByPhoneDigits(digits) {
  *   - При includeRecent=true и пустом q → последние N клиентов по
  *     last_visit_at / created_at.
  */
-export function searchCustomers({ q, limit = 20, includeRecent = false } = {}) {
+export function searchCustomers({ q, limit = 20, includeRecent = false, posOnly = false } = {}) {
   const query = typeof q === 'string' ? q.trim() : '';
   const safeLimit = Math.min(Math.max(Number(limit) || 20, 1), 100);
+  const posFilter = posOnly ? `AND ${POS_ONLY_CONDITION}` : '';
 
   if (query.length === 0) {
     if (!includeRecent) return [];
     // Дефолтный список «блокнота»: последние клиенты, отсортированы по
     // активности. blocked_count подгружаем тем же подзапросом, что и в
     // поиске, чтобы UI кассы мог рисовать ⚠ для забаненных.
+    // posFilter превращает безусловный SELECT в WHERE с условием POS-only.
     return db
       .prepare(
         `SELECT c.*,
@@ -95,6 +116,7 @@ export function searchCustomers({ q, limit = 20, includeRecent = false } = {}) {
                     AND active = 1
                     AND (block_until IS NULL OR block_until > DATETIME('now'))) AS blocked_count
            FROM customers c
+          WHERE 1 ${posFilter}
           ORDER BY (c.last_visit_at IS NULL), c.last_visit_at DESC,
                    (c.last_order_at IS NULL), c.last_order_at DESC,
                    c.created_at DESC
@@ -120,7 +142,7 @@ export function searchCustomers({ q, limit = 20, includeRecent = false } = {}) {
                   AND active = 1
                   AND (block_until IS NULL OR block_until > DATETIME('now'))) AS blocked_count
          FROM customers c
-        WHERE
+        WHERE (
           COALESCE(c.first_name, '') LIKE ? ESCAPE '\\' COLLATE NOCASE
           OR COALESCE(c.last_name, '') LIKE ? ESCAPE '\\' COLLATE NOCASE
           OR COALESCE(c.telegram_username, '') LIKE ? ESCAPE '\\' COLLATE NOCASE
@@ -129,6 +151,7 @@ export function searchCustomers({ q, limit = 20, includeRecent = false } = {}) {
             AND c.phone IS NOT NULL
             AND REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(c.phone, '+', ''), '-', ''), ' ', ''), '(', ''), ')', ''), '.', '') LIKE ?
           )
+        ) ${posFilter}
         ORDER BY (c.last_visit_at IS NULL), c.last_visit_at DESC, c.created_at DESC
         LIMIT ?`,
     )

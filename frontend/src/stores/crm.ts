@@ -1133,7 +1133,7 @@ export const useCrmStore = defineStore("crm", () => {
   async function searchCustomersForPos(
     q: string,
     limit = 20,
-    options: { includeRecent?: boolean } = {},
+    options: { includeRecent?: boolean; allCustomers?: boolean } = {},
   ) {
     const trimmed = (q || "").trim();
     // includeRecent=true → бэк возвращает последних клиентов при пустом q
@@ -1141,6 +1141,11 @@ export const useCrmStore = defineStore("crm", () => {
     if (!trimmed && !options.includeRecent) return [] as Customer[];
     const params = new URLSearchParams({ q: trimmed, limit: String(limit) });
     if (options.includeRecent) params.set("recent", "1");
+    // По умолчанию POS-блокнот показывает только клиентов проходняка
+    // (без telegram_id или с pos_sales). Костин TZ — «база на проходняк»,
+    // онлайн-клиенты Mini App там лишние. Передай allCustomers=true чтобы
+    // отключить фильтр (если функция переиспользуется в общем CRM-поиске).
+    if (!options.allCustomers) params.set("pos_only", "1");
     const result = await fetchAPI<{ items: Customer[] }>(
       `${API_BASE}/customers/search?${params.toString()}`,
     );

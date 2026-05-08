@@ -266,6 +266,46 @@ function runTests() {
   assertTrue(idxNew < idxOld, 'свежий visit раньше старого в списке');
   assertTrue(idxOld < idxNull, 'клиент без last_visit_at в самом конце (NULLS LAST через IS NULL)');
 
+  console.log('\n=== Test 9d: searchCustomers posOnly — фильтр для блокнота кассы ===');
+  // setupSchema: c_alice (telegram), c_bob (telegram), c_carol (без telegram),
+  // c_special (без telegram). c_order_* — все без telegram_id (POS-клиенты по факту).
+  // Без posOnly видим всех; c posOnly Telegram-клиенты без pos_sales исчезают.
+  const allRecent = searchCustomers({ q: '', includeRecent: true, limit: 100, posOnly: false });
+  const allHasAlice = allRecent.some((r) => r.id === 'c_alice');
+  assertTrue(allHasAlice, 'без posOnly: c_alice (Telegram) видна');
+
+  const posRecent = searchCustomers({ q: '', includeRecent: true, limit: 100, posOnly: true });
+  const posHasAlice = posRecent.some((r) => r.id === 'c_alice');
+  const posHasCarol = posRecent.some((r) => r.id === 'c_carol');
+  assertEq(posHasAlice, false, 'с posOnly: c_alice (Telegram, без pos_sales) скрыта');
+  assertEq(posHasCarol, true, 'с posOnly: c_carol (telegram_id=NULL) видна');
+
+  // Добавим c_alice один pos_sale → должна снова появиться (merged-кейс)
+  db.prepare(`INSERT INTO pos_sales (id, sale_number, customer_id, product_name, price, status, created_at)
+              VALUES ('p_alice_pos', 9001, 'c_alice', 'TEST', 10, 'completed', DATETIME('now'))`).run();
+  const posRecentAfterMerge = searchCustomers({ q: '', includeRecent: true, limit: 100, posOnly: true });
+  const aliceBack = posRecentAfterMerge.some((r) => r.id === 'c_alice');
+  assertEq(aliceBack, true, 'после pos_sale на c_alice — она появляется в posOnly блокноте (merged-кейс)');
+
+  console.log('\n=== Test 9e: posOnly работает и для непустого q (поиск по имени) ===');
+  // Поиск по имени Алиса с posOnly=false → находит
+  const sAliceAll = searchCustomers({ q: 'Алиса', posOnly: false });
+  assertTrue(sAliceAll.some((r) => r.id === 'c_alice'), 'без posOnly: q="Алиса" находит c_alice');
+  // С posOnly=true — c_alice сейчас имеет pos_sale, поэтому остаётся
+  const sAlicePosWith = searchCustomers({ q: 'Алиса', posOnly: true });
+  assertTrue(sAlicePosWith.some((r) => r.id === 'c_alice'), 'с posOnly+pos_sale: c_alice находится');
+  // А c_bob (Telegram, без pos_sale) при поиске «Боб» с posOnly не должен находиться
+  const sBobPos = searchCustomers({ q: 'Боб', posOnly: true });
+  assertEq(sBobPos.some((r) => r.id === 'c_bob'), false, 'с posOnly: c_bob (Telegram, без pos_sale) скрыт даже при точном поиске');
+  const sBobAll = searchCustomers({ q: 'Боб', posOnly: false });
+  assertTrue(sBobAll.some((r) => r.id === 'c_bob'), 'без posOnly: c_bob находится при поиске «Боб»');
+
+  // Cleanup: удаляем тестовый pos_sale на c_alice, чтобы не засорить
+  // следующие тесты (Test 10 опирается на ровно 0 pos_sales у c_alice
+  // в момент его старта — иначе getCustomerPurchaseHistory вернёт лишнюю
+  // запись и собьёт сортировку).
+  db.prepare(`DELETE FROM pos_sales WHERE id = 'p_alice_pos'`).run();
+
   console.log('\n=== Test 10: getCustomerPurchaseHistory — merge orders + pos_sales ===');
   // Готовим заказ и POS-чек для c_alice (с разными форматами datetime — regression C3)
   db.prepare(`INSERT INTO orders (id, order_number, customer_id, total_amount, final_amount, status, delivery_type, created_at)
