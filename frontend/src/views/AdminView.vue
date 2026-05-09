@@ -911,6 +911,7 @@
     <AdminModal
       ref="groupModalRef"
       :isOpen="showGroupModal"
+      :persistent="minStockEditorOpen"
       :title="activeGroupCategory ? `Линейки: ${activeGroupCategory.name}` : 'Линейки'"
       size="lg"
       :showActions="false"
