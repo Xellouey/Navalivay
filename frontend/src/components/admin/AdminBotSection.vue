@@ -214,7 +214,7 @@
       <!-- Tab: Log ----------------------------------------------------------->
       <div v-if="activeTab === 'log'" class="mt-4 space-y-3">
         <p class="text-sm text-gray-600">
-          Последние сообщения, обработанные ботом. Серое: клиент → менеджер. Синее: бот → клиент.
+          Последние сообщения, обработанные ботом. У исходящих видно, дошло ли до клиента: «ушло» — Telegram подтвердил приём, «не дошло» — отказ или сетевой сбой (причина в плашке).
         </p>
         <div v-if="!logItems.length" class="rounded-xl border border-dashed border-gray-300 bg-gray-50 px-6 py-8 text-center text-sm text-gray-500">
           Пока ничего не записано. Журнал начнёт заполняться после подключения бота.
@@ -223,18 +223,27 @@
           <li
             v-for="entry in logItems"
             :key="entry.id"
-            class="rounded-lg border bg-white px-3 py-2"
-            :class="entry.direction === 'out' ? 'border-blue-100 bg-blue-50/40' : 'border-gray-200'"
+            class="rounded-lg border px-3 py-2"
+            :class="logEntryClass(entry)"
           >
             <div class="flex flex-wrap items-center justify-between gap-2 text-[11px] text-gray-500">
-              <span>
+              <span class="flex flex-wrap items-center gap-1.5">
                 {{ entry.direction === 'out' ? 'бот → клиенту' : 'клиент → менеджеру' }}
                 · {{ entry.message_type }}
                 <template v-if="entry.template_event">· {{ entry.template_event }}</template>
+                <span
+                  v-if="logBadge(entry)"
+                  class="rounded px-1.5 py-0.5 text-[10px] font-semibold"
+                  :class="logBadge(entry)?.cls"
+                >{{ logBadge(entry)?.text }}</span>
               </span>
               <span>{{ entry.created_at }} · chat {{ entry.chat_id }}</span>
             </div>
             <p class="mt-1 whitespace-pre-wrap text-xs text-gray-800">{{ entry.text || '—' }}</p>
+            <p
+              v-if="entry.meta?.outcome === 'failed' && entry.meta?.error"
+              class="mt-1 text-[11px] font-medium text-red-700"
+            >Telegram отказал: {{ entry.meta.error }}</p>
           </li>
         </ul>
       </div>
@@ -379,6 +388,13 @@ interface BotLogEntry {
   template_event: string | null;
   text: string | null;
   created_at: string | null;
+  meta: {
+    outcome?: "sent" | "failed";
+    auto?: boolean;
+    error?: string;
+    order_id?: string;
+    [key: string]: unknown;
+  } | null;
 }
 
 const TABS = [
@@ -399,6 +415,29 @@ const STATUS_EVENT_LABELS: Record<string, string> = {
 
 function statusEventLabel(event: string) {
   return STATUS_EVENT_LABELS[event] || event;
+}
+
+/**
+ * Подсветка фона строки в журнале по итогу отправки. Костя 9.05.2026
+ * жаловался, что в журнале не видно — дошло сообщение до клиента или
+ * нет (`outcome=sent` или `failed` отображались одинаково).
+ */
+function logEntryClass(entry: BotLogEntry): string {
+  if (entry.direction === 'out' && entry.meta?.outcome === 'failed') {
+    return 'border-red-200 bg-red-50/60';
+  }
+  if (entry.direction === 'out') {
+    return 'border-blue-100 bg-blue-50/40';
+  }
+  return 'border-gray-200 bg-white';
+}
+
+function logBadge(entry: BotLogEntry): { text: string; cls: string } | null {
+  if (entry.direction !== 'out') return null;
+  const outcome = entry.meta?.outcome;
+  if (outcome === 'sent') return { text: 'ушло', cls: 'bg-emerald-100 text-emerald-700' };
+  if (outcome === 'failed') return { text: 'не дошло', cls: 'bg-red-100 text-red-700' };
+  return null;
 }
 
 const status = ref<BotStatus | null>(null);

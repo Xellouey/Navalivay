@@ -343,6 +343,76 @@ upsertStatusTemplate('order_assembled', {
   assertEq(logCount, 0, 'bot_message_log пустой при skip до отправки');
 }
 
+// --- TEST 13: retry на сетевом таймауте → вторая попытка успешна ----------
+console.log('\n=== Test 13: timeout на 1й попытке → retry → success ===');
+resetDb();
+makeOrderAndCustomer({ telegramId: '999', verified: true });
+registerConnection();
+
+let callCount = 0;
+globalThis.fetch = async () => {
+  callCount++;
+  if (callCount === 1) {
+    // Имитируем AbortSignal.timeout: настоящий timeout кидает DOMException.
+    const err = new Error('The operation was aborted due to timeout');
+    err.name = 'TimeoutError';
+    throw err;
+  }
+  return {
+    ok: true,
+    status: 200,
+    async json() {
+      return { ok: true, result: { message_id: 7777 } };
+    },
+  };
+};
+try {
+  const result = await autoNotifyForStatusChange({
+    orderId: 'o_test',
+    newStatus: 'in_progress',
+    previousStatus: 'new',
+  });
+  assertEq(result.sent, true, 'после retry sent=true');
+  assertEq(callCount, 2, 'fetch вызван дважды (один retry)');
+  // attempts включается в результат sendBusinessMessage, но autoNotifyForStatusChange
+  // его не пробрасывает — в журнале достаточно outcome=sent.
+  const logRows = db.prepare(`SELECT meta FROM bot_message_log ORDER BY id DESC LIMIT 1`).all();
+  const meta = JSON.parse(logRows[0].meta || '{}');
+  assertEq(meta.outcome, 'sent', 'meta.outcome=sent после retry');
+} finally {
+  globalThis.fetch = originalFetch;
+}
+
+// --- TEST 14: permanent ошибка (PEER_ID_INVALID) → нет retry --------------
+console.log('\n=== Test 14: HTTP 400 PEER_ID_INVALID → один вызов, без retry ===');
+resetDb();
+makeOrderAndCustomer({ telegramId: '101010', verified: true });
+registerConnection();
+
+let permanentCallCount = 0;
+globalThis.fetch = async () => {
+  permanentCallCount++;
+  return {
+    ok: false,
+    status: 400,
+    async json() {
+      return { ok: false, description: 'Bad Request: PEER_ID_INVALID' };
+    },
+  };
+};
+try {
+  const result = await autoNotifyForStatusChange({
+    orderId: 'o_test',
+    newStatus: 'in_progress',
+    previousStatus: 'new',
+  });
+  assertEq(result.sent, false, 'sent=false');
+  assertEq(permanentCallCount, 1, 'fetch вызван один раз (4xx не ретраится)');
+  assert(result.reason && result.reason.includes('PEER_ID_INVALID'), 'reason содержит PEER_ID_INVALID');
+} finally {
+  globalThis.fetch = originalFetch;
+}
+
 // --- Final ------------------------------------------------------------------
 console.log(`\n=== Total: ${results.passed} passed, ${results.failed} failed ===`);
 
