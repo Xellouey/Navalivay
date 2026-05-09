@@ -14,10 +14,56 @@
  *
  * BOT_TOKEN читается один раз при импорте — он не меняется в рантайме
  * (env у обоих процессов — один и тот же systemd/PM2 envFile).
+ *
+ * Прокси: если задан TELEGRAM_HTTP_PROXY (формат http://user:pass@host:port),
+ * все запросы идут через него. Это нужно потому что хостер режет прямой
+ * канал к api.telegram.org (замер 9.05.2026: 67% timeout). Прокси —
+ * undici.ProxyAgent, который умеет в HTTP CONNECT-туннель для HTTPS.
  */
+
+import { ProxyAgent } from 'undici';
 
 const TELEGRAM_API_BASE = 'https://api.telegram.org';
 const REQUEST_TIMEOUT_MS = 15_000;
+
+/**
+ * Singleton ProxyAgent для всех запросов к Telegram. Создаётся один раз при
+ * импорте и переиспользуется — undici умеет в keep-alive внутри агента.
+ *
+ * Если TELEGRAM_HTTP_PROXY не задан или невалидный — proxyDispatcher = null,
+ * fetch идёт напрямую (как до фикса).
+ */
+const proxyDispatcher = (() => {
+  const url = (process.env.TELEGRAM_HTTP_PROXY || '').trim();
+  if (!url) {
+    console.log('[telegram-business-api] TELEGRAM_HTTP_PROXY не задан, идём напрямую');
+    return null;
+  }
+  try {
+    const agent = new ProxyAgent({ uri: url });
+    // Маскируем пароль для лога — в URL формат http://user:pass@host:port
+    const masked = url.replace(/(:\/\/[^:]+:)([^@]+)(@)/, '$1***$3');
+    console.log('[telegram-business-api] прокси активирован:', masked);
+    return agent;
+  } catch (err) {
+    console.error(
+      '[telegram-business-api] не удалось инициализировать ProxyAgent:',
+      err instanceof Error ? err.message : err,
+    );
+    return null;
+  }
+})();
+
+/**
+ * Скрывает credentials прокси, если URL прокси попал в текст ошибки. Без
+ * этого пароль из TELEGRAM_HTTP_PROXY мог бы утечь в stdout/PM2 logs/HTTP
+ * response через `error` поле — undici иногда включает upstream URL в
+ * сообщения сетевых ошибок.
+ */
+function redactProxy(text) {
+  if (!text) return text;
+  return String(text).replace(/(http[s]?:\/\/[^:]+:)[^@]+(@)/g, '$1***$2');
+}
 
 /**
  * Сетевые ошибки, по которым имеет смысл повторить запрос. Видим их по
@@ -55,14 +101,16 @@ function getBotToken() {
 }
 
 /**
- * Скрывает BOT_TOKEN, если он попал в текст ошибки (например, Node может
- * включать request URL в err.message/err.cause). Без этого токен мог бы
- * утечь в stdout/PM2 logs/HTTP response через `detail` поле.
+ * Скрывает BOT_TOKEN и credentials прокси, если они попали в текст ошибки
+ * (Node может включать request URL в err.message/err.cause). Без этого
+ * секреты могли бы утечь в stdout / PM2 logs / HTTP response.
  */
 function redactToken(text) {
+  if (!text) return text;
   const token = getBotToken();
-  if (!token) return text;
-  return String(text).split(token).join('[BOT_TOKEN]');
+  let result = String(text);
+  if (token) result = result.split(token).join('[BOT_TOKEN]');
+  return redactProxy(result);
 }
 
 /**
@@ -74,7 +122,7 @@ function redactToken(text) {
  */
 async function sendMessageOnce({ businessConnectionId, chatId, text, token }) {
   try {
-    const response = await fetch(`${TELEGRAM_API_BASE}/bot${token}/sendMessage`, {
+    const fetchOptions = {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -83,7 +131,9 @@ async function sendMessageOnce({ businessConnectionId, chatId, text, token }) {
         business_connection_id: String(businessConnectionId),
       }),
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-    });
+    };
+    if (proxyDispatcher) fetchOptions.dispatcher = proxyDispatcher;
+    const response = await fetch(`${TELEGRAM_API_BASE}/bot${token}/sendMessage`, fetchOptions);
     const data = await response.json().catch(() => ({}));
     if (!response.ok || !data?.ok) {
       const description = redactToken(data?.description || `http_${response.status}`);
@@ -180,10 +230,12 @@ export async function checkBotTokenLive() {
   }
   let result;
   try {
-    const response = await fetch(`${TELEGRAM_API_BASE}/bot${token}/getMe`, {
+    const fetchOptions = {
       method: 'GET',
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-    });
+    };
+    if (proxyDispatcher) fetchOptions.dispatcher = proxyDispatcher;
+    const response = await fetch(`${TELEGRAM_API_BASE}/bot${token}/getMe`, fetchOptions);
     const data = await response.json().catch(() => ({}));
     result =
       response.ok && data?.ok
