@@ -1091,7 +1091,9 @@
          Костин TZ: «вдруг мы его захотим поменять, не надо заходить в каждую категорию».
          Открывается кликом по pill «Не менее N шт» в строке линейки. -->
     <AdminGroupMinStockEditor
-      :is-open="minStockEditorOpen"
+      v-if="minStockEditorOpen && minStockEditorGroup"
+      :key="minStockEditorGroup.id"
+      :is-open="true"
       :group-name="minStockEditorGroup?.name || ''"
       :current-threshold="minStockEditorGroup?.minStockThreshold ?? null"
       :current-stock="Number(minStockEditorGroup?.totalStockSum ?? minStockEditorGroup?.stockSum ?? 0)"

@@ -96,7 +96,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from "vue";
+import { computed, nextTick, onMounted, ref } from "vue";
 import AdminModal from "@/components/AdminModal.vue";
 
 interface Props {
@@ -121,7 +121,14 @@ const emit = defineEmits<{
 const PRESETS = [25, 45, 80, 120] as const;
 
 const inputRef = ref<HTMLInputElement | null>(null);
-const inputValue = ref<string>("");
+// Инициализируем сразу из props в setup. Раньше через watch на isOpen —
+// родительский ре-рендер мог запускать watch повторно и сбрасывать
+// inputValue после ввода (DOM показывал «20», Vue ref был пуст,
+// «Применить» становилась disabled). С v-if + :key в родителе компонент
+// гарантированно пересоздаётся при каждом открытии — здесь watch не нужен.
+const inputValue = ref<string>(
+  props.currentThreshold ? String(props.currentThreshold) : "",
+);
 
 const modalTitle = computed(() =>
   `Минимальный остаток ${props.groupName ? `для ${props.groupName}` : ''}`.trim(),
@@ -145,20 +152,11 @@ const canApply = computed(() => {
   return parsedValue.value !== null;
 });
 
-watch(
-  () => props.isOpen,
-  (open, prev) => {
-    // Реагируем ТОЛЬКО на transition false → true (открытие). Раньше с
-    // immediate:true watch мог срабатывать повторно при ре-рендере
-    // родителя — и при каждом таком срабатывании inputValue сбрасывался
-    // на currentThreshold, что выглядело для пользователя как «ввёл
-    // цифру → её сразу затёрло».
-    if (open && !prev) {
-      inputValue.value = props.currentThreshold ? String(props.currentThreshold) : "";
-      nextTick(() => inputRef.value?.focus());
-    }
-  },
-);
+onMounted(() => {
+  // Фокусируем input после монтирования. nextTick — чтобы AdminModal
+  // успел отрендерить содержимое и input реально был в DOM.
+  nextTick(() => inputRef.value?.focus());
+});
 
 function handleApply() {
   if (!canApply.value) return;
