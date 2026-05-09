@@ -1022,47 +1022,35 @@ function buildSaveSuccessMessage(notify: AutoNotificationResult | null | undefin
 function describeSkipReason(reason: string | undefined): string {
   switch (reason) {
     case 'reactivation_skipped':
-      return 'При восстановлении заказа клиенту не пишем — это техническая операция.'
     case 'status_unchanged':
     case 'no_event_for_status':
       return ''
     case 'customer_not_verified':
-      return 'Клиент ещё не ввёл код из прайса — пока бот ему писать не может. Выдайте прайс при следующей покупке.'
+      return 'Клиенту не выдан прайс с кодом.'
     case 'customer_has_no_telegram_id':
-      return 'У клиента не привязан Telegram — отправить некуда.'
+      return 'У клиента нет Telegram.'
     case 'order_has_no_customer':
-      return 'К заказу не привязан клиент — отправлять некому.'
+      return 'Без клиента.'
     case 'template_inactive_or_missing':
-      return 'Шаблон для этого статуса выключен — включите его в настройках бота.'
+      return 'Шаблон выключен.'
     case 'template_empty':
-      return 'Шаблон для этого статуса пуст — заполните текст в настройках бота.'
+      return 'Шаблон пустой.'
     case 'no_active_connection':
-      return 'Бот не подключён к Telegram-аккаунту магазина. Подключите его в Telegram: Настройки → Деловой режим → Чат-боты.'
+      return 'Бот не подключён.'
     default:
-      return reason ? `Уведомление пропущено: ${reason}` : ''
+      return reason ? `Не отправлено: ${reason}` : ''
   }
 }
 
 function describeSendError(reason: string | undefined): string {
-  if (!reason) return 'неизвестная ошибка'
-  if (reason === 'send_failed') return 'Telegram не принял сообщение, подробности в журнале бота'
-  // notify_internal_error — внутренняя ошибка auto-notify (бэк намеренно не
-  // отдаёт детали в response, чтобы не утекли в UI). Показываем общий текст.
-  if (reason === 'notify_internal_error') return 'на сервере что-то сломалось, проверьте журнал бота'
-  if (reason === 'bot_token_missing') return 'у бота нет токена, попросите администратора прописать его на сервере'
-  if (reason === 'invalid_payload') return 'на сервере собрался неполный пакет данных, проверьте журнал бота'
-  // Реальные коды от Telegram, которые мы видели в проде 9.05.2026.
-  // Дословно «BUSINESS_PEER_USAGE_MISSING» / «PEER_ID_INVALID» менеджеру
-  // ничего не говорят — переводим на действие.
-  if (reason.includes('BUSINESS_PEER_USAGE_MISSING')) {
-    return 'клиент нажал «СТОП» в чате с ботом. Попросите его возобновить бота в чате (или прислать /start)'
-  }
-  if (reason.includes('PEER_ID_INVALID')) {
-    return 'клиент удалил чат с менеджером. Свяжитесь с ним другим способом'
-  }
-  if (reason.includes('USER_IS_BLOCKED') || reason.includes('user is blocked')) {
-    return 'клиент заблокировал бота'
-  }
+  if (!reason) return 'отказ Telegram'
+  if (reason === 'send_failed') return 'отказ Telegram'
+  if (reason === 'notify_internal_error') return 'внутренняя ошибка'
+  if (reason === 'bot_token_missing') return 'нет токена бота'
+  if (reason === 'invalid_payload') return 'неполный пакет данных'
+  if (reason.includes('BUSINESS_PEER_USAGE_MISSING')) return 'клиент отключил бота в чате'
+  if (reason.includes('PEER_ID_INVALID')) return 'у клиента нет чата с менеджером'
+  if (reason.includes('USER_IS_BLOCKED') || reason.includes('user is blocked')) return 'клиент заблокировал бота'
   return reason
 }
 

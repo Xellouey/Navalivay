@@ -7,7 +7,7 @@
           Написать клиенту
         </h3>
         <p class="text-xs text-blue-900/70">
-          Уведомления о смене статуса бот шлёт сам. Это поле — для нестандартных сообщений: бронь вкуса, договорённость о времени, ответ на вопрос.
+          Свободное сообщение в чат. Уведомления о статусе уходят автоматически.
         </p>
       </div>
       <button
@@ -85,19 +85,10 @@ const botAvailable = computed(() => {
 
 const unavailabilityMessage = computed(() => {
   if (!status.value) return "";
-  if (!status.value.bot_token_configured) {
-    return "Не указан токен бота. Попросите администратора прописать его на сервере и перезапустить бота.";
-  }
-  if (!status.value.bot_token_live) {
-    const reason = status.value.bot_token_error;
-    return reason
-      ? `Telegram не принял токен бота. Причина: ${reason}. Обновите токен и перезапустите бота.`
-      : "Telegram не принял токен бота. Обновите токен и перезапустите бота.";
-  }
-  if (!status.value.active_connection) {
-    return "Бот не подключён к Telegram-аккаунту магазина. Подключите его в Telegram: Настройки → Деловой режим → Чат-боты.";
-  }
-  return "Бот сейчас недоступен.";
+  if (!status.value.bot_token_configured) return "Нет токена бота.";
+  if (!status.value.bot_token_live) return "Токен не принят.";
+  if (!status.value.active_connection) return "Бот не подключён.";
+  return "Бот недоступен.";
 });
 
 async function fetchStatus() {
@@ -145,20 +136,18 @@ async function send() {
 function messageFromError(code: string | undefined, httpStatus: number, data: unknown): string {
   switch (code) {
     case "text_required":
-      return "Введите текст сообщения.";
+      return "Введите текст.";
     case "text_too_long":
-      return "Сообщение длиннее 4000 символов — Telegram не пропустит.";
+      return "Слишком длинное сообщение.";
     case "no_active_connection":
-      return "Бот не подключён к Telegram-аккаунту магазина. Подключите его в Telegram: Настройки → Деловой режим → Чат-боты.";
+      return "Бот не подключён.";
     case "customer_has_no_telegram_id":
-      return "У клиента не привязан Telegram — отправить некуда.";
+      return "У клиента нет Telegram.";
     case "order_not_found":
-      return "Заказ не найден. Обновите страницу и попробуйте снова.";
+      return "Заказ не найден.";
     case "send_failed":
-      return "Telegram не принял сообщение. Подробности — в журнале бота.";
+      return "Telegram не принял сообщение.";
     default:
-      // Параметр специально переименован, чтобы не теневать ref `status` выше
-      // (там — состояние бота; здесь — HTTP-код ошибки fetch).
       return (data as { message?: string })?.message || `Ошибка ${httpStatus}`;
   }
 }

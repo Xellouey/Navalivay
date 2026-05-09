@@ -6,8 +6,7 @@
           Бот в Telegram Business-режиме
         </h3>
         <p class="text-sm text-gray-600">
-          Авто-уведомления клиента о статусе заказа от имени менеджера, быстрые ответы на типовые вопросы и выдача кодов доступа.
-          Подключается через Telegram → Settings → Business → Chatbots.
+          Авто-уведомления о статусе заказа, быстрые ответы и выдача кодов доступа.
         </p>
       </div>
       <button
@@ -214,7 +213,7 @@
       <!-- Tab: Log ----------------------------------------------------------->
       <div v-if="activeTab === 'log'" class="mt-4 space-y-3">
         <p class="text-sm text-gray-600">
-          Последние сообщения, обработанные ботом. У исходящих видно, дошло ли до клиента: «ушло» — Telegram подтвердил приём, «не дошло» — отказ или сетевой сбой (причина в плашке).
+          Последние сообщения бота. Зелёная метка — доставлено, красная — отказ.
         </p>
         <div v-if="!logItems.length" class="rounded-xl border border-dashed border-gray-300 bg-gray-50 px-6 py-8 text-center text-sm text-gray-500">
           Пока ничего не записано. Журнал начнёт заполняться после подключения бота.
@@ -441,26 +440,20 @@ function logBadge(entry: BotLogEntry): { text: string; cls: string } | null {
 }
 
 /**
- * Перевод реальных кодов Telegram (которые мы видим в meta.error) на язык
- * менеджера + подсказка действия. Костя 9.05.2026: после теста с Пашкой
- * увидел в журнале «Bad Request: BUSINESS_PEER_USAGE_MISSING» и не понял,
- * что это значит — оказалось, клиент нажал кнопку «СТОП» в чате.
+ * Короткая расшифровка кодов Telegram для журнала. Менеджер видит
+ * причину одной фразой без длинных объяснений.
  */
 function describeBotError(raw: string): string {
   if (!raw) return 'Не дошло.';
-  if (raw.includes('BUSINESS_PEER_USAGE_MISSING')) {
-    return 'Клиент нажал «СТОП» в чате с ботом. Попросите его возобновить бота (или прислать /start).';
-  }
-  if (raw.includes('PEER_ID_INVALID')) {
-    return 'Клиент удалил чат с менеджером — свяжитесь с ним другим способом.';
-  }
+  if (raw.includes('BUSINESS_PEER_USAGE_MISSING')) return 'Клиент отключил бота в чате.';
+  if (raw.includes('PEER_ID_INVALID')) return 'У клиента нет чата с менеджером.';
   if (raw.includes('USER_IS_BLOCKED') || raw.toLowerCase().includes('user is blocked')) {
     return 'Клиент заблокировал бота.';
   }
   if (raw.toLowerCase().includes('timeout') || raw.toLowerCase().includes('fetch failed')) {
-    return `Сетевой сбой между сервером и Telegram. Попробуйте сменить статус ещё раз.`;
+    return 'Сетевой сбой.';
   }
-  return `Telegram отказал: ${raw}`;
+  return raw;
 }
 
 const status = ref<BotStatus | null>(null);
