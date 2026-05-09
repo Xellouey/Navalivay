@@ -1874,9 +1874,14 @@ adminRouter.put('/api/admin/category-groups/:id', authMiddleware, async (req, re
 
   const nextName = name ? String(name) : current.name;
   const nextSlug = generateGroupSlug(current.categoryId, nextName, slug, id);
-  // Конвертируем изображение в WebP если оно новое
+  // Конвертируем изображение в WebP если оно новое.
+  // Защита: используем `'coverImage' in body`, а не `coverImage !== undefined` —
+  // потому что 9.05.2026 Костя потерял обложки трёх линеек, когда фронт
+  // на PUT слал coverImage=null для НЕ намеренного апдейта обложки. Если
+  // ключа нет в body — не трогаем. Если null — намеренное снятие обложки.
+  const coverImageProvided = 'coverImage' in (req.body || {}) || 'cover_image' in (req.body || {});
   let nextCover = current.cover_image;
-  if (coverImage !== undefined) {
+  if (coverImageProvided) {
     if (coverImage) {
       nextCover = await convertImageToWebP(String(coverImage));
     } else {
@@ -1904,8 +1909,12 @@ adminRouter.put('/api/admin/category-groups/:id', authMiddleware, async (req, re
         : null)
       : current.meta_value ?? null;
 
+  // Защита от потери parent: если ключа нет в body — не трогаем (раньше
+  // фронт слал parentId=null при апдейте только min-stock и обнулял
+  // привязку к родительской линейке).
+  const parentIdProvided = 'parentId' in (req.body || {}) || 'parent_group_id' in (req.body || {});
   let nextParentId = current.parent_group_id ?? null;
-  if (parentId !== undefined) {
+  if (parentIdProvided) {
     if (!parentId) {
       nextParentId = null;
     } else if (parentId === id) {

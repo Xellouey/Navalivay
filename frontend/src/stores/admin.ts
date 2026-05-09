@@ -978,21 +978,29 @@ async function createCategory(category: { name: string; hideEmpty?: boolean; cov
       isLoading.value = true
       error.value = null
 
+      // КРИТИЧНО: шлём только переданные поля (PATCH-семантика). Раньше
+      // все поля резолвились как `updates.coverImage ?? null` — и при
+      // вызове updateCategoryGroup(id, {minStockThreshold: 2}) фронт
+      // отправлял coverImage=null, parentId=null → бэкенд их обнулял.
+      // Так Костя 9.05.2026 потерял обложки и parent у PODONKI V1/V2/VINTAGE.
+      // Бэкенд проверяет наличие поля через `'coverImage' in req.body`,
+      // поэтому ключ передаём только когда это намеренно делаем.
+      const body: Record<string, unknown> = {}
+      if ('name' in updates) body.name = updates.name
+      if ('slug' in updates) body.slug = updates.slug
+      if ('coverImage' in updates) body.coverImage = updates.coverImage ?? null
+      if ('hideEmpty' in updates) body.hide_empty = updates.hideEmpty
+      if ('order' in updates) body.order = updates.order
+      if ('parentId' in updates) body.parentId = updates.parentId ?? null
+      if ('metaLabel' in updates) body.metaLabel = updates.metaLabel ?? null
+      if ('metaValue' in updates) body.metaValue = updates.metaValue ?? null
+      if ('minStockThreshold' in updates) body.minStockThreshold = updates.minStockThreshold ?? null
+      if ('wholesalePrices' in updates) body.wholesalePrices = updates.wholesalePrices
+
       const response = await $fetch<Record<string, any>>(`/api/admin/category-groups/${id}`, {
         method: 'PUT',
         headers: getAuthHeaders(),
-        body: {
-          name: updates.name,
-          slug: updates.slug,
-          coverImage: updates.coverImage ?? null,
-          hide_empty: updates.hideEmpty,
-          order: updates.order,
-          parentId: updates.parentId ?? null,
-          metaLabel: updates.metaLabel ?? null,
-          metaValue: updates.metaValue ?? null,
-          minStockThreshold: updates.minStockThreshold ?? null,
-          wholesalePrices: updates.wholesalePrices
-        }
+        body
       })
 
       const mapped: CategoryGroup = {

@@ -147,16 +147,17 @@ const canApply = computed(() => {
 
 watch(
   () => props.isOpen,
-  (open) => {
-    if (open) {
-      // При открытии заполняем поле текущим значением и фокусируем для
-      // быстрого редактирования (Костин workflow — пробежать по списку
-      // и поправить пороги).
+  (open, prev) => {
+    // Реагируем ТОЛЬКО на transition false → true (открытие). Раньше с
+    // immediate:true watch мог срабатывать повторно при ре-рендере
+    // родителя — и при каждом таком срабатывании inputValue сбрасывался
+    // на currentThreshold, что выглядело для пользователя как «ввёл
+    // цифру → её сразу затёрло».
+    if (open && !prev) {
       inputValue.value = props.currentThreshold ? String(props.currentThreshold) : "";
       nextTick(() => inputRef.value?.focus());
     }
   },
-  { immediate: true },
 );
 
 function handleApply() {
