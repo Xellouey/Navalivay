@@ -1037,6 +1037,8 @@ function describeSkipReason(reason: string | undefined): string {
       return 'Шаблон пустой.'
     case 'no_active_connection':
       return 'Бот не подключён.'
+    case 'client_inactive_over_24h':
+      return 'Клиент не писал в чат больше суток — Telegram блокирует.'
     default:
       return reason ? `Не отправлено: ${reason}` : ''
   }

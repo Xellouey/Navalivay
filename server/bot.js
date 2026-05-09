@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import { Telegraf, Markup } from 'telegraf';
+import { HttpsProxyAgent } from 'https-proxy-agent';
 import { db } from './db.js';
 import {
   registerBusinessConnection,
@@ -7,6 +8,19 @@ import {
   handleIncomingBusinessMessage,
   logBotMessage,
 } from './utils/business-bot.js';
+
+// Singleton прокси-агент для long-polling. См. комментарий ниже у Telegraf
+// init: на RU-хостинге без прокси bot не получает business updates.
+const botProxyAgent = (() => {
+  const url = (process.env.TELEGRAM_HTTP_PROXY || '').trim();
+  if (!url) return null;
+  try {
+    return new HttpsProxyAgent(url);
+  } catch (err) {
+    console.error('[navalivay:bot] не удалось создать proxy agent:', err?.message);
+    return null;
+  }
+})();
 
 function generateId(prefix) {
   return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
@@ -165,7 +179,21 @@ const BOT_TOKEN = process.env.BOT_TOKEN;
 if (!BOT_TOKEN) {
   console.warn('[navalivay:bot] BOT_TOKEN is not set. Bot will not start.');
 } else {
-  const bot = new Telegraf(BOT_TOKEN);
+  // Прокси нужен и здесь: bot.js ходит long-polling getUpdates к
+  // api.telegram.org, и без прокси (на RU-хостинге) он не получает
+  // business_connection / business_message events. Из-за этого в нашем
+  // bot_message_log не было ни одной записи direction='in', и мы не
+  // могли увидеть, какие клиенты активны в последние 24 часа.
+  const telegramOptions = {};
+  const proxyUrl = (process.env.TELEGRAM_HTTP_PROXY || '').trim();
+  if (proxyUrl && botProxyAgent) {
+    telegramOptions.agent = botProxyAgent;
+    const masked = proxyUrl.replace(/(:\/\/[^:]+:)([^@]+)(@)/, '$1***$3');
+    console.log('[navalivay:bot] long-polling через прокси:', masked);
+  } else {
+    console.log('[navalivay:bot] TELEGRAM_HTTP_PROXY не задан, long-polling напрямую');
+  }
+  const bot = new Telegraf(BOT_TOKEN, { telegram: telegramOptions });
 
   bot.start(async (ctx) => {
     try {

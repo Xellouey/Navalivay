@@ -25,6 +25,7 @@
  * не выставляется (попытка была), reason содержит описание ошибки Telegram.
  */
 
+import { db } from '../db.js';
 import {
   prepareStatusNotification,
   isCustomerVerified,
@@ -32,6 +33,50 @@ import {
   logBotMessage,
 } from './business-bot.js';
 import { sendBusinessMessage } from './telegram-business-api.js';
+
+/**
+ * Telegram Business mode даёт боту писать в чат клиента, ТОЛЬКО если в
+ * этом чате была активность (любая сторона написала) за последние 24
+ * часа. Иначе sendMessage возвращает BUSINESS_PEER_USAGE_MISSING.
+ *
+ * Чтобы не дёргать Telegram впустую и сразу показывать менеджеру
+ * человеческую причину, проверяем bot_message_log: было ли направление
+ * 'in' от этого chat_id за последние 23 часа (берём с запасом до 24,
+ * чтобы избежать гонки граничных секунд).
+ *
+ * Возвращает true, если активность есть; false если нет ИЛИ если в
+ * нашей БД вообще нет входящих от этого чата (значит bot-процесс мог
+ * пропустить апдейты — лучше попробовать всё равно, и Telegram скажет).
+ */
+const ACTIVITY_WINDOW_HOURS = 23;
+function hasRecentInbound(chatId) {
+  if (!chatId) return false;
+  const row = db
+    .prepare(
+      `SELECT COUNT(*) AS n FROM bot_message_log
+        WHERE chat_id = ? AND direction = 'in'
+          AND datetime(created_at) >= datetime('now', '-${ACTIVITY_WINDOW_HOURS} hours')`,
+    )
+    .get(String(chatId));
+  return Number(row?.n || 0) > 0;
+}
+
+/**
+ * Существует ли вообще хоть одна входящая запись от этого chat_id.
+ * Если нет — возможно bot-процесс никогда не получал апдейтов от этого
+ * клиента (например, прокси у бота не был настроен). Тогда не блочим
+ * pre-check'ом, даём Telegram-у попробовать.
+ */
+function hasAnyInbound(chatId) {
+  if (!chatId) return false;
+  const row = db
+    .prepare(
+      `SELECT COUNT(*) AS n FROM bot_message_log
+        WHERE chat_id = ? AND direction = 'in'`,
+    )
+    .get(String(chatId));
+  return Number(row?.n || 0) > 0;
+}
 
 /**
  * Маппинг статусов заказа на event-ключи в bot_status_templates.
@@ -108,6 +153,15 @@ export async function autoNotifyForStatusChange({
   const active = getActiveBusinessConnection();
   if (!active) {
     return { sent: false, skipped: true, reason: 'no_active_connection', event };
+  }
+
+  // Шаг 3.5: проверяем 24-часовое окно активности. Это политика Telegram
+  // Business, не наша. Если у нас в БД есть входящие от этого чата (значит
+  // bot-процесс ловит апдейты), но последнее старше 23 часов — выходим
+  // сразу, не дёргая Telegram впустую. Если входящих вообще нет, возможно
+  // bot пропустил апдейты — даём Telegram-у самому отказать или принять.
+  if (hasAnyInbound(prepared.chatId) && !hasRecentInbound(prepared.chatId)) {
+    return { sent: false, skipped: true, reason: 'client_inactive_over_24h', event };
   }
 
   // Шаг 4: реальная отправка через Telegram Bot API (см. fix от 8.05.2026
