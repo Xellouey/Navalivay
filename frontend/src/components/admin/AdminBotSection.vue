@@ -243,7 +243,7 @@
             <p
               v-if="entry.meta?.outcome === 'failed' && entry.meta?.error"
               class="mt-1 text-[11px] font-medium text-red-700"
-            >Telegram отказал: {{ entry.meta.error }}</p>
+            >{{ describeBotError(entry.meta.error) }}</p>
           </li>
         </ul>
       </div>
@@ -438,6 +438,29 @@ function logBadge(entry: BotLogEntry): { text: string; cls: string } | null {
   if (outcome === 'sent') return { text: 'ушло', cls: 'bg-emerald-100 text-emerald-700' };
   if (outcome === 'failed') return { text: 'не дошло', cls: 'bg-red-100 text-red-700' };
   return null;
+}
+
+/**
+ * Перевод реальных кодов Telegram (которые мы видим в meta.error) на язык
+ * менеджера + подсказка действия. Костя 9.05.2026: после теста с Пашкой
+ * увидел в журнале «Bad Request: BUSINESS_PEER_USAGE_MISSING» и не понял,
+ * что это значит — оказалось, клиент нажал кнопку «СТОП» в чате.
+ */
+function describeBotError(raw: string): string {
+  if (!raw) return 'Не дошло.';
+  if (raw.includes('BUSINESS_PEER_USAGE_MISSING')) {
+    return 'Клиент нажал «СТОП» в чате с ботом. Попросите его возобновить бота (или прислать /start).';
+  }
+  if (raw.includes('PEER_ID_INVALID')) {
+    return 'Клиент удалил чат с менеджером — свяжитесь с ним другим способом.';
+  }
+  if (raw.includes('USER_IS_BLOCKED') || raw.toLowerCase().includes('user is blocked')) {
+    return 'Клиент заблокировал бота.';
+  }
+  if (raw.toLowerCase().includes('timeout') || raw.toLowerCase().includes('fetch failed')) {
+    return `Сетевой сбой между сервером и Telegram. Попробуйте сменить статус ещё раз.`;
+  }
+  return `Telegram отказал: ${raw}`;
 }
 
 const status = ref<BotStatus | null>(null);

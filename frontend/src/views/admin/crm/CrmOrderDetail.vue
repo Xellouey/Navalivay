@@ -1051,6 +1051,18 @@ function describeSendError(reason: string | undefined): string {
   if (reason === 'notify_internal_error') return 'на сервере что-то сломалось, проверьте журнал бота'
   if (reason === 'bot_token_missing') return 'у бота нет токена, попросите администратора прописать его на сервере'
   if (reason === 'invalid_payload') return 'на сервере собрался неполный пакет данных, проверьте журнал бота'
+  // Реальные коды от Telegram, которые мы видели в проде 9.05.2026.
+  // Дословно «BUSINESS_PEER_USAGE_MISSING» / «PEER_ID_INVALID» менеджеру
+  // ничего не говорят — переводим на действие.
+  if (reason.includes('BUSINESS_PEER_USAGE_MISSING')) {
+    return 'клиент нажал «СТОП» в чате с ботом. Попросите его возобновить бота в чате (или прислать /start)'
+  }
+  if (reason.includes('PEER_ID_INVALID')) {
+    return 'клиент удалил чат с менеджером. Свяжитесь с ним другим способом'
+  }
+  if (reason.includes('USER_IS_BLOCKED') || reason.includes('user is blocked')) {
+    return 'клиент заблокировал бота'
+  }
   return reason
 }
 
