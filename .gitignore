@@ -59,6 +59,10 @@ uploads/
 # Backup files
 *.backup
 
+# Userbot session — содержит токен Telegram-аккаунта менеджера, КРИТИЧЕСКИ
+# секретный. Никогда не коммитим. На сервере хранится с chmod 600.
+server/data/userbot.session
+
 # Локальные настройки Claude Code (launch.json, скилы и т.п.)
 .claude/
 *.bak

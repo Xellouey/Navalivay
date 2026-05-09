@@ -33,6 +33,7 @@ import {
   logBotMessage,
 } from './business-bot.js';
 import { sendBusinessMessage } from './telegram-business-api.js';
+import { sendViaUserbot, isUserbotAvailable } from './userbot-client.js';
 
 /**
  * Telegram Business mode даёт боту писать в чат клиента, ТОЛЬКО если в
@@ -148,39 +149,18 @@ export async function autoNotifyForStatusChange({
     return { sent: false, skipped: true, reason: 'customer_not_verified', event };
   }
 
-  // Шаг 3: активный business_connection. Если менеджер не подключил бота
-  // в Telegram → Деловой режим, отправлять некуда.
-  const active = getActiveBusinessConnection();
-  if (!active) {
-    return { sent: false, skipped: true, reason: 'no_active_connection', event };
-  }
-
-  // Шаг 3.5: проверяем 24-часовое окно активности. Это политика Telegram
-  // Business, не наша. Если у нас в БД есть входящие от этого чата (значит
-  // bot-процесс ловит апдейты), но последнее старше 23 часов — выходим
-  // сразу, не дёргая Telegram впустую. Если входящих вообще нет, возможно
-  // bot пропустил апдейты — даём Telegram-у самому отказать или принять.
-  if (hasAnyInbound(prepared.chatId) && !hasRecentInbound(prepared.chatId)) {
-    return { sent: false, skipped: true, reason: 'client_inactive_over_24h', event };
-  }
-
-  // Шаг 4: реальная отправка через Telegram Bot API (см. fix от 8.05.2026
-  // про PM2 multi-process — API процесс шлёт напрямую, не через bot-процесс).
-  const sendResult = await sendBusinessMessage({
-    businessConnectionId: active.id,
-    chatId: prepared.chatId,
-    text: prepared.text,
-  });
-
-  // Шаг 5: лог в bot_message_log — чтобы и автомат, и старая ручная кнопка
-  // в едином журнале. order_id кладём в meta для фильтрации в timeline.
+  // Шаг 3: пробуем сначала через userbot (MTProto от лица аккаунта менеджера).
+  // У userbot нет 24-часового окна Telegram Business и сообщения приходят
+  // клиенту в его обычный чат с менеджером — он не отличает их от ручных.
+  // Userbot живёт отдельным PM2-процессом, ходит через локальный HTTP.
   //
-  // logBotMessage кидает на SQLITE_BUSY и т.п. Мы НЕ хотим, чтобы сбой
-  // журналирования инвертировал результат отправки: если в Telegram уже
-  // ушло, sent должен остаться true. Иначе фронт покажет «не ушло», а
-  // клиент получил сообщение — менеджер будет слать ещё раз.
+  // Логика fallback: если userbot недоступен (HTTP timeout, /health = false)
+  // или конкретная отправка упала — пробуем Business mode (старый путь),
+  // чтобы хотя бы для активных в 24ч клиентов сообщение всё равно ушло.
+
+  // baseLog общий для обоих каналов (userbot и business mode) — чтобы
+  // в журнале admin'а видна была единая запись с outcome=sent/failed.
   const baseLog = {
-    businessConnectionId: active.id,
     chatId: prepared.chatId,
     customerId: prepared.customerId,
     customerTelegramId: prepared.customerTelegramId,
@@ -192,23 +172,66 @@ export async function autoNotifyForStatusChange({
     text: prepared.text,
   };
 
-  function safeLog(meta) {
+  function safeLog(extra = {}, businessConnectionId = null) {
     try {
-      logBotMessage({ ...baseLog, meta });
+      logBotMessage({
+        ...baseLog,
+        businessConnectionId,
+        meta: { order_id: orderId, auto: true, ...extra },
+      });
     } catch (logErr) {
       console.error('[auto-notify] logBotMessage failed:', logErr);
     }
   }
 
+  // Шаг 3.1: пробуем userbot
+  if (await isUserbotAvailable()) {
+    const ubResult = await sendViaUserbot({
+      chatId: prepared.chatId,
+      text: prepared.text,
+      orderId,
+    });
+    if (ubResult.ok) {
+      // userbot.js сам логирует в bot_message_log с meta.source='userbot',
+      // так что здесь не дублируем. Но возвращаем единый формат caller'у.
+      return {
+        sent: true,
+        event,
+        telegram_message_id: ubResult.telegram_message_id ?? null,
+        via: 'userbot',
+      };
+    }
+    // Userbot ответил ошибкой — он же сам её залогировал. Падаем на fallback.
+    console.warn('[auto-notify] userbot failed, fallback to business mode:', ubResult.error);
+  }
+
+  // Шаг 3.2: fallback на Business mode менеджера (Bot API).
+  const active = getActiveBusinessConnection();
+  if (!active) {
+    return { sent: false, skipped: true, reason: 'no_active_connection', event };
+  }
+
+  // 24-часовое окно проверяется только для Business mode — у userbot его нет.
+  if (hasAnyInbound(prepared.chatId) && !hasRecentInbound(prepared.chatId)) {
+    return { sent: false, skipped: true, reason: 'client_inactive_over_24h', event };
+  }
+
+  const sendResult = await sendBusinessMessage({
+    businessConnectionId: active.id,
+    chatId: prepared.chatId,
+    text: prepared.text,
+  });
+
   if (sendResult.ok) {
-    safeLog({ order_id: orderId, auto: true, outcome: 'sent' });
+    safeLog({ outcome: 'sent', via: 'business_mode' }, active.id);
     return {
       sent: true,
       event,
       telegram_message_id: sendResult.telegramMessageId ?? null,
+      via: 'business_mode',
     };
   }
 
-  safeLog({ order_id: orderId, auto: true, outcome: 'failed', error: sendResult.error });
+  safeLog({ outcome: 'failed', error: sendResult.error, via: 'business_mode' }, active.id);
   return { sent: false, reason: sendResult.error || 'send_failed', event };
 }

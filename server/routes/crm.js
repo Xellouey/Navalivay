@@ -63,6 +63,10 @@ import {
   sendBusinessMessage,
   checkBotTokenLive,
 } from '../utils/telegram-business-api.js';
+import {
+  sendViaUserbot,
+  isUserbotAvailable,
+} from '../utils/userbot-client.js';
 
 export const crmRouter = express.Router();
 
@@ -1069,6 +1073,27 @@ crmRouter.post('/api/admin/crm/bot/send-custom', authMiddleware, async (req, res
     if (!customer.telegram_id) {
       return res.status(400).json({ error: 'customer_has_no_telegram_id' });
     }
+
+    // Сначала пробуем userbot (MTProto от лица аккаунта менеджера) —
+    // нет 24-часового ограничения и сообщение приходит клиенту в его
+    // обычный чат с менеджером, неотличимо от ручной отправки.
+    if (await isUserbotAvailable()) {
+      const ubResult = await sendViaUserbot({
+        chatId: String(customer.telegram_id),
+        text,
+        orderId,
+      });
+      if (ubResult.ok) {
+        return res.json({
+          ok: true,
+          telegram_message_id: ubResult.telegram_message_id,
+          via: 'userbot',
+        });
+      }
+      console.warn('[crm] userbot send-custom failed, fallback to business mode:', ubResult.error);
+    }
+
+    // Fallback на Business mode (Bot API).
     const active = getActiveBusinessConnection();
     if (!active) {
       return res.status(400).json({ error: 'no_active_connection' });
@@ -1091,6 +1116,7 @@ crmRouter.post('/api/admin/crm/bot/send-custom', authMiddleware, async (req, res
     res.json({
       ok: true,
       telegram_message_id: sendResult.telegramMessageId,
+      via: 'business_mode',
     });
   } catch (err) {
     console.error('[crm] Bot send-custom error:', err);
