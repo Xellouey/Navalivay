@@ -1,32 +1,40 @@
 <template>
-  <Transition
-    enter-active-class="transition duration-150 ease-out"
-    enter-from-class="opacity-0"
-    enter-to-class="opacity-100"
-    leave-active-class="transition duration-100 ease-in"
-    leave-from-class="opacity-100"
-    leave-to-class="opacity-0"
-  >
-    <!-- ВАЖНО: НЕ используем Teleport. Компонент рендерится внутри
-         DOM-дерева родительской модалки (Headless UI Dialog), чтобы её
-         click-outside detector не закрывал её при клике в наш input.
-         Свой fixed-overlay над всем viewport — визуально работает как
-         модалка поверх родителя. -->
-    <div
-      v-if="isOpen"
-      class="fixed inset-0 z-[10050] flex items-center justify-center p-4"
-      @click.self="emit('close')"
+  <Teleport to="body">
+    <Transition
+      enter-active-class="transition duration-150 ease-out"
+      enter-from-class="opacity-0"
+      enter-to-class="opacity-100"
+      leave-active-class="transition duration-100 ease-in"
+      leave-from-class="opacity-100"
+      leave-to-class="opacity-0"
     >
-      <!-- backdrop отдельно, чтобы клик по нему закрывал, а клик внутри панели — нет -->
-      <div class="absolute inset-0 bg-black/30 backdrop-blur-sm" aria-hidden="true" />
-
+      <!-- Teleport в body: изолированный overlay поверх всего, Headless UI
+           Dialog родителя физически не имеет над ним контроля. Чтобы
+           родитель не закрывался при клике в input min-stock, родитель
+           должен быть :persistent="minStockEditorOpen" — это блокирует
+           click-outside у его Headless UI Dialog. -->
       <div
-        role="dialog"
-        aria-modal="true"
-        :aria-label="modalTitle"
-        class="relative w-full sm:max-w-md rounded-2xl bg-white p-5 sm:p-6 shadow-2xl ring-1 ring-black/5"
-        @keydown.esc.stop="emit('close')"
+        v-if="isOpen"
+        class="fixed inset-0 z-[10050] flex items-center justify-center p-4"
+        @click.self="emit('close')"
+        @mousedown.self.stop
       >
+        <!-- backdrop с stop-propagation на mousedown — Headless UI родителя
+             слушает mousedown на document, ловим раньше -->
+        <div
+          class="absolute inset-0 bg-black/30 backdrop-blur-sm"
+          aria-hidden="true"
+          @mousedown.stop
+        />
+
+        <div
+          role="dialog"
+          aria-modal="true"
+          :aria-label="modalTitle"
+          class="relative w-full sm:max-w-md rounded-2xl bg-white p-5 sm:p-6 shadow-2xl ring-1 ring-black/5"
+          @keydown.esc.stop="emit('close')"
+          @mousedown.stop
+        >
           <div class="mb-3 flex items-start justify-between gap-3">
             <h3 class="text-base font-semibold uppercase tracking-wide text-gray-900">
               {{ modalTitle }}
@@ -119,10 +127,11 @@
             >
               {{ busy ? 'Сохраняем…' : 'Применить' }}
             </button>
+          </div>
         </div>
       </div>
-    </div>
-  </Transition>
+    </Transition>
+  </Teleport>
 </template>
 
 <script setup lang="ts">

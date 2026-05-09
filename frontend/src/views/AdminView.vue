@@ -911,6 +911,7 @@
     <AdminModal
       ref="groupModalRef"
       :isOpen="showGroupModal"
+      :persistent="minStockEditorOpen"
       :title="activeGroupCategory ? `Линейки: ${activeGroupCategory.name}` : 'Линейки'"
       size="lg"
       :showActions="false"
@@ -1066,25 +1067,25 @@
         </div>
         <p v-else class="text-sm text-gray-500">Линеек пока нет. Создайте первую.</p>
       </div>
-
-      <!-- Quick-edit модалка минимального остатка. Рендерим ВНУТРИ
-           родительской модалки линеек (не соседом и не через Teleport
-           в body), чтобы Headless UI Dialog родителя не считал клики
-           в неё как «click outside» и не закрывался. Свой backdrop
-           внутри плашки даёт визуальный nested-эффект. -->
-      <AdminGroupMinStockEditor
-        v-if="minStockEditorOpen && minStockEditorGroup"
-        :key="minStockEditorGroup.id"
-        :is-open="true"
-        :group-name="minStockEditorGroup?.name || ''"
-        :current-threshold="minStockEditorGroup?.minStockThreshold ?? null"
-        :current-stock="Number(minStockEditorGroup?.totalStockSum ?? minStockEditorGroup?.stockSum ?? 0)"
-        :busy="minStockEditorBusy"
-        :error-text="minStockEditorError"
-        @close="closeMinStockEditor"
-        @apply="applyMinStockThreshold"
-      />
     </AdminModal>
+
+    <!-- Quick-edit модалка минимального остатка. Открывается поверх
+         модалки линеек. Рендерится через Teleport в body (z-index
+         выше Headless UI Dialog), а родительская модалка пока открыт
+         min-stock получает :persistent="true" — её Headless UI
+         click-outside detector выключен и не может её закрыть. -->
+    <AdminGroupMinStockEditor
+      v-if="minStockEditorOpen && minStockEditorGroup"
+      :key="minStockEditorGroup.id"
+      :is-open="true"
+      :group-name="minStockEditorGroup?.name || ''"
+      :current-threshold="minStockEditorGroup?.minStockThreshold ?? null"
+      :current-stock="Number(minStockEditorGroup?.totalStockSum ?? minStockEditorGroup?.stockSum ?? 0)"
+      :busy="minStockEditorBusy"
+      :error-text="minStockEditorError"
+      @close="closeMinStockEditor"
+      @apply="applyMinStockThreshold"
+    />
 
     <!-- Category Group Form Modal -->
     <AdminModal
