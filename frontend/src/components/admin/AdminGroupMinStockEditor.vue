@@ -24,13 +24,16 @@
 
     <div class="mt-4 space-y-2">
       <label class="text-sm font-medium text-gray-700">Минимальный остаток</label>
+      <!-- type="text" + inputmode="numeric" специально вместо type="number".
+           У <input type="number" v-model> Vue автоматически кастует в Number,
+           и .trim() в computed падает на TypeError → ломается reactivity →
+           модалка закрывается. Числовая валидация делается в parsedValue. -->
       <input
         ref="inputRef"
         v-model="inputValue"
-        type="number"
-        min="0"
-        step="1"
+        type="text"
         inputmode="numeric"
+        pattern="[0-9]*"
         placeholder="Например 45"
         class="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm focus:border-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-200"
         @keydown.enter="handleApply"
@@ -135,7 +138,9 @@ const modalTitle = computed(() =>
 );
 
 const parsedValue = computed<number | null>(() => {
-  const raw = inputValue.value.trim();
+  // Защита от типового кастинга: всегда работаем со строкой, даже
+  // если v-model каким-то образом подсунул number.
+  const raw = String(inputValue.value ?? "").trim();
   if (!raw) return null;
   const n = Number(raw);
   if (!Number.isFinite(n) || n < 0) return null;
@@ -143,7 +148,8 @@ const parsedValue = computed<number | null>(() => {
 });
 
 const canApply = computed(() => {
-  if (inputValue.value.trim() === "") {
+  const raw = String(inputValue.value ?? "").trim();
+  if (raw === "") {
     return props.currentThreshold !== null;
   }
   return parsedValue.value !== null;
