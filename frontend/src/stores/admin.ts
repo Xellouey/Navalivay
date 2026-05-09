@@ -1003,33 +1003,40 @@ async function createCategory(category: { name: string; hideEmpty?: boolean; cov
         body
       })
 
+      // ВАЖНО: PUT /api/admin/category-groups/:id возвращает не все поля,
+      // которые есть на фронте. В частности отсутствуют stockSum,
+      // totalStockSum, emptySince, hasCoverImage. Если просто заменить
+      // запись на mapped — эти поля станут undefined, линейка опустится
+      // вниз списка через сортировку «пустых», и пользователь решит, что
+      // она исчезла (Костя 9.05.2026 v7). Поэтому делаем merge с существующей.
+      const idx = categoryGroups.value.findIndex(g => g.id === id)
+      const existing = idx !== -1 ? categoryGroups.value[idx] : null
       const mapped: CategoryGroup = {
+        ...(existing ?? {} as CategoryGroup),
         id: String(response.id),
         categoryId: String(response.categoryId),
         slug: response.slug,
         name: response.name,
-        coverImage: response.cover_image ?? null,
-        hasCoverImage: Boolean(response.cover_image),
-        order: Number(response.order ?? response['order'] ?? 0),
+        coverImage: response.cover_image ?? existing?.coverImage ?? null,
+        hasCoverImage: Boolean(response.cover_image ?? existing?.coverImage),
+        order: Number(response.order ?? response['order'] ?? existing?.order ?? 0),
         hideEmpty: Boolean(response.hide_empty),
         parentId: response.parent_group_id ?? null,
         metaLabel: response.metaLabel ?? response.meta_label ?? null,
         metaValue: response.metaValue ?? response.meta_value ?? null,
         minStockThreshold: normalizeMinStockThreshold(response.minStockThreshold ?? response.min_stock_threshold),
-        createdAt: response.createdAt,
-        updatedAt: response.updatedAt,
-        productCount: response.productCount ?? 0,
-        totalProductCount: response.totalProductCount ?? response.productCount ?? 0,
-        averageCostAuto: response.averageCostAuto ?? response.average_cost_auto ?? null,
-        directProductCount: Number(response.directProductCount ?? response.direct_product_count ?? response.productCount ?? 0),
-        productsWithCostCount: Number(response.productsWithCostCount ?? response.products_with_cost_count ?? 0),
+        createdAt: response.createdAt ?? existing?.createdAt,
+        updatedAt: response.updatedAt ?? existing?.updatedAt,
+        productCount: response.productCount ?? existing?.productCount ?? 0,
+        totalProductCount: response.totalProductCount ?? response.productCount ?? existing?.totalProductCount ?? 0,
+        averageCostAuto: response.averageCostAuto ?? response.average_cost_auto ?? existing?.averageCostAuto ?? null,
+        directProductCount: Number(response.directProductCount ?? response.direct_product_count ?? response.productCount ?? existing?.directProductCount ?? 0),
+        productsWithCostCount: Number(response.productsWithCostCount ?? response.products_with_cost_count ?? existing?.productsWithCostCount ?? 0),
         wholesalePrices: normalizeWholesalePrices(response.wholesalePrices ?? response.wholesale_prices),
         wholesaleTiers: normalizeWholesaleTiers(response.wholesaleTiers ?? response.wholesale_tiers)
       }
 
-      const idx = categoryGroups.value.findIndex(g => g.id === id)
       if (idx !== -1) {
-        // Заменяем весь массив чтобы Vue отследил изменение
         categoryGroups.value = [
           ...categoryGroups.value.slice(0, idx),
           mapped,
