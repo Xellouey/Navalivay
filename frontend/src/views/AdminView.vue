@@ -1066,6 +1066,24 @@
         </div>
         <p v-else class="text-sm text-gray-500">Линеек пока нет. Создайте первую.</p>
       </div>
+
+      <!-- Quick-edit модалка минимального остатка. Рендерим ВНУТРИ
+           родительской модалки линеек (не соседом и не через Teleport
+           в body), чтобы Headless UI Dialog родителя не считал клики
+           в неё как «click outside» и не закрывался. Свой backdrop
+           внутри плашки даёт визуальный nested-эффект. -->
+      <AdminGroupMinStockEditor
+        v-if="minStockEditorOpen && minStockEditorGroup"
+        :key="minStockEditorGroup.id"
+        :is-open="true"
+        :group-name="minStockEditorGroup?.name || ''"
+        :current-threshold="minStockEditorGroup?.minStockThreshold ?? null"
+        :current-stock="Number(minStockEditorGroup?.totalStockSum ?? minStockEditorGroup?.stockSum ?? 0)"
+        :busy="minStockEditorBusy"
+        :error-text="minStockEditorError"
+        @close="closeMinStockEditor"
+        @apply="applyMinStockThreshold"
+      />
     </AdminModal>
 
     <!-- Category Group Form Modal -->
@@ -1086,22 +1104,6 @@
         @cancel="closeGroupForm"
       />
     </AdminModal>
-
-    <!-- Quick-edit модалка для минимального остатка линейки.
-         Костин TZ: «вдруг мы его захотим поменять, не надо заходить в каждую категорию».
-         Открывается кликом по pill «Не менее N шт» в строке линейки. -->
-    <AdminGroupMinStockEditor
-      v-if="minStockEditorOpen && minStockEditorGroup"
-      :key="minStockEditorGroup.id"
-      :is-open="true"
-      :group-name="minStockEditorGroup?.name || ''"
-      :current-threshold="minStockEditorGroup?.minStockThreshold ?? null"
-      :current-stock="Number(minStockEditorGroup?.totalStockSum ?? minStockEditorGroup?.stockSum ?? 0)"
-      :busy="minStockEditorBusy"
-      :error-text="minStockEditorError"
-      @close="closeMinStockEditor"
-      @apply="applyMinStockThreshold"
-    />
 
     <AdminModal
       :isOpen="showWholesaleLinksModal"
