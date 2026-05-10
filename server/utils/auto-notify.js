@@ -25,59 +25,12 @@
  * не выставляется (попытка была), reason содержит описание ошибки Telegram.
  */
 
-import { db } from '../db.js';
 import {
   prepareStatusNotification,
   isCustomerVerified,
-  getActiveBusinessConnection,
   logBotMessage,
 } from './business-bot.js';
-import { sendBusinessMessage } from './telegram-business-api.js';
 import { sendViaUserbot, isUserbotAvailable } from './userbot-client.js';
-
-/**
- * Telegram Business mode даёт боту писать в чат клиента, ТОЛЬКО если в
- * этом чате была активность (любая сторона написала) за последние 24
- * часа. Иначе sendMessage возвращает BUSINESS_PEER_USAGE_MISSING.
- *
- * Чтобы не дёргать Telegram впустую и сразу показывать менеджеру
- * человеческую причину, проверяем bot_message_log: было ли направление
- * 'in' от этого chat_id за последние 23 часа (берём с запасом до 24,
- * чтобы избежать гонки граничных секунд).
- *
- * Возвращает true, если активность есть; false если нет ИЛИ если в
- * нашей БД вообще нет входящих от этого чата (значит bot-процесс мог
- * пропустить апдейты — лучше попробовать всё равно, и Telegram скажет).
- */
-const ACTIVITY_WINDOW_HOURS = 23;
-function hasRecentInbound(chatId) {
-  if (!chatId) return false;
-  const row = db
-    .prepare(
-      `SELECT COUNT(*) AS n FROM bot_message_log
-        WHERE chat_id = ? AND direction = 'in'
-          AND datetime(created_at) >= datetime('now', '-${ACTIVITY_WINDOW_HOURS} hours')`,
-    )
-    .get(String(chatId));
-  return Number(row?.n || 0) > 0;
-}
-
-/**
- * Существует ли вообще хоть одна входящая запись от этого chat_id.
- * Если нет — возможно bot-процесс никогда не получал апдейтов от этого
- * клиента (например, прокси у бота не был настроен). Тогда не блочим
- * pre-check'ом, даём Telegram-у попробовать.
- */
-function hasAnyInbound(chatId) {
-  if (!chatId) return false;
-  const row = db
-    .prepare(
-      `SELECT COUNT(*) AS n FROM bot_message_log
-        WHERE chat_id = ? AND direction = 'in'`,
-    )
-    .get(String(chatId));
-  return Number(row?.n || 0) > 0;
-}
 
 /**
  * Маппинг статусов заказа на event-ключи в bot_status_templates.
@@ -199,97 +152,71 @@ export async function autoNotifyForStatusChange({
     return { sent: false, skipped: true, reason: 'customer_not_verified', event };
   }
 
-  // Шаг 3: пробуем сначала через userbot (MTProto от лица аккаунта менеджера).
+  // Шаг 3: отправляем через userbot (MTProto от лица аккаунта менеджера).
   // У userbot нет 24-часового окна Telegram Business и сообщения приходят
   // клиенту в его обычный чат с менеджером — он не отличает их от ручных.
   // Userbot живёт отдельным PM2-процессом, ходит через локальный HTTP.
   //
-  // Логика fallback: если userbot недоступен (HTTP timeout, /health = false)
-  // или конкретная отправка упала — пробуем Business mode (старый путь),
-  // чтобы хотя бы для активных в 24ч клиентов сообщение всё равно ушло.
-
-  // Шаг 3.1: пробуем userbot
-  if (await isUserbotAvailable()) {
-    const ubResult = await sendViaUserbot({
-      chatId: prepared.chatId,
-      text: prepared.text,
-      orderId,
-      // auto:true — попадает в meta лога userbot. По этому флагу
-      // GET /api/admin/crm/orders подтягивает последний auto-notify
-      // для плашки «не удалось отправить» (без флага запись путалась бы
-      // с manual /bot/send-custom).
-      auto: true,
-    });
-    if (ubResult.ok) {
-      // userbot.js сам логирует в bot_message_log с meta.source='userbot',
-      // так что здесь не дублируем. Но возвращаем единый формат caller'у.
-      return {
-        sent: true,
-        event,
-        telegram_message_id: ubResult.telegram_message_id ?? null,
-        via: 'userbot',
-      };
-    }
-    // ambiguous = userbot мог отправить (HTTP timeout, потерянный ответ).
-    // Если сделать fallback на business mode, рискуем продублировать
-    // сообщение клиенту в чате — это видно невооружённым глазом и роняет
-    // доверие к боту. Лучше вернуть «неизвестно» и логировать предупреждение.
-    if (ubResult.outcome === 'ambiguous') {
-      console.warn(
-        '[auto-notify] userbot send ambiguous (mб отправил, ответ потерян), без fallback:',
-        ubResult.error,
-      );
-      // safeLog заведём с outcome=ambiguous, чтобы менеджер видел в журнале
-      // и мог проверить чат вручную. Сам userbot уже не успел залогировать
-      // (ответ оборвался) — пишем сами для аудита.
-      safeLog({ outcome: 'ambiguous', via: 'userbot', error: ubResult.error });
-      return {
-        sent: false,
-        reason: 'userbot_ambiguous',
-        event,
-        via: 'userbot',
-      };
-    }
-    // outcome='rejected'|'unreachable' — userbot гарантированно не отправил,
-    // fallback безопасен. Лог уже сделан userbot/index.js (если он жил
-    // достаточно, чтобы записать) или там его нет (unreachable) — без проблем.
-    console.warn(
-      `[auto-notify] userbot ${ubResult.outcome}, fallback to business mode:`,
-      ubResult.error,
-    );
+  // Костя 10.05.2026: «бизнес-мод вырезаем». Раньше тут был fallback на
+  // Business mode (Bot API через подключённого бота к личке менеджера),
+  // но Костя его выключил в Telegram, и для каждого fail-а userbot мы
+  // ловили `no_active_connection`. Userbot — единственный канал.
+  if (!(await isUserbotAvailable())) {
+    safeLog({ outcome: 'skipped', reason: 'userbot_unavailable' });
+    return { sent: false, skipped: true, reason: 'userbot_unavailable', event };
   }
 
-  // Шаг 3.2: fallback на Business mode менеджера (Bot API).
-  const active = getActiveBusinessConnection();
-  if (!active) {
-    // Userbot не сработал и Business mode не настроен — по сути «не отправили».
-    // Логируем skipped, чтобы рамка уцелела через рефреш админки.
-    safeLog({ outcome: 'skipped', reason: 'no_active_connection' });
-    return { sent: false, skipped: true, reason: 'no_active_connection', event };
-  }
-
-  // 24-часовое окно проверяется только для Business mode — у userbot его нет.
-  if (hasAnyInbound(prepared.chatId) && !hasRecentInbound(prepared.chatId)) {
-    safeLog({ outcome: 'skipped', reason: 'client_inactive_over_24h' }, active.id);
-    return { sent: false, skipped: true, reason: 'client_inactive_over_24h', event };
-  }
-
-  const sendResult = await sendBusinessMessage({
-    businessConnectionId: active.id,
+  const ubResult = await sendViaUserbot({
     chatId: prepared.chatId,
     text: prepared.text,
+    orderId,
+    // username — fallback для userbot: если sendMessage по userId упал
+    // с «not find input entity» (клиент архивирован у менеджера или
+    // вне prefetch-кэша), userbot ресолвит через @username и шлёт.
+    username: prepared.customerUsername || null,
+    // auto:true — попадает в meta лога userbot. По этому флагу
+    // GET /api/admin/crm/orders подтягивает последний auto-notify
+    // для плашки «не удалось отправить» (без флага запись путалась бы
+    // с manual /bot/send-custom).
+    auto: true,
   });
-
-  if (sendResult.ok) {
-    safeLog({ outcome: 'sent', via: 'business_mode' }, active.id);
+  if (ubResult.ok) {
+    // userbot.js сам логирует в bot_message_log с meta.source='userbot',
+    // так что здесь не дублируем. Но возвращаем единый формат caller'у.
     return {
       sent: true,
       event,
-      telegram_message_id: sendResult.telegramMessageId ?? null,
-      via: 'business_mode',
+      telegram_message_id: ubResult.telegram_message_id ?? null,
+      via: 'userbot',
     };
   }
-
-  safeLog({ outcome: 'failed', error: sendResult.error, via: 'business_mode' }, active.id);
-  return { sent: false, reason: sendResult.error || 'send_failed', event };
+  // ambiguous = userbot мог отправить (HTTP timeout, потерянный ответ).
+  // Не повторяем — иначе клиент получит дубль в чате (это видно
+  // невооружённым глазом и роняет доверие к боту).
+  if (ubResult.outcome === 'ambiguous') {
+    console.warn(
+      '[auto-notify] userbot send ambiguous (мог отправить, ответ потерян):',
+      ubResult.error,
+    );
+    // safeLog с outcome=ambiguous, чтобы менеджер видел в журнале
+    // и мог проверить чат вручную. Сам userbot уже не успел залогировать
+    // (ответ оборвался) — пишем сами для аудита.
+    safeLog({ outcome: 'ambiguous', via: 'userbot', error: ubResult.error });
+    return {
+      sent: false,
+      reason: 'userbot_ambiguous',
+      event,
+      via: 'userbot',
+    };
+  }
+  // outcome='rejected'|'unreachable' — userbot гарантированно не отправил.
+  // Лог уже сделан userbot/index.js (если процесс жил достаточно, чтобы
+  // записать failed). Возвращаем reason caller'у для тоста/плашки.
+  console.warn(`[auto-notify] userbot ${ubResult.outcome}:`, ubResult.error);
+  return {
+    sent: false,
+    reason: ubResult.error || 'send_failed',
+    event,
+    via: 'userbot',
+  };
 }

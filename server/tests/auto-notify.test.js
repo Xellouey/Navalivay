@@ -208,44 +208,59 @@ upsertStatusTemplate('order_assembled', {
   assertEq(result.reason, 'template_inactive_or_missing', 'reason=template_inactive_or_missing');
 }
 
-// --- TEST 8: нет активного коннекта ----------------------------------------
-console.log('\n=== Test 8: business_connection отсутствует → skip + лог skipped ===');
+// --- TEST 8: userbot недоступен → skip + лог skipped -----------------------
+// Костя 10.05.2026 «бизнес-мод вырезаем» — userbot единственный канал.
+// Если он недоступен (PM2 не запустил или /health=fail), отправлять некуда.
+console.log('\n=== Test 8: userbot недоступен → skip + лог skipped ===');
 resetDb();
 makeOrderAndCustomer({ telegramId: '444', verified: true });
-// Сознательно не регистрируем коннект.
-_resetHealthCacheForTests(); // userbot health-кэш мог быть прогретый предыдущим тестом
-{
+_resetHealthCacheForTests();
+const originalFetch8 = globalThis.fetch;
+globalThis.fetch = async (url) => {
+  const u = String(url);
+  if (u.includes('127.0.0.1') && u.includes('/health')) {
+    return { ok: false, status: 503, async json() { return {}; } };
+  }
+  throw new Error(`unexpected fetch ${u}`);
+};
+try {
   const result = await autoNotifyForStatusChange({
     orderId: 'o_test',
     newStatus: 'in_progress',
     previousStatus: 'new',
   });
-  assertEq(result.reason, 'no_active_connection', 'reason=no_active_connection');
+  assertEq(result.sent, false, 'sent=false');
+  assertEq(result.skipped, true, 'skipped=true');
+  assertEq(result.reason, 'userbot_unavailable', 'reason=userbot_unavailable');
   const logRows = db.prepare(`SELECT meta FROM bot_message_log ORDER BY id DESC LIMIT 1`).all();
   assertEq(logRows.length, 1, 'запись skipped попала в bot_message_log');
   const meta = JSON.parse(logRows[0].meta || '{}');
   assertEq(meta.outcome, 'skipped', 'meta.outcome=skipped');
-  assertEq(meta.reason, 'no_active_connection', 'meta.reason=no_active_connection');
+  assertEq(meta.reason, 'userbot_unavailable', 'meta.reason=userbot_unavailable');
   assertEq(meta.auto, true, 'meta.auto=true');
+} finally {
+  globalThis.fetch = originalFetch8;
+  _resetHealthCacheForTests();
 }
 
-// --- TEST 9: happy path с мок-fetch ----------------------------------------
-console.log('\n=== Test 9: happy path → fetch вызван, sent=true ===');
+// --- TEST 9: happy path через userbot --------------------------------------
+console.log('\n=== Test 9: userbot ответил ok=true → sent=true, via=userbot ===');
 resetDb();
 makeOrderAndCustomer({ telegramId: '555', verified: true });
-registerConnection();
+_resetHealthCacheForTests();
 
 const originalFetch = globalThis.fetch;
-const fetchCalls = [];
+let userbotSendBody9 = null;
 globalThis.fetch = async (url, init) => {
-  fetchCalls.push({ url: String(url), init });
-  return {
-    ok: true,
-    status: 200,
-    async json() {
-      return { ok: true, result: { message_id: 4242 } };
-    },
-  };
+  const u = String(url);
+  if (u.includes('127.0.0.1') && u.includes('/health')) {
+    return { ok: true, async json() { return { ok: true, connected: true }; } };
+  }
+  if (u.includes('127.0.0.1') && u.includes('/send-message')) {
+    userbotSendBody9 = JSON.parse(init.body);
+    return { ok: true, async json() { return { ok: true, telegram_message_id: 4242 }; } };
+  }
+  throw new Error(`unexpected fetch ${u}`);
 };
 try {
   const result = await autoNotifyForStatusChange({
@@ -254,39 +269,43 @@ try {
     previousStatus: 'new',
   });
   assertEq(result.sent, true, 'sent=true');
+  assertEq(result.via, 'userbot', 'via=userbot');
   assertEq(result.event, 'order_assembled', 'event=order_assembled');
-  assertEq(result.telegram_message_id, 4242, 'telegram_message_id из ответа Telegram');
-  assertEq(fetchCalls.length, 1, 'fetch вызван один раз');
-  assert(fetchCalls[0].url.includes('/sendMessage'), 'POST на /sendMessage');
-  const body = JSON.parse(fetchCalls[0].init.body);
-  assertEq(body.chat_id, '555', 'chat_id = telegram_id клиента');
-  assertEq(body.business_connection_id, 'conn1', 'business_connection_id из активного коннекта');
-  assert(body.text.includes('1001'), 'текст содержит order_number');
-
-  // Проверим, что в журнале появилась запись с meta.outcome=sent.
-  const logRows = db.prepare(`SELECT * FROM bot_message_log ORDER BY id DESC LIMIT 1`).all();
-  assertEq(logRows.length, 1, 'одна запись в bot_message_log');
-  const meta = JSON.parse(logRows[0].meta || '{}');
-  assertEq(meta.outcome, 'sent', 'meta.outcome=sent');
-  assertEq(meta.auto, true, 'meta.auto=true');
-  assertEq(meta.order_id, 'o_test', 'meta.order_id сохранён');
+  assertEq(result.telegram_message_id, 4242, 'telegram_message_id из ответа userbot');
+  assertEq(userbotSendBody9.chat_id, '555', 'chat_id = telegram_id клиента');
+  assertEq(userbotSendBody9.auto, true, 'auto=true в payload userbot');
+  assertEq(userbotSendBody9.username, 'tester', 'username прокинут (для resolveUsername fallback)');
+  assert(userbotSendBody9.text.includes('1001'), 'текст содержит order_number');
 } finally {
   globalThis.fetch = originalFetch;
+  _resetHealthCacheForTests();
 }
 
-// --- TEST 10: Telegram отказал (5xx / business connection not found) -------
-console.log('\n=== Test 10: Telegram отказал → sent=false, лог с outcome=failed ===');
+// --- TEST 10: userbot rejected (Telegram отверг) → sent=false --------------
+console.log('\n=== Test 10: userbot rejected → sent=false с reason ===');
 resetDb();
 makeOrderAndCustomer({ telegramId: '666', verified: true });
-registerConnection();
+_resetHealthCacheForTests();
 
-globalThis.fetch = async () => ({
-  ok: false,
-  status: 400,
-  async json() {
-    return { ok: false, description: 'Bad Request: chat not found' };
-  },
-});
+globalThis.fetch = async (url) => {
+  const u = String(url);
+  if (u.includes('127.0.0.1') && u.includes('/health')) {
+    return { ok: true, async json() { return { ok: true, connected: true }; } };
+  }
+  if (u.includes('127.0.0.1') && u.includes('/send-message')) {
+    // userbot жив, но Telegram отверг (PEER_ID_INVALID и т.п.) — userbot-client
+    // классифицирует как rejected. Без fallback'а на business mode auto-notify
+    // возвращает sent=false с reason=описание ошибки.
+    return {
+      ok: true,
+      status: 200,
+      async json() {
+        return { ok: false, error: 'PEER_ID_INVALID' };
+      },
+    };
+  }
+  throw new Error(`unexpected fetch ${u}`);
+};
 try {
   const result = await autoNotifyForStatusChange({
     orderId: 'o_test',
@@ -295,32 +314,33 @@ try {
   });
   assertEq(result.sent, false, 'sent=false');
   assertEq(result.event, 'order_cancelled', 'event=order_cancelled');
-  assert(result.reason && result.reason.includes('chat not found'), 'reason содержит описание ошибки');
-
-  const logRows = db.prepare(`SELECT * FROM bot_message_log ORDER BY id DESC LIMIT 1`).all();
-  const meta = JSON.parse(logRows[0].meta || '{}');
-  assertEq(meta.outcome, 'failed', 'meta.outcome=failed');
-  assert(meta.error, 'meta.error присутствует');
+  assertEq(result.via, 'userbot', 'via=userbot');
+  assert(
+    result.reason && /PEER_ID_INVALID/.test(result.reason),
+    'reason содержит описание ошибки от userbot',
+  );
 } finally {
   globalThis.fetch = originalFetch;
+  _resetHealthCacheForTests();
 }
 
-// --- TEST 11: completed → order_issued (не дублируется delivered) ----------
-console.log('\n=== Test 11: completed → order_issued ===');
+// --- TEST 11: completed → order_issued -------------------------------------
+console.log('\n=== Test 11: completed → шаблон order_issued ===');
 resetDb();
 makeOrderAndCustomer({ telegramId: '777', verified: true });
-registerConnection();
+_resetHealthCacheForTests();
 
-const completedFetchCalls = [];
+let userbotSendBody11 = null;
 globalThis.fetch = async (url, init) => {
-  completedFetchCalls.push({ url: String(url), init });
-  return {
-    ok: true,
-    status: 200,
-    async json() {
-      return { ok: true, result: { message_id: 99 } };
-    },
-  };
+  const u = String(url);
+  if (u.includes('127.0.0.1') && u.includes('/health')) {
+    return { ok: true, async json() { return { ok: true, connected: true }; } };
+  }
+  if (u.includes('127.0.0.1') && u.includes('/send-message')) {
+    userbotSendBody11 = JSON.parse(init.body);
+    return { ok: true, async json() { return { ok: true, telegram_message_id: 99 }; } };
+  }
+  throw new Error(`unexpected fetch ${u}`);
 };
 try {
   const result = await autoNotifyForStatusChange({
@@ -330,23 +350,26 @@ try {
   });
   assertEq(result.sent, true, 'sent=true');
   assertEq(result.event, 'order_issued', 'event=order_issued (а не completed)');
-  const body = JSON.parse(completedFetchCalls[0].init.body);
-  assert(body.text.toLowerCase().includes('выдан') || body.text.toLowerCase().includes('спасибо'),
-    'текст соответствует шаблону order_issued');
+  assert(
+    userbotSendBody11.text.toLowerCase().includes('выдан') ||
+      userbotSendBody11.text.toLowerCase().includes('спасибо'),
+    'текст соответствует шаблону order_issued',
+  );
 } finally {
   globalThis.fetch = originalFetch;
+  _resetHealthCacheForTests();
 }
 
-// --- TEST 12: шаблон с пустым body (is_active=1) → template_empty ----------
+// --- TEST 12: шаблон с пустым body → template_empty ------------------------
 console.log('\n=== Test 12: шаблон активен, но body пустой → skip ===');
 resetDb();
 makeOrderAndCustomer({ telegramId: '888', verified: true });
-registerConnection();
 upsertStatusTemplate('order_assembled', {
   title: 'Заказ собран',
   body: '   ',
   is_active: 1,
 });
+_resetHealthCacheForTests();
 {
   const result = await autoNotifyForStatusChange({
     orderId: 'o_test',
@@ -355,67 +378,31 @@ upsertStatusTemplate('order_assembled', {
   });
   assertEq(result.sent, false, 'sent=false');
   assertEq(result.reason, 'template_empty', 'reason=template_empty');
-  // Лог не должен записываться, если до Telegram не дошло.
+  // Лог не должен записываться, если до отправки не дошло —
+  // prepareStatusNotification возвращает не-ok ДО объявления safeLog.
   const logCount = db.prepare(`SELECT COUNT(*) AS n FROM bot_message_log`).get().n;
   assertEq(logCount, 0, 'bot_message_log пустой при skip до отправки');
 }
 
-// --- TEST 13: retry на сетевом таймауте → вторая попытка успешна ----------
-console.log('\n=== Test 13: timeout на 1й попытке → retry → success ===');
+// --- TEST 13: userbot ambiguous → НЕТ повтора (защита от дубля) ------------
+console.log('\n=== Test 13: userbot timeout → ambiguous, лог ambiguous ===');
 resetDb();
-makeOrderAndCustomer({ telegramId: '999', verified: true });
-registerConnection();
+makeOrderAndCustomer({ telegramId: '13131', verified: true });
+_resetHealthCacheForTests();
 
-let callCount = 0;
-globalThis.fetch = async () => {
-  callCount++;
-  if (callCount === 1) {
-    // Имитируем AbortSignal.timeout: настоящий timeout кидает DOMException.
+let userbotHits13 = 0;
+globalThis.fetch = async (url) => {
+  const u = String(url);
+  if (u.includes('127.0.0.1') && u.includes('/health')) {
+    return { ok: true, async json() { return { ok: true, connected: true }; } };
+  }
+  if (u.includes('127.0.0.1') && u.includes('/send-message')) {
+    userbotHits13++;
     const err = new Error('The operation was aborted due to timeout');
     err.name = 'TimeoutError';
     throw err;
   }
-  return {
-    ok: true,
-    status: 200,
-    async json() {
-      return { ok: true, result: { message_id: 7777 } };
-    },
-  };
-};
-try {
-  const result = await autoNotifyForStatusChange({
-    orderId: 'o_test',
-    newStatus: 'in_progress',
-    previousStatus: 'new',
-  });
-  assertEq(result.sent, true, 'после retry sent=true');
-  assertEq(callCount, 2, 'fetch вызван дважды (один retry)');
-  // attempts включается в результат sendBusinessMessage, но autoNotifyForStatusChange
-  // его не пробрасывает — в журнале достаточно outcome=sent.
-  const logRows = db.prepare(`SELECT meta FROM bot_message_log ORDER BY id DESC LIMIT 1`).all();
-  const meta = JSON.parse(logRows[0].meta || '{}');
-  assertEq(meta.outcome, 'sent', 'meta.outcome=sent после retry');
-} finally {
-  globalThis.fetch = originalFetch;
-}
-
-// --- TEST 14: permanent ошибка (PEER_ID_INVALID) → нет retry --------------
-console.log('\n=== Test 14: HTTP 400 PEER_ID_INVALID → один вызов, без retry ===');
-resetDb();
-makeOrderAndCustomer({ telegramId: '101010', verified: true });
-registerConnection();
-
-let permanentCallCount = 0;
-globalThis.fetch = async () => {
-  permanentCallCount++;
-  return {
-    ok: false,
-    status: 400,
-    async json() {
-      return { ok: false, description: 'Bad Request: PEER_ID_INVALID' };
-    },
-  };
+  throw new Error(`unexpected fetch ${u}`);
 };
 try {
   const result = await autoNotifyForStatusChange({
@@ -424,94 +411,8 @@ try {
     previousStatus: 'new',
   });
   assertEq(result.sent, false, 'sent=false');
-  assertEq(permanentCallCount, 1, 'fetch вызван один раз (4xx не ретраится)');
-  assert(result.reason && result.reason.includes('PEER_ID_INVALID'), 'reason содержит PEER_ID_INVALID');
-} finally {
-  globalThis.fetch = originalFetch;
-}
-
-// --- TEST 15: userbot OK → no business-mode fallback ----------------------
-console.log('\n=== Test 15: userbot ответил ok=true → business mode не дёргается ===');
-resetDb();
-makeOrderAndCustomer({ telegramId: '15151', verified: true });
-registerConnection();
-// Тесты 9-14 ходили на 127.0.0.1:8083 без userbot — health-кэш сохранил
-// ok=false на 10 секунд. Сбрасываем, иначе isUserbotAvailable() сразу
-// вернёт false и весь mock /health окажется бесполезен.
-_resetHealthCacheForTests();
-
-let businessFetchCount = 0;
-let userbotFetchCount = 0;
-globalThis.fetch = async (url) => {
-  const u = String(url);
-  if (u.includes('127.0.0.1') && u.includes('/health')) {
-    return { ok: true, async json() { return { ok: true, connected: true }; } };
-  }
-  if (u.includes('127.0.0.1') && u.includes('/send-message')) {
-    userbotFetchCount++;
-    return { ok: true, async json() { return { ok: true, telegram_message_id: 7777 }; } };
-  }
-  if (u.includes('api.telegram.org')) {
-    businessFetchCount++;
-    return { ok: true, async json() { return { ok: true, result: { message_id: 9999 } }; } };
-  }
-  throw new Error(`unexpected fetch ${u}`);
-};
-try {
-  const result = await autoNotifyForStatusChange({
-    orderId: 'o_test',
-    newStatus: 'in_progress',
-    previousStatus: 'new',
-  });
-  assertEq(result.sent, true, 'sent=true через userbot');
-  assertEq(result.via, 'userbot', 'via=userbot');
-  assertEq(result.telegram_message_id, 7777, 'telegram_message_id из userbot ответа');
-  assertEq(userbotFetchCount, 1, 'userbot вызван один раз');
-  assertEq(businessFetchCount, 0, 'business mode НЕ вызывался (нет дубля)');
-} finally {
-  globalThis.fetch = originalFetch;
-  // Принудительно сбрасываем health-кэш userbot-client.js — он закэширует
-  // mock-ответ /health=ok на 30с и испортит следующий тест.
-  _resetHealthCacheForTests();
-}
-
-// --- TEST 16: userbot ambiguous → НЕТ fallback (защита от дубля) -----------
-console.log('\n=== Test 16: userbot timeout → НЕТ fallback на business mode ===');
-resetDb();
-makeOrderAndCustomer({ telegramId: '16161', verified: true });
-registerConnection();
-_resetHealthCacheForTests();
-
-let businessHits = 0;
-let userbotHits = 0;
-globalThis.fetch = async (url) => {
-  const u = String(url);
-  if (u.includes('127.0.0.1') && u.includes('/health')) {
-    return { ok: true, async json() { return { ok: true, connected: true }; } };
-  }
-  if (u.includes('127.0.0.1') && u.includes('/send-message')) {
-    userbotHits++;
-    // Симулируем timeout (AbortError) — userbot мог отправить, ответ потерян.
-    const err = new Error('The operation was aborted due to timeout');
-    err.name = 'TimeoutError';
-    throw err;
-  }
-  if (u.includes('api.telegram.org')) {
-    businessHits++;
-    return { ok: true, async json() { return { ok: true, result: { message_id: 1 } }; } };
-  }
-  throw new Error(`unexpected fetch ${u}`);
-};
-try {
-  const result = await autoNotifyForStatusChange({
-    orderId: 'o_test',
-    newStatus: 'in_progress',
-    previousStatus: 'new',
-  });
-  assertEq(result.sent, false, 'sent=false при ambiguous (мы не уверены)');
   assertEq(result.reason, 'userbot_ambiguous', 'reason=userbot_ambiguous');
-  assertEq(userbotHits, 1, 'userbot попытка одна');
-  assertEq(businessHits, 0, 'business mode НЕ вызвался — иначе дубль клиенту');
+  assertEq(userbotHits13, 1, 'userbot попытка одна (нет повтора, чтобы не было дубля)');
   // safeLog должен записать ambiguous в журнал для аудита.
   const logRows = db.prepare(`SELECT * FROM bot_message_log ORDER BY id DESC LIMIT 1`).all();
   const meta = JSON.parse(logRows[0]?.meta || '{}');
@@ -522,19 +423,16 @@ try {
   _resetHealthCacheForTests();
 }
 
-// --- TEST 17: userbot unreachable → FALLBACK на business mode --------------
-console.log('\n=== Test 17: userbot ECONNREFUSED → fallback на business mode ===');
+// --- TEST 14: userbot unreachable (ECONNREFUSED) → skip --------------------
+console.log('\n=== Test 14: userbot ECONNREFUSED → skip без отправки ===');
 resetDb();
-makeOrderAndCustomer({ telegramId: '17171', verified: true });
-registerConnection();
+makeOrderAndCustomer({ telegramId: '14141', verified: true });
 _resetHealthCacheForTests();
 
-let businessHits2 = 0;
-let userbotHits2 = 0;
+let userbotHits14 = 0;
 globalThis.fetch = async (url) => {
   const u = String(url);
   if (u.includes('127.0.0.1') && u.includes('/health')) {
-    // /health сам провалится — это симулирует «процесса нет вообще».
     const err = new TypeError('fetch failed');
     err.cause = Object.assign(new Error('connect ECONNREFUSED 127.0.0.1:8083'), {
       code: 'ECONNREFUSED',
@@ -542,16 +440,8 @@ globalThis.fetch = async (url) => {
     throw err;
   }
   if (u.includes('127.0.0.1') && u.includes('/send-message')) {
-    userbotHits2++;
-    const err = new TypeError('fetch failed');
-    err.cause = Object.assign(new Error('connect ECONNREFUSED 127.0.0.1:8083'), {
-      code: 'ECONNREFUSED',
-    });
-    throw err;
-  }
-  if (u.includes('api.telegram.org')) {
-    businessHits2++;
-    return { ok: true, async json() { return { ok: true, result: { message_id: 5555 } }; } };
+    userbotHits14++;
+    throw new Error('should not reach send when health is fail');
   }
   throw new Error(`unexpected fetch ${u}`);
 };
@@ -561,161 +451,23 @@ try {
     newStatus: 'in_progress',
     previousStatus: 'new',
   });
-  assertEq(result.sent, true, 'sent=true через business mode после fallback');
-  assertEq(result.via, 'business_mode', 'via=business_mode');
-  // userbot не должен был вызваться — health=fail, isUserbotAvailable=false.
-  assertEq(userbotHits2, 0, 'userbot send не дёрнулся (health=fail)');
-  assertEq(businessHits2, 1, 'business mode дёрнулся');
+  // userbot не доступен — auto-notify возвращает skipped=userbot_unavailable.
+  assertEq(result.sent, false, 'sent=false');
+  assertEq(result.skipped, true, 'skipped=true');
+  assertEq(result.reason, 'userbot_unavailable', 'reason=userbot_unavailable');
+  assertEq(userbotHits14, 0, '/send-message НЕ дёрнулся (health=fail отсёк)');
 } finally {
   globalThis.fetch = originalFetch;
   _resetHealthCacheForTests();
 }
 
-// --- TEST 18: userbot rejected (HTTP 200 + ok:false) → FALLBACK на business -
-console.log('\n=== Test 18: userbot ответил {ok:false} → fallback на business mode ===');
-resetDb();
-makeOrderAndCustomer({ telegramId: '18181', verified: true });
-registerConnection();
-_resetHealthCacheForTests();
-
-let businessHits3 = 0;
-let userbotHits3 = 0;
-globalThis.fetch = async (url) => {
-  const u = String(url);
-  if (u.includes('127.0.0.1') && u.includes('/health')) {
-    return { ok: true, async json() { return { ok: true, connected: true }; } };
-  }
-  if (u.includes('127.0.0.1') && u.includes('/send-message')) {
-    userbotHits3++;
-    // userbot жив, но конкретно эта отправка отказана — например, Telegram
-    // вернул PEER_ID_INVALID. Это безопасно фоллбэкнуть, потому что userbot
-    // гарантированно НЕ отправил (он сам же ответил отказом).
-    return {
-      ok: true,
-      status: 200,
-      async json() {
-        return { ok: false, error: 'PEER_ID_INVALID' };
-      },
-    };
-  }
-  if (u.includes('api.telegram.org')) {
-    businessHits3++;
-    return { ok: true, async json() { return { ok: true, result: { message_id: 18180 } }; } };
-  }
-  throw new Error(`unexpected fetch ${u}`);
-};
-try {
-  const result = await autoNotifyForStatusChange({
-    orderId: 'o_test',
-    newStatus: 'in_progress',
-    previousStatus: 'new',
-  });
-  assertEq(result.sent, true, 'sent=true через business mode после rejected');
-  assertEq(result.via, 'business_mode', 'via=business_mode');
-  assertEq(userbotHits3, 1, 'userbot отправка попыталась один раз');
-  assertEq(businessHits3, 1, 'business mode дёрнулся (rejected → fallback безопасен)');
-} finally {
-  globalThis.fetch = originalFetch;
-  _resetHealthCacheForTests();
-}
-
-// --- TEST 19: userbot HTTP 5xx → FALLBACK на business mode -----------------
-console.log('\n=== Test 19: userbot HTTP 502 → fallback на business mode ===');
-resetDb();
-makeOrderAndCustomer({ telegramId: '19191', verified: true });
-registerConnection();
-_resetHealthCacheForTests();
-
-let businessHits4 = 0;
-let userbotHits4 = 0;
-globalThis.fetch = async (url) => {
-  const u = String(url);
-  if (u.includes('127.0.0.1') && u.includes('/health')) {
-    return { ok: true, async json() { return { ok: true, connected: true }; } };
-  }
-  if (u.includes('127.0.0.1') && u.includes('/send-message')) {
-    userbotHits4++;
-    return {
-      ok: false,
-      status: 502,
-      async json() {
-        return { ok: false, error: 'bad_gateway' };
-      },
-    };
-  }
-  if (u.includes('api.telegram.org')) {
-    businessHits4++;
-    return { ok: true, async json() { return { ok: true, result: { message_id: 19190 } }; } };
-  }
-  throw new Error(`unexpected fetch ${u}`);
-};
-try {
-  const result = await autoNotifyForStatusChange({
-    orderId: 'o_test',
-    newStatus: 'in_progress',
-    previousStatus: 'new',
-  });
-  // HTTP 502 = userbot ответил → server жив, но обработчик упал. Контракт
-  // userbot-client.js говорит outcome='rejected' → fallback безопасен.
-  assertEq(result.sent, true, 'sent=true через business mode после HTTP 502');
-  assertEq(result.via, 'business_mode', 'via=business_mode');
-  assertEq(userbotHits4, 1, 'userbot отправка попыталась один раз');
-  assertEq(businessHits4, 1, 'business mode дёрнулся (HTTP 5xx = rejected → fallback)');
-} finally {
-  globalThis.fetch = originalFetch;
-  _resetHealthCacheForTests();
-}
-
-// --- TEST 20: userbot не доступен (health=false), нет fallback fallback'а -
-// Защита от регрессии: если userbot недоступен И business mode тоже падает —
-// результат должен корректно отработать (не throw, sent=false).
-console.log('\n=== Test 20: userbot health=false + business mode 400 → sent=false ===');
-resetDb();
-makeOrderAndCustomer({ telegramId: '20202', verified: true });
-registerConnection();
-_resetHealthCacheForTests();
-
-let businessHits5 = 0;
-globalThis.fetch = async (url) => {
-  const u = String(url);
-  if (u.includes('127.0.0.1') && u.includes('/health')) {
-    return { ok: false, status: 503, async json() { return {}; } };
-  }
-  if (u.includes('api.telegram.org')) {
-    businessHits5++;
-    return {
-      ok: false,
-      status: 400,
-      async json() {
-        return { ok: false, description: 'Bad Request: chat not found' };
-      },
-    };
-  }
-  throw new Error(`unexpected fetch ${u}`);
-};
-try {
-  const result = await autoNotifyForStatusChange({
-    orderId: 'o_test',
-    newStatus: 'in_progress',
-    previousStatus: 'new',
-  });
-  assertEq(result.sent, false, 'sent=false (оба канала упали)');
-  assert(result.reason && result.reason.includes('chat not found'),
-    'reason содержит описание ошибки business mode');
-  assertEq(businessHits5, 1, 'business mode попытался ровно раз');
-} finally {
-  globalThis.fetch = originalFetch;
-  _resetHealthCacheForTests();
-}
-
-// --- TEST 21: userbot success → не записывает дубль через safeLog ----------
+// --- TEST 15: userbot success → auto-notify не дублирует лог ---------------
 // Регрессия: userbot/index.js сам логирует исходящее в bot_message_log
 // (с meta.source='userbot', meta.outcome='sent'). Auto-notify в случае
 // userbot.ok НЕ должен дублировать запись через safeLog.
-console.log('\n=== Test 21: userbot success → auto-notify не дублирует лог ===');
+console.log('\n=== Test 15: userbot success → auto-notify не дублирует лог ===');
 resetDb();
-makeOrderAndCustomer({ telegramId: '21212', verified: true });
-registerConnection();
+makeOrderAndCustomer({ telegramId: '15151', verified: true });
 _resetHealthCacheForTests();
 
 globalThis.fetch = async (url) => {
@@ -724,7 +476,7 @@ globalThis.fetch = async (url) => {
     return { ok: true, async json() { return { ok: true, connected: true }; } };
   }
   if (u.includes('127.0.0.1') && u.includes('/send-message')) {
-    return { ok: true, async json() { return { ok: true, telegram_message_id: 21210 }; } };
+    return { ok: true, async json() { return { ok: true, telegram_message_id: 15150 }; } };
   }
   throw new Error(`unexpected fetch ${u}`);
 };
@@ -747,52 +499,37 @@ try {
   _resetHealthCacheForTests();
 }
 
-// --- TEST 22: client_inactive_over_24h → лог skipped с business connection -
-// Если в bot_message_log уже есть хоть одна 'in' запись от клиента (он когда-то
-// писал боту), но за последние 23 часа активности нет — Telegram Business не
-// разрешит ответить (BUSINESS_PEER_USAGE_MISSING). Пропускаем до Telegram'а
-// и логируем skipped с businessConnectionId, чтобы рамка осталась после рефреша.
-console.log('\n=== Test 22: 24h окно истекло → skip + лог skipped ===');
+// --- TEST 16: username прокидывается в userbot для resolveUsername ---------
+// Костя 10.05.2026: клиенты архивированы у менеджера → не в кэше userbot.
+// auto-notify должен прокидывать customer.telegram_username в /send-message,
+// чтобы userbot мог ресолвить через @username (contacts.resolveUsername).
+console.log('\n=== Test 16: username прокидывается в userbot ===');
 resetDb();
-makeOrderAndCustomer({ telegramId: '22222', verified: true });
-registerConnection();
+makeOrderAndCustomer({ telegramId: '16161', verified: true });
 _resetHealthCacheForTests();
-// Старая входящая запись (24h+ назад) — есть прошлый диалог, но окно истекло.
-db.prepare(
-  `INSERT INTO bot_message_log
-     (business_connection_id, chat_id, customer_id, customer_telegram_id,
-      direction, message_type, text, meta, created_at)
-   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-).run('conn1', '22222', 'c_test', '22222', 'in', 'incoming', 'привет', '{}', '2020-01-01 00:00:00');
 
-// userbot должен быть «недоступен», чтобы код пошёл в business mode (там
-// проверка 24h-окна и лежит). Mock health=fail.
-globalThis.fetch = async (url) => {
+let userbotSendBody16 = null;
+globalThis.fetch = async (url, init) => {
   const u = String(url);
   if (u.includes('127.0.0.1') && u.includes('/health')) {
-    return { ok: false, status: 503, async json() { return {}; } };
+    return { ok: true, async json() { return { ok: true, connected: true }; } };
   }
-  throw new Error(`unexpected fetch ${u} (Telegram не должен дёрнуться)`);
+  if (u.includes('127.0.0.1') && u.includes('/send-message')) {
+    userbotSendBody16 = JSON.parse(init.body);
+    return { ok: true, async json() { return { ok: true, telegram_message_id: 1 }; } };
+  }
+  throw new Error(`unexpected fetch ${u}`);
 };
 try {
-  const result = await autoNotifyForStatusChange({
+  await autoNotifyForStatusChange({
     orderId: 'o_test',
     newStatus: 'in_progress',
     previousStatus: 'new',
   });
-  assertEq(result.sent, false, 'sent=false');
-  assertEq(result.reason, 'client_inactive_over_24h', 'reason=client_inactive_over_24h');
-  // В журнале две записи: исходный 'in' (мы вставили выше) + наш skipped 'out'.
-  const skippedRow = db
-    .prepare(`SELECT * FROM bot_message_log WHERE direction='out' ORDER BY id DESC LIMIT 1`)
-    .get();
-  assert(skippedRow, 'skipped запись существует');
-  const meta = JSON.parse(skippedRow.meta || '{}');
-  assertEq(meta.outcome, 'skipped', 'meta.outcome=skipped');
-  assertEq(meta.reason, 'client_inactive_over_24h', 'meta.reason=client_inactive_over_24h');
-  assertEq(meta.auto, true, 'meta.auto=true');
-  // Привязка к business connection — попытка планировалась через business mode.
-  assertEq(skippedRow.business_connection_id, 'conn1', 'business_connection_id=conn1');
+  assert(userbotSendBody16, 'userbot был дёрнут');
+  // makeOrderAndCustomer ставит telegram_username='tester' — проверим что
+  // он прокинут в payload userbot БЕЗ префикса @ (userbot сам его ставит).
+  assertEq(userbotSendBody16.username, 'tester', 'username=tester (без @)');
 } finally {
   globalThis.fetch = originalFetch;
   _resetHealthCacheForTests();

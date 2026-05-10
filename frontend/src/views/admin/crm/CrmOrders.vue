@@ -354,11 +354,38 @@
         leave-to-class="opacity-0 -translate-y-2"
       >
         <div
-          v-if="orderError"
-          class="rounded-lg border border-red-200 bg-red-50 p-4 shadow-sm"
+          v-if="orderToast"
+          :class="[
+            'rounded-lg border p-4 shadow-sm',
+            orderToast.kind === 'success'
+              ? 'border-emerald-200 bg-emerald-50'
+              : orderToast.kind === 'info'
+                ? 'border-blue-200 bg-blue-50'
+                : 'border-red-200 bg-red-50',
+          ]"
         >
           <div class="flex items-start gap-3">
+            <!-- Иконка под цвет: чек для success, info-точка для info, восклицательный для error -->
             <svg
+              v-if="orderToast.kind === 'success'"
+              class="h-5 w-5 flex-shrink-0 text-emerald-500"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+            </svg>
+            <svg
+              v-else-if="orderToast.kind === 'info'"
+              class="h-5 w-5 flex-shrink-0 text-blue-500"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <svg
+              v-else
               class="h-5 w-5 flex-shrink-0 text-red-500"
               fill="none"
               stroke="currentColor"
@@ -372,11 +399,27 @@
               />
             </svg>
             <div class="flex-1">
-              <p class="text-sm font-medium text-red-800">{{ orderError }}</p>
+              <p
+                :class="[
+                  'text-sm font-medium',
+                  orderToast.kind === 'success'
+                    ? 'text-emerald-800'
+                    : orderToast.kind === 'info'
+                      ? 'text-blue-800'
+                      : 'text-red-800',
+                ]"
+              >{{ orderToast.message }}</p>
             </div>
             <button
-              @click="dismissOrderError"
-              class="inline-flex h-6 w-6 items-center justify-center rounded-full text-red-500 transition hover:bg-red-100"
+              @click="dismissOrderToast"
+              :class="[
+                'inline-flex h-6 w-6 items-center justify-center rounded-full transition',
+                orderToast.kind === 'success'
+                  ? 'text-emerald-500 hover:bg-emerald-100'
+                  : orderToast.kind === 'info'
+                    ? 'text-blue-500 hover:bg-blue-100'
+                    : 'text-red-500 hover:bg-red-100',
+              ]"
             >
               <svg
                 class="h-4 w-4"
@@ -1314,6 +1357,7 @@ import ManagerActionSummary from "@/components/crm/ManagerActionSummary.vue";
 import AdminModal from "@/components/AdminModal.vue";
 import CustomerBlockModal from "@/components/admin/CustomerBlockModal.vue";
 import { LockClosedIcon, NoSymbolIcon } from "@heroicons/vue/24/outline";
+import { buildAutoNotifyToast } from "@/utils/auto-notify-message";
 
 const crmStore = useCrmStore();
 const {
@@ -1398,27 +1442,34 @@ let highlightTimer: ReturnType<typeof setTimeout> | null = null;
 const previewLimit = 4;
 const expandedOrders = ref<Set<string>>(new Set());
 
-// Error handling for order operations
-const orderError = ref<string | null>(null);
-const orderErrorTimeout = ref<ReturnType<typeof setTimeout> | null>(null);
+// Тост по операциям с заказами: success / error / info. Костя 10.05.2026:
+// «нажимаешь "Собрано" или "Выдать" — пусть тост вылазит, что отправилось
+// успешно или не отправилось». Раньше был только error-тост (orderError);
+// теперь — единая плашка с тремя видами.
+type OrderToastKind = "success" | "error" | "info";
+const orderToast = ref<{ kind: OrderToastKind; message: string } | null>(null);
+const orderToastTimeout = ref<ReturnType<typeof setTimeout> | null>(null);
 
-function showOrderError(message: string) {
-  orderError.value = message;
-  if (orderErrorTimeout.value) {
-    clearTimeout(orderErrorTimeout.value);
+function showOrderToast(toast: { kind: OrderToastKind; message: string }) {
+  orderToast.value = toast;
+  if (orderToastTimeout.value) {
+    clearTimeout(orderToastTimeout.value);
   }
-  orderErrorTimeout.value = setTimeout(() => {
-    orderError.value = null;
-  }, 8000);
+  // Ошибки держим дольше — менеджеру нужно успеть прочитать причину.
+  const ttl = toast.kind === "error" ? 8000 : 4000;
+  orderToastTimeout.value = setTimeout(() => {
+    orderToast.value = null;
+  }, ttl);
 }
 
-function dismissOrderError() {
-  orderError.value = null;
-  if (orderErrorTimeout.value) {
-    clearTimeout(orderErrorTimeout.value);
-    orderErrorTimeout.value = null;
+function dismissOrderToast() {
+  orderToast.value = null;
+  if (orderToastTimeout.value) {
+    clearTimeout(orderToastTimeout.value);
+    orderToastTimeout.value = null;
   }
 }
+
 
 function getOrderLoyaltyDiscount(order: Order) {
   return (order.items || []).reduce(
@@ -1743,11 +1794,18 @@ async function advanceOrder(order: Order) {
   }
 
   try {
-    await crmStore.updateOrder(order.id, { status: nextStatus });
+    const updated = await crmStore.updateOrder(order.id, { status: nextStatus });
     markOrderSeen(order.id);
+    // Тост по итогу авто-уведомления клиенту. Кость 10.05.2026 просил
+    // подтверждение «дошло / не дошло» прямо после клика, чтобы менеджер
+    // не шёл в карточку заказа проверять плашку.
+    const toast = buildAutoNotifyToast(updated.auto_notification, {
+      actionDescription: `Заказ #${order.order_number}: ${orderStatusLabel(nextStatus, order.delivery_type).toLowerCase()}`,
+    });
+    showOrderToast(toast);
   } catch (error: any) {
     const errorMessage = error?.message || "Не удалось изменить статус заказа";
-    showOrderError(`Заказ #${order.order_number}: ${errorMessage}`);
+    showOrderToast({ kind: "error", message: `Заказ #${order.order_number}: ${errorMessage}` });
   }
 }
 
@@ -1832,8 +1890,12 @@ async function submitPayment() {
   )
     return;
   isIssuing.value = true;
+  // Сохраняем номер и тип доставки заранее: после issueOrder чистим
+  // paymentOrder, а тост строим уже после.
+  const orderNumber = paymentOrder.value.order_number;
+  const deliveryType = paymentOrder.value.delivery_type;
   try {
-    await crmStore.issueOrder(paymentOrder.value.id, {
+    const result = await crmStore.issueOrder(paymentOrder.value.id, {
       payment_type: paymentMethod.value,
       payment_account_id: selectedAccountId.value,
       amount: paymentAmount.value,
@@ -1843,8 +1905,15 @@ async function submitPayment() {
     paymentOrder.value = null;
     paymentNotes.value = "";
     await refreshOrders({ skipNotify: true });
-  } catch (error) {
+    // Тост по итогу авто-уведомления клиенту (Костя 10.05.2026).
+    const toast = buildAutoNotifyToast(result.auto_notification, {
+      actionDescription: `Заказ #${orderNumber}: ${orderStatusLabel("delivered", deliveryType).toLowerCase()}`,
+    });
+    showOrderToast(toast);
+  } catch (error: any) {
     console.error("[CRM] Failed to issue order:", error);
+    const errorMessage = error?.message || "Не удалось выдать заказ";
+    showOrderToast({ kind: "error", message: `Заказ #${orderNumber}: ${errorMessage}` });
   } finally {
     isIssuing.value = false;
   }
@@ -2119,7 +2188,7 @@ async function applyDiscount() {
     await refreshOrders({ skipNotify: true });
   } catch (error: any) {
     const errorMessage = error?.message || "Не удалось применить скидку";
-    showOrderError(`Заказ #${activeOrder.order_number}: ${errorMessage}`);
+    showOrderToast({ kind: "error", message: `Заказ #${activeOrder.order_number}: ${errorMessage}` });
   } finally {
     isApplyingDiscount.value = false;
   }
@@ -2141,7 +2210,7 @@ async function removeDiscount() {
     await refreshOrders({ skipNotify: true });
   } catch (error: any) {
     const errorMessage = error?.message || "Не удалось убрать скидку";
-    showOrderError(`Заказ #${activeOrder.order_number}: ${errorMessage}`);
+    showOrderToast({ kind: "error", message: `Заказ #${activeOrder.order_number}: ${errorMessage}` });
   } finally {
     isApplyingDiscount.value = false;
   }
@@ -2171,7 +2240,7 @@ async function confirmCancelOrder() {
     await refreshOrders({ skipNotify: true });
   } catch (error: any) {
     const errorMessage = error?.message || "Не удалось отменить заказ";
-    showOrderError(`Заказ #${activeOrder.order_number}: ${errorMessage}`);
+    showOrderToast({ kind: "error", message: `Заказ #${activeOrder.order_number}: ${errorMessage}` });
   } finally {
     isCancelling.value = false;
   }

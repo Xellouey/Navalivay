@@ -780,6 +780,12 @@ export function prepareStatusNotification({ orderId, event, storeName } = {}) {
     chatId: String(customer.telegram_id),
     customerId: String(customer.id),
     customerTelegramId: String(customer.telegram_id),
+    // @username клиента (без @): нужен userbot'у как fallback, если
+    // sendMessage по userId упал с «Could not find input entity»
+    // (клиент архивирован у менеджера или вне prefetch-кэша диалогов).
+    // Через @username GramJS делает contacts.resolveUsername и достаёт
+    // свежий access_hash без необходимости иметь диалог.
+    customerUsername: customer.telegram_username || null,
     text,
     templateKind: 'status',
     templateId: template.id,

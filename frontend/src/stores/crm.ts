@@ -1449,6 +1449,11 @@ export const useCrmStore = defineStore("crm", () => {
     const response = await fetchAPI<{
       order: Order;
       transaction: CashTransaction;
+      // Бэкенд возвращает результат авто-уведомления клиенту (см.
+      // server/routes/crm-operations.js POST /orders/:id/issue). Фронт
+      // показывает по нему тост (CrmOrders.vue submitPayment), чтобы
+      // менеджер сразу видел: «сообщение клиенту дошло» или причину фейла.
+      auto_notification?: AutoNotificationResult | null;
     }>(`${API_BASE}/orders/${id}/issue`, {
       method: "POST",
       body: JSON.stringify({

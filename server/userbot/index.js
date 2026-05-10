@@ -122,13 +122,17 @@ let shuttingDown = false;
 // после этого auto-notify будет работать.
 // ---------------------------------------------------------------------------
 // USERBOT_DIALOG_PREFETCH: сколько диалогов подтягивать на прогрев.
-// Валидируем: NaN/<=0/слишком много → дефолт 500. Cap=5000 защищает от
+// Валидируем: NaN/<=0/слишком много → дефолт 1500. Cap=5000 защищает от
 // опечатки (50000 = 5+ минут висения через прокси, FloodWait риск).
+//
+// Дефолт 1500 (а не 500): у магазина накопилось 500+ активных клиентов в
+// чате менеджера. Когда был лимит 500, давние клиенты вне топа выпадали
+// из кэша и ловили «Could not find input entity» (Костя 10.05.2026).
 const DIALOG_PREFETCH_RAW = Number(process.env.USERBOT_DIALOG_PREFETCH);
 const DIALOG_PREFETCH_LIMIT =
   Number.isFinite(DIALOG_PREFETCH_RAW) && DIALOG_PREFETCH_RAW > 0
     ? Math.min(DIALOG_PREFETCH_RAW, 5000)
-    : 500;
+    : 1500;
 
 // Дедупликация in-flight prefetch: параллельные вызовы (стартовый +
 // retry на entity-miss + setInterval) могли бы удвоить-утроить трафик
@@ -163,12 +167,29 @@ async function prefetchDialogs(reason = 'startup') {
   prefetchInFlight = (async () => {
     try {
       const t0 = Date.now();
-      const dialogs = await client.getDialogs({ limit: DIALOG_PREFETCH_LIMIT });
+      // Подтягиваем основной список и архивные отдельно. У Кости магазин
+      // — он архивирует диалоги завершённых клиентов, чтобы не засирать
+      // главный список. Без archived:true эти клиенты не попадут в кэш
+      // entities, и любой авто-нотифай им упадёт с «not find input entity».
+      const [main, archived] = await Promise.all([
+        client.getDialogs({ limit: DIALOG_PREFETCH_LIMIT }),
+        client
+          .getDialogs({ limit: DIALOG_PREFETCH_LIMIT, archived: true })
+          .catch((err) => {
+            // Архив может быть пустой/недоступный — не ронять весь прогрев.
+            console.warn(
+              '[userbot] архивные диалоги не подтянулись:',
+              redactSecrets(err?.message || err),
+            );
+            return [];
+          }),
+      ]);
+      const total = (main?.length ?? 0) + (archived?.length ?? 0);
       const elapsed = Date.now() - t0;
       console.log(
-        `[userbot] прогрет кэш диалогов (${reason}): ${dialogs?.length ?? 0} штук за ${elapsed}мс`,
+        `[userbot] прогрет кэш диалогов (${reason}): ${main?.length ?? 0} основных + ${archived?.length ?? 0} архивных = ${total} за ${elapsed}мс`,
       );
-      return dialogs?.length ?? 0;
+      return total;
     } catch (err) {
       const errText = redactSecrets(err?.message || err);
       console.error(`[userbot] прогрев кэша диалогов упал (${reason}):`, errText);
@@ -366,28 +387,66 @@ app.post('/send-message', checkSecret, async (req, res) => {
     }
     await rateLimitedDelay();
 
-    // sendMessage с retry на «Could not find the input entity».
-    // Это типовая GramJS-ошибка после рестарта: entity-кэш в памяти
-    // пустой, до первого NewMessage от клиента библиотека не знает
-    // его access_hash. На таком фейле делаем prefetchDialogs (подтянет
-    // последние 500 диалогов и наполнит кэш) и пробуем ещё раз. Один
-    // retry — потому что если клиент за пределами 500 dialogs, второй
-    // прогрев тоже не поможет, и тогда нужно ждать пока клиент сам
-    // напишет.
+    // sendMessage с многоступенчатым fallback на «Could not find the input
+    // entity». Это типовая GramJS-ошибка: entity-кэш в памяти пустой
+    // (рестарт), либо клиент архивирован у менеджера (не вошёл в prefetch),
+    // либо клиент вообще никогда не писал и не в первых N диалогов.
+    //
+    // Цепочка попыток:
+    //   1. sendMessage(BigInt(chatId)) — обычный путь, работает если
+    //      access_hash есть в кэше GramJS.
+    //   2. Если есть @username — getEntity('@username') делает RPC
+    //      contacts.resolveUsername → возвращает свежий access_hash без
+    //      необходимости иметь диалог. Это РЕАЛЬНЫЙ фикс для архивных
+    //      клиентов магазина: даже если они вне prefetch, по @username
+    //      Telegram даст entity напрямую.
+    //   3. prefetchDialogs (включая archived:true) и повторный
+    //      sendMessage — для клиентов без публичного username.
+    //
+    // Если все три упали — пробрасываем в общий catch (failed в логе).
     const ENTITY_NOT_FOUND_RX = /Could not find the input entity/i;
+    // Telegram username: 5-32 символа, начинается с буквы, дальше латиница/
+    // цифры/подчёркивания (https://core.telegram.org/method/account.checkUsername).
+    // Defense-in-depth: даже если из api-процесса прилетит мусор (битая запись
+    // в БД, кириллица, эмодзи), не дёргаем resolveUsername с произвольной
+    // строкой — иначе GramJS либо упадёт с непонятной ошибкой, либо в худшем
+    // случае срезолвит чужой аккаунт по случайному совпадению.
+    const USERNAME_RX = /^[a-zA-Z][a-zA-Z0-9_]{4,31}$/;
+    const rawUsername = req.body?.username
+      ? String(req.body.username).replace(/^@/, '').trim()
+      : '';
+    const cleanUsername = USERNAME_RX.test(rawUsername) ? rawUsername : '';
     let result;
     try {
       result = await client.sendMessage(BigInt(chatId), { message: text });
     } catch (firstErr) {
       const firstMsg = firstErr?.errorMessage || firstErr?.message || String(firstErr);
       if (!ENTITY_NOT_FOUND_RX.test(firstMsg)) throw firstErr;
-      console.warn(
-        `[userbot] entity ${chatId} не в кэше, прогреваю диалоги и пробую ещё раз...`,
-      );
-      await prefetchDialogs(`entity-miss-${chatId}`);
-      // Второй заход — если опять «not find», пробрасываем как обычную
-      // ошибку, попадёт в общий catch ниже и залогируется как failed.
-      result = await client.sendMessage(BigInt(chatId), { message: text });
+
+      // Попытка 2: resolveUsername. Срабатывает если у клиента есть
+      // публичный @username (большинство клиентов магазина — есть).
+      if (cleanUsername) {
+        try {
+          console.warn(
+            `[userbot] entity ${chatId} не в кэше, ресолвлю через @${cleanUsername}...`,
+          );
+          const entity = await client.getEntity(`@${cleanUsername}`);
+          result = await client.sendMessage(entity, { message: text });
+        } catch (resolveErr) {
+          const resolveMsg = resolveErr?.errorMessage || resolveErr?.message || String(resolveErr);
+          console.warn(`[userbot] resolveUsername @${cleanUsername} упал: ${resolveMsg}`);
+          // Fall through to attempt 3.
+        }
+      }
+
+      // Попытка 3: прогреть диалоги (включая архивные) и retry.
+      if (!result) {
+        console.warn(
+          `[userbot] entity ${chatId} не достали через username, прогреваю диалоги...`,
+        );
+        await prefetchDialogs(`entity-miss-${chatId}`);
+        result = await client.sendMessage(BigInt(chatId), { message: text });
+      }
     }
     const messageId = result?.id ? Number(result.id) : null;
 
