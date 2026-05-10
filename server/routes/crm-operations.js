@@ -1736,7 +1736,7 @@ crmOperationsRouter.post(
 crmOperationsRouter.post(
   "/api/admin/crm/orders/:id/issue",
   authMiddleware,
-  (req, res) => {
+  async (req, res) => {
     try {
       const { id } = req.params;
       const { payment_type, payment_account_id, amount, payment_notes } =
@@ -1864,7 +1864,29 @@ crmOperationsRouter.post(
         "Выдача заказа",
       );
 
-      res.json({ order: updatedOrder, transaction });
+      // Авто-уведомление клиенту о выдаче (Pavel 10.05.2026: «когда пробил
+      // заказ — не отправляет»). Раньше /issue имел отдельный поток без
+      // вызова auto-notify, поэтому статус delivered шёл молча. Сейчас
+      // дёргаем тот же helper что в PATCH /orders/:id.
+      let autoNotification = null;
+      if (updatedOrder.status !== previousStatus) {
+        try {
+          autoNotification = await autoNotifyForStatusChange({
+            orderId: id,
+            newStatus: updatedOrder.status,
+            previousStatus,
+            reactivate: false,
+          });
+        } catch (notifyErr) {
+          console.error("[crm] /issue auto-notify error:", notifyErr);
+          autoNotification = {
+            sent: false,
+            reason: "notify_internal_error",
+          };
+        }
+      }
+
+      res.json({ order: updatedOrder, transaction, auto_notification: autoNotification });
     } catch (error) {
       console.error("[crm] Issue order error:", error);
       res.status(500).json({ error: "failed", message: error.message });
