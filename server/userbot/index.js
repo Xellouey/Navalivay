@@ -68,6 +68,150 @@ myUserId = String(me?.id);
 console.log(`[userbot] подключён как @${me?.username || me?.firstName} (id=${myUserId})`);
 
 // ---------------------------------------------------------------------------
+// State-переменные процесса: объявлены здесь, потому что prefetchDialogs
+// (ниже) на них ссылается через замыкание. Если оставить объявления ниже
+// — TDZ при первом вызове prefetchDialogs('startup'). Подробные комментарии
+// у каждой — там, где переменная исторически жила (поиск по имени).
+// ---------------------------------------------------------------------------
+let sessionDead = false;
+let sessionDeadReason = null;
+const SESSION_DEAD_PATTERNS = [
+  /AUTH_KEY_UNREGISTERED/i,
+  /AUTH_KEY_DUPLICATED/i,
+  /SESSION_REVOKED/i,
+  /SESSION_EXPIRED/i,
+  /USER_DEACTIVATED/i,
+];
+function looksLikeSessionDead(errorText) {
+  if (!errorText) return false;
+  const s = String(errorText);
+  return SESSION_DEAD_PATTERNS.some((rx) => rx.test(s));
+}
+// FloodWait state: Telegram возвращает FLOOD_WAIT_X (X секунд) при превышении
+// rate-limit. До истечения окна fast-fail все запросы — иначе Telegram
+// эскалирует и может забанить аккаунт.
+let floodWaitUntil = 0; // ms timestamp
+// Shutdown guard: PM2 шлёт SIGTERM, потом kill_timeout → SIGKILL. Защита от
+// двойного disconnect (GramJS на double-disconnect ловит unhandledRejection).
+let shuttingDown = false;
+
+// ---------------------------------------------------------------------------
+// Прогрев кэша диалогов — критично для auto-notify.
+//
+// Контекст бага: GramJS кэширует InputPeer (access_hash клиентов) в памяти
+// процесса. StringSession сохраняет auth_key/dc_id, но НЕ entity-кэш.
+// После рестарта userbot client.sendMessage(BigInt(userId)) падает с
+// «Could not find the input entity» для всех клиентов, кроме тех, кто
+// успел написать менеджеру первым (NewMessage event подгружает entity).
+//
+// Костя 10.05.2026: «отправили заказ #5788 готов к выдаче — клиенту
+// не дошло, потом он сам забрал и сообщение о выдаче дошло». Между
+// этими событиями был ручной send через OrderBotNotifier, который
+// добавил клиента в кэш — потому второй auto-notify уже сработал.
+//
+// Решение: на старте подтягиваем последние N диалогов через
+// getDialogs — GramJS внутри кладёт всех users/chats в entity cache.
+// Запускаем в фоне, чтобы не задерживать HTTP listener (PM2 даст
+// kill_timeout если старт > 10с). Через прокси getDialogs может
+// занять 5-30 секунд в зависимости от пинга и количества диалогов.
+//
+// Лимит 500: у активного магазина обычно <500 живых клиентских
+// диалогов, остальные — прокручены и редко получают авто-уведомления.
+// Если такой давний клиент сделает заказ — auto-notify упадёт раз,
+// потом клиент напишет (получит уведомление о статусе вручную) и
+// после этого auto-notify будет работать.
+// ---------------------------------------------------------------------------
+// USERBOT_DIALOG_PREFETCH: сколько диалогов подтягивать на прогрев.
+// Валидируем: NaN/<=0/слишком много → дефолт 500. Cap=5000 защищает от
+// опечатки (50000 = 5+ минут висения через прокси, FloodWait риск).
+const DIALOG_PREFETCH_RAW = Number(process.env.USERBOT_DIALOG_PREFETCH);
+const DIALOG_PREFETCH_LIMIT =
+  Number.isFinite(DIALOG_PREFETCH_RAW) && DIALOG_PREFETCH_RAW > 0
+    ? Math.min(DIALOG_PREFETCH_RAW, 5000)
+    : 500;
+
+// Дедупликация in-flight prefetch: параллельные вызовы (стартовый +
+// retry на entity-miss + setInterval) могли бы удвоить-утроить трафик
+// через прокси и приблизить FloodWait. Возвращаем shared Promise.
+let prefetchInFlight = null;
+async function prefetchDialogs(reason = 'startup') {
+  // Не прогреваем когда:
+  //  - идёт shutdown (избегаем лога после httpServer.close и гонки с disconnect)
+  //  - сессия мёртвая (Telegram отозвал — getDialogs всё равно упадёт)
+  //  - активен FloodWait (любой RPC сейчас усугубит penalty от Telegram)
+  if (shuttingDown || sessionDead) return 0;
+  if (floodWaitUntil > Date.now()) {
+    console.log(
+      `[userbot] прогрев пропущен (${reason}): активен FloodWait до ${new Date(floodWaitUntil).toISOString()}`,
+    );
+    return 0;
+  }
+  if (prefetchInFlight) return prefetchInFlight;
+  // .finally цепочкой — критично! Если бы мы повесили .finally отдельно
+  // (на возвращённый IIFE-promise), `prefetchInFlight` хранил бы
+  // оригинальный promise, и микротаск его resolve мог стартовать ДО
+  // setter'а `prefetchInFlight=null`. Узкое окно, но реальное:
+  // параллельный entity-miss retry увидел бы prefetchInFlight===null
+  // и запустил второй getDialogs → удвоение трафика через прокси,
+  // ровно та регрессия от которой защищались.
+  //
+  // Цепочкой `.finally(() => { ... = null })` делаем, что:
+  //  1) prefetchInFlight указывает на .finally-promise,
+  //  2) этот promise резолвится только ПОСЛЕ того, как нулящий callback
+  //     отработал — следовательно any `await prefetchInFlight` гарантирует
+  //     prefetchInFlight===null к моменту возврата управления caller'у.
+  prefetchInFlight = (async () => {
+    try {
+      const t0 = Date.now();
+      const dialogs = await client.getDialogs({ limit: DIALOG_PREFETCH_LIMIT });
+      const elapsed = Date.now() - t0;
+      console.log(
+        `[userbot] прогрет кэш диалогов (${reason}): ${dialogs?.length ?? 0} штук за ${elapsed}мс`,
+      );
+      return dialogs?.length ?? 0;
+    } catch (err) {
+      const errText = redactSecrets(err?.message || err);
+      console.error(`[userbot] прогрев кэша диалогов упал (${reason}):`, errText);
+      // Если getDialogs упал из-за отозванной сессии — пометить
+      // sessionDead, чтобы /health начал отдавать ok=false и api не
+      // тратил попытки на мёртвый userbot (см. логику ниже у
+      // looksLikeSessionDead и SESSION_DEAD_PATTERNS).
+      if (!sessionDead && looksLikeSessionDead(err?.errorMessage || err?.message || '')) {
+        sessionDead = true;
+        sessionDeadReason = errText;
+        console.error(
+          '[userbot] СЕССИЯ МЁРТВАЯ (определено при прогреве):',
+          errText,
+          '— /health будет возвращать ok=false. Останови процесс,',
+          'удали data/userbot.session, пройди login заново.',
+        );
+      }
+      return 0;
+    }
+  })().finally(() => {
+    prefetchInFlight = null;
+  });
+  return prefetchInFlight;
+}
+
+// fire-and-forget: HTTP listener стартует параллельно, первые
+// /send-message могут падать пока прогрев идёт — на такой фейл есть
+// retry внутри /send-message (он подтянет тот же in-flight Promise).
+prefetchDialogs('startup');
+
+// Периодический догрев каждые 30 минут: новые клиенты, написавшие
+// менеджеру за день, попадают в кэш через NewMessage events. Но
+// если процесс долго живёт, кто-то из старых может вытесниться
+// (cap у GramJS внутри ~10к entities). Перезаливаем для надёжности.
+const DIALOG_REFRESH_INTERVAL_MS = 30 * 60 * 1000;
+const dialogRefreshTimer = setInterval(
+  () => prefetchDialogs('periodic'),
+  DIALOG_REFRESH_INTERVAL_MS,
+);
+// .unref() чтобы таймер не держал event loop при shutdown.
+dialogRefreshTimer.unref?.();
+
+// ---------------------------------------------------------------------------
 // Кэшированные prepared statements: better-sqlite3 кэширует внутри по строке
 // SQL, но создание Statement-объекта стоит ~0.1ms на каждый вызов prepare.
 // При burst 100 входящих/сек это заметная нагрузка → ловим один раз на старте.
@@ -155,32 +299,9 @@ function checkSecret(req, res, next) {
 // без поднятия реального MTProto/HTTP — импорт index.js стартует процесс.
 const rateLimitedDelay = createRateLimiter({ maxPerSecond: MAX_SENDS_PER_SECOND });
 
-// Когда Telegram отзывает сессию (менеджер сделал «Завершить другие сеансы»
-// в Настройках Telegram), GramJS продолжает держать TCP/MTProto-соединение,
-// и `client.connected` возвращает true. Но каждый sendMessage будет падать
-// с AUTH_KEY_UNREGISTERED. Для api-процесса это выглядит как «health=ok,
-// но send всегда падает» → каждый PATCH делает userbot-попытку → таймаут
-// → fallback. Шум в логах + лишние 1-3 сек на каждом PATCH.
-//
-// Защита: при первой AUTH_KEY_UNREGISTERED-ошибке выставляем sessionDead
-// и /health начинает возвращать ok=false. Кэш health в userbot-client.js
-// быстро это подхватит и api перестанет дёргать userbot до перезапуска
-// процесса с новой сессией.
-let sessionDead = false;
-let sessionDeadReason = null;
-
-const SESSION_DEAD_PATTERNS = [
-  /AUTH_KEY_UNREGISTERED/i,
-  /AUTH_KEY_DUPLICATED/i,
-  /SESSION_REVOKED/i,
-  /SESSION_EXPIRED/i,
-  /USER_DEACTIVATED/i,
-];
-function looksLikeSessionDead(errorText) {
-  if (!errorText) return false;
-  const s = String(errorText);
-  return SESSION_DEAD_PATTERNS.some((rx) => rx.test(s));
-}
+// Объявления sessionDead/SESSION_DEAD_PATTERNS/looksLikeSessionDead подняты
+// выше (после client.connect() + getMe()) — prefetchDialogs на них ссылается.
+// Контекст по «когда сессия мёртвая» см. там же.
 
 app.get('/health', (req, res) => {
   res.json({
@@ -212,10 +333,9 @@ function parseUserChatId(raw) {
 // MESSAGE_TOO_LONG. Отрезать самим, чтобы не тратить попытку.
 const MAX_TEXT_LEN = 4096;
 
-// FloodWait state: Telegram возвращает FLOOD_WAIT_X (X секунд) при превышении
-// rate-limit. GramJS бросает err с .seconds. До истечения окна fast-fail
-// все запросы — иначе Telegram эскалирует и может забанить аккаунт.
-let floodWaitUntil = 0; // ms timestamp
+// floodWaitUntil объявлен выше (около prefetchDialogs) — prefetchDialogs
+// тоже его читает, чтобы не дёргать getDialogs во время FLOOD_WAIT окна.
+// GramJS бросает err с .seconds или строкой FLOOD_WAIT_N.
 
 app.post('/send-message', checkSecret, async (req, res) => {
   try {
@@ -246,7 +366,29 @@ app.post('/send-message', checkSecret, async (req, res) => {
     }
     await rateLimitedDelay();
 
-    const result = await client.sendMessage(BigInt(chatId), { message: text });
+    // sendMessage с retry на «Could not find the input entity».
+    // Это типовая GramJS-ошибка после рестарта: entity-кэш в памяти
+    // пустой, до первого NewMessage от клиента библиотека не знает
+    // его access_hash. На таком фейле делаем prefetchDialogs (подтянет
+    // последние 500 диалогов и наполнит кэш) и пробуем ещё раз. Один
+    // retry — потому что если клиент за пределами 500 dialogs, второй
+    // прогрев тоже не поможет, и тогда нужно ждать пока клиент сам
+    // напишет.
+    const ENTITY_NOT_FOUND_RX = /Could not find the input entity/i;
+    let result;
+    try {
+      result = await client.sendMessage(BigInt(chatId), { message: text });
+    } catch (firstErr) {
+      const firstMsg = firstErr?.errorMessage || firstErr?.message || String(firstErr);
+      if (!ENTITY_NOT_FOUND_RX.test(firstMsg)) throw firstErr;
+      console.warn(
+        `[userbot] entity ${chatId} не в кэше, прогреваю диалоги и пробую ещё раз...`,
+      );
+      await prefetchDialogs(`entity-miss-${chatId}`);
+      // Второй заход — если опять «not find», пробрасываем как обычную
+      // ошибку, попадёт в общий catch ниже и залогируется как failed.
+      result = await client.sendMessage(BigInt(chatId), { message: text });
+    }
     const messageId = result?.id ? Number(result.id) : null;
 
     // Отвечаем сразу, журналим асинхронно через setImmediate — caller
@@ -368,7 +510,8 @@ const httpServer = app.listen(PORT, '127.0.0.1', () => {
 // (по умолчанию 1.6с) — SIGKILL. Если первая попытка disconnect долгая,
 // а второй сигнал прилетает — игнорируем, чтобы не плодить параллельные
 // disconnect()-вызовы (GramJS на double-disconnect ловит unhandled rejection).
-let shuttingDown = false;
+// shuttingDown объявлен выше (рядом с prefetchDialogs) — он там нужен,
+// чтобы prefetchDialogs ранним выходом избегал гонок при shutdown.
 async function shutdown(signal) {
   if (shuttingDown) return;
   shuttingDown = true;
