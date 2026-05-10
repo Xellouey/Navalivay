@@ -3,10 +3,10 @@
     <div class="flex flex-wrap items-start justify-between gap-3">
       <div class="space-y-1">
         <h3 class="text-lg font-semibold text-gray-900">
-          Бот в Telegram Business-режиме
+          Telegram-уведомления клиентам
         </h3>
         <p class="text-sm text-gray-600">
-          Авто-уведомления о статусе заказа, быстрые ответы и выдача кодов доступа.
+          Сообщения о статусе заказа уходят клиенту от вашего имени. Здесь редактируются шаблоны и быстрые ответы.
         </p>
       </div>
       <button
@@ -27,21 +27,15 @@
       <!-- Status overview ---------------------------------------------------->
       <div class="mt-6 grid grid-cols-1 gap-3 md:grid-cols-3">
         <div class="rounded-xl border border-gray-200 bg-gray-50/70 p-4">
-          <p class="text-xs uppercase tracking-wide text-gray-500">Подключение</p>
+          <p class="text-xs uppercase tracking-wide text-gray-500">Связь с Telegram</p>
           <p class="mt-1 text-sm font-semibold" :class="connectionLabelClass">
             {{ connectionLabel }}
           </p>
-          <p
-            v-if="status.active_connection?.username"
-            class="mt-0.5 text-xs text-gray-600"
-          >@{{ status.active_connection.username }}</p>
-          <p v-else-if="status.connections?.length" class="mt-0.5 text-xs text-gray-600">
-            история подключений: {{ status.connections.length }}
-          </p>
+          <p class="mt-0.5 text-xs text-gray-600">{{ deliveryHint }}</p>
         </div>
 
         <div class="rounded-xl border border-gray-200 bg-gray-50/70 p-4">
-          <p class="text-xs uppercase tracking-wide text-gray-500">Авто-ответы</p>
+          <p class="text-xs uppercase tracking-wide text-gray-500">Авто-ответы FAQ</p>
           <label class="mt-1 inline-flex items-center gap-2 text-sm font-medium text-gray-700">
             <input
               type="checkbox"
@@ -53,7 +47,12 @@
             {{ status.auto_replies_enabled ? 'Включены' : 'Выключены' }}
           </label>
           <p class="mt-1 text-xs text-gray-500">
-            Активных: {{ status.quick_reply_active_count }} из {{ status.quick_reply_count }}
+            <template v-if="status.quick_reply_count === 0">
+              Шаблонов ещё нет. Добавьте их во вкладке «Быстрые ответы».
+            </template>
+            <template v-else>
+              Включено {{ status.quick_reply_active_count }} из {{ status.quick_reply_count }}. Срабатывают на ключевые слова в сообщениях клиента.
+            </template>
           </p>
         </div>
 
@@ -86,7 +85,7 @@
       <div v-if="activeTab === 'quick'" class="mt-4 space-y-3">
         <div class="flex items-start justify-between gap-3">
           <p class="text-sm text-gray-600">
-            Бот сравнивает входящее сообщение клиента с ключевыми словами (без учёта регистра, ё/е и диакритики). Первое совпадение по слову или подстроке выигрывает.
+            Бот ищет ключевые слова в сообщении клиента (регистр и буквы е/ё не важны). Срабатывает первое совпадение в порядке сортировки.
           </p>
           <button
             type="button"
@@ -101,7 +100,7 @@
           v-if="!quickReplies.length"
           class="rounded-xl border border-dashed border-gray-300 bg-gray-50 px-6 py-8 text-center text-sm text-gray-500"
         >
-          Быстрых ответов ещё нет. Добавьте хотя бы один и включите авто-ответы выше.
+          Быстрых ответов пока нет. Добавьте первый и включите авто-ответы в карточке выше.
         </div>
         <ul v-else class="space-y-2">
           <li
@@ -157,7 +156,7 @@
       <!-- Tab: Status templates ---------------------------------------------->
       <div v-if="activeTab === 'status'" class="mt-4 space-y-3">
         <p class="text-sm text-gray-600">
-          Шаблоны системных уведомлений. Доступные плейсхолдеры:
+          Тексты, которые уходят клиенту при смене статуса заказа. В шаблон можно вставить:
           <code class="rounded bg-gray-100 px-1 py-0.5">{order_number}</code>,
           <code class="rounded bg-gray-100 px-1 py-0.5">{final_amount}</code>,
           <code class="rounded bg-gray-100 px-1 py-0.5">{customer_name}</code>,
@@ -200,10 +199,10 @@
             <p class="mt-1 text-[11px] text-gray-500">
               <template v-if="statusBodyDirty[event]">
                 <span class="font-semibold text-amber-700">Не сохранено.</span>
-                Кликните вне поля чтобы применить.
+                Кликните вне поля, чтобы применить.
               </template>
               <template v-else>
-                Изменения сохраняются автоматически когда вы кликните вне поля.
+                Сохраняется автоматически, когда уйдёте из поля.
               </template>
             </p>
           </div>
@@ -213,10 +212,10 @@
       <!-- Tab: Log ----------------------------------------------------------->
       <div v-if="activeTab === 'log'" class="mt-4 space-y-3">
         <p class="text-sm text-gray-600">
-          Последние сообщения бота. Зелёная метка — доставлено, красная — отказ.
+          Последние 50 сообщений. Зелёная метка: ушло клиенту, красная: не дошло.
         </p>
         <div v-if="!logItems.length" class="rounded-xl border border-dashed border-gray-300 bg-gray-50 px-6 py-8 text-center text-sm text-gray-500">
-          Пока ничего не записано. Журнал начнёт заполняться после подключения бота.
+          Пока пусто. Записи появятся после первого сообщения.
         </div>
         <ul v-else class="space-y-2">
           <li
@@ -280,7 +279,7 @@
             placeholder="работаете, часы, до скольки"
           />
           <p class="text-[11px] text-gray-500">
-            Регистр и ё/е без разницы. Бот срабатывает на полное слово в сообщении или вхождение подстроки.
+            Регистр и буквы е/ё не важны. Сработает, если найдёт целое слово или такую же подстроку в сообщении.
           </p>
         </div>
         <div class="space-y-2">
@@ -372,6 +371,8 @@ interface BotStatus {
   bot_process_online: boolean;
   active_connection: BotConnection | null;
   connections: BotConnection[];
+  userbot_connected: boolean;
+  delivery_ready: boolean;
   quick_reply_count: number;
   quick_reply_active_count: number;
   status_templates: StatusTemplate[];
@@ -445,13 +446,13 @@ function logBadge(entry: BotLogEntry): { text: string; cls: string } | null {
  */
 function describeBotError(raw: string): string {
   if (!raw) return 'Не дошло.';
-  if (raw.includes('BUSINESS_PEER_USAGE_MISSING')) return 'Клиент отключил бота в чате.';
-  if (raw.includes('PEER_ID_INVALID')) return 'У клиента нет чата с менеджером.';
+  if (raw.includes('BUSINESS_PEER_USAGE_MISSING')) return 'Клиент отключил бота в своём чате.';
+  if (raw.includes('PEER_ID_INVALID')) return 'Клиент ни разу не писал в чат.';
   if (raw.includes('USER_IS_BLOCKED') || raw.toLowerCase().includes('user is blocked')) {
     return 'Клиент заблокировал бота.';
   }
   if (raw.toLowerCase().includes('timeout') || raw.toLowerCase().includes('fetch failed')) {
-    return 'Сетевой сбой.';
+    return 'Сеть подвела, Telegram не ответил вовремя.';
   }
   return raw;
 }
@@ -497,23 +498,33 @@ const statusEvents = computed(() => {
   return (status.value?.status_templates || []).map((t) => t.event);
 });
 
+// Главный индикатор: может ли вообще что-то уйти клиенту. Userbot —
+// основной канал (без 24ч окна); Business-mode — fallback. Если
+// работает хоть один — «Готова». Если оба отвалились — «Не готова».
 const connectionLabel = computed(() => {
   if (!status.value) return "—";
-  if (!status.value.bot_token_configured) return "Нет токена";
-  if (!status.value.bot_token_live) return "Токен не принят";
-  if (!status.value.active_connection) return "Не подключён";
-  return "Подключён";
+  if (status.value.userbot_connected) return "Работает";
+  if (status.value.bot_token_live && status.value.active_connection) return "Работает резервный канал";
+  if (!status.value.bot_token_configured) return "Не настроен";
+  if (!status.value.bot_token_live) return "Не подключён";
+  return "Не работает";
 });
 
 const connectionLabelClass = computed(() => {
   if (!status.value) return "text-gray-700";
-  if (status.value.active_connection?.is_enabled && status.value.active_connection?.can_reply) {
-    return "text-emerald-700";
+  if (status.value.delivery_ready) return "text-emerald-700";
+  return "text-red-700";
+});
+
+const deliveryHint = computed(() => {
+  if (!status.value) return "";
+  if (status.value.userbot_connected) {
+    return "Сообщения идут от вашего имени без ограничений по времени.";
   }
-  if (!status.value.bot_token_configured || !status.value.bot_token_live) {
-    return "text-amber-700";
+  if (status.value.bot_token_live && status.value.active_connection) {
+    return "Основной канал не подключён. Резервный пишет только клиентам, которые писали в чат за последние сутки.";
   }
-  return "text-gray-700";
+  return "Сообщения клиентам сейчас не уходят.";
 });
 
 function getTemplateForEvent(event: string): StatusTemplate | null {

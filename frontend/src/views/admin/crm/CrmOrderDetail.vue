@@ -519,9 +519,9 @@
           </div>
         </section>
 
-        <!-- Уведомление клиента через бота (Business mode) — для свободного
-             текста (бронь вкуса, договорённость, ответ на вопрос). Авто-
-             отправка по смене статуса делается на бэке в PATCH /orders/:id. -->
+        <!-- Свободное сообщение клиенту через userbot (Business mode — fallback)
+             для брони вкуса, договорённости, ответа на вопрос. Авто-отправка
+             по смене статуса делается на бэке в PATCH /orders/:id. -->
         <OrderBotNotifier
           v-if="currentOrder?.id"
           :order-id="currentOrder.id"
@@ -1007,7 +1007,7 @@ function buildSaveSuccessMessage(notify: AutoNotificationResult | null | undefin
   const base = 'Изменения сохранены. Остатки и суммы пересчитаны.'
   if (!notify) return base
   if (notify.sent) {
-    return `${base} Клиенту ушло уведомление в Telegram.`
+    return `${base} Клиенту ушло сообщение в Telegram.`
   }
   if (notify.skipped) {
     // Часть skip-причин (status_unchanged, no_event_for_status) не нуждаются
@@ -1016,7 +1016,7 @@ function buildSaveSuccessMessage(notify: AutoNotificationResult | null | undefin
     const skipText = describeSkipReason(notify.reason)
     return skipText ? `${base} ${skipText}` : base
   }
-  return `${base} Уведомление клиенту не ушло: ${describeSendError(notify.reason)}.`
+  return `${base} Сообщение клиенту не ушло: ${describeSendError(notify.reason)}.`
 }
 
 function describeSkipReason(reason: string | undefined): string {
@@ -1026,32 +1026,34 @@ function describeSkipReason(reason: string | undefined): string {
     case 'no_event_for_status':
       return ''
     case 'customer_not_verified':
-      return 'Клиенту не выдан прайс с кодом.'
+      return 'Клиенту не отправили: он ещё не получил прайс с кодом.'
     case 'customer_has_no_telegram_id':
-      return 'У клиента нет Telegram.'
+      return 'Клиенту не отправили: у него не привязан Telegram.'
     case 'order_has_no_customer':
-      return 'Без клиента.'
+      return 'Клиенту не отправили: к заказу не привязан клиент.'
     case 'template_inactive_or_missing':
-      return 'Шаблон выключен.'
+      return 'Клиенту не отправили: шаблон для этого статуса выключен.'
     case 'template_empty':
-      return 'Шаблон пустой.'
+      return 'Клиенту не отправили: шаблон пустой. Заполните его в настройках бота.'
     case 'no_active_connection':
-      return 'Бот не подключён.'
+      return 'Клиенту не отправили: бот не подключён.'
+    case 'userbot_ambiguous':
+      return 'Клиенту не отправили: не получилось определить, в какой чат писать. Напишите ему вручную.'
     case 'client_inactive_over_24h':
-      return 'Клиент не писал в чат больше суток — Telegram блокирует.'
+      return 'Клиенту не отправили: клиент молчал больше суток, резервный канал не сработал. Напишите ему вручную.'
     default:
-      return reason ? `Не отправлено: ${reason}` : ''
+      return reason ? `Клиенту не отправили: ${reason}.` : ''
   }
 }
 
 function describeSendError(reason: string | undefined): string {
-  if (!reason) return 'отказ Telegram'
-  if (reason === 'send_failed') return 'отказ Telegram'
+  if (!reason) return 'Telegram отклонил сообщение'
+  if (reason === 'send_failed') return 'Telegram отклонил сообщение'
   if (reason === 'notify_internal_error') return 'внутренняя ошибка'
-  if (reason === 'bot_token_missing') return 'нет токена бота'
-  if (reason === 'invalid_payload') return 'неполный пакет данных'
-  if (reason.includes('BUSINESS_PEER_USAGE_MISSING')) return 'клиент отключил бота в чате'
-  if (reason.includes('PEER_ID_INVALID')) return 'у клиента нет чата с менеджером'
+  if (reason === 'bot_token_missing') return 'бот не настроен'
+  if (reason === 'invalid_payload') return 'внутренняя ошибка'
+  if (reason.includes('BUSINESS_PEER_USAGE_MISSING')) return 'клиент отключил бота в своём чате'
+  if (reason.includes('PEER_ID_INVALID')) return 'клиент ни разу не писал в чат'
   if (reason.includes('USER_IS_BLOCKED') || reason.includes('user is blocked')) return 'клиент заблокировал бота'
   return reason
 }

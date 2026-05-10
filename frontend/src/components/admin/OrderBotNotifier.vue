@@ -2,12 +2,11 @@
   <section class="rounded-2xl border border-blue-100 bg-blue-50/50 p-4 shadow-sm">
     <div class="flex flex-wrap items-start justify-between gap-3">
       <div class="space-y-1">
-        <h3 class="flex items-center gap-2 text-sm font-semibold text-blue-900">
-          <span class="inline-flex h-5 w-5 items-center justify-center rounded-full bg-blue-600 text-[11px] font-bold text-white" aria-hidden="true">B</span>
+        <h3 class="text-sm font-semibold text-blue-900">
           Написать клиенту
         </h3>
         <p class="text-xs text-blue-900/70">
-          Свободное сообщение в чат. Уведомления о статусе уходят автоматически.
+          Сообщение уйдёт в Telegram от вашего имени. О смене статуса клиент получает оповещение сам.
         </p>
       </div>
       <button
@@ -18,7 +17,7 @@
       >Обновить</button>
     </div>
 
-    <p v-if="loadingStatus" class="mt-3 text-xs text-blue-700">Проверяем подключение бота…</p>
+    <p v-if="loadingStatus" class="mt-3 text-xs text-blue-700">Проверяем связь с Telegram…</p>
     <p v-else-if="!botAvailable" class="mt-3 rounded-md bg-amber-100/70 px-3 py-2 text-xs text-amber-900">
       {{ unavailabilityMessage }}
     </p>
@@ -66,6 +65,8 @@ interface BotStatus {
   bot_token_error: string | null;
   bot_process_online: boolean;
   active_connection: { id: string; username: string | null } | null;
+  userbot_connected: boolean;
+  delivery_ready: boolean;
 }
 
 const status = ref<BotStatus | null>(null);
@@ -75,20 +76,15 @@ const sending = ref(false);
 const message = ref<string>("");
 const messageVariant = ref<"success" | "error">("success");
 
-const botAvailable = computed(() => {
-  if (!status.value) return false;
-  if (!status.value.bot_token_configured) return false;
-  if (!status.value.bot_token_live) return false;
-  if (!status.value.active_connection) return false;
-  return true;
-});
+// Доставка работает если жив userbot ИЛИ подключён Business-бот.
+// Userbot — основной канал, Business mode — fallback (см. auto-notify).
+const botAvailable = computed(() => Boolean(status.value?.delivery_ready));
 
 const unavailabilityMessage = computed(() => {
   if (!status.value) return "";
-  if (!status.value.bot_token_configured) return "Нет токена бота.";
-  if (!status.value.bot_token_live) return "Токен не принят.";
-  if (!status.value.active_connection) return "Бот не подключён.";
-  return "Бот недоступен.";
+  if (!status.value.bot_token_configured) return "Бот не настроен.";
+  if (!status.value.userbot_connected && !status.value.bot_token_live) return "Связь с Telegram потеряна.";
+  return "Сейчас отправить нельзя. Попробуйте через минуту или нажмите «Обновить».";
 });
 
 async function fetchStatus() {
@@ -122,7 +118,7 @@ async function send() {
       const errorCode = (data as { error?: string }).error;
       throw new Error(messageFromError(errorCode, response.status, data));
     }
-    message.value = "Сообщение отправлено клиенту.";
+    message.value = "Ушло клиенту.";
     messageVariant.value = "success";
     customText.value = "";
   } catch (err) {
@@ -136,19 +132,19 @@ async function send() {
 function messageFromError(code: string | undefined, httpStatus: number, data: unknown): string {
   switch (code) {
     case "text_required":
-      return "Введите текст.";
+      return "Сначала напишите текст.";
     case "text_too_long":
-      return "Слишком длинное сообщение.";
+      return "Сообщение длиннее 4000 символов. Сократите.";
     case "no_active_connection":
-      return "Бот не подключён.";
+      return "Связь с Telegram потеряна.";
     case "customer_has_no_telegram_id":
-      return "У клиента нет Telegram.";
+      return "У клиента не привязан Telegram.";
     case "order_not_found":
-      return "Заказ не найден.";
+      return "Заказ не найден. Обновите страницу.";
     case "send_failed":
-      return "Telegram не принял сообщение.";
+      return "Telegram не принял сообщение. Попробуйте ещё раз.";
     default:
-      return (data as { message?: string })?.message || `Ошибка ${httpStatus}`;
+      return (data as { message?: string })?.message || `Что-то пошло не так (код ${httpStatus}).`;
   }
 }
 

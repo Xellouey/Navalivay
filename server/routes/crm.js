@@ -749,17 +749,25 @@ crmRouter.get('/api/admin/crm/bot/status', authMiddleware, async (req, res) => {
     // bot_token_live = реально дёргаем Telegram getMe (с кэшем 60с) — это
     // надёжнее чем просто проверка наличия env-переменной.
     const tokenCheck = await checkBotTokenLive();
+    // userbot_available = MTProto-клиент от лица аккаунта менеджера живой
+    // (см. server/userbot/index.js + utils/userbot-client.js). Это сейчас
+    // основной канал отправки, без 24-часового окна Telegram Business.
+    const userbotConnected = await isUserbotAvailable();
     res.json({
       auto_replies_enabled: isAutoReplyEnabled(),
       bot_token_configured: Boolean((process.env.BOT_TOKEN || '').trim()),
       bot_token_live: tokenCheck.ok,
       bot_token_error: tokenCheck.ok ? null : tokenCheck.reason,
-      // Совместимость с UI: «процесс онлайн» теперь = «токен живой и есть
-      // активный коннект». Так пользователь видит готовность отправки,
-      // а не наличие отдельного процесса (которого UI не должен знать).
       bot_process_online: tokenCheck.ok && Boolean(active),
       active_connection: active,
       connections,
+      // Userbot: основной канал отправки. true = шлёт от лица менеджера
+      // через MTProto, без 24-часового окна Business mode.
+      userbot_connected: userbotConnected,
+      // delivery_ready: хотя бы один канал доставки рабочий (userbot ИЛИ
+      // Business mode). UI ориентируется на это для общей доступности
+      // отправки клиентам — менеджеру не важен конкретный канал.
+      delivery_ready: userbotConnected || (tokenCheck.ok && Boolean(active)),
       quick_reply_count: listQuickReplies().length,
       quick_reply_active_count: listQuickReplies({ activeOnly: true }).length,
       status_templates: listStatusTemplates(),
