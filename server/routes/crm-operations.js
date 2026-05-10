@@ -275,7 +275,7 @@ crmOperationsRouter.get("/api/admin/crm/orders", authMiddleware, (req, res) => {
       const itemsRows = db
         .prepare(
           `
-        SELECT oi.*, p.description as product_description 
+        SELECT oi.*, p.description as product_description
         FROM order_items oi
         LEFT JOIN products p ON oi.product_id = p.id
         WHERE oi.order_id IN (${placeholders})
@@ -290,9 +290,41 @@ crmOperationsRouter.get("/api/admin/crm/orders", authMiddleware, (req, res) => {
         return acc;
       }, new Map());
 
+      // Подтягиваем последний auto-notify статус по каждому заказу из
+      // bot_message_log (Костя 10.05.2026: «для всех случаев неуспешной
+      // отправки сделай красной рамкой»). Берём последнюю исходящую
+      // запись с meta.auto=1 — это и есть финальный исход auto-notify.
+      const notifyRows = db
+        .prepare(
+          `SELECT json_extract(meta, '$.order_id') AS order_id, meta, id
+             FROM bot_message_log
+            WHERE direction = 'out'
+              AND json_extract(meta, '$.auto') = 1
+              AND json_extract(meta, '$.order_id') IN (${placeholders})
+            ORDER BY id DESC`,
+        )
+        .all(...orderIds);
+
+      const notifyByOrder = new Map();
+      for (const row of notifyRows) {
+        if (notifyByOrder.has(row.order_id)) continue; // уже взяли последний (ORDER BY id DESC)
+        let parsed = {};
+        try {
+          parsed = JSON.parse(row.meta || "{}");
+        } catch (e) {
+          /* noop */
+        }
+        notifyByOrder.set(row.order_id, {
+          status: parsed.outcome === "sent" ? "sent" : "failed",
+          error: parsed.error || null,
+          via: parsed.via || parsed.source || null,
+        });
+      }
+
       ordersWithItems = orders.map((order) => ({
         ...order,
         items: itemsByOrder.get(order.id) || [],
+        auto_notification: notifyByOrder.get(order.id) || null,
       }));
     }
 

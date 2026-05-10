@@ -488,6 +488,9 @@
                   order.needs_manager_action && order.manager_action_type === 'modified'
                     ? 'ring-2 ring-orange-400 border-orange-300 bg-orange-50/30'
                     : '',
+                  order.auto_notification?.status === 'failed' && !order.needs_manager_action
+                    ? 'ring-2 ring-red-400 border-red-300 bg-red-50/30'
+                    : '',
                 ]"
                 :draggable="!order.needs_manager_action"
                 @dragstart="onDragStart(order)"
@@ -507,6 +510,11 @@
                       v-else-if="order.needs_manager_action && order.manager_action_type === 'cancelled_by_customer'"
                       class="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold text-red-700"
                     >Отменен покупателем</span>
+                    <span
+                      v-else-if="order.auto_notification?.status === 'failed'"
+                      class="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold text-red-700"
+                      :title="order.auto_notification?.error || 'Уведомление клиенту не доставлено'"
+                    >Не дошло клиенту</span>
                   </div>
                   <!-- Кнопка отмены (не показываем для action_required) -->
                   <button
@@ -566,6 +574,15 @@
                           : "Написать"
                       }}</span>
                     </button>
+                  </div>
+                  <!-- Авто-уведомление клиенту не дошло. Менеджер должен
+                       написать вручную через кнопку «Написать» выше. -->
+                  <div
+                    v-if="order.auto_notification?.status === 'failed'"
+                    class="rounded-md border border-red-200 bg-red-50 px-2 py-1.5 text-[11px] font-medium text-red-700"
+                    :title="order.auto_notification?.error || ''"
+                  >
+                    Не удалось отправить сообщение клиенту
                   </div>
                   <div
                     v-if="

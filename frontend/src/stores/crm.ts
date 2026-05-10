@@ -134,6 +134,14 @@ export interface Order {
   wholesale_tier_label?: string | null;
   wholesale_min_amount?: number | null;
   items?: OrderItem[];
+  // Свод последней авто-отправки уведомления клиенту (sent/failed). null
+  // если для этого заказа auto-notify ещё не запускался. Используется для
+  // подсветки красной рамкой в карточке заказа когда сообщение не дошло.
+  auto_notification?: {
+    status: 'sent' | 'failed';
+    error?: string | null;
+    via?: string | null;
+  } | null;
 }
 
 export interface OrderItem {
