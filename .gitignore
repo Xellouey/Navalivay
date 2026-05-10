@@ -62,6 +62,10 @@ uploads/
 # Userbot session — содержит токен Telegram-аккаунта менеджера, КРИТИЧЕСКИ
 # секретный. Никогда не коммитим. На сервере хранится с chmod 600.
 server/data/userbot.session
+# Временные файлы non-interactive login (SMS-код и 2FA-пароль). Скрипт их
+# удаляет после прочтения, но если процесс упал — могут остаться на диске.
+server/data/userbot.code
+server/data/userbot.password
 
 # Локальные настройки Claude Code (launch.json, скилы и т.п.)
 .claude/
