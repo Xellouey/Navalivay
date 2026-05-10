@@ -1090,7 +1090,24 @@ crmRouter.post('/api/admin/crm/bot/send-custom', authMiddleware, async (req, res
           via: 'userbot',
         });
       }
-      console.warn('[crm] userbot send-custom failed, fallback to business mode:', ubResult.error);
+      // ambiguous = userbot мог отправить (timeout, потерянный ответ).
+      // Не делаем fallback — иначе клиент получит дубль в чате. Возвращаем
+      // 502 с outcome, фронт показывает «не уверены, проверьте чат».
+      if (ubResult.outcome === 'ambiguous') {
+        console.warn(
+          '[crm] userbot send-custom ambiguous (мог отправить, ответ потерян):',
+          ubResult.error,
+        );
+        return res.status(502).json({
+          error: 'userbot_ambiguous',
+          message: 'Сообщение, возможно, отправлено через userbot, но ответ потерян. Проверьте чат с клиентом перед повторной отправкой.',
+          via: 'userbot',
+        });
+      }
+      console.warn(
+        `[crm] userbot send-custom ${ubResult.outcome}, fallback to business mode:`,
+        ubResult.error,
+      );
     }
 
     // Fallback на Business mode (Bot API).

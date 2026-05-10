@@ -929,7 +929,32 @@ crmOperationsRouter.patch(
       const hasItemsPayload = Array.isArray(items);
       const workingStatuses = ["in_progress", "completed", "delivered"];
 
+      // Захват «реального» статуса до транзакции для anti-double-notify (см.
+      // ниже). Заполняется первой инструкцией внутри tx(), чтобы значение
+      // отражало состояние БД на момент после получения write-лока, а не
+      // снимок из строки 904 (он мог устареть, если параллельный PATCH
+      // успел зафиксироваться).
+      let statusAtTxStart = order.status;
+
       const tx = db.transaction(() => {
+        // Перечитываем статус под write-лок'ом транзакции. better-sqlite3
+        // в WAL-режиме выполняет db.transaction() как IMMEDIATE — write-лок
+        // берётся при первой записи, но мы хотим дополнительно убедиться,
+        // что дальнейшие проверки `order.status` соответствуют реальности
+        // на момент старта транзакции. Это закрывает race window:
+        //
+        //   PATCH A:  SELECT order (status='new') ... begin tx ... commit
+        //   PATCH B:  SELECT order (status='new', стейл!) ... begin tx (после A)
+        //
+        // Без этого re-read обе транзакции считали бы, что статус был 'new',
+        // и обе вызывали бы auto-notify, отправляя клиенту дубль.
+        const fresh = db
+          .prepare(`SELECT status, stock_deducted, previous_status FROM orders WHERE id = ?`)
+          .get(id);
+        if (fresh) {
+          statusAtTxStart = fresh.status;
+        }
+
         const updateFields = [];
         const updateValues = [];
 
@@ -1455,10 +1480,12 @@ crmOperationsRouter.patch(
         `)
         .all(id);
 
-      if (updated.status !== order.status) {
+      // Используем statusAtTxStart (свежее SELECT под write-лок'ом транзакции),
+      // а не order.status (снимок до tx). См. комментарий внутри tx().
+      if (updated.status !== statusAtTxStart) {
         recordStatusChange(
           id,
-          order.status,
+          statusAtTxStart,
           updated.status,
           statusChangeNote || "Изменение статуса",
         );
@@ -1467,6 +1494,13 @@ crmOperationsRouter.patch(
       // Авто-уведомление клиенту при смене статуса (Костя 8.05.2026: «нужно
       // нажали собрано → ему отослалось»). Любая ошибка отправки не должна
       // ломать PATCH — фронт показывает плашку по полю auto_notification.
+      //
+      // Anti-double-notify: сравниваем updated.status со statusAtTxStart
+      // (статус под write-лок'ом транзакции), а не с order.status (снимок
+      // ДО tx). Это гарантирует, что при двух параллельных PATCH одного
+      // заказа auto-notify сработает только у того запроса, чей tx реально
+      // выполнил переход. Второй увидит updated.status === statusAtTxStart
+      // и пропустит отправку — клиенту не уйдёт дубль.
       //
       // Race window (acknowledged): tx() со сменой статуса уже зафиксирован
       // выше, recordStatusChange() — отдельная вставка после tx(). Если
@@ -1478,12 +1512,12 @@ crmOperationsRouter.patch(
       // saveSuccess сразу после ответа, может перезапустить через
       // /bot/send-custom если что-то не дошло.
       let autoNotification = null;
-      if (updated.status !== order.status) {
+      if (updated.status !== statusAtTxStart) {
         try {
           autoNotification = await autoNotifyForStatusChange({
             orderId: id,
             newStatus: updated.status,
-            previousStatus: order.status,
+            previousStatus: statusAtTxStart,
             reactivate: Boolean(reactivate),
           });
         } catch (notifyErr) {

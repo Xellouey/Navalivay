@@ -62,13 +62,23 @@ echo -e "${GREEN}✓ Директории проверены${NC}"
 
 # 5. Перезапуск сервисов
 echo -e "\n${YELLOW}[5/6] Перезапуск сервисов...${NC}"
-sudo systemctl restart navalivay-server
-if systemctl list-unit-files --type=service --no-legend | awk '{print $1}' | grep -qx 'navalivay-bot.service'; then
-    sudo systemctl restart navalivay-bot
+
+# Если на сервере PM2 — рестартуем через ecosystem (production setup),
+# иначе фоллбэкаемся на systemd (dev/staging).
+if command -v pm2 >/dev/null 2>&1 && pm2 jlist 2>/dev/null | grep -q 'navalivay-api'; then
+    echo -e "${YELLOW}  Используем PM2${NC}"
+    pm2 startOrReload "${SERVER_DIR}/ecosystem.config.cjs" --env production
+    pm2 save
+    echo -e "${GREEN}✓ PM2 процессы перезапущены${NC}"
 else
-    echo -e "${YELLOW}! navalivay-bot.service не установлен, пропускаем${NC}"
+    sudo systemctl restart navalivay-server
+    if systemctl list-unit-files --type=service --no-legend | awk '{print $1}' | grep -qx 'navalivay-bot.service'; then
+        sudo systemctl restart navalivay-bot
+    else
+        echo -e "${YELLOW}! navalivay-bot.service не установлен, пропускаем${NC}"
+    fi
+    echo -e "${GREEN}✓ Сервисы перезапущены через systemd${NC}"
 fi
-echo -e "${GREEN}✓ Сервисы перезапущены${NC}"
 
 # 6. Проверка статуса
 echo -e "\n${YELLOW}[6/6] Проверка статуса сервисов...${NC}"
@@ -97,6 +107,27 @@ if curl -sf http://127.0.0.1:8082/api/health > /dev/null; then
 else
     echo -e "${RED}✗ API не отвечает${NC}"
     exit 1
+fi
+
+# Userbot smoke-test: ждём connected:true до 30с, иначе жалуемся, но
+# деплой всё равно считаем успешным — auto-notify фоллбэкнется на Business mode.
+if pm2 jlist 2>/dev/null | grep -q 'navalivay-userbot'; then
+    echo -e "\n${YELLOW}Проверка userbot /health...${NC}"
+    USERBOT_OK=false
+    for i in $(seq 1 15); do
+        if response=$(curl -fsS -m 2 http://127.0.0.1:8083/health 2>/dev/null) && \
+           echo "$response" | grep -q '"connected":true'; then
+            echo -e "${GREEN}✓ Userbot connected (попытка ${i})${NC}"
+            USERBOT_OK=true
+            break
+        fi
+        sleep 2
+    done
+    if ! $USERBOT_OK; then
+        echo -e "${YELLOW}⚠ Userbot не вышел в connected:true за 30с${NC}"
+        echo -e "${YELLOW}  auto-notify будет работать через Business mode (fallback)${NC}"
+        echo -e "${YELLOW}  логи: pm2 logs navalivay-userbot --lines 50${NC}"
+    fi
 fi
 
 echo -e "\n${GREEN}=======================================${NC}"

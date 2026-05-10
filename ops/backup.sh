@@ -61,12 +61,44 @@ fi
 echo -e "\n${YELLOW}[3/3] Бэкап конфигурации...${NC}"
 if [ -f "${PROJECT_DIR}/server/.env" ]; then
     cp "${PROJECT_DIR}/server/.env" "${BACKUP_PATH}/.env"
+    chmod 600 "${BACKUP_PATH}/.env"
     echo -e "${GREEN}✓ .env сохранен${NC}"
 fi
 
 if [ -f "${PROJECT_DIR}/server/data/admin.json" ]; then
     cp "${PROJECT_DIR}/server/data/admin.json" "${BACKUP_PATH}/admin.json"
     echo -e "${GREEN}✓ admin.json сохранен${NC}"
+fi
+
+# Userbot session - КРИТИЧНО чувствительна (= ключ к Telegram-аккаунту менеджера).
+# Сохраняем в шифрованном виде, если задан BACKUP_GPG_RECIPIENT, иначе
+# просто chmod 600 рядом с .env. Без шифрования утечка дампа бэкапа =
+# угон аккаунта; с шифрованием — нужен приватный ключ для распаковки.
+USERBOT_SESSION="${PROJECT_DIR}/server/data/userbot.session"
+if [ -f "${USERBOT_SESSION}" ]; then
+    if [ -n "${BACKUP_GPG_RECIPIENT:-}" ] && command -v gpg >/dev/null 2>&1; then
+        gpg --batch --yes --trust-model always \
+            --encrypt --recipient "${BACKUP_GPG_RECIPIENT}" \
+            --output "${BACKUP_PATH}/userbot.session.gpg" \
+            "${USERBOT_SESSION}"
+        chmod 600 "${BACKUP_PATH}/userbot.session.gpg"
+        echo -e "${GREEN}✓ userbot.session сохранён (encrypted, GPG)${NC}"
+    else
+        cp "${USERBOT_SESSION}" "${BACKUP_PATH}/userbot.session"
+        chmod 600 "${BACKUP_PATH}/userbot.session"
+        echo -e "${YELLOW}⚠ userbot.session сохранён БЕЗ шифрования${NC}"
+        echo -e "${YELLOW}  установи BACKUP_GPG_RECIPIENT и пакет gpg, чтобы шифровать${NC}"
+    fi
+fi
+
+# proxychains conf - не критично, но удобно держать вместе
+if [ -r /etc/proxychains4.conf ]; then
+    sudo cp /etc/proxychains4.conf "${BACKUP_PATH}/proxychains4.conf" 2>/dev/null || \
+        cp /etc/proxychains4.conf "${BACKUP_PATH}/proxychains4.conf" 2>/dev/null || true
+    if [ -f "${BACKUP_PATH}/proxychains4.conf" ]; then
+        chmod 600 "${BACKUP_PATH}/proxychains4.conf"
+        echo -e "${GREEN}✓ /etc/proxychains4.conf сохранён${NC}"
+    fi
 fi
 
 # Создание info файла

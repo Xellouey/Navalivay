@@ -105,13 +105,26 @@ export const STATUS_TO_EVENT = Object.freeze({
  * @param {string} args.newStatus  — новый статус заказа после PATCH
  * @param {string|null} [args.previousStatus] — что было до смены
  * @param {boolean} [args.reactivate=false] — это восстановление из cancelled?
- * @returns {Promise<{sent: boolean, reason?: string, event?: string, telegram_message_id?: number|null, skipped?: boolean}>}
+ * @returns {Promise<{
+ *   sent: boolean,
+ *   reason?: string,
+ *   event?: string,
+ *   telegram_message_id?: number|null,
+ *   skipped?: boolean,
+ *   via?: 'userbot'|'business_mode'
+ * }>}
  *   - sent=true:        ушло в Telegram (telegram_message_id может быть null,
- *                       если Telegram вернул ok=true без message_id — редко)
+ *                       если Telegram вернул ok=true без message_id — редко).
+ *                       `via` указывает канал отправки.
  *   - sent=false +
- *     skipped=true:     не отправили намеренно (reason описывает причину)
+ *     skipped=true:     не отправили намеренно (reason описывает причину).
  *   - sent=false +
- *     skipped не задан: попытка была, Telegram отказал (reason — описание)
+ *     skipped не задан: попытка была, отправка не удалась. Особый случай:
+ *                       reason='userbot_ambiguous' = userbot мог отправить,
+ *                       но ответ потерян (timeout) — fallback не делаем
+ *                       во избежание дубля. Менеджер должен глазами
+ *                       проверить чат и при необходимости отправить через
+ *                       /bot/send-custom повторно.
  */
 export async function autoNotifyForStatusChange({
   orderId,
@@ -201,8 +214,33 @@ export async function autoNotifyForStatusChange({
         via: 'userbot',
       };
     }
-    // Userbot ответил ошибкой — он же сам её залогировал. Падаем на fallback.
-    console.warn('[auto-notify] userbot failed, fallback to business mode:', ubResult.error);
+    // ambiguous = userbot мог отправить (HTTP timeout, потерянный ответ).
+    // Если сделать fallback на business mode, рискуем продублировать
+    // сообщение клиенту в чате — это видно невооружённым глазом и роняет
+    // доверие к боту. Лучше вернуть «неизвестно» и логировать предупреждение.
+    if (ubResult.outcome === 'ambiguous') {
+      console.warn(
+        '[auto-notify] userbot send ambiguous (mб отправил, ответ потерян), без fallback:',
+        ubResult.error,
+      );
+      // safeLog заведём с outcome=ambiguous, чтобы менеджер видел в журнале
+      // и мог проверить чат вручную. Сам userbot уже не успел залогировать
+      // (ответ оборвался) — пишем сами для аудита.
+      safeLog({ outcome: 'ambiguous', via: 'userbot', error: ubResult.error });
+      return {
+        sent: false,
+        reason: 'userbot_ambiguous',
+        event,
+        via: 'userbot',
+      };
+    }
+    // outcome='rejected'|'unreachable' — userbot гарантированно не отправил,
+    // fallback безопасен. Лог уже сделан userbot/index.js (если он жил
+    // достаточно, чтобы записать) или там его нет (unreachable) — без проблем.
+    console.warn(
+      `[auto-notify] userbot ${ubResult.outcome}, fallback to business mode:`,
+      ubResult.error,
+    );
   }
 
   // Шаг 3.2: fallback на Business mode менеджера (Bot API).
