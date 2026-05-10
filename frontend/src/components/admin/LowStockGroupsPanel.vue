@@ -36,24 +36,34 @@
         Заканчивается
         <span class="text-orange-500/80">({{ endingGroups.length }})</span>
       </div>
-      <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        <article
-          v-for="group in endingVisible"
-          :key="group.id"
-          :data-low-stock-group-id="group.id"
-          class="flex gap-3 rounded-lg border border-orange-200 bg-white p-3 shadow-sm"
-        >
-          <LowStockGroupTile
-            :group="group"
-            :cover-image="coverImages[group.id]"
-            :busy="busyGroupId === group.id"
-            :menu-open="openMenuId === group.id"
-            :reasons="reasonsList"
-            severity="ending"
-            @toggle-menu="toggleMenu(group.id)"
-            @pause="(reason) => onPause(group.id, reason)"
-          />
-        </article>
+      <div
+        v-for="bucket in endingByCategory"
+        :key="bucket.name"
+        class="mb-3 last:mb-0"
+      >
+        <h4 class="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-orange-900/60">
+          {{ bucket.name }}
+          <span class="ml-1 text-orange-900/40">({{ bucket.items.length }})</span>
+        </h4>
+        <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <article
+            v-for="group in bucket.items"
+            :key="group.id"
+            :data-low-stock-group-id="group.id"
+            class="flex gap-3 rounded-lg border border-orange-200 bg-white p-3 shadow-sm"
+          >
+            <LowStockGroupTile
+              :group="group"
+              :cover-image="coverImages[group.id]"
+              :busy="busyGroupId === group.id"
+              :menu-open="openMenuId === group.id"
+              :reasons="reasonsList"
+              severity="ending"
+              @toggle-menu="toggleMenu(group.id)"
+              @pause="(reason) => onPause(group.id, reason)"
+            />
+          </article>
+        </div>
       </div>
     </div>
 
@@ -63,24 +73,34 @@
         Нет в наличии
         <span class="text-red-500/80">({{ endedGroups.length }})</span>
       </div>
-      <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        <article
-          v-for="group in endedVisible"
-          :key="group.id"
-          :data-low-stock-group-id="group.id"
-          class="flex gap-3 rounded-lg border border-red-200 bg-red-50/40 p-3 shadow-sm"
-        >
-          <LowStockGroupTile
-            :group="group"
-            :cover-image="coverImages[group.id]"
-            :busy="busyGroupId === group.id"
-            :menu-open="openMenuId === group.id"
-            :reasons="reasonsList"
-            severity="ended"
-            @toggle-menu="toggleMenu(group.id)"
-            @pause="(reason) => onPause(group.id, reason)"
-          />
-        </article>
+      <div
+        v-for="bucket in endedByCategory"
+        :key="bucket.name"
+        class="mb-3 last:mb-0"
+      >
+        <h4 class="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-red-900/60">
+          {{ bucket.name }}
+          <span class="ml-1 text-red-900/40">({{ bucket.items.length }})</span>
+        </h4>
+        <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <article
+            v-for="group in bucket.items"
+            :key="group.id"
+            :data-low-stock-group-id="group.id"
+            class="flex gap-3 rounded-lg border border-red-200 bg-red-50/40 p-3 shadow-sm"
+          >
+            <LowStockGroupTile
+              :group="group"
+              :cover-image="coverImages[group.id]"
+              :busy="busyGroupId === group.id"
+              :menu-open="openMenuId === group.id"
+              :reasons="reasonsList"
+              severity="ended"
+              @toggle-menu="toggleMenu(group.id)"
+              @pause="(reason) => onPause(group.id, reason)"
+            />
+          </article>
+        </div>
       </div>
     </div>
 
@@ -151,6 +171,30 @@ const endingVisible = computed(() =>
 const endedVisible = computed(() =>
   visibleGroups.value.filter((g) => g.totalStock === 0),
 );
+
+/**
+ * Группировка по категориям внутри каждой секции (Костя 10.05.2026:
+ * «снюс жидкости жидкости снюс — это всё так разбросано, трудно
+ * уловить»). Порядок категорий — как они впервые встречаются в массиве,
+ * который уже отсортирован бэком; внутри категории сохраняется тот
+ * же порядок.
+ */
+function groupByCategory(list: typeof groups.value) {
+  const buckets = new Map<string, typeof list>();
+  for (const g of list) {
+    const key = g.categoryName || "Без категории";
+    const existing = buckets.get(key);
+    if (existing) {
+      existing.push(g);
+    } else {
+      buckets.set(key, [g]);
+    }
+  }
+  return Array.from(buckets, ([name, items]) => ({ name, items }));
+}
+
+const endingByCategory = computed(() => groupByCategory(endingVisible.value));
+const endedByCategory = computed(() => groupByCategory(endedVisible.value));
 
 const reasonsList = computed(() => {
   const fromServer = lowStockReasons.value;
