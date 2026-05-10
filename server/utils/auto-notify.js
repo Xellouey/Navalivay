@@ -149,30 +149,19 @@ export async function autoNotifyForStatusChange({
   }
 
   // Шаг 1: подготовить текст по шаблону. Тут же вычитываются order/customer.
+  // Сюда относится template_empty / template_not_found / order_not_found —
+  // в этом случае у нас нет chatId/customerId, полноценную запись в журнал
+  // не сложить. Не логируем (рамка не появится, но это и крайне редкий
+  // case настройки — обычно шаблоны на месте).
   const prepared = prepareStatusNotification({ orderId, event });
   if (!prepared.ok) {
     return { sent: false, skipped: true, reason: prepared.reason, event };
   }
 
-  // Шаг 2: верификация клиента — без этого Telegram Business не разрешит
-  // боту писать в чат (нет инициированного диалога). Это и было ограничение,
-  // про которое Костя написал: «всё равно человек пишет нам первый, чтобы
-  // получить прайс — это и есть инициация».
-  if (!isCustomerVerified(prepared.customerTelegramId)) {
-    return { sent: false, skipped: true, reason: 'customer_not_verified', event };
-  }
-
-  // Шаг 3: пробуем сначала через userbot (MTProto от лица аккаунта менеджера).
-  // У userbot нет 24-часового окна Telegram Business и сообщения приходят
-  // клиенту в его обычный чат с менеджером — он не отличает их от ручных.
-  // Userbot живёт отдельным PM2-процессом, ходит через локальный HTTP.
-  //
-  // Логика fallback: если userbot недоступен (HTTP timeout, /health = false)
-  // или конкретная отправка упала — пробуем Business mode (старый путь),
-  // чтобы хотя бы для активных в 24ч клиентов сообщение всё равно ушло.
-
-  // baseLog общий для обоих каналов (userbot и business mode) — чтобы
-  // в журнале admin'а видна была единая запись с outcome=sent/failed.
+  // baseLog общий для обоих каналов (userbot и business mode) и для
+  // skipped-кейсов после prepared — чтобы в журнале admin'а видна была
+  // единая запись с outcome=sent/failed/skipped. Объявляем ДО первого
+  // skipped-return, иначе TDZ — safeLog ссылается на baseLog по замыканию.
   const baseLog = {
     chatId: prepared.chatId,
     customerId: prepared.customerId,
@@ -197,12 +186,39 @@ export async function autoNotifyForStatusChange({
     }
   }
 
+  // Шаг 2: верификация клиента — без этого Telegram Business не разрешит
+  // боту писать в чат (нет инициированного диалога). Это и было ограничение,
+  // про которое Костя написал: «всё равно человек пишет нам первый, чтобы
+  // получить прайс — это и есть инициация».
+  if (!isCustomerVerified(prepared.customerTelegramId)) {
+    // Дима 10.05.2026: «при любых ошибках должна быть рамка». Логируем
+    // skipped, чтобы плашка «не удалось отправить» переживала рефреш
+    // админки (без записи в bot_message_log GET /orders ничего не находит
+    // и UI остаётся чистым после перезагрузки).
+    safeLog({ outcome: 'skipped', reason: 'customer_not_verified' });
+    return { sent: false, skipped: true, reason: 'customer_not_verified', event };
+  }
+
+  // Шаг 3: пробуем сначала через userbot (MTProto от лица аккаунта менеджера).
+  // У userbot нет 24-часового окна Telegram Business и сообщения приходят
+  // клиенту в его обычный чат с менеджером — он не отличает их от ручных.
+  // Userbot живёт отдельным PM2-процессом, ходит через локальный HTTP.
+  //
+  // Логика fallback: если userbot недоступен (HTTP timeout, /health = false)
+  // или конкретная отправка упала — пробуем Business mode (старый путь),
+  // чтобы хотя бы для активных в 24ч клиентов сообщение всё равно ушло.
+
   // Шаг 3.1: пробуем userbot
   if (await isUserbotAvailable()) {
     const ubResult = await sendViaUserbot({
       chatId: prepared.chatId,
       text: prepared.text,
       orderId,
+      // auto:true — попадает в meta лога userbot. По этому флагу
+      // GET /api/admin/crm/orders подтягивает последний auto-notify
+      // для плашки «не удалось отправить» (без флага запись путалась бы
+      // с manual /bot/send-custom).
+      auto: true,
     });
     if (ubResult.ok) {
       // userbot.js сам логирует в bot_message_log с meta.source='userbot',
@@ -246,11 +262,15 @@ export async function autoNotifyForStatusChange({
   // Шаг 3.2: fallback на Business mode менеджера (Bot API).
   const active = getActiveBusinessConnection();
   if (!active) {
+    // Userbot не сработал и Business mode не настроен — по сути «не отправили».
+    // Логируем skipped, чтобы рамка уцелела через рефреш админки.
+    safeLog({ outcome: 'skipped', reason: 'no_active_connection' });
     return { sent: false, skipped: true, reason: 'no_active_connection', event };
   }
 
   // 24-часовое окно проверяется только для Business mode — у userbot его нет.
   if (hasAnyInbound(prepared.chatId) && !hasRecentInbound(prepared.chatId)) {
+    safeLog({ outcome: 'skipped', reason: 'client_inactive_over_24h' }, active.id);
     return { sent: false, skipped: true, reason: 'client_inactive_over_24h', event };
   }
 

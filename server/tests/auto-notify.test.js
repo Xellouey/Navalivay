@@ -166,7 +166,7 @@ resetDb();
 }
 
 // --- TEST 6: customer не верифицирован --------------------------------------
-console.log('\n=== Test 6: клиент не верифицирован → skip ===');
+console.log('\n=== Test 6: клиент не верифицирован → skip + лог skipped ===');
 resetDb();
 makeOrderAndCustomer({ telegramId: '222', verified: false, totalOrders: 0 });
 registerConnection();
@@ -178,6 +178,15 @@ registerConnection();
   });
   assertEq(result.sent, false, 'sent=false');
   assertEq(result.reason, 'customer_not_verified', 'reason=customer_not_verified');
+  // Дима 10.05.2026: «при любых ошибках должна быть рамка». Запись в журнал
+  // нужна, чтобы плашка переживала рефреш админки (GET /orders подтягивает
+  // последний auto-notify по meta.auto=1).
+  const logRows = db.prepare(`SELECT meta FROM bot_message_log ORDER BY id DESC LIMIT 1`).all();
+  assertEq(logRows.length, 1, 'запись skipped попала в bot_message_log');
+  const meta = JSON.parse(logRows[0].meta || '{}');
+  assertEq(meta.outcome, 'skipped', 'meta.outcome=skipped');
+  assertEq(meta.reason, 'customer_not_verified', 'meta.reason=customer_not_verified');
+  assertEq(meta.auto, true, 'meta.auto=true (auto-notify, не manual)');
 }
 
 // --- TEST 7: шаблон выключен ------------------------------------------------
@@ -200,10 +209,11 @@ upsertStatusTemplate('order_assembled', {
 }
 
 // --- TEST 8: нет активного коннекта ----------------------------------------
-console.log('\n=== Test 8: business_connection отсутствует → skip ===');
+console.log('\n=== Test 8: business_connection отсутствует → skip + лог skipped ===');
 resetDb();
 makeOrderAndCustomer({ telegramId: '444', verified: true });
 // Сознательно не регистрируем коннект.
+_resetHealthCacheForTests(); // userbot health-кэш мог быть прогретый предыдущим тестом
 {
   const result = await autoNotifyForStatusChange({
     orderId: 'o_test',
@@ -211,6 +221,12 @@ makeOrderAndCustomer({ telegramId: '444', verified: true });
     previousStatus: 'new',
   });
   assertEq(result.reason, 'no_active_connection', 'reason=no_active_connection');
+  const logRows = db.prepare(`SELECT meta FROM bot_message_log ORDER BY id DESC LIMIT 1`).all();
+  assertEq(logRows.length, 1, 'запись skipped попала в bot_message_log');
+  const meta = JSON.parse(logRows[0].meta || '{}');
+  assertEq(meta.outcome, 'skipped', 'meta.outcome=skipped');
+  assertEq(meta.reason, 'no_active_connection', 'meta.reason=no_active_connection');
+  assertEq(meta.auto, true, 'meta.auto=true');
 }
 
 // --- TEST 9: happy path с мок-fetch ----------------------------------------
@@ -726,6 +742,57 @@ try {
   // его не пишет (это другой процесс). Поэтому в auto-notify добавляться
   // не должно — иначе будет дубль когда оба процесса живы.
   assertEq(after, before, 'auto-notify не записал дубль (userbot пишет сам)');
+} finally {
+  globalThis.fetch = originalFetch;
+  _resetHealthCacheForTests();
+}
+
+// --- TEST 22: client_inactive_over_24h → лог skipped с business connection -
+// Если в bot_message_log уже есть хоть одна 'in' запись от клиента (он когда-то
+// писал боту), но за последние 23 часа активности нет — Telegram Business не
+// разрешит ответить (BUSINESS_PEER_USAGE_MISSING). Пропускаем до Telegram'а
+// и логируем skipped с businessConnectionId, чтобы рамка осталась после рефреша.
+console.log('\n=== Test 22: 24h окно истекло → skip + лог skipped ===');
+resetDb();
+makeOrderAndCustomer({ telegramId: '22222', verified: true });
+registerConnection();
+_resetHealthCacheForTests();
+// Старая входящая запись (24h+ назад) — есть прошлый диалог, но окно истекло.
+db.prepare(
+  `INSERT INTO bot_message_log
+     (business_connection_id, chat_id, customer_id, customer_telegram_id,
+      direction, message_type, text, meta, created_at)
+   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+).run('conn1', '22222', 'c_test', '22222', 'in', 'incoming', 'привет', '{}', '2020-01-01 00:00:00');
+
+// userbot должен быть «недоступен», чтобы код пошёл в business mode (там
+// проверка 24h-окна и лежит). Mock health=fail.
+globalThis.fetch = async (url) => {
+  const u = String(url);
+  if (u.includes('127.0.0.1') && u.includes('/health')) {
+    return { ok: false, status: 503, async json() { return {}; } };
+  }
+  throw new Error(`unexpected fetch ${u} (Telegram не должен дёрнуться)`);
+};
+try {
+  const result = await autoNotifyForStatusChange({
+    orderId: 'o_test',
+    newStatus: 'in_progress',
+    previousStatus: 'new',
+  });
+  assertEq(result.sent, false, 'sent=false');
+  assertEq(result.reason, 'client_inactive_over_24h', 'reason=client_inactive_over_24h');
+  // В журнале две записи: исходный 'in' (мы вставили выше) + наш skipped 'out'.
+  const skippedRow = db
+    .prepare(`SELECT * FROM bot_message_log WHERE direction='out' ORDER BY id DESC LIMIT 1`)
+    .get();
+  assert(skippedRow, 'skipped запись существует');
+  const meta = JSON.parse(skippedRow.meta || '{}');
+  assertEq(meta.outcome, 'skipped', 'meta.outcome=skipped');
+  assertEq(meta.reason, 'client_inactive_over_24h', 'meta.reason=client_inactive_over_24h');
+  assertEq(meta.auto, true, 'meta.auto=true');
+  // Привязка к business connection — попытка планировалась через business mode.
+  assertEq(skippedRow.business_connection_id, 'conn1', 'business_connection_id=conn1');
 } finally {
   globalThis.fetch = originalFetch;
   _resetHealthCacheForTests();

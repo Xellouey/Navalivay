@@ -32,6 +32,44 @@ function getNextNumber(table, field) {
   return (row?.maxNum || 0) + 1;
 }
 
+// Человекочитаемое описание причин неуспешного auto-notify для tooltip
+// плашки на карточке заказа. Менеджеру не должно показываться сырое
+// «customer_not_verified» — он не разработчик, ему нужно понятное объяснение.
+// На фронте дублировать этот словарь смысла нет: одна точка правды на бэке.
+function describeAutoNotifyReason(reason, error) {
+  if (!reason && !error) return null;
+  const key = String(reason || '').trim();
+  // Порядок case'ов соответствует порядку проверок в auto-notify.js — так
+  // легче держать словарь в синхроне при добавлении новых skip-причин.
+  switch (key) {
+    // Шаг 1 (prepareStatusNotification, сейчас не логируется в bot_message_log,
+    // но если кто-то добавит safeLog — описание уже готово).
+    case 'order_not_found':
+      return 'Заказ не найден.';
+    case 'customer_has_no_telegram_id':
+      return 'У клиента не привязан Telegram.';
+    case 'template_inactive_or_missing':
+      return 'Шаблон сообщения выключен в настройках бота.';
+    case 'template_empty':
+      return 'Шаблон пустой. Заполните текст в настройках бота.';
+    // Шаг 2: верификация клиента.
+    case 'customer_not_verified':
+      return 'Клиент ещё не подтвердил Telegram. Пусть нажмёт /start в боте.';
+    // Шаг 3.1: userbot отправил, но ответ потерялся (timeout, разрыв TCP).
+    case 'userbot_ambiguous':
+      return 'Telegram не ответил вовремя. Проверьте чат с клиентом перед повторной отправкой.';
+    // Шаг 3.2: business mode fallback.
+    case 'no_active_connection':
+      return 'Бот не подключён к Telegram. Проверьте подключение в настройках.';
+    case 'client_inactive_over_24h':
+      return 'Клиент молчит больше 24 часов. Telegram запрещает писать первым, подождите ответа.';
+    default:
+      // Сырая ошибка от Telegram (BUSINESS_PEER_USAGE_MISSING, PEER_ID_INVALID,
+      // chat not found и т.п.) или неизвестная причина — возвращаем как есть.
+      return error || reason || null;
+  }
+}
+
 function recordStatusChange(orderId, previousStatus, newStatus, note) {
   if (!orderId || previousStatus === newStatus) {
     return;
@@ -294,6 +332,11 @@ crmOperationsRouter.get("/api/admin/crm/orders", authMiddleware, (req, res) => {
       // bot_message_log (Костя 10.05.2026: «для всех случаев неуспешной
       // отправки сделай красной рамкой»). Берём последнюю исходящую
       // запись с meta.auto=1 — это и есть финальный исход auto-notify.
+      //
+      // SQLite json1 нормализует JSON booleans в integer 0/1 при
+      // json_extract (см. https://www.sqlite.org/json1.html), так что
+      // сравнение `= 1` корректно работает и для записей где meta.auto
+      // лежит как `true` (userbot), и где было `1` (старые записи).
       const notifyRows = db
         .prepare(
           `SELECT json_extract(meta, '$.order_id') AS order_id, meta, id
@@ -314,9 +357,16 @@ crmOperationsRouter.get("/api/admin/crm/orders", authMiddleware, (req, res) => {
         } catch (e) {
           /* noop */
         }
+        // Любой исход кроме 'sent' трактуем как failed — Дима 10.05.2026:
+        // «при любых ошибках должна быть рамка». outcome=skipped (клиент не
+        // верифицирован, нет business connection и т.п.), failed (Telegram
+        // отверг), ambiguous (userbot мог отправить, ответ потерян) — все
+        // показываются красной плашкой. Описание причины переводим в
+        // человекочитаемый вид — менеджер не должен видеть сырой
+        // «customer_not_verified» в подсказке.
         notifyByOrder.set(row.order_id, {
           status: parsed.outcome === "sent" ? "sent" : "failed",
-          error: parsed.error || null,
+          error: describeAutoNotifyReason(parsed.reason, parsed.error),
           via: parsed.via || parsed.source || null,
         });
       }

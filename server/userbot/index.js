@@ -252,6 +252,11 @@ app.post('/send-message', checkSecret, async (req, res) => {
     // Отвечаем сразу, журналим асинхронно через setImmediate — caller
     // не ждёт INSERT, освобождаем event loop для следующего запроса.
     res.json({ ok: true, telegram_message_id: messageId });
+    // `auto` — признак того, что отправку запустил auto-notify (а не ручной
+    // /bot/send-custom). Фронт CRM выбирает по нему последнюю запись для
+    // плашки «не удалось отправить» на карточке заказа: без флага manual-
+    // отправки путались бы с авто-уведомлениями (см. crm-operations.js).
+    const isAuto = req.body?.auto === true;
     setImmediate(() => {
       try {
         const customer = stmtFindCustomer.get(String(chatId));
@@ -267,6 +272,7 @@ app.post('/send-message', checkSecret, async (req, res) => {
             outcome: 'sent',
             telegram_message_id: messageId,
             order_id: req.body?.order_id || null,
+            auto: isAuto,
           }),
         );
       } catch (logErr) {
@@ -309,6 +315,7 @@ app.post('/send-message', checkSecret, async (req, res) => {
     }
     // Логируем неудачу — пусть в журнале админки видно что попытка была.
     // setImmediate, чтобы не блокировать ответ HTTP клиенту.
+    const isAuto = req.body?.auto === true;
     setImmediate(() => {
       try {
         const chatId = String(req.body?.chat_id || '');
@@ -326,6 +333,7 @@ app.post('/send-message', checkSecret, async (req, res) => {
             error: errorText,
             flood_wait_seconds: floodWaitSec || undefined,
             order_id: req.body?.order_id || null,
+            auto: isAuto,
           }),
         );
       } catch (logErr) {

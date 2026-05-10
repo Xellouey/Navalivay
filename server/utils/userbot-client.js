@@ -143,7 +143,7 @@ export async function isUserbotAvailable() {
  *                 в Telegram-чате клиента — позорный UX. Caller должен в этом
  *                 случае не делать fallback и вернуть «неизвестно».
  */
-export async function sendViaUserbot({ chatId, text, orderId = null } = {}) {
+export async function sendViaUserbot({ chatId, text, orderId = null, auto = false } = {}) {
   if (!chatId || !text) {
     return { ok: false, outcome: 'rejected', error: 'invalid_payload' };
   }
@@ -154,7 +154,16 @@ export async function sendViaUserbot({ chatId, text, orderId = null } = {}) {
     response = await fetch(`${USERBOT_BASE}/send-message`, {
       method: 'POST',
       headers,
-      body: JSON.stringify({ chat_id: String(chatId), text: String(text), order_id: orderId }),
+      // `auto` нужен, чтобы userbot записал признак авто-уведомления в
+      // meta лога. По нему фронт CRM подтягивает «последний auto-notify»
+      // для красной плашки на карточке заказа — без флага запись от
+      // userbot путалась бы с manual-отправкой через /bot/send-custom.
+      body: JSON.stringify({
+        chat_id: String(chatId),
+        text: String(text),
+        order_id: orderId,
+        auto: auto === true,
+      }),
       signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
     });
   } catch (err) {
