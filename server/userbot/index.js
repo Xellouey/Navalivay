@@ -167,27 +167,43 @@ async function prefetchDialogs(reason = 'startup') {
   prefetchInFlight = (async () => {
     try {
       const t0 = Date.now();
-      // Подтягиваем основной список и архивные отдельно. У Кости магазин
-      // — он архивирует диалоги завершённых клиентов, чтобы не засирать
-      // главный список. Без archived:true эти клиенты не попадут в кэш
-      // entities, и любой авто-нотифай им упадёт с «not find input entity».
-      const [main, archived] = await Promise.all([
-        client.getDialogs({ limit: DIALOG_PREFETCH_LIMIT }),
-        client
-          .getDialogs({ limit: DIALOG_PREFETCH_LIMIT, archived: true })
-          .catch((err) => {
-            // Архив может быть пустой/недоступный — не ронять весь прогрев.
-            console.warn(
-              '[userbot] архивные диалоги не подтянулись:',
-              redactSecrets(err?.message || err),
-            );
-            return [];
-          }),
-      ]);
-      const total = (main?.length ?? 0) + (archived?.length ?? 0);
+      // Полный обход через iterDialogs (async generator) — пагинирует под
+      // капотом и корректно обрабатывает pinned-диалоги, которые ломают
+      // обычный getDialogs({limit}) (возвращал 500 у Кости, хотя реально
+      // диалогов больше). Костя 11.05.2026 подтвердил: getDialogs не отдал
+      // Диану/Valeria, при этом диалог в Telegram у него с ними точно есть.
+      //
+      // Стратегия: тянем main + archived последовательно, не параллельно
+      // (через одну MTProto-сессию параллельные GetDialogs ломают курсор).
+      let mainCount = 0;
+      for await (const dialog of client.iterDialogs({ limit: DIALOG_PREFETCH_LIMIT })) {
+        mainCount += 1;
+        if (dialog) {
+          /* iterDialogs внутри кладёт entity в кэш GramJS */
+        }
+      }
+      let archivedCount = 0;
+      try {
+        for await (const dialog of client.iterDialogs({
+          limit: DIALOG_PREFETCH_LIMIT,
+          archived: true,
+        })) {
+          archivedCount += 1;
+          if (dialog) {
+            /* кладётся в кэш */
+          }
+        }
+      } catch (archErr) {
+        // Архив может быть пустой/недоступный — не ронять весь прогрев.
+        console.warn(
+          '[userbot] архивные диалоги не подтянулись:',
+          redactSecrets(archErr?.message || archErr),
+        );
+      }
+      const total = mainCount + archivedCount;
       const elapsed = Date.now() - t0;
       console.log(
-        `[userbot] прогрет кэш диалогов (${reason}): ${main?.length ?? 0} основных + ${archived?.length ?? 0} архивных = ${total} за ${elapsed}мс`,
+        `[userbot] прогрет кэш диалогов (${reason}): ${mainCount} основных + ${archivedCount} архивных = ${total} за ${elapsed}мс`,
       );
       return total;
     } catch (err) {
@@ -387,68 +403,42 @@ app.post('/send-message', checkSecret, async (req, res) => {
     }
     await rateLimitedDelay();
 
-    // sendMessage с многоступенчатым fallback на «Could not find the input
-    // entity». Контекст багов: у магазина 500+ клиентских диалогов, GramJS
-    // getDialogs подтягивает первые ~500 (внутренний cap библиотеки).
-    // Активные клиенты, которые не в топе списка → ловят «not find entity».
+    // sendMessage: пишем ТОЛЬКО клиентам, с которыми у менеджера есть
+    // реальный диалог в Telegram (есть в кэше GramJS после prefetch).
     //
-    // Цепочка попыток:
-    //   1. sendMessage(BigInt(chatId)) — обычный путь, если access_hash
-    //      есть в кэше GramJS (=диалог был и попал в prefetch).
-    //   2. prefetchDialogs + retry — если клиент архивирован/далеко в
-    //      списке, но в каком-то диалоге менеджера всё-таки есть.
-    //   3. resolveUsername через @username — ТОЛЬКО для верифицированных
-    //      клиентов (`verified: true` в payload). Это покрывает кейс
-    //      «клиент есть в Telegram-диалогах менеджера, но getDialogs его
-    //      не подтянул из-за cap». Резолв через @username даёт свежий
-    //      access_hash напрямую от Telegram, без необходимости иметь
-    //      диалог в кэше.
+    // Костя 11.05.2026: «снёс диалог у обоих, всё равно присылает».
+    // Раньше тут был fallback через client.getEntity('@username') —
+    // он позволял писать любому юзеру с известным username, даже если
+    // менеджер удалил диалог или его никогда не было. Это и есть
+    // «холодная рассылка», которой Костя/Pavel боялись (риск бана).
     //
-    // Защита от «холодных рассылок» (Pavel 11.05.2026: «бот пишет без
-    // диалога»): resolveUsername ВКЛЮЧАЕТСЯ ТОЛЬКО для `verified=true` —
-    // т.е. клиент уже сделал заказ или прошёл /start с прайс-кодом
-    // (auto-notify проверяет это через isCustomerVerified ДО передачи в
-    // userbot, см. utils/auto-notify.js). Для рандомных username из мусора
-    // в БД — resolveUsername не вызывается, аккаунт менеджера в безопасности.
+    // Цепочка:
+    //   1. sendMessage(BigInt(chatId)) — работает если диалог в кэше.
+    //   2. prefetchDialogs() + retry — на случай если клиент попал в
+    //      «волатильную» часть кэша GramJS (вытеснен LRU при бурсте
+    //      событий). Iterдиалогов на старте тянет весь список, но
+    //      между прогревами может быть гонка.
+    //   3. Если после prefetch entity всё ещё не находится — у Кости
+    //      РЕАЛЬНО нет диалога с клиентом в Telegram. НЕ пишем.
+    //      Auto-notify вернёт failed, плашка «нет диалога с клиентом,
+    //      напишите ему вручную» (см. describeSendError на фронте).
+    //
+    // username и verified в payload остаются прокинутыми — НЕ используем
+    // для resolveUsername, но логируем для аналитики / future use.
     const ENTITY_NOT_FOUND_RX = /Could not find the input entity/i;
-    const USERNAME_RX = /^[a-zA-Z][a-zA-Z0-9_]{4,31}$/;
-    const rawUsername = req.body?.username
-      ? String(req.body.username).replace(/^@/, '').trim()
-      : '';
-    const cleanUsername = USERNAME_RX.test(rawUsername) ? rawUsername : '';
-    const isVerified = req.body?.verified === true;
     let result;
     try {
       result = await client.sendMessage(BigInt(chatId), { message: text });
     } catch (firstErr) {
       const firstMsg = firstErr?.errorMessage || firstErr?.message || String(firstErr);
       if (!ENTITY_NOT_FOUND_RX.test(firstMsg)) throw firstErr;
-
-      // Попытка 2: прогрев диалогов и retry.
       console.warn(
-        `[userbot] entity ${chatId} не в кэше, прогреваю диалоги...`,
+        `[userbot] entity ${chatId} не в кэше, прогреваю диалоги и пробую ещё раз...`,
       );
       await prefetchDialogs(`entity-miss-${chatId}`);
-      try {
-        result = await client.sendMessage(BigInt(chatId), { message: text });
-      } catch (secondErr) {
-        const secondMsg = secondErr?.errorMessage || secondErr?.message || String(secondErr);
-        if (!ENTITY_NOT_FOUND_RX.test(secondMsg)) throw secondErr;
-
-        // Попытка 3: resolveUsername ТОЛЬКО для верифицированных клиентов.
-        // Этот путь безопасен — у клиента уже есть коммерческий контекст
-        // с магазином (заказ/прайс), Telegram не пометит сообщение как спам.
-        if (cleanUsername && isVerified) {
-          console.warn(
-            `[userbot] entity ${chatId} не в диалогах, ресолвлю verified @${cleanUsername}...`,
-          );
-          const entity = await client.getEntity(`@${cleanUsername}`);
-          result = await client.sendMessage(entity, { message: text });
-        } else {
-          // Не verified ИЛИ без username — пробрасываем fail.
-          throw secondErr;
-        }
-      }
+      // Если после полного обхода диалогов entity всё ещё нет — диалога
+      // в Telegram с этим клиентом действительно нет. Пробрасываем fail.
+      result = await client.sendMessage(BigInt(chatId), { message: text });
     }
     const messageId = result?.id ? Number(result.id) : null;
 
