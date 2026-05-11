@@ -219,6 +219,27 @@ function insertCustomerBlock({ customer_id, block_until, reason, blocked_by }) {
   let inserted = null;
 
   const tx = db.transaction(() => {
+    // Pavel 11.05.2026: «блокировка снялась, но повторно заблокать не могу».
+    // Причина — partial UNIQUE индекс idx_customer_blocks_one_active работает
+    // по `WHERE active = 1`, не учитывая block_until. Истёкший блок с
+    // active=1 (никто его автоматически не снимает) занимает «слот», и
+    // новый INSERT падает с SQLITE_CONSTRAINT_UNIQUE → код возвращает
+    // already_blocked. Лечим: ДО pre-check'а гасим истёкшие блоки этого
+    // клиента (active=0 + unblocked_at=now + reason='auto-expired').
+    // Атомарно внутри той же транзакции, чтобы между expire и INSERT не
+    // успел вклиниться параллельный bid.
+    db.prepare(
+      `UPDATE customer_blocks
+         SET active = 0,
+             unblocked_at = DATETIME('now'),
+             unblocked_by = 'system',
+             unblock_reason = 'auto-expired'
+       WHERE customer_id = ?
+         AND active = 1
+         AND block_until IS NOT NULL
+         AND block_until <= DATETIME('now')`,
+    ).run(customerIdStr);
+
     const existing = getActiveBlockForCustomerId(customerIdStr);
     if (existing) {
       const err = new Error('already_blocked');

@@ -52,7 +52,10 @@ function describeAutoNotifyReason(reason, error) {
       return 'Шаблон сообщения выключен в настройках бота.';
     case 'template_empty':
       return 'Шаблон пустой. Заполните текст в настройках бота.';
-    // Шаг 2: верификация клиента.
+    // Шаг 2a: клиент в блоке.
+    case 'customer_blocked':
+      return 'Клиент заблокирован, уведомления ему не уходят.';
+    // Шаг 2b: верификация клиента.
     case 'customer_not_verified':
       return 'Клиент ещё не подтвердил Telegram. Пусть нажмёт /start в боте.';
     // Шаг 3.1: userbot отправил, но ответ потерялся (timeout, разрыв TCP).

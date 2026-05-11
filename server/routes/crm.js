@@ -558,10 +558,20 @@ crmRouter.get('/api/admin/crm/customers', authMiddleware, (req, res) => {
       whereClause = `WHERE COALESCE(total_orders, 0) = 0`;
     }
 
+    // Pavel 11.05.2026: «блокировка снялась, но повторно заблокать не могу,
+    // пишет старая ещё активна». Причина — этот подзапрос считал ВСЕ блоки
+    // с active=1, не учитывая block_until. Истёкшие блоки (срок прошёл, но
+    // active=1, потому что никто их не снимает автоматически) попадали в
+    // blocked_count → фронт показывал «Разблокировать», а backend по
+    // ACTIVE_BLOCK_PREDICATE уже их не видел и unblock возвращал no-op.
+    // Та же логика должна быть и здесь: блок «активный» = active=1 И не истёк.
     const customers = db.prepare(`
-      SELECT 
+      SELECT
         c.*,
-        (SELECT COUNT(*) FROM customer_blocks WHERE customer_id = c.id AND active = 1) as blocked_count
+        (SELECT COUNT(*) FROM customer_blocks
+          WHERE customer_id = c.id
+            AND active = 1
+            AND (block_until IS NULL OR block_until > DATETIME('now'))) as blocked_count
       FROM customers c
       ${whereClause}
       ORDER BY c.last_visit_at DESC, c.created_at DESC

@@ -256,6 +256,48 @@ function runTests() {
   assertEq(normalizeUsername('  @@bob  '), 'bob', 'trim + multiple @');
   assertEq(normalizeUsername(''), null, 'empty → null');
   assertEq(normalizeUsername(null), null, 'null → null');
+
+  // Test 12: повторный createBlock после истёкшего блока должен ПРОХОДИТЬ.
+  // Pavel 11.05.2026: «блок снялся (срок прошёл), но повторно заблокать
+  // нельзя — пишет старый не снят». Причина — partial UNIQUE индекс
+  // idx_customer_blocks_one_active работал по `active=1` без учёта
+  // block_until, и истёкший блок занимал «слот». Фикс: insertCustomerBlock
+  // ДО pre-check атомарно гасит истёкшие (active=0) этого клиента.
+  console.log('\n=== Test 12: повторный createBlock после истёкшего → проходит ===');
+  // Создаём клиента и истёкший активный блок
+  makeCustomer({ id: 'cust_charlie', telegram_id: '7777', telegram_username: 'charlie' });
+  const past = new Date(Date.now() - 60_000) // минуту назад
+    .toISOString()
+    .replace('T', ' ')
+    .replace(/\.\d{3}Z$/, '');
+  db.prepare(
+    `INSERT INTO customer_blocks (id, customer_id, block_until, reason, active)
+     VALUES ('expired_old_charlie', 'cust_charlie', ?, 'expired one', 1)`,
+  ).run(past);
+  // Новая блокировка на 1 час
+  const newBlockUntil = computeBlockUntil({ unit: 'hours', value: 1 });
+  let newBlock;
+  try {
+    newBlock = createBlock({
+      customer_id: 'cust_charlie',
+      block_until: newBlockUntil,
+      reason: 'fresh',
+    });
+  } catch (err) {
+    assertEq(err.message, 'NO_ERROR_SHOULD_OCCUR', `повторный createBlock упал: ${err.message}`);
+    throw err;
+  }
+  assertEq(newBlock.kind, 'active', 'новый блок создан как active');
+  // Старый истёкший должен быть помечен active=0 системой
+  const oldRow = db
+    .prepare(`SELECT active, unblocked_by, unblock_reason FROM customer_blocks WHERE id = 'expired_old_charlie'`)
+    .get();
+  assertEq(oldRow.active, 0, 'истёкший блок помечен active=0 автоматически');
+  assertEq(oldRow.unblocked_by, 'system', 'unblocked_by=system');
+  assertEq(oldRow.unblock_reason, 'auto-expired', 'unblock_reason=auto-expired');
+  // Текущий активный блок — это новый
+  const activeNow = getActiveBlockForCustomerId('cust_charlie');
+  assertEq(activeNow?.reason, 'fresh', 'getActive теперь возвращает новый блок');
 }
 
 function cleanup() {

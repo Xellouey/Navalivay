@@ -387,66 +387,44 @@ app.post('/send-message', checkSecret, async (req, res) => {
     }
     await rateLimitedDelay();
 
-    // sendMessage с многоступенчатым fallback на «Could not find the input
-    // entity». Это типовая GramJS-ошибка: entity-кэш в памяти пустой
-    // (рестарт), либо клиент архивирован у менеджера (не вошёл в prefetch),
-    // либо клиент вообще никогда не писал и не в первых N диалогов.
+    // sendMessage только клиентам, с которыми у менеджера УЖЕ есть диалог
+    // в Telegram. Костя+Pavel 11.05.2026: userbot не должен писать
+    // «холодным» клиентам — Telegram банит аккаунт менеджера за спам
+    // незнакомцам (одной-двух жалоб «спам» от клиента достаточно для
+    // блокировки на неделю-две). Раньше тут был fallback на
+    // resolveUsername через @username — это позволяло писать кому угодно
+    // у кого есть @username, что и есть «холодная рассылка». Откатили.
     //
     // Цепочка попыток:
     //   1. sendMessage(BigInt(chatId)) — обычный путь, работает если
-    //      access_hash есть в кэше GramJS.
-    //   2. Если есть @username — getEntity('@username') делает RPC
-    //      contacts.resolveUsername → возвращает свежий access_hash без
-    //      необходимости иметь диалог. Это РЕАЛЬНЫЙ фикс для архивных
-    //      клиентов магазина: даже если они вне prefetch, по @username
-    //      Telegram даст entity напрямую.
-    //   3. prefetchDialogs (включая archived:true) и повторный
-    //      sendMessage — для клиентов без публичного username.
+    //      access_hash есть в кэше GramJS (=диалог был и попал в prefetch).
+    //   2. Если в кэше нет — prefetchDialogs (включая archived:true) и
+    //      retry. Это покрывает архивированных клиентов: они есть в
+    //      диалогах менеджера, просто не в первых N. resolveUsername
+    //      БОЛЬШЕ НЕ ДЁРГАЕМ — он давал access_hash «холодного» юзера
+    //      без необходимости иметь диалог.
     //
-    // Если все три упали — пробрасываем в общий catch (failed в логе).
+    // Если после prefetch entity всё ещё не находится — клиент никогда
+    // не писал менеджеру в Telegram. auto-notify вернёт failed с
+    // плашкой «у userbot нет диалога с клиентом, напишите ему первым
+    // вручную» (см. describeSendError на фронте).
     const ENTITY_NOT_FOUND_RX = /Could not find the input entity/i;
-    // Telegram username: 5-32 символа, начинается с буквы, дальше латиница/
-    // цифры/подчёркивания (https://core.telegram.org/method/account.checkUsername).
-    // Defense-in-depth: даже если из api-процесса прилетит мусор (битая запись
-    // в БД, кириллица, эмодзи), не дёргаем resolveUsername с произвольной
-    // строкой — иначе GramJS либо упадёт с непонятной ошибкой, либо в худшем
-    // случае срезолвит чужой аккаунт по случайному совпадению.
-    const USERNAME_RX = /^[a-zA-Z][a-zA-Z0-9_]{4,31}$/;
-    const rawUsername = req.body?.username
-      ? String(req.body.username).replace(/^@/, '').trim()
-      : '';
-    const cleanUsername = USERNAME_RX.test(rawUsername) ? rawUsername : '';
     let result;
     try {
       result = await client.sendMessage(BigInt(chatId), { message: text });
     } catch (firstErr) {
       const firstMsg = firstErr?.errorMessage || firstErr?.message || String(firstErr);
       if (!ENTITY_NOT_FOUND_RX.test(firstMsg)) throw firstErr;
-
-      // Попытка 2: resolveUsername. Срабатывает если у клиента есть
-      // публичный @username (большинство клиентов магазина — есть).
-      if (cleanUsername) {
-        try {
-          console.warn(
-            `[userbot] entity ${chatId} не в кэше, ресолвлю через @${cleanUsername}...`,
-          );
-          const entity = await client.getEntity(`@${cleanUsername}`);
-          result = await client.sendMessage(entity, { message: text });
-        } catch (resolveErr) {
-          const resolveMsg = resolveErr?.errorMessage || resolveErr?.message || String(resolveErr);
-          console.warn(`[userbot] resolveUsername @${cleanUsername} упал: ${resolveMsg}`);
-          // Fall through to attempt 3.
-        }
-      }
-
-      // Попытка 3: прогреть диалоги (включая архивные) и retry.
-      if (!result) {
-        console.warn(
-          `[userbot] entity ${chatId} не достали через username, прогреваю диалоги...`,
-        );
-        await prefetchDialogs(`entity-miss-${chatId}`);
-        result = await client.sendMessage(BigInt(chatId), { message: text });
-      }
+      // Прогрев диалогов (включая архив) и retry — на случай если клиент
+      // архивирован у менеджера и не попал в первоначальный prefetch.
+      console.warn(
+        `[userbot] entity ${chatId} не в кэше, прогреваю диалоги и пробую ещё раз...`,
+      );
+      await prefetchDialogs(`entity-miss-${chatId}`);
+      // Если после prefetch entity всё ещё нет — клиент не в диалогах
+      // менеджера. Не ресолвим через @username (это вектор бана).
+      // Пробрасываем как обычный fail → плашка «нет диалога с клиентом».
+      result = await client.sendMessage(BigInt(chatId), { message: text });
     }
     const messageId = result?.id ? Number(result.id) : null;
 

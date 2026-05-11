@@ -535,6 +535,51 @@ try {
   _resetHealthCacheForTests();
 }
 
+// --- TEST 17: клиент в блоке → skip без отправки ---------------------------
+// Pavel 11.05.2026: «бот отписал заблокированному, что заказ отменён».
+// Это насмешка — auto-notify должен пропускать клиентов с активным блоком.
+console.log('\n=== Test 17: customer заблокирован → skip + лог skipped ===');
+resetDb();
+makeOrderAndCustomer({ telegramId: '17171', verified: true });
+_resetHealthCacheForTests();
+// Вставляем активный блок (бессрочный — block_until=NULL).
+db.prepare(
+  `INSERT INTO customer_blocks (id, customer_id, block_until, reason, active)
+   VALUES (?, ?, NULL, ?, 1)`,
+).run('blk_test_17', 'c_test', 'test block');
+
+let userbotHits17 = 0;
+globalThis.fetch = async (url) => {
+  const u = String(url);
+  if (u.includes('127.0.0.1') && u.includes('/health')) {
+    return { ok: true, async json() { return { ok: true, connected: true }; } };
+  }
+  if (u.includes('127.0.0.1') && u.includes('/send-message')) {
+    userbotHits17++;
+    throw new Error('userbot НЕ должен дёрнуться для заблокированного');
+  }
+  throw new Error(`unexpected fetch ${u}`);
+};
+try {
+  const result = await autoNotifyForStatusChange({
+    orderId: 'o_test',
+    newStatus: 'cancelled',
+    previousStatus: 'in_progress',
+  });
+  assertEq(result.sent, false, 'sent=false');
+  assertEq(result.skipped, true, 'skipped=true');
+  assertEq(result.reason, 'customer_blocked', 'reason=customer_blocked');
+  assertEq(userbotHits17, 0, 'userbot НЕ дёрнулся (рано отвалились по блоку)');
+  const logRows = db.prepare(`SELECT meta FROM bot_message_log ORDER BY id DESC LIMIT 1`).all();
+  const meta = JSON.parse(logRows[0]?.meta || '{}');
+  assertEq(meta.outcome, 'skipped', 'meta.outcome=skipped');
+  assertEq(meta.reason, 'customer_blocked', 'meta.reason=customer_blocked');
+  assertEq(meta.auto, true, 'meta.auto=true');
+} finally {
+  globalThis.fetch = originalFetch;
+  _resetHealthCacheForTests();
+}
+
 // --- Final ------------------------------------------------------------------
 console.log(`\n=== Total: ${results.passed} passed, ${results.failed} failed ===`);
 

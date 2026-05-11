@@ -66,6 +66,8 @@ export function describeSkipReason(reason: string | undefined): string {
     case 'status_unchanged':
     case 'no_event_for_status':
       return ''
+    case 'customer_blocked':
+      return 'Клиент заблокирован, уведомления ему не уходят.'
     case 'customer_not_verified':
       return 'Клиент ещё не активировал промо-код из прайса.'
     case 'customer_has_no_telegram_id':

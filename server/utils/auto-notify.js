@@ -31,6 +31,7 @@ import {
   logBotMessage,
 } from './business-bot.js';
 import { sendViaUserbot, isUserbotAvailable } from './userbot-client.js';
+import { getActiveBlockForCustomerId } from './customer-blocks.js';
 
 /**
  * Маппинг статусов заказа на event-ключи в bot_status_templates.
@@ -139,7 +140,17 @@ export async function autoNotifyForStatusChange({
     }
   }
 
-  // Шаг 2: верификация клиента — без этого Telegram Business не разрешит
+  // Шаг 2a: блокировка клиента — не пишем заблокированным. Pavel 11.05.2026
+  // отметил: «отписало заблокированному клиенту что заказ отменен». Если
+  // менеджер забанил клиента, дальнейшие авто-уведомления выглядят как
+  // насмешка («твой заказ отменён» хотя ты в бане). Пропускаем тихо.
+  const activeBlock = getActiveBlockForCustomerId(prepared.customerId);
+  if (activeBlock) {
+    safeLog({ outcome: 'skipped', reason: 'customer_blocked' });
+    return { sent: false, skipped: true, reason: 'customer_blocked', event };
+  }
+
+  // Шаг 2b: верификация клиента — без этого Telegram Business не разрешит
   // боту писать в чат (нет инициированного диалога). Это и было ограничение,
   // про которое Костя написал: «всё равно человек пишет нам первый, чтобы
   // получить прайс — это и есть инициация».
