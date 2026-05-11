@@ -25,6 +25,7 @@
 import 'dotenv/config';
 import crypto from 'crypto';
 import express from 'express';
+import { Api } from 'telegram';
 import { NewMessage } from 'telegram/events/index.js';
 import { createClient, loadSavedSession, redactSecrets } from './client.js';
 import { createRateLimiter } from './rate-limiter.js';
@@ -168,18 +169,16 @@ async function prefetchDialogs(reason = 'startup') {
     try {
       const t0 = Date.now();
       // Полный обход через iterDialogs (async generator) — пагинирует под
-      // капотом и корректно обрабатывает pinned-диалоги, которые ломают
-      // обычный getDialogs({limit}) (возвращал 500 у Кости, хотя реально
-      // диалогов больше). Костя 11.05.2026 подтвердил: getDialogs не отдал
-      // Диану/Valeria, при этом диалог в Telegram у него с ними точно есть.
-      //
-      // Стратегия: тянем main + archived последовательно, не параллельно
-      // (через одну MTProto-сессию параллельные GetDialogs ломают курсор).
+      // капотом и корректно обрабатывает pinned-диалоги. Заодно
+      // сохраняем access_hash каждого user-диалога в userbot_entities,
+      // чтобы переживать рестарт userbot и помогать когда iterDialogs
+      // упирается в server-side cap (у Кости отдаёт ~500, реально клиентов
+      // больше — каждый новый клиент добавится через NewMessage event).
       let mainCount = 0;
       for await (const dialog of client.iterDialogs({ limit: DIALOG_PREFETCH_LIMIT })) {
         mainCount += 1;
-        if (dialog) {
-          /* iterDialogs внутри кладёт entity в кэш GramJS */
+        if (dialog?.entity) {
+          rememberEntity(dialog.entity, 'prefetch');
         }
       }
       let archivedCount = 0;
@@ -189,8 +188,8 @@ async function prefetchDialogs(reason = 'startup') {
           archived: true,
         })) {
           archivedCount += 1;
-          if (dialog) {
-            /* кладётся в кэш */
+          if (dialog?.entity) {
+            rememberEntity(dialog.entity, 'prefetch_archived');
           }
         }
       } catch (archErr) {
@@ -261,6 +260,45 @@ const stmtInsertLog = db.prepare(
    VALUES (NULL, ?, ?, ?, ?, ?, ?, ?, DATETIME('now'))`,
 );
 
+// Сохранение access_hash клиента: upsert по telegram_id. При INSERT
+// заполняем first_seen_at и last_seen_at одинаковыми (см. DEFAULT в
+// миграции). При UPDATE обновляем only last_seen_at + access_hash на
+// случай если access_hash изменился (Telegram периодически их обновляет).
+const stmtUpsertEntity = db.prepare(
+  `INSERT INTO userbot_entities (telegram_id, access_hash, username, first_name, source)
+   VALUES (?, ?, ?, ?, ?)
+   ON CONFLICT(telegram_id) DO UPDATE SET
+     access_hash = excluded.access_hash,
+     username = COALESCE(excluded.username, userbot_entities.username),
+     first_name = COALESCE(excluded.first_name, userbot_entities.first_name),
+     last_seen_at = DATETIME('now')`,
+);
+const stmtGetEntityAccessHash = db.prepare(
+  `SELECT access_hash FROM userbot_entities WHERE telegram_id = ?`,
+);
+
+// Извлекаем access_hash из объекта user (GramJS возвращает BigInt).
+// Если у user нет access_hash — это бот, удалённый аккаунт или
+// неполный entity, не сохраняем.
+function rememberEntity(user, source) {
+  if (!user || user.accessHash === null || user.accessHash === undefined) return;
+  const tgId = String(user.id);
+  if (!/^[1-9]\d{0,18}$/.test(tgId)) return;
+  const accessHash = String(user.accessHash);
+  if (!accessHash || accessHash === '0') return;
+  try {
+    stmtUpsertEntity.run(
+      tgId,
+      accessHash,
+      user.username || null,
+      user.firstName || null,
+      source,
+    );
+  } catch (err) {
+    console.error('[userbot] rememberEntity failed:', redactSecrets(err?.message || err));
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Слушаем входящие сообщения и логируем активность клиентов в БД.
 // ---------------------------------------------------------------------------
@@ -280,6 +318,25 @@ client.addEventHandler((event) => {
     // эхо нашего же userbot-сообщения залогируется как «входящее».
     const senderId = message.senderId ? String(message.senderId) : null;
     if (direction === 'out' && senderId === myUserId) return;
+
+    // Запоминаем entity клиента (для отправки без необходимости иметь
+    // диалог в кэше GramJS). Делаем в любом direction — клиент пишет
+    // нам ИЛИ менеджер только что написал клиенту: в обоих случаях
+    // event приносит полный user-объект с актуальным access_hash.
+    //
+    // Для direction='in' sender — это клиент (то что нужно).
+    // Для direction='out' sender — это менеджер (себя не сохраняем),
+    // но peerId.userId — это клиент, и у event есть chat → достаём.
+    let entityUser = null;
+    if (direction === 'in') {
+      entityUser = message.sender || message._sender;
+    } else {
+      // out: peerId — это id клиента, sender — менеджер. Берём peer.
+      entityUser = message.chat || message._chat;
+    }
+    if (entityUser) {
+      rememberEntity(entityUser, 'new_message');
+    }
 
     // Выполняем БД-вставку через setImmediate, чтобы не блокировать
     // GramJS event loop при бурстах (better-sqlite3 синхронный → каждый
@@ -404,27 +461,24 @@ app.post('/send-message', checkSecret, async (req, res) => {
     await rateLimitedDelay();
 
     // sendMessage: пишем ТОЛЬКО клиентам, с которыми у менеджера есть
-    // реальный диалог в Telegram (есть в кэше GramJS после prefetch).
+    // реальный диалог в Telegram. Костя 11.05.2026: «снёс диалог —
+    // не пишет ✓, Диане/Valeria — пишет (но iterDialogs их не отдаёт,
+    // потому что Telegram режет ответ для бизнес-аккаунта с большой
+    // базой контактов)».
     //
-    // Костя 11.05.2026: «снёс диалог у обоих, всё равно присылает».
-    // Раньше тут был fallback через client.getEntity('@username') —
-    // он позволял писать любому юзеру с известным username, даже если
-    // менеджер удалил диалог или его никогда не было. Это и есть
-    // «холодная рассылка», которой Костя/Pavel боялись (риск бана).
+    // Цепочка попыток:
+    //   1. sendMessage(BigInt(chatId)) — если entity в кэше GramJS.
+    //   2. InputPeerUser из userbot_entities в БД — если клиент когда-то
+    //      писал менеджеру (мы поймали access_hash в NewMessage handler).
+    //      Это main-ветка: Diana/Valeria попадут сюда, потому что они
+    //      писали Косте ранее — мы сохранили их access_hash.
+    //   3. prefetchDialogs + retry — последний шанс, если access_hash
+    //      изменился или вообще не был сохранён (старые клиенты, до
+    //      запуска userbot). Скорее всего так и не сработает в этих
+    //      случаях, но дешёво попробовать.
     //
-    // Цепочка:
-    //   1. sendMessage(BigInt(chatId)) — работает если диалог в кэше.
-    //   2. prefetchDialogs() + retry — на случай если клиент попал в
-    //      «волатильную» часть кэша GramJS (вытеснен LRU при бурсте
-    //      событий). Iterдиалогов на старте тянет весь список, но
-    //      между прогревами может быть гонка.
-    //   3. Если после prefetch entity всё ещё не находится — у Кости
-    //      РЕАЛЬНО нет диалога с клиентом в Telegram. НЕ пишем.
-    //      Auto-notify вернёт failed, плашка «нет диалога с клиентом,
-    //      напишите ему вручную» (см. describeSendError на фронте).
-    //
-    // username и verified в payload остаются прокинутыми — НЕ используем
-    // для resolveUsername, но логируем для аналитики / future use.
+    // Если все три упали — диалога с клиентом нет. НЕ пишем.
+    // Защита аккаунта менеджера от банов за холодные сообщения.
     const ENTITY_NOT_FOUND_RX = /Could not find the input entity/i;
     let result;
     try {
@@ -432,13 +486,42 @@ app.post('/send-message', checkSecret, async (req, res) => {
     } catch (firstErr) {
       const firstMsg = firstErr?.errorMessage || firstErr?.message || String(firstErr);
       if (!ENTITY_NOT_FOUND_RX.test(firstMsg)) throw firstErr;
-      console.warn(
-        `[userbot] entity ${chatId} не в кэше, прогреваю диалоги и пробую ещё раз...`,
-      );
-      await prefetchDialogs(`entity-miss-${chatId}`);
-      // Если после полного обхода диалогов entity всё ещё нет — диалога
-      // в Telegram с этим клиентом действительно нет. Пробрасываем fail.
-      result = await client.sendMessage(BigInt(chatId), { message: text });
+
+      // Попытка 2: достать access_hash из БД и слать через InputPeerUser.
+      // Этот путь работает если клиент когда-либо писал менеджеру: при
+      // NewMessage event мы поймали и сохранили его entity. Telegram
+      // принимает InputPeerUser напрямую, не требуя свежего диалога в
+      // getDialogs.
+      const stored = stmtGetEntityAccessHash.get(chatId);
+      if (stored?.access_hash) {
+        try {
+          const inputPeer = new Api.InputPeerUser({
+            userId: BigInt(chatId),
+            accessHash: BigInt(stored.access_hash),
+          });
+          console.warn(
+            `[userbot] entity ${chatId} не в кэше, шлю через сохранённый access_hash...`,
+          );
+          result = await client.sendMessage(inputPeer, { message: text });
+        } catch (storedErr) {
+          const storedMsg =
+            storedErr?.errorMessage || storedErr?.message || String(storedErr);
+          console.warn(
+            `[userbot] отправка через сохранённый access_hash упала: ${storedMsg}`,
+          );
+          // Не пробрасываем — попробуем третью попытку через prefetch.
+        }
+      }
+
+      // Попытка 3: прогрев диалогов и retry. Помогает если клиент был в
+      // кэше GramJS, но вытеснен LRU.
+      if (!result) {
+        console.warn(
+          `[userbot] прогреваю диалоги и пробую ещё раз для ${chatId}...`,
+        );
+        await prefetchDialogs(`entity-miss-${chatId}`);
+        result = await client.sendMessage(BigInt(chatId), { message: text });
+      }
     }
     const messageId = result?.id ? Number(result.id) : null;
 
