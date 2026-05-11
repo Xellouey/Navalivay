@@ -142,6 +142,10 @@ export interface Order {
     error?: string | null;
     via?: string | null;
   } | null;
+  // Сколько раз клиент писал нам или мы ему (count из bot_message_log
+  // по chat_id == customer.telegram_id). Подсказка менеджеру: «новый
+  // клиент» vs «постоянный». 0 = ни одного сообщения у нас в логе.
+  client_messages_count?: number;
 }
 
 export interface OrderItem {

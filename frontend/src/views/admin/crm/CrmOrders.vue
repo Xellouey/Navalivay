@@ -574,8 +574,13 @@
 
                 <div class="mt-2 space-y-1 text-sm text-gray-700">
                   <div class="flex items-center justify-between">
-                    <div class="font-medium">
-                      {{ order.customer_name || "Без имени" }}
+                    <div class="flex items-center gap-2 font-medium">
+                      <span>{{ order.customer_name || "Без имени" }}</span>
+                      <span
+                        v-if="order.client_messages_count !== undefined"
+                        :class="messagesBadgeClass(order.client_messages_count)"
+                        :title="messagesBadgeTitle(order.client_messages_count)"
+                      >{{ order.client_messages_count }}</span>
                     </div>
                     <button
                       v-if="order.telegram_username"
@@ -1766,6 +1771,24 @@ function deliveryBadgeClass(order: Order) {
   return order.delivery_type === "delivery"
     ? "bg-rose-100 text-rose-700"
     : "bg-gray-100 text-gray-600";
+}
+
+// Плашка «сколько сообщений с клиентом» — подсказка менеджеру по
+// степени знакомства перед отправкой авто-уведомления. Костя 11.05.2026:
+// «вижу 0 — насторожусь, вижу 20 — спокойно жму». Считается на бэке
+// из bot_message_log (in + out по chat_id клиента).
+function messagesBadgeClass(count: number): string {
+  const base = "inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-semibold";
+  if (count >= 10) return `${base} bg-emerald-100 text-emerald-700`;
+  if (count >= 3) return `${base} bg-gray-100 text-gray-600`;
+  return `${base} bg-red-100 text-red-700`;
+}
+
+function messagesBadgeTitle(count: number): string {
+  if (count === 0) return "Переписки ещё не было. Новый или старый без чатов.";
+  if (count < 3) return `Переписка: ${count} сообщ. Только знакомитесь.`;
+  if (count < 10) return `Переписка: ${count} сообщ. Уже знакомый.`;
+  return `Переписка: ${count} сообщ. Постоянный.`;
 }
 
 function nextStatusLabel(status: Order["status"]) {

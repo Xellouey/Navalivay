@@ -290,10 +290,11 @@ crmOperationsRouter.get("/api/admin/crm/orders", authMiddleware, (req, res) => {
     const total = db.prepare(countSql).get(...params).count;
 
     const ordersSql = `
-      SELECT 
+      SELECT
         o.*,
         COALESCE(o.telegram_username, c.telegram_username) as telegram_username,
         c.first_name || ' ' || COALESCE(c.last_name, '') as customer_name,
+        c.telegram_id as customer_telegram_id,
         COALESCE(pc.has_gift, 0) as promo_has_gift,
         pc.manager_description as promo_manager_description,
         pc.customer_description as promo_customer_description
@@ -374,10 +375,41 @@ crmOperationsRouter.get("/api/admin/crm/orders", authMiddleware, (req, res) => {
         });
       }
 
+      // Подсчёт сообщений с клиентом по каждому уникальному telegram_id
+      // (Костя 11.05.2026: «при наведении пусть будет сколько сообщений
+      // с клиентом, для понимания свой/чужой/новый»). Считаем все
+      // направления (in+out) в bot_message_log — это даёт менеджеру
+      // ощущение «уровня знакомства» с клиентом перед отправкой.
+      const uniqueTgIds = [
+        ...new Set(
+          orders
+            .map((o) => o.customer_telegram_id)
+            .filter((id) => id !== null && id !== undefined && id !== ''),
+        ),
+      ];
+      const messagesCountByTgId = new Map();
+      if (uniqueTgIds.length > 0) {
+        const tgPlaceholders = uniqueTgIds.map(() => '?').join(',');
+        const countRows = db
+          .prepare(
+            `SELECT chat_id, COUNT(*) AS n
+               FROM bot_message_log
+              WHERE chat_id IN (${tgPlaceholders})
+              GROUP BY chat_id`,
+          )
+          .all(...uniqueTgIds.map(String));
+        for (const row of countRows) {
+          messagesCountByTgId.set(String(row.chat_id), Number(row.n));
+        }
+      }
+
       ordersWithItems = orders.map((order) => ({
         ...order,
         items: itemsByOrder.get(order.id) || [],
         auto_notification: notifyByOrder.get(order.id) || null,
+        client_messages_count: order.customer_telegram_id
+          ? messagesCountByTgId.get(String(order.customer_telegram_id)) || 0
+          : 0,
       }));
     }
 
