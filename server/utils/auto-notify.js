@@ -182,9 +182,14 @@ export async function autoNotifyForStatusChange({
     text: prepared.text,
     orderId,
     // username — fallback для userbot: если sendMessage по userId упал
-    // с «not find input entity» (клиент архивирован у менеджера или
-    // вне prefetch-кэша), userbot ресолвит через @username и шлёт.
+    // и prefetch диалогов тоже не помог (клиент за пределами 500+ топа),
+    // userbot резолвит через @username при условии verified=true.
     username: prepared.customerUsername || null,
+    // verified:true — попадает в userbot и разрешает resolveUsername.
+    // Здесь мы только если isCustomerVerified прошёл (выше). Это защита
+    // от «холодной рассылки» — userbot НЕ резолвит рандомные username,
+    // только для клиентов магазина (есть заказ или /start с прайс-кодом).
+    verified: true,
     // auto:true — попадает в meta лога userbot. По этому флагу
     // GET /api/admin/crm/orders подтягивает последний auto-notify
     // для плашки «не удалось отправить» (без флага запись путалась бы

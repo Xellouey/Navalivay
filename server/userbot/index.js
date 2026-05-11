@@ -387,44 +387,68 @@ app.post('/send-message', checkSecret, async (req, res) => {
     }
     await rateLimitedDelay();
 
-    // sendMessage только клиентам, с которыми у менеджера УЖЕ есть диалог
-    // в Telegram. Костя+Pavel 11.05.2026: userbot не должен писать
-    // «холодным» клиентам — Telegram банит аккаунт менеджера за спам
-    // незнакомцам (одной-двух жалоб «спам» от клиента достаточно для
-    // блокировки на неделю-две). Раньше тут был fallback на
-    // resolveUsername через @username — это позволяло писать кому угодно
-    // у кого есть @username, что и есть «холодная рассылка». Откатили.
+    // sendMessage с многоступенчатым fallback на «Could not find the input
+    // entity». Контекст багов: у магазина 500+ клиентских диалогов, GramJS
+    // getDialogs подтягивает первые ~500 (внутренний cap библиотеки).
+    // Активные клиенты, которые не в топе списка → ловят «not find entity».
     //
     // Цепочка попыток:
-    //   1. sendMessage(BigInt(chatId)) — обычный путь, работает если
-    //      access_hash есть в кэше GramJS (=диалог был и попал в prefetch).
-    //   2. Если в кэше нет — prefetchDialogs (включая archived:true) и
-    //      retry. Это покрывает архивированных клиентов: они есть в
-    //      диалогах менеджера, просто не в первых N. resolveUsername
-    //      БОЛЬШЕ НЕ ДЁРГАЕМ — он давал access_hash «холодного» юзера
-    //      без необходимости иметь диалог.
+    //   1. sendMessage(BigInt(chatId)) — обычный путь, если access_hash
+    //      есть в кэше GramJS (=диалог был и попал в prefetch).
+    //   2. prefetchDialogs + retry — если клиент архивирован/далеко в
+    //      списке, но в каком-то диалоге менеджера всё-таки есть.
+    //   3. resolveUsername через @username — ТОЛЬКО для верифицированных
+    //      клиентов (`verified: true` в payload). Это покрывает кейс
+    //      «клиент есть в Telegram-диалогах менеджера, но getDialogs его
+    //      не подтянул из-за cap». Резолв через @username даёт свежий
+    //      access_hash напрямую от Telegram, без необходимости иметь
+    //      диалог в кэше.
     //
-    // Если после prefetch entity всё ещё не находится — клиент никогда
-    // не писал менеджеру в Telegram. auto-notify вернёт failed с
-    // плашкой «у userbot нет диалога с клиентом, напишите ему первым
-    // вручную» (см. describeSendError на фронте).
+    // Защита от «холодных рассылок» (Pavel 11.05.2026: «бот пишет без
+    // диалога»): resolveUsername ВКЛЮЧАЕТСЯ ТОЛЬКО для `verified=true` —
+    // т.е. клиент уже сделал заказ или прошёл /start с прайс-кодом
+    // (auto-notify проверяет это через isCustomerVerified ДО передачи в
+    // userbot, см. utils/auto-notify.js). Для рандомных username из мусора
+    // в БД — resolveUsername не вызывается, аккаунт менеджера в безопасности.
     const ENTITY_NOT_FOUND_RX = /Could not find the input entity/i;
+    const USERNAME_RX = /^[a-zA-Z][a-zA-Z0-9_]{4,31}$/;
+    const rawUsername = req.body?.username
+      ? String(req.body.username).replace(/^@/, '').trim()
+      : '';
+    const cleanUsername = USERNAME_RX.test(rawUsername) ? rawUsername : '';
+    const isVerified = req.body?.verified === true;
     let result;
     try {
       result = await client.sendMessage(BigInt(chatId), { message: text });
     } catch (firstErr) {
       const firstMsg = firstErr?.errorMessage || firstErr?.message || String(firstErr);
       if (!ENTITY_NOT_FOUND_RX.test(firstMsg)) throw firstErr;
-      // Прогрев диалогов (включая архив) и retry — на случай если клиент
-      // архивирован у менеджера и не попал в первоначальный prefetch.
+
+      // Попытка 2: прогрев диалогов и retry.
       console.warn(
-        `[userbot] entity ${chatId} не в кэше, прогреваю диалоги и пробую ещё раз...`,
+        `[userbot] entity ${chatId} не в кэше, прогреваю диалоги...`,
       );
       await prefetchDialogs(`entity-miss-${chatId}`);
-      // Если после prefetch entity всё ещё нет — клиент не в диалогах
-      // менеджера. Не ресолвим через @username (это вектор бана).
-      // Пробрасываем как обычный fail → плашка «нет диалога с клиентом».
-      result = await client.sendMessage(BigInt(chatId), { message: text });
+      try {
+        result = await client.sendMessage(BigInt(chatId), { message: text });
+      } catch (secondErr) {
+        const secondMsg = secondErr?.errorMessage || secondErr?.message || String(secondErr);
+        if (!ENTITY_NOT_FOUND_RX.test(secondMsg)) throw secondErr;
+
+        // Попытка 3: resolveUsername ТОЛЬКО для верифицированных клиентов.
+        // Этот путь безопасен — у клиента уже есть коммерческий контекст
+        // с магазином (заказ/прайс), Telegram не пометит сообщение как спам.
+        if (cleanUsername && isVerified) {
+          console.warn(
+            `[userbot] entity ${chatId} не в диалогах, ресолвлю verified @${cleanUsername}...`,
+          );
+          const entity = await client.getEntity(`@${cleanUsername}`);
+          result = await client.sendMessage(entity, { message: text });
+        } else {
+          // Не verified ИЛИ без username — пробрасываем fail.
+          throw secondErr;
+        }
+      }
     }
     const messageId = result?.id ? Number(result.id) : null;
 
