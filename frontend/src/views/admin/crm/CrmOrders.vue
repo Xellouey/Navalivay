@@ -579,7 +579,6 @@
                       <span
                         v-if="order.client_messages_count !== undefined"
                         :class="messagesBadgeClass(order.client_messages_count)"
-                        :title="messagesBadgeTitle(order.client_messages_count)"
                       >{{ order.client_messages_count }}</span>
                     </div>
                     <button
@@ -1782,13 +1781,6 @@ function messagesBadgeClass(count: number): string {
   if (count >= 10) return `${base} bg-emerald-100 text-emerald-700`;
   if (count >= 3) return `${base} bg-gray-100 text-gray-600`;
   return `${base} bg-red-100 text-red-700`;
-}
-
-function messagesBadgeTitle(count: number): string {
-  if (count === 0) return "Переписки ещё не было. Новый или старый без чатов.";
-  if (count < 3) return `Переписка: ${count} сообщ. Только знакомитесь.`;
-  if (count < 10) return `Переписка: ${count} сообщ. Уже знакомый.`;
-  return `Переписка: ${count} сообщ. Постоянный.`;
 }
 
 function nextStatusLabel(status: Order["status"]) {
