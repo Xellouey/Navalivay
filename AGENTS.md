@@ -36,3 +36,33 @@ Read these when the task touches the matching area:
   - CRM finance module `План пробития`
   - month plan/fact/recalculation rules
   - rounding, current-month additions, daily cash facts
+
+## Project Memory (migrated from editor configs and cloud-code)
+
+These files document key architectural patterns, subsystems, and development workflows.
+They were originally in `.cursor/skills/` and `~/.claude/projects/*/memory/` and have been
+copied here so they live with the project, not just in editor configs.
+
+### From .cursor/skills/
+
+- `docs/cursor-skill-crm-orders-board.md`
+  - Kanban board: columns, drag-and-drop, manager actions, polling
+  - Delivered orders modal with server-side stats and pagination
+- `docs/cursor-skill-modal-async-pattern.md`
+  - Anti-pattern: modal can't close because loading flag
+  - Fix: close modal directly in try block
+  - Checklist for new modals
+- `docs/cursor-skill-pos-cashier-system.md`
+  - Fake CRM: cashier lock screen hides admin login
+  - POS sales table with pending/completed status
+  - Integration with dashboard statistics
+- `docs/cursor-skill-profile-and-tabbar.md`
+  - Profile page with Telegram avatar caching
+  - Bottom tab bar navigation (4 tabs)
+  - Bonus system placeholder slot
+
+### From Claude Code (~/.claude/projects/*/memory/)
+
+- `docs/claude-memory-index.md` — index of Claude feedback rules
+- `docs/claude-feedback-code-review-loop.md` — run code-reviewer until 0 violations
+- `docs/claude-feedback-ux-improver.md` — run ux-improver after UI changes

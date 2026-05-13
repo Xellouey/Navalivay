@@ -123,17 +123,19 @@ let shuttingDown = false;
 // после этого auto-notify будет работать.
 // ---------------------------------------------------------------------------
 // USERBOT_DIALOG_PREFETCH: сколько диалогов подтягивать на прогрев.
-// Валидируем: NaN/<=0/слишком много → дефолт 1500. Cap=5000 защищает от
+// Валидируем: NaN/<=0/слишком много → дефолт 3000. Cap=5000 защищает от
 // опечатки (50000 = 5+ минут висения через прокси, FloodWait риск).
 //
-// Дефолт 1500 (а не 500): у магазина накопилось 500+ активных клиентов в
-// чате менеджера. Когда был лимит 500, давние клиенты вне топа выпадали
-// из кэша и ловили «Could not find input entity» (Костя 10.05.2026).
+// Дефолт поднят с 1500 до 3000: в БД 2435 клиентов с telegram_id.
+// Топ-3000 диалогов close-to гарантирует что все реальные клиенты
+// магазина попадают в entity-кэш GramJS на старте. Оставшиеся
+// (~500) подгрузятся через resolveUsername (4-й fallback в
+// send-message) либо через NewMessage event когда напишут менеджеру.
 const DIALOG_PREFETCH_RAW = Number(process.env.USERBOT_DIALOG_PREFETCH);
 const DIALOG_PREFETCH_LIMIT =
   Number.isFinite(DIALOG_PREFETCH_RAW) && DIALOG_PREFETCH_RAW > 0
     ? Math.min(DIALOG_PREFETCH_RAW, 5000)
-    : 1500;
+    : 3000;
 
 // Дедупликация in-flight prefetch: параллельные вызовы (стартовый +
 // retry на entity-miss + setInterval) могли бы удвоить-утроить трафик
@@ -233,7 +235,7 @@ async function prefetchDialogs(reason = 'startup') {
 // fire-and-forget: HTTP listener стартует параллельно, первые
 // /send-message могут падать пока прогрев идёт — на такой фейл есть
 // retry внутри /send-message (он подтянет тот же in-flight Promise).
-prefetchDialogs('startup');
+const startupPrefetch = prefetchDialogs('startup');
 
 // Периодический догрев каждые 30 минут: новые клиенты, написавшие
 // менеджеру за день, попадают в кэш через NewMessage events. Но
@@ -247,12 +249,68 @@ const dialogRefreshTimer = setInterval(
 // .unref() чтобы таймер не держал event loop при shutdown.
 dialogRefreshTimer.unref?.();
 
+// После стартового прогрева подгружаем entity-кэш из userbot_entities для
+// клиентов, которые не попали в iterDialogs (Telegram-side cap ~500–1500
+// диалогов для бизнес-аккаунтов). Это плавный обход: iterDialogs даёт
+// access_hash для ~3000, а для остальных ~500 клиентов используем
+// сохранённые access_hash из userbot_entities (накоплены через NewMessage
+// + resolveUsername). Запускаем после первого prefetchDialogs('startup').
+//
+// Без этого прогрева клиенты, написавшие менеджеру до деплоя userbot
+// или у которых давно не было диалога, выпадают из entity-кэша и ловят
+// «Could not find input entity» при auto-notify.
+startupPrefetch.then(async () => {
+  try {
+    // Вычитываем всех клиентов, у которых есть сохранённый access_hash
+    // (они писали менеджеру, но их диалог мог не попасть в iterDialogs).
+    const entities = db.prepare(
+      `SELECT telegram_id, access_hash FROM userbot_entities`,
+    ).all();
+    if (!entities || entities.length === 0) return;
+
+    let seeded = 0;
+    for (const row of entities) {
+      if (!row?.access_hash) continue;
+      try {
+        // Сеем в GramJS entity-кэш через InputPeerUser и saveEntity.
+        // saveEntity принимает InputPeer или User-объект и кладёт
+        // его во внутренний entity-кэш клиента, так что последующие
+        // sendMessage(BigInt(userId)) найдут entity без getDialogs.
+        const peer = new Api.InputPeerUser({
+          userId: BigInt(row.telegram_id),
+          accessHash: BigInt(row.access_hash),
+        });
+        await client.saveEntity(peer);
+        seeded++;
+      } catch (seedErr) {
+        // Пропускаем битые записи (могли измениться access_hash).
+        if (seedErr?.message?.includes('no users provided')) continue;
+        if (seedErr?.message?.includes('Could not find')) continue;
+        console.warn('[userbot] entity seed error:', redactSecrets(seedErr?.message || seedErr));
+      }
+    }
+    console.log(
+      `[userbot] дополнительно посеяно ${seeded} entity из userbot_entities`,
+    );
+  } catch (err) {
+    console.error('[userbot] DB entity seed error:', redactSecrets(err?.message || err));
+  }
+});
+
 // ---------------------------------------------------------------------------
 // Кэшированные prepared statements: better-sqlite3 кэширует внутри по строке
 // SQL, но создание Statement-объекта стоит ~0.1ms на каждый вызов prepare.
 // При burst 100 входящих/сек это заметная нагрузка → ловим один раз на старте.
 // ---------------------------------------------------------------------------
 const stmtFindCustomer = db.prepare(`SELECT id FROM customers WHERE telegram_id = ?`);
+const stmtCheckBlockForTgId = db.prepare(`
+  SELECT cb.id FROM customer_blocks cb
+  JOIN customers c ON c.id = cb.customer_id
+  WHERE c.telegram_id = ?
+    AND cb.active = 1
+    AND (cb.block_until IS NULL OR cb.block_until > DATETIME('now'))
+  LIMIT 1
+`);
 const stmtInsertLog = db.prepare(
   `INSERT INTO bot_message_log
      (business_connection_id, chat_id, customer_id, customer_telegram_id,
@@ -460,6 +518,19 @@ app.post('/send-message', checkSecret, async (req, res) => {
     }
     await rateLimitedDelay();
 
+    // Defense-in-depth: проверка CRM-блока перед отправкой. Даже если
+    // auto-notify / send-custom пропустили блок (баг, race condition),
+    // userbot не отправит сообщение заблокированному клиенту.
+    // Проверяем только если chat_id соответствует числовому telegram_id
+    // (для клиентов, а не групп/каналов).
+    const blockRow = stmtCheckBlockForTgId.get(chatId);
+    if (blockRow) {
+      console.warn(
+        `[userbot] блокировка: сообщение ${chatId} не отправлено (CRM-блок активен)`,
+      );
+      return res.status(403).json({ ok: false, error: 'customer_blocked' });
+    }
+
     // sendMessage: пишем ТОЛЬКО клиентам, с которыми у менеджера есть
     // реальный диалог в Telegram. Костя 11.05.2026: «снёс диалог —
     // не пишет ✓, Диане/Valeria — пишет (но iterDialogs их не отдаёт,
@@ -470,16 +541,20 @@ app.post('/send-message', checkSecret, async (req, res) => {
     //   1. sendMessage(BigInt(chatId)) — если entity в кэше GramJS.
     //   2. InputPeerUser из userbot_entities в БД — если клиент когда-то
     //      писал менеджеру (мы поймали access_hash в NewMessage handler).
-    //      Это main-ветка: Diana/Valeria попадут сюда, потому что они
-    //      писали Косте ранее — мы сохранили их access_hash.
-    //   3. prefetchDialogs + retry — последний шанс, если access_hash
-    //      изменился или вообще не был сохранён (старые клиенты, до
-    //      запуска userbot). Скорее всего так и не сработает в этих
-    //      случаях, но дешёво попробовать.
+    //   3. prefetchDialogs + retry — последний шанс через iterDialogs.
+    //   4. resolveUsername — если передан @username и verified=true,
+    //      GramJS резолвит username через Telegram API, получает свежий
+    //      access_hash и отправляет. Это фикс для клиентов, у которых
+    //      диалог есть в Telegram, но не в первых 1500 getDialogs
+    //      (Диана/Valeria/давние клиенты). Без verified=true резолв
+    //      НЕ делаем — защита от холодных рассылок случайным username.
     //
-    // Если все три упали — диалога с клиентом нет. НЕ пишем.
+    // Если все четыре упали — диалога с клиентом нет. НЕ пишем.
     // Защита аккаунта менеджера от банов за холодные сообщения.
     const ENTITY_NOT_FOUND_RX = /Could not find the input entity/i;
+    const rawUsername = req.body?.username ? String(req.body.username).replace(/^@/, '').trim() : '';
+    const isVerified = req.body?.verified === true;
+
     let result;
     try {
       result = await client.sendMessage(BigInt(chatId), { message: text });
@@ -520,7 +595,48 @@ app.post('/send-message', checkSecret, async (req, res) => {
           `[userbot] прогреваю диалоги и пробую ещё раз для ${chatId}...`,
         );
         await prefetchDialogs(`entity-miss-${chatId}`);
-        result = await client.sendMessage(BigInt(chatId), { message: text });
+        try {
+          result = await client.sendMessage(BigInt(chatId), { message: text });
+        } catch (retryErr) {
+          const retryMsg = retryErr?.errorMessage || retryErr?.message || String(retryErr);
+          if (!ENTITY_NOT_FOUND_RX.test(retryMsg)) throw retryErr;
+          // entity всё ещё не найден — переходим к попытке 4.
+        }
+      }
+
+      // Попытка 4: resolveUsername через Telegram API. Это работает даже
+      // если клиент не в кэше GramJS и не в userbot_entities — Telegram
+      // сам отдаст access_hash для публичного @username. Защита: только
+      // если caller явно передал verified=true (клиент магазина, а не
+      // рандомный username). Сохраняем полученный access_hash в БД для
+      // будущих отправок без повторного resolveUsername.
+      if (!result && rawUsername && isVerified) {
+        try {
+          console.warn(
+            `[userbot] entity ${chatId} не найден, резолвлю @${rawUsername}...`,
+          );
+          const resolved = await client.invoke(
+            new Api.contacts.ResolveUsername({ username: rawUsername }),
+          );
+          if (resolved?.peer && resolved?.users?.length > 0) {
+            const resolvedUser = resolved.users[0];
+            // Сохраняем access_hash для будущих отправок — чтобы не
+            // резолвить один и тот же username каждый раз.
+            rememberEntity(resolvedUser, 'resolve_username');
+            result = await client.sendMessage(resolved.peer, { message: text });
+            console.warn(
+              `[userbot] @${rawUsername} → успешно, access_hash сохранён`,
+            );
+          }
+        } catch (resolveErr) {
+          const resolveMsg =
+            resolveErr?.errorMessage || resolveErr?.message || String(resolveErr);
+          console.warn(
+            `[userbot] resolveUsername(@${rawUsername}) упал: ${resolveMsg}`,
+          );
+          // Если username не найден или забанен — пробрасываем как
+          // entity not found, без повторной попытки.
+        }
       }
     }
     const messageId = result?.id ? Number(result.id) : null;

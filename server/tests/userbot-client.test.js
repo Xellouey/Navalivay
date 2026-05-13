@@ -217,6 +217,65 @@ console.log('\n=== Test 1.10: AbortError по имени (не TimeoutError) →
   assertEq(r.outcome, 'ambiguous', 'AbortError → ambiguous');
 }
 
+console.log('\n=== Test 1.11: username/verified/auto прокидываются в HTTP-тело ===');
+{
+  const bodies = [];
+  setMockResponses({
+    '/send-message': async (url, init) => {
+      bodies.push(JSON.parse(init.body));
+      return { ok: true, status: 200, async json() { return { ok: true, telegram_message_id: 1 }; } };
+    },
+  });
+  // Имитация вызова из auto-notify.js (с username, verified, auto)
+  await sendViaUserbot({
+    chatId: '111',
+    text: 'заказ собран',
+    orderId: 'o1',
+    username: 'client_nick',
+    verified: true,
+    auto: true,
+  });
+  const b1 = bodies[0];
+  assertEq(b1.username, 'client_nick', 'username прокинут (без @)');
+  assertEq(b1.verified, true, 'verified=true прокинут');
+  assertEq(b1.auto, true, 'auto=true прокинут');
+  assertEq(b1.order_id, 'o1', 'order_id прокинут');
+  assertEq(b1.chat_id, '111', 'chat_id строка');
+
+  // Имитация ручной отправки из crm.js (с username, verified, auto=false)
+  await sendViaUserbot({
+    chatId: '222',
+    text: 'привет',
+    username: '@manager_nick', // с @ — должен быть очищен в userbot/index.js
+    verified: true,
+    auto: false,
+  });
+  const b2 = bodies[1];
+  assertEq(b2.username, 'manager_nick', '@ срезается в sendViaUserbot');
+  assertEq(b2.auto, false, 'auto=false для ручных сообщений');
+
+  // Без username и verified — в теле их не должно быть (null)
+  await sendViaUserbot({ chatId: '333', text: 'ok' });
+  const b3 = bodies[2];
+  assertEq(b3.username, null, 'username=null когда не передан');
+  assertEq(b3.verified, false, 'verified=false по умолчанию');
+}
+
+console.log('\n=== Test 1.12: auto в теле — сравнение строгого true ===');
+{
+  // userbot/index.js проверяет req.body?.auto === true, так что
+  // auto:1 (как число) или auto:"true" (строка) — НЕ пройдут.
+  const bodies = [];
+  setMockResponses({
+    '/send-message': async (url, init) => {
+      bodies.push(JSON.parse(init.body));
+      return { ok: true, status: 200, async json() { return { ok: true, telegram_message_id: 1 }; } };
+    },
+  });
+  await sendViaUserbot({ chatId: '1', text: 'x', auto: true });
+  assertEq(bodies[0].auto, true, 'auto=true → в теле true (boolean)');
+}
+
 // =============================================================================
 // SECTION 2: isUserbotAvailable — health check + caching
 // =============================================================================

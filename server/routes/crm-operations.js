@@ -18,6 +18,10 @@ import {
   reservePromoUsageForOrder,
 } from "../promo-code-service.js";
 import { autoNotifyForStatusChange } from "../utils/auto-notify.js";
+import {
+  buildChatMessageCountMap,
+  pickClientMessagesCount,
+} from "../utils/client-messages-count.js";
 
 export const crmOperationsRouter = express.Router();
 
@@ -387,7 +391,7 @@ crmOperationsRouter.get("/api/admin/crm/orders", authMiddleware, (req, res) => {
             .filter((id) => id !== null && id !== undefined && id !== ''),
         ),
       ];
-      const messagesCountByTgId = new Map();
+      let messagesCountByTgId = new Map();
       if (uniqueTgIds.length > 0) {
         const tgPlaceholders = uniqueTgIds.map(() => '?').join(',');
         const countRows = db
@@ -398,18 +402,17 @@ crmOperationsRouter.get("/api/admin/crm/orders", authMiddleware, (req, res) => {
               GROUP BY chat_id`,
           )
           .all(...uniqueTgIds.map(String));
-        for (const row of countRows) {
-          messagesCountByTgId.set(String(row.chat_id), Number(row.n));
-        }
+        messagesCountByTgId = buildChatMessageCountMap(countRows);
       }
 
       ordersWithItems = orders.map((order) => ({
         ...order,
         items: itemsByOrder.get(order.id) || [],
         auto_notification: notifyByOrder.get(order.id) || null,
-        client_messages_count: order.customer_telegram_id
-          ? messagesCountByTgId.get(String(order.customer_telegram_id)) || 0
-          : 0,
+        client_messages_count: pickClientMessagesCount(
+          order.customer_telegram_id,
+          messagesCountByTgId,
+        ),
       }));
     }
 

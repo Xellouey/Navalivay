@@ -67,6 +67,7 @@ import {
   sendViaUserbot,
   isUserbotAvailable,
 } from '../utils/userbot-client.js';
+import { gateSendCustomTelegramForCrmBlock } from '../utils/crm-telegram-outbound.js';
 
 export const crmRouter = express.Router();
 
@@ -1023,6 +1024,17 @@ crmRouter.post('/api/admin/crm/bot/send-price', authMiddleware, async (req, res)
     if (!text.trim()) {
       return res.status(400).json({ error: 'template_empty' });
     }
+
+    // Блокировка: прайс не отправляем заблокированным клиентам
+    // (как и авто-уведомления в auto-notify.js, и ручные в send-custom).
+    const priceBlockGate = gateSendCustomTelegramForCrmBlock(customer.id);
+    if (!priceBlockGate.ok) {
+      return res.status(403).json({
+        error: priceBlockGate.error,
+        message: 'Клиент заблокирован, отправка прайса отключена.',
+      });
+    }
+
     const sendResult = await sendNotificationViaBot({
       businessConnectionId: active.id,
       chatId: String(customer.telegram_id),
@@ -1092,6 +1104,15 @@ crmRouter.post('/api/admin/crm/bot/send-custom', authMiddleware, async (req, res
       return res.status(400).json({ error: 'customer_has_no_telegram_id' });
     }
 
+    const blockGate = gateSendCustomTelegramForCrmBlock(customer.id);
+    if (!blockGate.ok) {
+      return res.status(403).json({
+        error: blockGate.error,
+        message:
+          'Клиент в активном блоке CRM. Ручные сообщения отключены, как и авто-уведомления.',
+      });
+    }
+
     // Сначала пробуем userbot (MTProto от лица аккаунта менеджера) —
     // нет 24-часового ограничения и сообщение приходит клиенту в его
     // обычный чат с менеджером, неотличимо от ручной отправки.
@@ -1100,6 +1121,15 @@ crmRouter.post('/api/admin/crm/bot/send-custom', authMiddleware, async (req, res
         chatId: String(customer.telegram_id),
         text,
         orderId,
+        // username — fallback для userbot: если entity не в кэше GramJS
+        // и не в userbot_entities, userbot резолвит через
+        // contacts.resolveUsername (только если verified=true).
+        username: customer.telegram_username || null,
+        // verified: клиент в CRM есть → это не холодная рассылка.
+        verified: true,
+        // auto:false — ручная отправка, не авто-уведомление (для
+        // корректной фильтрации в crm-operations.js).
+        auto: false,
       });
       if (ubResult.ok) {
         return res.json({
