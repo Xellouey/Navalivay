@@ -180,7 +180,7 @@ async function prefetchDialogs(reason = 'startup') {
       for await (const dialog of client.iterDialogs({ limit: DIALOG_PREFETCH_LIMIT })) {
         mainCount += 1;
         if (dialog?.entity) {
-          rememberEntity(dialog.entity, 'prefetch');
+          rememberEntity(dialog.entity, 'prefetch', dialog.message?.id);
         }
       }
       let archivedCount = 0;
@@ -191,7 +191,7 @@ async function prefetchDialogs(reason = 'startup') {
         })) {
           archivedCount += 1;
           if (dialog?.entity) {
-            rememberEntity(dialog.entity, 'prefetch_archived');
+            rememberEntity(dialog.entity, 'prefetch_archived', dialog.message?.id);
           }
         }
       } catch (archErr) {
@@ -292,10 +292,114 @@ startupPrefetch.then(async () => {
     console.log(
       `[userbot] дополнительно посеяно ${seeded} entity из userbot_entities`,
     );
+    // После посева entity запускаем фоновый прогревальщик точного
+    // количества сообщений для CRM-индикатора.
+    warmupMessageCounts().catch((err) => {
+      console.error('[userbot] warmupMessageCounts background error:', redactSecrets(err?.message || err));
+    });
   } catch (err) {
     console.error('[userbot] DB entity seed error:', redactSecrets(err?.message || err));
   }
 });
+
+/**
+ * Фоновый прогревальщик точного количества сообщений для CRM-индикатора.
+ *
+ * После старта userbot для каждого клиента из userbot_entities, у которого
+ * ещё нет exact_message_count, вызываем getHistory(limit=1, offsetId=-1) —
+ * это самый лёгкий RPC-запрос к Telegram. Ответ содержит поле `count` —
+ * точное количество сообщений в чате. Сохраняем его в exact_message_count.
+ *
+ * Задержка 2 секунды между вызовами (Telegram rate limit ~30/min).
+ * При FloodWait ждём предписанное время с множителем и повторяем тот же
+ * клиент. Процесс лёгкий, не блокирует отправку сообщений и может быть
+ * прерван в любой момент (shuttingDown / sessionDead).
+ */
+async function warmupMessageCounts() {
+  try {
+    const rows = db.prepare(
+      `SELECT telegram_id FROM userbot_entities
+        WHERE exact_message_count IS NULL
+        ORDER BY last_seen_at DESC
+        LIMIT 2400`,
+    ).all();
+    if (!rows || rows.length === 0) {
+      console.log('[userbot] warmupMessageCounts: все клиенты уже имеют exact_message_count');
+      return;
+    }
+    console.log(`[userbot] warmupMessageCounts: начинаю прогрев ${rows.length} клиентов...`);
+
+    let idx = 0;
+    let done = 0;
+    let errors = 0;
+
+    while (idx < rows.length && !shuttingDown && !sessionDead) {
+      const row = rows[idx];
+
+      // Если активен глобальный FloodWait — ждём
+      if (floodWaitUntil > Date.now()) {
+        const waitMs = floodWaitUntil - Date.now();
+        await new Promise((r) => setTimeout(r, Math.min(waitMs, 30000)));
+        if (floodWaitUntil > Date.now()) continue; // всё ещё ждём
+      }
+
+      try {
+        const peerId = BigInt(row.telegram_id);
+        const result = await client.invoke(
+          new Api.messages.GetHistory({
+            peer: peerId,
+            limit: 1,
+            offsetId: -1,
+          }),
+        );
+        // result — MessagesMessages или MessagesChannelMessages.
+        // В обоих `.count` содержит точное количество сообщений.
+        const count = Number(result?.count);
+        if (count >= 0) {
+          db.prepare(
+            `UPDATE userbot_entities SET exact_message_count = ? WHERE telegram_id = ?`,
+          ).run(count, String(row.telegram_id));
+          done++;
+        }
+        idx++; // успех → следующий клиент
+      } catch (err) {
+        const errText = redactSecrets(err?.errorMessage || err?.message || String(err));
+        const m = errText.match(/FLOOD(?:_WAIT)?[_\s]+(\d+)/i);
+        if (m) {
+          const sec = Number(m[1]);
+          floodWaitUntil = Date.now() + sec * 1000;
+          console.warn(
+            `[userbot] warmupMessageCounts: FLOOD_WAIT ${sec}с на клиенте ${row.telegram_id}, жду...`,
+          );
+          // idx НЕ увеличиваем — повторяем того же клиента после паузы
+          await new Promise((r) => setTimeout(r, Math.min(sec * 1000, 30000)));
+          continue;
+        }
+        errors++;
+        console.warn(
+          `[userbot] warmupMessageCounts: ошибка ${row.telegram_id}: ${errText}`,
+        );
+        idx++; // не-Flood ошибка → пропускаем клиента
+        if (errors > 50) {
+          console.warn(
+            `[userbot] warmupMessageCounts: слишком много ошибок (${errors}), останавливаюсь`,
+          );
+          break;
+        }
+      }
+
+      // Пауза 2 секунды между вызовами (если FloodWait был — continue
+      // выше уже подождал и не даст дойти сюда).
+      await new Promise((r) => setTimeout(r, 2000));
+    }
+
+    console.log(
+      `[userbot] warmupMessageCounts: завершён — ${done}/${rows.length} успешно, ${errors} ошибок`,
+    );
+  } catch (err) {
+    console.error('[userbot] warmupMessageCounts fatal:', redactSecrets(err?.message || err));
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Кэшированные prepared statements: better-sqlite3 кэширует внутри по строке
@@ -323,12 +427,13 @@ const stmtInsertLog = db.prepare(
 // миграции). При UPDATE обновляем only last_seen_at + access_hash на
 // случай если access_hash изменился (Telegram периодически их обновляет).
 const stmtUpsertEntity = db.prepare(
-  `INSERT INTO userbot_entities (telegram_id, access_hash, username, first_name, source)
-   VALUES (?, ?, ?, ?, ?)
+  `INSERT INTO userbot_entities (telegram_id, access_hash, username, first_name, source, initial_message_count)
+   VALUES (?, ?, ?, ?, ?, ?)
    ON CONFLICT(telegram_id) DO UPDATE SET
      access_hash = excluded.access_hash,
      username = COALESCE(excluded.username, userbot_entities.username),
      first_name = COALESCE(excluded.first_name, userbot_entities.first_name),
+     initial_message_count = COALESCE(excluded.initial_message_count, userbot_entities.initial_message_count),
      last_seen_at = DATETIME('now')`,
 );
 const stmtGetEntityAccessHash = db.prepare(
@@ -338,12 +443,20 @@ const stmtGetEntityAccessHash = db.prepare(
 // Извлекаем access_hash из объекта user (GramJS возвращает BigInt).
 // Если у user нет access_hash — это бот, удалённый аккаунт или
 // неполный entity, не сохраняем.
-function rememberEntity(user, source) {
+function rememberEntity(user, source, topMessage) {
   if (!user || user.accessHash === null || user.accessHash === undefined) return;
   const tgId = String(user.id);
   if (!/^[1-9]\d{0,18}$/.test(tgId)) return;
   const accessHash = String(user.accessHash);
   if (!accessHash || accessHash === '0') return;
+  // topMessage — id последнего сообщения в диалоге (из dialog.message).
+  // Telegram не переиспользует message id, поэтому для чата с N сообщениями
+  // topMessage.id >= N. Сохраняем как initial_message_count — аппроксимацию
+  // общего количества сообщений, которая точнее чем COUNT(bot_message_log)
+  // для старых клиентов (пока exact_message_count не подгружен).
+  const topMsgId = (topMessage !== null && topMessage !== undefined)
+    ? Math.max(0, Number(topMessage))
+    : null;
   try {
     stmtUpsertEntity.run(
       tgId,
@@ -351,6 +464,7 @@ function rememberEntity(user, source) {
       user.username || null,
       user.firstName || null,
       source,
+      topMsgId,
     );
   } catch (err) {
     console.error('[userbot] rememberEntity failed:', redactSecrets(err?.message || err));

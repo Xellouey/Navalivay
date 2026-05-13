@@ -48,4 +48,17 @@ export function migrateUserbotEntities() {
     CREATE INDEX IF NOT EXISTS idx_userbot_entities_last_seen
       ON userbot_entities(last_seen_at);
   `);
+
+  // Счётчик «сообщений с клиентом» для CRM-индикатора.
+  // initial_message_count берется из dialog.message.id при прогреве диалогов
+  // (iterDialogs) — это аппроксимация количества сообщений в чате.
+  // exact_message_count заполняется фоновым прогревальщиком через
+  // getHistory(limit=0) для точного подсчёта.
+  // Оба поля nullable — если нет данных, CRM использует COUNT(bot_message_log).
+  try {
+    db.exec(`ALTER TABLE userbot_entities ADD COLUMN initial_message_count INTEGER DEFAULT NULL`);
+  } catch (_) { /* колонка уже существует — no-op */ }
+  try {
+    db.exec(`ALTER TABLE userbot_entities ADD COLUMN exact_message_count INTEGER DEFAULT NULL`);
+  } catch (_) { /* колонка уже существует — no-op */ }
 }
