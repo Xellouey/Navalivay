@@ -129,8 +129,9 @@ let shuttingDown = false;
 // Дефолт поднят с 1500 до 3000: в БД 2435 клиентов с telegram_id.
 // Топ-3000 диалогов close-to гарантирует что все реальные клиенты
 // магазина попадают в entity-кэш GramJS на старте. Оставшиеся
-// (~500) подгрузятся через resolveUsername (4-й fallback в
-// send-message) либо через NewMessage event когда напишут менеджеру.
+// (~500) подгрузятся через NewMessage event когда напишут менеджеру
+// либо через entity seed из userbot_entities при старте до
+// prefetchDialogs.
 const DIALOG_PREFETCH_RAW = Number(process.env.USERBOT_DIALOG_PREFETCH);
 const DIALOG_PREFETCH_LIMIT =
   Number.isFinite(DIALOG_PREFETCH_RAW) && DIALOG_PREFETCH_RAW > 0
@@ -253,8 +254,8 @@ dialogRefreshTimer.unref?.();
 // клиентов, которые не попали в iterDialogs (Telegram-side cap ~500–1500
 // диалогов для бизнес-аккаунтов). Это плавный обход: iterDialogs даёт
 // access_hash для ~3000, а для остальных ~500 клиентов используем
-// сохранённые access_hash из userbot_entities (накоплены через NewMessage
-// + resolveUsername). Запускаем после первого prefetchDialogs('startup').
+// сохранённые access_hash из userbot_entities (накоплены через
+// NewMessage events). Запускаем после первого prefetchDialogs('startup').
 //
 // Без этого прогрева клиенты, написавшие менеджеру до деплоя userbot
 // или у которых давно не было диалога, выпадают из entity-кэша и ловят
@@ -656,18 +657,19 @@ app.post('/send-message', checkSecret, async (req, res) => {
     //   2. InputPeerUser из userbot_entities в БД — если клиент когда-то
     //      писал менеджеру (мы поймали access_hash в NewMessage handler).
     //   3. prefetchDialogs + retry — последний шанс через iterDialogs.
-    //   4. resolveUsername — если передан @username и verified=true,
-    //      GramJS резолвит username через Telegram API, получает свежий
-    //      access_hash и отправляет. Это фикс для клиентов, у которых
-    //      диалог есть в Telegram, но не в первых 1500 getDialogs
-    //      (Диана/Valeria/давние клиенты). Без verified=true резолв
-    //      НЕ делаем — защита от холодных рассылок случайным username.
     //
-    // Если все четыре упали — диалога с клиентом нет. НЕ пишем.
+    // Если все три упали — диалога с клиентом нет. НЕ пишем.
     // Защита аккаунта менеджера от банов за холодные сообщения.
+    //
+    // resolveUsername (4-я попытка) БЫЛА удалена 13.05.2026: Telegram API
+    // contacts.ResolveUsername отдаёт access_hash для любого публичного
+    // @username и позволяет отправить сообщение даже при отсутствии
+    // диалога у менеджера (@rk0ff кейс). Это противоречит защите от
+    // холодных рассылок — пишем только тем, с кем есть реальный диалог
+    // в Telegram менеджера. Клиенты с existing диалогом, попавшие за
+    // top-3000 iterDialogs, подхватываются через NewMessage events или
+    // entity seed из userbot_entities при старте.
     const ENTITY_NOT_FOUND_RX = /Could not find the input entity/i;
-    const rawUsername = req.body?.username ? String(req.body.username).replace(/^@/, '').trim() : '';
-    const isVerified = req.body?.verified === true;
 
     let result;
     try {
@@ -714,42 +716,8 @@ app.post('/send-message', checkSecret, async (req, res) => {
         } catch (retryErr) {
           const retryMsg = retryErr?.errorMessage || retryErr?.message || String(retryErr);
           if (!ENTITY_NOT_FOUND_RX.test(retryMsg)) throw retryErr;
-          // entity всё ещё не найден — переходим к попытке 4.
-        }
-      }
-
-      // Попытка 4: resolveUsername через Telegram API. Это работает даже
-      // если клиент не в кэше GramJS и не в userbot_entities — Telegram
-      // сам отдаст access_hash для публичного @username. Защита: только
-      // если caller явно передал verified=true (клиент магазина, а не
-      // рандомный username). Сохраняем полученный access_hash в БД для
-      // будущих отправок без повторного resolveUsername.
-      if (!result && rawUsername && isVerified) {
-        try {
-          console.warn(
-            `[userbot] entity ${chatId} не найден, резолвлю @${rawUsername}...`,
-          );
-          const resolved = await client.invoke(
-            new Api.contacts.ResolveUsername({ username: rawUsername }),
-          );
-          if (resolved?.peer && resolved?.users?.length > 0) {
-            const resolvedUser = resolved.users[0];
-            // Сохраняем access_hash для будущих отправок — чтобы не
-            // резолвить один и тот же username каждый раз.
-            rememberEntity(resolvedUser, 'resolve_username');
-            result = await client.sendMessage(resolved.peer, { message: text });
-            console.warn(
-              `[userbot] @${rawUsername} → успешно, access_hash сохранён`,
-            );
-          }
-        } catch (resolveErr) {
-          const resolveMsg =
-            resolveErr?.errorMessage || resolveErr?.message || String(resolveErr);
-          console.warn(
-            `[userbot] resolveUsername(@${rawUsername}) упал: ${resolveMsg}`,
-          );
-          // Если username не найден или забанен — пробрасываем как
-          // entity not found, без повторной попытки.
+          // entity всё ещё не найден — диалога с клиентом нет в Telegram менеджера.
+          // Не пишем — защита от холодных рассылок.
         }
       }
     }

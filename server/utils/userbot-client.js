@@ -162,10 +162,10 @@ export async function sendViaUserbot({
       method: 'POST',
       headers,
       // `auto` — признак авто-уведомления для фильтра в crm-operations.js
-      // (плашка failed на карточке). `username` + `verified` — fallback
-      // для GramJS «Could not find input entity»: userbot резолвит через
-      // contacts.resolveUsername, но ТОЛЬКО для verified клиентов
-      // (защита от холодных рассылок случайным юзернеймам).
+      // (плашка failed на карточке). `username` + `verified` — исторические
+      // поля от бывшего resolveUsername fallback (удалён 13.05.2026 —
+      // не давал защиту от холодных рассылок: @rk0ff кейс). Оставлены
+      // для обратной совместимости API, userbot их игнорирует.
       body: JSON.stringify({
         chat_id: String(chatId),
         text: String(text),
