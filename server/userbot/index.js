@@ -269,33 +269,37 @@ startupPrefetch.then(async () => {
     ).all();
     if (!entities || entities.length === 0) return;
 
-    let seeded = 0;
+    // Батчим всех пользователей в один users.GetUsers — иначе 700+
+    // последовательных API-вызовов вызывают FloodWait (грамджис спит
+    // по 30с на каждом). GetUsers принимает массив InputUser
+    // (не InputPeerUser, но поля те же: userId, accessHash).
+    const batchPeers = [];
     for (const row of entities) {
       if (!row?.access_hash) continue;
+      batchPeers.push(new Api.InputUser({
+        userId: BigInt(row.telegram_id),
+        accessHash: BigInt(row.access_hash),
+      }));
+    }
+
+    if (batchPeers.length > 0) {
       try {
-        // Засеиваем в GramJS entity-кэш через users.GetUsers.
-        // saveEntity (несуществующий метод) не работает — в логах
-        // «client.saveEntity is not a function». Вместо этого вызываем
-        // users.GetUsers с InputPeerUser — Telegram возвращает полный
-        // User-object, GramJS автоматически кладёт его во внутренний
-        // entity-кэш, и последующие sendMessage(BigInt(userId))
-        // находят entity.
-        const inputPeer = new Api.InputPeerUser({
-          userId: BigInt(row.telegram_id),
-          accessHash: BigInt(row.access_hash),
-        });
-        await client.invoke(new Api.users.GetUsers({ id: [inputPeer] }));
-        seeded++;
+        await client.invoke(new Api.users.GetUsers({ id: batchPeers }));
+        // GramJS автоматически кладёт полученные User-объекты во
+        // внутренний entity-кэш — sendMessage(BigInt(userId))
+        // находит entity.
+        console.log(
+          `[userbot] посеяно ${batchPeers.length} entity из userbot_entities (batch)`,
+        );
       } catch (seedErr) {
-        // Пропускаем битые записи (могли измениться access_hash).
-        // users.GetUsers возвращает пустой массив для несуществующих
-        // пользователей — это не ошибка.
-        continue;
+        // Если access_hash устарел — Telegram возвращает пустой
+        // массив для bad-записей, это не ошибка.
+        console.warn(
+          '[userbot] batch entity seed warning:',
+          redactSecrets(seedErr?.message || seedErr),
+        );
       }
     }
-    console.log(
-      `[userbot] дополнительно посеяно ${seeded} entity из userbot_entities`,
-    );
     // После посева entity запускаем фоновый прогревальщик точного
     // количества сообщений для CRM-индикатора.
     warmupMessageCounts().catch((err) => {
