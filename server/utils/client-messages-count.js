@@ -1,13 +1,13 @@
 /**
  * Чистая логика подсчёта «сообщений с клиентом» для CRM-списка заказов.
- * Считаем ТОЛЬКО по bot_message_log — реальные сообщения через нашу
- * систему (авто-уведомления, ручные отправки, входящие через бот).
- * Это гарантирует что счётчик показывает только верифицированных
- * клиентов (тех, кто прошёл через бот и получил прайс), а не любых
- * людей с которыми менеджер мог переписываться в Telegram.
+ * Источники (по приоритету):
+ *   1. exact_message_count из userbot_entities (фоновый getHistory)
+ *   2. initial_message_count из userbot_entities (topMessage при prefetch)
+ *   3. COUNT(bot_message_log) — только то, что попало в журнал с момента
+ *      включения логирования.
  *
- * Константин 14.05.2026: «нет диалога — нет обслуживания. Мы должны
- * понимать, что это наш клиент, у него должен быть выдан прайс.»
+ * Результат: GREATEST из всех доступных, что даёт максимально точную
+ * аппроксимацию общего числа сообщений в чате клиента.
  */
 
 /**
@@ -23,14 +23,43 @@ export function buildChatMessageCountMap(countRows) {
 }
 
 /**
+ * Строит Map<telegram_id, exact_message_count> из userbot_entities.
+ * exact_message_count приоритетнее initial_message_count — если он есть,
+ * берём его; иначе initial_message_count, иначе undefined.
+ *
+ * @param {import('better-sqlite3').Database} db
+ * @param {string[]} tgIds массив telegram_id
+ * @returns {Map<string, number>}
+ */
+export function buildTopMessageCountMap(db, tgIds) {
+  const map = new Map();
+  if (!tgIds || tgIds.length === 0) return map;
+  const placeholders = tgIds.map(() => '?').join(',');
+  const rows = db.prepare(`
+    SELECT telegram_id,
+           COALESCE(exact_message_count, initial_message_count) AS msg_count
+    FROM userbot_entities
+    WHERE telegram_id IN (${placeholders})
+      AND (exact_message_count IS NOT NULL OR initial_message_count IS NOT NULL)
+  `).all(...tgIds.map(String));
+  for (const row of rows) {
+    map.set(String(row.telegram_id), Number(row.msg_count) || 0);
+  }
+  return map;
+}
+
+/**
  * @param {string|null|undefined} telegramId customer.telegram_id из заказа
  * @param {Map<string, number>} messagesCountByTgId из bot_message_log
- * @returns {number} количество сообщений из bot_message_log (0 если нет)
+ * @param {Map<string, number>} topMessageCountMap из userbot_entities (exact / initial)
+ * @returns {number} GREATEST из всех доступных источников
  */
-export function pickClientMessagesCount(telegramId, messagesCountByTgId) {
+export function pickClientMessagesCount(telegramId, messagesCountByTgId, topMessageCountMap = new Map()) {
   if (telegramId === null || telegramId === undefined || telegramId === '') {
     return 0;
   }
   const key = String(telegramId);
-  return messagesCountByTgId.get(key) ?? 0;
+  const loggedCount = messagesCountByTgId.get(key) ?? 0;
+  const topMsg = topMessageCountMap.get(key) ?? 0;
+  return Math.max(loggedCount, topMsg);
 }

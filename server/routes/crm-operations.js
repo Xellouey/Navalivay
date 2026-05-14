@@ -20,6 +20,7 @@ import {
 import { autoNotifyForStatusChange } from "../utils/auto-notify.js";
 import {
   buildChatMessageCountMap,
+  buildTopMessageCountMap,
   pickClientMessagesCount,
 } from "../utils/client-messages-count.js";
 
@@ -402,6 +403,7 @@ crmOperationsRouter.get("/api/admin/crm/orders", authMiddleware, (req, res) => {
         ),
       ];
       let messagesCountByTgId = new Map();
+      let topMessageCountMap = new Map();
       if (uniqueTgIds.length > 0) {
         const tgPlaceholders = uniqueTgIds.map(() => '?').join(',');
         const countRows = db
@@ -413,6 +415,7 @@ crmOperationsRouter.get("/api/admin/crm/orders", authMiddleware, (req, res) => {
           )
           .all(...uniqueTgIds.map(String));
         messagesCountByTgId = buildChatMessageCountMap(countRows);
+        topMessageCountMap = buildTopMessageCountMap(db, uniqueTgIds);
       }
 
       ordersWithItems = orders.map((order) => ({
@@ -422,6 +425,7 @@ crmOperationsRouter.get("/api/admin/crm/orders", authMiddleware, (req, res) => {
         client_messages_count: pickClientMessagesCount(
           order.customer_telegram_id,
           messagesCountByTgId,
+          topMessageCountMap,
         ),
       }));
     }
