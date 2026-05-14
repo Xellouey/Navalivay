@@ -59,49 +59,59 @@
           <label class="block text-sm font-medium text-gray-700">Причина (видна клиенту)</label>
           <button
             type="button"
-            class="inline-flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600 transition"
+            class="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-2.5 py-1 text-xs font-medium text-gray-500 shadow-sm transition hover:border-gray-300 hover:text-gray-700"
             @click="showTemplates = !showTemplates"
             title="Шаблонные причины"
           >
             <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
             </svg>
-            <span>Шаблоны</span>
+            Шаблоны
           </button>
         </div>
 
         <!-- Выпадающий список шаблонов -->
-        <div v-if="showTemplates" class="rounded-lg border border-gray-200 bg-white shadow-sm p-2 space-y-1">
-          <p v-if="templates.length === 0" class="text-xs text-gray-400 px-2 py-1">Нет шаблонов. Добавьте новый ниже.</p>
-          <button
-            v-for="(t, i) in templates"
-            :key="i"
-            type="button"
-            class="w-full text-left px-2 py-1 text-xs rounded hover:bg-gray-100 flex items-center justify-between group"
-            @click="reason = t; showTemplates = false"
-          >
-            <span class="truncate">{{ t }}</span>
-            <svg
-              class="h-3 w-3 text-gray-300 opacity-0 group-hover:opacity-100 hover:text-red-500 flex-shrink-0 ml-1"
-              fill="none" stroke="currentColor" viewBox="0 0 24 24"
-              @click.stop="removeTemplate(i)"
+        <div
+          v-if="showTemplates"
+          class="rounded-lg border border-gray-200 bg-gray-50/50 p-3 space-y-2"
+        >
+          <p
+            v-if="templates.length === 0"
+            class="text-xs text-gray-400 py-1"
+          >Нет шаблонов. Добавьте новый через поле ниже.</p>
+          <div v-if="templates.length > 0" class="flex flex-wrap gap-1.5">
+            <button
+              v-for="(t, i) in templates"
+              :key="i"
+              type="button"
+              class="group inline-flex items-center gap-1 rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-xs font-medium text-gray-600 shadow-sm transition hover:border-brand-primary hover:text-brand-dark"
+              @click="reason = t; showTemplates = false"
             >
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
-          <div class="flex gap-1 pt-1 border-t border-gray-100">
+              <span class="max-w-[200px] truncate">{{ t }}</span>
+              <svg
+                class="h-3 w-3 flex-shrink-0 text-gray-300 opacity-0 group-hover:opacity-100 hover:text-red-500 transition"
+                fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                @click.stop="removeTemplate(i)"
+              >
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+          <div class="flex gap-2">
             <input
               v-model.trim="newTemplate"
               type="text"
-              placeholder="Новый шаблон..."
-              class="flex-1 rounded border border-gray-200 px-2 py-1 text-xs focus:border-brand-primary focus:outline-none"
+              placeholder="Добавить шаблон..."
+              class="flex-1 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs focus:border-brand-primary focus:outline-none focus:ring-2 focus:ring-brand-primary/30"
               @keyup.enter.prevent="addTemplate"
             />
             <button
               type="button"
-              class="rounded bg-gray-100 px-2 py-1 text-xs font-medium text-gray-600 hover:bg-gray-200"
+              class="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-semibold text-gray-600 transition hover:border-brand-primary hover:text-brand-dark"
               @click="addTemplate"
-            >+</button>
+            >
+              + Добавить
+            </button>
           </div>
         </div>
 
