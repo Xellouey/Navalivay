@@ -374,7 +374,16 @@ async function warmupMessageCounts() {
             offsetId: -1,
           }),
         );
-        const count = Number(result?.count);
+        // messages.ChannelMessages (каналы/супергруппы) имеет поле count —
+        // точное количество сообщений. messages.Messages (личные чаты) —
+        // только массив messages, без count. Для личных чатов считаем
+        // messages.length (с limit=1 даст 0 или 1 — не точный счётчик,
+        // но bot_message_log дополнит через GREATEST).
+        const count = result?.count !== undefined
+          ? Number(result.count)
+          : Array.isArray(result?.messages)
+            ? result.messages.length
+            : 0;
         if (count >= 0) {
           db.prepare(
             `UPDATE userbot_entities SET exact_message_count = ? WHERE telegram_id = ?`,
