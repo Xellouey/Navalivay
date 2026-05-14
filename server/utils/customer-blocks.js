@@ -281,6 +281,14 @@ function insertCustomerBlock({ customer_id, block_until, reason, blocked_by }) {
 }
 
 /**
+ * Возвращает блок по его ID (любой статус — active/0, истёкший/нет).
+ */
+export function getCustomerBlockById(blockId) {
+  if (!blockId) return null;
+  return db.prepare('SELECT * FROM customer_blocks WHERE id = ?').get(String(blockId)) ?? null;
+}
+
+/**
  * Снимает активный блок. Заполняет unblock-поля для аудита.
  * Возвращает обновлённую запись или null если блок не найден / уже снят.
  */

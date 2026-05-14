@@ -398,7 +398,7 @@
                 d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
               />
             </svg>
-            <div class="flex-1">
+            <div class="flex-1 space-y-2">
               <p
                 :class="[
                   'text-sm font-medium',
@@ -409,6 +409,14 @@
                       : 'text-red-800',
                 ]"
               >{{ orderToast.message }}</p>
+              <a
+                v-if="orderToast.action"
+                :href="orderToast.action.url"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="inline-flex items-center gap-1 text-sm font-semibold underline transition"
+                :class="orderToast.kind === 'error' ? 'text-red-700 hover:text-red-800' : 'text-blue-700 hover:text-blue-800'"
+              >{{ orderToast.action.label }}</a>
             </div>
             <button
               @click="dismissOrderToast"
@@ -580,7 +588,13 @@
                 <div class="mt-2 space-y-1 text-sm text-gray-700">
                   <div class="flex items-center justify-between">
                     <div class="flex items-center gap-2 font-medium">
-                      <span>{{ order.customer_name || "Без имени" }}</span>
+                      <span
+                        v-if="order.telegram_username"
+                        class="cursor-pointer hover:text-red-500 transition-colors"
+                        @click.stop="openBlockModal(order.telegram_username)"
+                        :title="'Заблокировать ' + order.telegram_username"
+                      >{{ order.customer_name || "Без имени" }}</span>
+                      <span v-else>{{ order.customer_name || "Без имени" }}</span>
                       <span v-if="order.is_blocked"
                         class="rounded-full bg-red-200 px-2 py-0.5 text-[10px] font-semibold text-red-800"
                         title="Клиент заблокирован. Сообщения не отправляются."
@@ -1187,6 +1201,7 @@
       :prefill-username="blockPrefillUsername"
       @close="showBlockModal = false"
       @created="handleBlockCreated"
+      @notify-result="handleBlockNotifyResult"
     />
 
     <!-- Модалка скидки -->
@@ -1410,6 +1425,20 @@ function handleBlockCreated(payload: { kind: 'active' | 'pending'; username: str
   // eslint-disable-next-line no-alert
   window.alert(`@${payload.username}: ${verb}`);
 }
+function handleBlockNotifyResult(payload: { ok: boolean; error?: string; text?: string; username?: string }) {
+  if (payload.ok) {
+    showOrderToast({ kind: 'success', message: 'Сообщение о блокировке отправлено клиенту.' })
+  } else if (payload.username && payload.text) {
+    // Failed - show toast with Telegram link button
+    const encodedText = encodeURIComponent(payload.text)
+    const tgUrl = `https://t.me/${payload.username}?text=${encodedText}`
+    showOrderToast({
+      kind: 'error',
+      message: 'Не удалось отправить сообщение о блокировке. Напишите клиенту вручную.',
+      action: { label: 'Написать в Telegram', url: tgUrl },
+    })
+  }
+}
 
 const paymentModalOpen = ref(false);
 const paymentOrder = ref<Order | null>(null);
@@ -1465,10 +1494,19 @@ const expandedOrders = ref<Set<string>>(new Set());
 // успешно или не отправилось». Раньше был только error-тост (orderError);
 // теперь — единая плашка с тремя видами.
 type OrderToastKind = "success" | "error" | "info";
-const orderToast = ref<{ kind: OrderToastKind; message: string } | null>(null);
+interface OrderToastAction {
+  label: string;
+  url: string;
+}
+interface OrderToast {
+  kind: OrderToastKind;
+  message: string;
+  action?: OrderToastAction;
+}
+const orderToast = ref<OrderToast | null>(null);
 const orderToastTimeout = ref<ReturnType<typeof setTimeout> | null>(null);
 
-function showOrderToast(toast: { kind: OrderToastKind; message: string }) {
+function showOrderToast(toast: OrderToast) {
   orderToast.value = toast;
   if (orderToastTimeout.value) {
     clearTimeout(orderToastTimeout.value);

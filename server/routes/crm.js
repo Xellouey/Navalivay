@@ -17,6 +17,7 @@ import {
   deletePendingBan,
   getActiveBlockForCustomerId,
   getActiveBlockForTelegramId,
+  getCustomerBlockById,
   serializeBlock,
   unblockCustomerBlock,
 } from '../utils/customer-blocks.js';
@@ -807,6 +808,36 @@ crmRouter.put('/api/admin/crm/bot/settings', authMiddleware, (req, res) => {
   }
 });
 
+// ----- Block reason templates -----------------------------------------------
+crmRouter.get('/api/admin/crm/block-reason-templates', authMiddleware, (req, res) => {
+  try {
+    const row = db.prepare("SELECT value FROM settings WHERE key = 'block_reason_templates'").get();
+    const templates = row ? JSON.parse(row.value) : [];
+    res.json({ templates });
+  } catch (err) {
+    console.error('[crm] block-reason-templates GET error:', err);
+    res.status(500).json({ error: 'failed' });
+  }
+});
+
+crmRouter.put('/api/admin/crm/block-reason-templates', authMiddleware, (req, res) => {
+  try {
+    const { templates } = req.body;
+    if (!Array.isArray(templates)) {
+      return res.status(400).json({ error: 'templates_must_be_array' });
+    }
+    const filtered = templates.map(s => String(s).trim()).filter(Boolean);
+    db.prepare(
+      `INSERT INTO settings (key, value) VALUES ('block_reason_templates', ?)
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value`
+    ).run(JSON.stringify(filtered));
+    res.json({ templates: filtered });
+  } catch (err) {
+    console.error('[crm] block-reason-templates PUT error:', err);
+    res.status(500).json({ error: 'failed' });
+  }
+});
+
 // ----- Quick replies (FAQ) -------------------------------------------------
 
 crmRouter.get('/api/admin/crm/bot/quick-replies', authMiddleware, (req, res) => {
@@ -1447,6 +1478,32 @@ crmRouter.get('/api/admin/crm/blocks', authMiddleware, (req, res) => {
   } catch (error) {
     console.error('[crm] List blocks error:', error);
     res.status(500).json({ error: 'failed', message: error.message });
+  }
+});
+
+// Уведомление о блокировке через userbot
+crmRouter.post('/api/admin/crm/blocks/:blockId/notify', authMiddleware, async (req, res) => {
+  try {
+    const block = getCustomerBlockById(req.params.blockId);
+    if (!block) return res.status(404).json({ error: 'block_not_found' });
+
+    const customer = db.prepare('SELECT * FROM customers WHERE id = ?').get(block.customer_id);
+    if (!customer || !customer.telegram_id) {
+      return res.json({ ok: false, error: 'no_telegram_id' });
+    }
+
+    const text = req.body?.text || `Ваш аккаунт заблокирован. Причина: ${block.reason || 'не указана'}`;
+
+    const result = await sendViaUserbot({
+      chatId: customer.telegram_id,
+      text,
+      auto: false,
+    });
+
+    res.json({ ok: result.ok, error: result.error || null });
+  } catch (err) {
+    console.error('[crm] block notify error:', err);
+    res.status(500).json({ error: 'notify_failed' });
   }
 });
 

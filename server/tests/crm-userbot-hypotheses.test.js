@@ -270,6 +270,24 @@ console.log('\n=== H9: is_blocked — проверка активного бло
   assertEq(emptyAfter.length, 0, 'неактивный блок не найден');
 }
 
+console.log('\n=== H10: block_reason_templates CRUD ===');
+{
+  // GET empty
+  const row = db.prepare("SELECT value FROM settings WHERE key = 'block_reason_templates'").get();
+  assertEq(row, undefined, 'нет записей до первого PUT');
+
+  // PUT
+  db.prepare(
+    `INSERT INTO settings (key, value) VALUES ('block_reason_templates', ?)
+     ON CONFLICT(key) DO UPDATE SET value = excluded.value`
+  ).run(JSON.stringify(['флуд', 'спам']));
+
+  const saved = JSON.parse(db.prepare("SELECT value FROM settings WHERE key = 'block_reason_templates'").get().value);
+  assertEq(saved.length, 2, '2 шаблона сохранены');
+  assertEq(saved[0], 'флуд', 'первый шаблон флуд');
+  assertEq(saved[1], 'спам', 'второй шаблон спам');
+}
+
 console.log(`\n=== Total: ${results.passed} passed, ${results.failed} failed ===`);
 
 try {

@@ -55,7 +55,56 @@
       </div>
 
       <div class="space-y-1.5">
-        <label class="block text-sm font-medium text-gray-700">Причина (видна клиенту)</label>
+        <div class="flex items-center justify-between">
+          <label class="block text-sm font-medium text-gray-700">Причина (видна клиенту)</label>
+          <button
+            type="button"
+            class="inline-flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600 transition"
+            @click="showTemplates = !showTemplates"
+            title="Шаблонные причины"
+          >
+            <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+            </svg>
+            <span>Шаблоны</span>
+          </button>
+        </div>
+
+        <!-- Выпадающий список шаблонов -->
+        <div v-if="showTemplates" class="rounded-lg border border-gray-200 bg-white shadow-sm p-2 space-y-1">
+          <p v-if="templates.length === 0" class="text-xs text-gray-400 px-2 py-1">Нет шаблонов. Добавьте новый ниже.</p>
+          <button
+            v-for="(t, i) in templates"
+            :key="i"
+            type="button"
+            class="w-full text-left px-2 py-1 text-xs rounded hover:bg-gray-100 flex items-center justify-between group"
+            @click="reason = t; showTemplates = false"
+          >
+            <span class="truncate">{{ t }}</span>
+            <svg
+              class="h-3 w-3 text-gray-300 opacity-0 group-hover:opacity-100 hover:text-red-500 flex-shrink-0 ml-1"
+              fill="none" stroke="currentColor" viewBox="0 0 24 24"
+              @click.stop="removeTemplate(i)"
+            >
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+          <div class="flex gap-1 pt-1 border-t border-gray-100">
+            <input
+              v-model.trim="newTemplate"
+              type="text"
+              placeholder="Новый шаблон..."
+              class="flex-1 rounded border border-gray-200 px-2 py-1 text-xs focus:border-brand-primary focus:outline-none"
+              @keyup.enter.prevent="addTemplate"
+            />
+            <button
+              type="button"
+              class="rounded bg-gray-100 px-2 py-1 text-xs font-medium text-gray-600 hover:bg-gray-200"
+              @click="addTemplate"
+            >+</button>
+          </div>
+        </div>
+
         <textarea
           v-model.trim="reason"
           rows="2"
@@ -93,7 +142,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import AdminModal from '@/components/AdminModal.vue'
 import { useCrmStore, type CustomerBlockDuration } from '@/stores/crm'
 
@@ -106,6 +155,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: 'close'): void
   (e: 'created', payload: { kind: 'active' | 'pending'; username: string }): void
+  (e: 'notifyResult', payload: { ok: boolean; error?: string; text?: string; username?: string }): void
 }>()
 
 const crmStore = useCrmStore()
@@ -126,6 +176,49 @@ const reason = ref('')
 const errorMessage = ref('')
 const submitting = ref(false)
 const usernameInputRef = ref<HTMLInputElement | null>(null)
+
+// Template block reasons
+const showTemplates = ref(false)
+const templates = ref<string[]>([])
+const newTemplate = ref('')
+
+async function loadTemplates() {
+  try {
+    const res = await fetch('/api/admin/crm/block-reason-templates', { credentials: 'include' })
+    if (res.ok) {
+      const data = await res.json()
+      templates.value = data.templates || []
+    }
+  } catch {}
+}
+
+async function saveTemplates() {
+  try {
+    await fetch('/api/admin/crm/block-reason-templates', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ templates: templates.value }),
+    })
+  } catch {}
+}
+
+function addTemplate() {
+  const v = newTemplate.value.trim()
+  if (!v) return
+  templates.value.push(v)
+  newTemplate.value = ''
+  saveTemplates()
+}
+
+function removeTemplate(index: number) {
+  templates.value.splice(index, 1)
+  saveTemplates()
+}
+
+onMounted(() => {
+  loadTemplates()
+})
 
 // Сброс формы и фокус при открытии
 watch(
@@ -229,6 +322,27 @@ async function submit() {
       duration,
     })
     emit('created', { kind: result.kind, username })
+
+    // Try to send block notification via userbot
+    try {
+      const blockId = result.block.id
+      const notifyText = reason.value.trim() || 'Ваш аккаунт заблокирован.'
+      const notifyRes = await fetch(`/api/admin/crm/blocks/${encodeURIComponent(blockId)}/notify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ text: notifyText }),
+      })
+      const notifyData = await notifyRes.json()
+      if (notifyData.ok) {
+        emit('notifyResult', { ok: true })
+      } else {
+        emit('notifyResult', { ok: false, error: notifyData.error, text: notifyText, username })
+      }
+    } catch {
+      emit('notifyResult', { ok: false, error: 'network_error', text: reason.value.trim(), username })
+    }
+
     emit('close')
   } catch (err: any) {
     if (err?.message === 'already_blocked') {
