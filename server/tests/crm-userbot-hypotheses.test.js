@@ -245,6 +245,31 @@ console.log('\n=== H8: is_returning_customer — проверка на пост�
   assertEq(emptyRows.length, 0, 'без старых заказов — 0 строк');
 }
 
+console.log('\n=== H9: is_blocked — проверка активного блока клиента ===');
+{
+  db.exec(`DELETE FROM customer_blocks;`);
+
+  // Активный перманентный блок
+  db.prepare(`INSERT INTO customer_blocks (id, customer_id, block_until, reason, active) VALUES ('blk1', 'c_ret', NULL, 'spam', 1)`).run();
+
+  const blockedRows = db.prepare(`
+    SELECT customer_id, 1 as blocked
+    FROM customer_blocks
+    WHERE customer_id IN ('c_ret')
+      AND active = 1
+      AND (block_until IS NULL OR block_until > DATETIME('now'))
+    GROUP BY customer_id
+  `).all();
+
+  assertEq(blockedRows.length, 1, 'активный перманентный блок найден');
+  assertEq(blockedRows[0].blocked, 1, 'клиент заблокирован');
+
+  // Неактивный блок — не должен находиться
+  db.prepare(`UPDATE customer_blocks SET active = 0 WHERE id = 'blk1'`).run();
+  const emptyAfter = db.prepare(`SELECT customer_id FROM customer_blocks WHERE customer_id IN ('c_ret') AND active = 1 AND (block_until IS NULL OR block_until > DATETIME('now'))`).all();
+  assertEq(emptyAfter.length, 0, 'неактивный блок не найден');
+}
+
 console.log(`\n=== Total: ${results.passed} passed, ${results.failed} failed ===`);
 
 try {

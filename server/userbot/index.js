@@ -300,6 +300,18 @@ startupPrefetch.then(async () => {
         );
       }
     }
+
+    // Снимаем флаг active с истёкших временных блокировок
+    const expiredBlocks = db.prepare(`
+      UPDATE customer_blocks SET active = 0
+      WHERE active = 1
+        AND block_until IS NOT NULL
+        AND block_until <= DATETIME('now')
+    `).run();
+    if (expiredBlocks.changes > 0) {
+      console.log(`[userbot] снято ${expiredBlocks.changes} истёкших блокировок`);
+    }
+
     // После посева entity запускаем фоновый прогревальщик точного
     // количества сообщений для CRM-индикатора.
     warmupMessageCounts().catch((err) => {

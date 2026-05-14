@@ -18,11 +18,7 @@ import {
   reservePromoUsageForOrder,
 } from "../promo-code-service.js";
 import { autoNotifyForStatusChange } from "../utils/auto-notify.js";
-import {
-  buildChatMessageCountMap,
-  buildTopMessageCountMap,
-  pickClientMessagesCount,
-} from "../utils/client-messages-count.js";
+
 
 export const crmOperationsRouter = express.Router();
 
@@ -340,21 +336,15 @@ crmOperationsRouter.get("/api/admin/crm/orders", authMiddleware, (req, res) => {
         return acc;
       }, new Map());
 
-      // Подтягиваем последний auto-notify статус по каждому заказу из
+      // Подтягиваем последний outbound статус по каждому заказу из
       // bot_message_log (Костя 10.05.2026: «для всех случаев неуспешной
       // отправки сделай красной рамкой»). Берём последнюю исходящую
-      // запись с meta.auto=1 — это и есть финальный исход auto-notify.
-      //
-      // SQLite json1 нормализует JSON booleans в integer 0/1 при
-      // json_extract (см. https://www.sqlite.org/json1.html), так что
-      // сравнение `= 1` корректно работает и для записей где meta.auto
-      // лежит как `true` (userbot), и где было `1` (старые записи).
+      // запись любого типа (авто или ручной) — это финальный исход отправки.
       const notifyRows = db
         .prepare(
           `SELECT json_extract(meta, '$.order_id') AS order_id, meta, id
              FROM bot_message_log
             WHERE direction = 'out'
-              AND json_extract(meta, '$.auto') = 1
               AND json_extract(meta, '$.order_id') IN (${placeholders})
             ORDER BY id DESC`,
         )
@@ -390,34 +380,6 @@ crmOperationsRouter.get("/api/admin/crm/orders", authMiddleware, (req, res) => {
         });
       }
 
-      // Подсчёт сообщений с клиентом по каждому уникальному telegram_id
-      // (Костя 11.05.2026: «при наведении пусть будет сколько сообщений
-      // с клиентом, для понимания свой/чужой/новый»). Считаем все
-      // направления (in+out) в bot_message_log — это даёт менеджеру
-      // ощущение «уровня знакомства» с клиентом перед отправкой.
-      const uniqueTgIds = [
-        ...new Set(
-          orders
-            .map((o) => o.customer_telegram_id)
-            .filter((id) => id !== null && id !== undefined && id !== ''),
-        ),
-      ];
-      let messagesCountByTgId = new Map();
-      let topMessageCountMap = new Map();
-      if (uniqueTgIds.length > 0) {
-        const tgPlaceholders = uniqueTgIds.map(() => '?').join(',');
-        const countRows = db
-          .prepare(
-            `SELECT chat_id, COUNT(*) AS n
-               FROM bot_message_log
-              WHERE chat_id IN (${tgPlaceholders})
-              GROUP BY chat_id`,
-          )
-          .all(...uniqueTgIds.map(String));
-        messagesCountByTgId = buildChatMessageCountMap(countRows);
-        topMessageCountMap = buildTopMessageCountMap(db, uniqueTgIds);
-      }
-
       // Определяем, является ли клиент «постоянным» (уже были завершённые заказы)
       const customerIds = [
         ...new Set(orders.map((o) => o.customer_id).filter(Boolean)),
@@ -441,16 +403,29 @@ crmOperationsRouter.get("/api/admin/crm/orders", authMiddleware, (req, res) => {
         }
       }
 
+      // Определяем, заблокирован ли клиент (активный блок)
+      const blockedMap = new Map();
+      if (customerIds.length > 0) {
+        const cidPlaceholders2 = customerIds.map(() => '?').join(',');
+        const blockedRows = db.prepare(`
+          SELECT customer_id, 1 as blocked
+          FROM customer_blocks
+          WHERE customer_id IN (${cidPlaceholders2})
+            AND active = 1
+            AND (block_until IS NULL OR block_until > DATETIME('now'))
+          GROUP BY customer_id
+        `).all(...customerIds);
+        for (const row of blockedRows) {
+          blockedMap.set(row.customer_id, true);
+        }
+      }
+
       ordersWithItems = orders.map((order) => ({
         ...order,
         items: itemsByOrder.get(order.id) || [],
         auto_notification: notifyByOrder.get(order.id) || null,
-        client_messages_count: pickClientMessagesCount(
-          order.customer_telegram_id,
-          messagesCountByTgId,
-          topMessageCountMap,
-        ),
         is_returning_customer: returningMap.get(order.customer_id) || false,
+        is_blocked: blockedMap.get(order.customer_id) || false,
       }));
     }
 

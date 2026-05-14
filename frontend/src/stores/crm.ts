@@ -144,12 +144,9 @@ export interface Order {
     via_attempt?: number | null;
     warn?: string | null;
   } | null;
-  // Сколько раз клиент писал нам или мы ему (count из bot_message_log
-  // по chat_id == customer.telegram_id). Подсказка менеджеру: «новый
-  // клиент» vs «постоянный». 0 = ни одного сообщения у нас в логе.
-  client_messages_count?: number;
   // true = у клиента уже были завершённые заказы (постоянный), false/undefined = первый заказ
   is_returning_customer?: boolean;
+  is_blocked?: boolean;
 }
 
 export interface OrderItem {

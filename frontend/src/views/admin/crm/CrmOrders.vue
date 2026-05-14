@@ -581,12 +581,11 @@
                   <div class="flex items-center justify-between">
                     <div class="flex items-center gap-2 font-medium">
                       <span>{{ order.customer_name || "Без имени" }}</span>
-                      <span
-                        v-if="order.client_messages_count !== undefined"
-                        :class="messagesBadgeClass(order.client_messages_count)"
-                      >{{ order.client_messages_count }}</span>
-                      <span
-                        v-if="order.is_returning_customer !== undefined"
+                      <span v-if="order.is_blocked"
+                        class="rounded-full bg-red-200 px-2 py-0.5 text-[10px] font-semibold text-red-800"
+                        title="Клиент заблокирован. Сообщения не отправляются."
+                      >Заблокирован</span>
+                      <span v-else-if="order.is_returning_customer !== undefined"
                         :class="[
                           'rounded-full px-2 py-0.5 text-[10px] font-semibold',
                           order.is_returning_customer
@@ -1790,15 +1789,6 @@ function deliveryBadgeClass(order: Order) {
 // Плашка «сколько сообщений с клиентом» — подсказка менеджеру по
 // степени знакомства перед отправкой авто-уведомления. Костя 11.05.2026:
 // «вижу 0 — насторожусь, вижу 20 — спокойно жму». Считается на бэке
-// из bot_message_log (in + out по chat_id клиента).
-function messagesBadgeClass(count: number): string {
-  const base = "inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-semibold";
-  if (count >= 10) return `${base} bg-emerald-100 text-emerald-700`;
-  if (count >= 3) return `${base} bg-gray-100 text-gray-600`;
-  if (count >= 1) return `${base} bg-red-100 text-red-700`;
-  return `${base} bg-gray-100 text-gray-500`;
-}
-
 function nextStatusLabel(status: Order["status"]) {
   if (status === "new") return "Собрано";
   if (status === "in_progress") return "Выдать";

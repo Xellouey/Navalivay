@@ -1056,6 +1056,9 @@ function describeSendError(reason: string | undefined): string {
   if (reason.includes('PEER_ID_INVALID')) return 'клиент ни разу не писал в чат'
   if (reason.includes('USER_IS_BLOCKED') || reason.includes('user is blocked')) return 'клиент заблокировал бота'
   if (reason === 'entity_not_found_no_dialog') return 'у клиента нет активного диалога с менеджером. Возможная причина: приватность Telegram «Кто может писать: только контакты»'
+  if (reason === 'customer_blocked') return 'клиент заблокирован в CRM. Разблокируйте чтобы отправить сообщение'
+  if (reason === 'flood_wait') return 'Telegram временно ограничил отправку (слишком много сообщений). Попробуйте позже'
+  if (reason === 'disconnected') return 'менеджер не в сети Telegram. Проверьте подключение'
   return reason
 }
 
