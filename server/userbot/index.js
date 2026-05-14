@@ -273,21 +273,24 @@ startupPrefetch.then(async () => {
     for (const row of entities) {
       if (!row?.access_hash) continue;
       try {
-        // Сеем в GramJS entity-кэш через InputPeerUser и saveEntity.
-        // saveEntity принимает InputPeer или User-объект и кладёт
-        // его во внутренний entity-кэш клиента, так что последующие
-        // sendMessage(BigInt(userId)) найдут entity без getDialogs.
-        const peer = new Api.InputPeerUser({
+        // Засеиваем в GramJS entity-кэш через users.GetUsers.
+        // saveEntity (несуществующий метод) не работает — в логах
+        // «client.saveEntity is not a function». Вместо этого вызываем
+        // users.GetUsers с InputPeerUser — Telegram возвращает полный
+        // User-object, GramJS автоматически кладёт его во внутренний
+        // entity-кэш, и последующие sendMessage(BigInt(userId))
+        // находят entity.
+        const inputPeer = new Api.InputPeerUser({
           userId: BigInt(row.telegram_id),
           accessHash: BigInt(row.access_hash),
         });
-        await client.saveEntity(peer);
+        await client.invoke(new Api.users.GetUsers({ id: [inputPeer] }));
         seeded++;
       } catch (seedErr) {
         // Пропускаем битые записи (могли измениться access_hash).
-        if (seedErr?.message?.includes('no users provided')) continue;
-        if (seedErr?.message?.includes('Could not find')) continue;
-        console.warn('[userbot] entity seed error:', redactSecrets(seedErr?.message || seedErr));
+        // users.GetUsers возвращает пустой массив для несуществующих
+        // пользователей — это не ошибка.
+        continue;
       }
     }
     console.log(
@@ -319,7 +322,7 @@ startupPrefetch.then(async () => {
 async function warmupMessageCounts() {
   try {
     const rows = db.prepare(
-      `SELECT telegram_id FROM userbot_entities
+      `SELECT telegram_id, access_hash FROM userbot_entities
         WHERE exact_message_count IS NULL
         ORDER BY last_seen_at DESC
         LIMIT 2400`,
@@ -332,7 +335,9 @@ async function warmupMessageCounts() {
 
     let idx = 0;
     let done = 0;
-    let errors = 0;
+    // entity_not_found — нормальная ситуация (диалога нет), не считаем как ошибку
+    let entityNotFoundCount = 0;
+    let realErrors = 0;
 
     while (idx < rows.length && !shuttingDown && !sessionDead) {
       const row = rows[idx];
@@ -341,20 +346,30 @@ async function warmupMessageCounts() {
       if (floodWaitUntil > Date.now()) {
         const waitMs = floodWaitUntil - Date.now();
         await new Promise((r) => setTimeout(r, Math.min(waitMs, 30000)));
-        if (floodWaitUntil > Date.now()) continue; // всё ещё ждём
+        if (floodWaitUntil > Date.now()) continue;
       }
 
       try {
-        const peerId = BigInt(row.telegram_id);
+        // Строим InputPeerUser с access_hash из БД — иначе getHistory
+        // падает с «Could not find input entity» для entity не в кэше.
+        let peer;
+        if (row.access_hash) {
+          peer = new Api.InputPeerUser({
+            userId: BigInt(row.telegram_id),
+            accessHash: BigInt(row.access_hash),
+          });
+        } else {
+          // Без access_hash — только если entity уже в кэше GramJS.
+          peer = BigInt(row.telegram_id);
+        }
+
         const result = await client.invoke(
           new Api.messages.GetHistory({
-            peer: peerId,
+            peer,
             limit: 1,
             offsetId: -1,
           }),
         );
-        // result — MessagesMessages или MessagesChannelMessages.
-        // В обоих `.count` содержит точное количество сообщений.
         const count = Number(result?.count);
         if (count >= 0) {
           db.prepare(
@@ -362,7 +377,7 @@ async function warmupMessageCounts() {
           ).run(count, String(row.telegram_id));
           done++;
         }
-        idx++; // успех → следующий клиент
+        idx++;
       } catch (err) {
         const errText = redactSecrets(err?.errorMessage || err?.message || String(err));
         const m = errText.match(/FLOOD(?:_WAIT)?[_\s]+(\d+)/i);
@@ -372,30 +387,37 @@ async function warmupMessageCounts() {
           console.warn(
             `[userbot] warmupMessageCounts: FLOOD_WAIT ${sec}с на клиенте ${row.telegram_id}, жду...`,
           );
-          // idx НЕ увеличиваем — повторяем того же клиента после паузы
           await new Promise((r) => setTimeout(r, Math.min(sec * 1000, 30000)));
           continue;
         }
-        errors++;
+
+        // Entity not found = диалога нет или access_hash устарел.
+        // Это не ошибка — просто у клиента нет чата с менеджером.
+        if (errText.includes('Could not find the input entity')) {
+          entityNotFoundCount++;
+          idx++;
+          continue;
+        }
+
+        realErrors++;
         console.warn(
           `[userbot] warmupMessageCounts: ошибка ${row.telegram_id}: ${errText}`,
         );
-        idx++; // не-Flood ошибка → пропускаем клиента
-        if (errors > 50) {
+        idx++;
+        if (realErrors > 20) {
           console.warn(
-            `[userbot] warmupMessageCounts: слишком много ошибок (${errors}), останавливаюсь`,
+            `[userbot] warmupMessageCounts: слишком много реальных ошибок (${realErrors}), останавливаюсь`,
           );
           break;
         }
       }
 
-      // Пауза 2 секунды между вызовами (если FloodWait был — continue
-      // выше уже подождал и не даст дойти сюда).
       await new Promise((r) => setTimeout(r, 2000));
     }
 
     console.log(
-      `[userbot] warmupMessageCounts: завершён — ${done}/${rows.length} успешно, ${errors} ошибок`,
+      `[userbot] warmupMessageCounts: завершён — ${done}/${rows.length} успешно, ` +
+      `${entityNotFoundCount} нет диалога, ${realErrors} ошибок`,
     );
   } catch (err) {
     console.error('[userbot] warmupMessageCounts fatal:', redactSecrets(err?.message || err));
@@ -721,7 +743,40 @@ app.post('/send-message', checkSecret, async (req, res) => {
         }
       }
     }
-    const messageId = result?.id ? Number(result.id) : null;
+    // Если после всех 3 попыток result всё ещё undefined — сообщение не
+    // ушло (диалога с клиентом нет). Возвращаем ошибку, чтобы CRM показала
+    // «не доставлено», а не «отправлено». Павел 14.05.2026: «написало что
+    // отправлено, захожу в диалог — а он не отписал».
+    if (!result) {
+      console.warn(`[userbot] сообщение ${chatId} не отправлено: entity не найден (нет диалога)`);
+      res.status(200).json({ ok: false, error: 'entity_not_found_no_dialog' });
+      const isAuto = req.body?.auto === true;
+      setImmediate(() => {
+        try {
+          const customer = stmtFindCustomer.get(String(chatId));
+          stmtInsertLog.run(
+            String(chatId),
+            customer?.id || null,
+            String(chatId),
+            'out',
+            'manual',
+            text,
+            JSON.stringify({
+              source: 'userbot',
+              outcome: 'failed',
+              error: 'entity_not_found_no_dialog',
+              order_id: req.body?.order_id || null,
+              auto: isAuto,
+            }),
+          );
+        } catch (logErr) {
+          console.error('[userbot] failed to log failure:', logErr?.message);
+        }
+      });
+      return;
+    }
+
+    const messageId = Number(result.id);
 
     // Отвечаем сразу, журналим асинхронно через setImmediate — caller
     // не ждёт INSERT, освобождаем event loop для следующего запроса.
