@@ -204,6 +204,47 @@ console.log('\n=== H7: pickClientMessagesCount с GREATEST ===');
   assertEq(pickClientMessagesCount(null, bml, top), 0, 'null telegram → 0');
 }
 
+console.log('\n=== H8: is_returning_customer — проверка на постоянного клиента ===');
+{
+  // Очищаем таблицы
+  db.exec(`DELETE FROM orders;`);
+  db.exec(`DELETE FROM customers;`);
+
+  // Создаём клиента
+  db.prepare(`INSERT INTO customers (id, telegram_id, first_name) VALUES ('c_ret', '111', 'Постоянный')`).run();
+
+  // Создаём 2 завершённых старых заказа + 1 текущий
+  db.prepare(`INSERT INTO orders (id, order_number, customer_id, status, created_at) VALUES ('old1', 1, 'c_ret', 'delivered', '2025-01-01')`).run();
+  db.prepare(`INSERT INTO orders (id, order_number, customer_id, status, created_at) VALUES ('old2', 2, 'c_ret', 'delivered', '2025-02-01')`).run();
+  db.prepare(`INSERT INTO orders (id, order_number, customer_id, status, created_at) VALUES ('cur', 3, 'c_ret', 'new', '2025-03-01')`).run();
+
+  // Проверяем запрос
+  const returningRows = db.prepare(`
+    SELECT customer_id, COUNT(*) as prior
+    FROM orders
+    WHERE customer_id IN ('c_ret')
+      AND status = 'delivered'
+      AND id NOT IN ('cur')
+    GROUP BY customer_id
+  `).all();
+
+  assertEq(returningRows.length, 1, 'два delivered старых заказа найдены');
+  assertEq(returningRows[0].prior, 2, 'prior = 2');
+  assertEq(returningRows[0].prior > 0, true, 'клиент постоянный');
+
+  // Без старых заказов
+  const emptyRows = db.prepare(`
+    SELECT customer_id, COUNT(*) as prior
+    FROM orders
+    WHERE customer_id IN ('c_ret')
+      AND status = 'delivered'
+      AND id NOT IN ('old1', 'old2', 'cur')
+    GROUP BY customer_id
+  `).all();
+
+  assertEq(emptyRows.length, 0, 'без старых заказов — 0 строк');
+}
+
 console.log(`\n=== Total: ${results.passed} passed, ${results.failed} failed ===`);
 
 try {

@@ -585,6 +585,16 @@
                         v-if="order.client_messages_count !== undefined"
                         :class="messagesBadgeClass(order.client_messages_count)"
                       >{{ order.client_messages_count }}</span>
+                      <span
+                        v-if="order.is_returning_customer !== undefined"
+                        :class="[
+                          'rounded-full px-2 py-0.5 text-[10px] font-semibold',
+                          order.is_returning_customer
+                            ? 'bg-emerald-100 text-emerald-700'
+                            : 'bg-red-100 text-red-700'
+                        ]"
+                        :title="order.is_returning_customer ? 'У клиента уже были завершённые заказы' : 'Первый заказ клиента — обратить внимание'"
+                      >{{ order.is_returning_customer ? 'Постоянный' : 'Новый' }}</span>
                     </div>
                     <button
                       v-if="order.telegram_username"

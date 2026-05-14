@@ -418,6 +418,29 @@ crmOperationsRouter.get("/api/admin/crm/orders", authMiddleware, (req, res) => {
         topMessageCountMap = buildTopMessageCountMap(db, uniqueTgIds);
       }
 
+      // Определяем, является ли клиент «постоянным» (уже были завершённые заказы)
+      const customerIds = [
+        ...new Set(orders.map((o) => o.customer_id).filter(Boolean)),
+      ];
+      const returningMap = new Map();
+      if (customerIds.length > 0) {
+        const cidPlaceholders = customerIds.map(() => '?').join(',');
+        const oidPlaceholders = orderIds.map(() => '?').join(',');
+        const returningRows = db
+          .prepare(
+            `SELECT customer_id, COUNT(*) as prior
+             FROM orders
+             WHERE customer_id IN (${cidPlaceholders})
+               AND status = 'delivered'
+               AND id NOT IN (${oidPlaceholders})
+             GROUP BY customer_id`,
+          )
+          .all(...customerIds, ...orderIds);
+        for (const row of returningRows) {
+          returningMap.set(row.customer_id, row.prior > 0);
+        }
+      }
+
       ordersWithItems = orders.map((order) => ({
         ...order,
         items: itemsByOrder.get(order.id) || [],
@@ -427,6 +450,7 @@ crmOperationsRouter.get("/api/admin/crm/orders", authMiddleware, (req, res) => {
           messagesCountByTgId,
           topMessageCountMap,
         ),
+        is_returning_customer: returningMap.get(order.customer_id) || false,
       }));
     }
 
