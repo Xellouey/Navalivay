@@ -141,6 +141,8 @@ export interface Order {
     status: 'sent' | 'failed';
     error?: string | null;
     via?: string | null;
+    via_attempt?: number | null;
+    warn?: string | null;
   } | null;
   // Сколько раз клиент писал нам или мы ему (count из bot_message_log
   // по chat_id == customer.telegram_id). Подсказка менеджеру: «новый

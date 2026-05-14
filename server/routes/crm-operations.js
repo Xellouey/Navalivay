@@ -71,6 +71,9 @@ function describeAutoNotifyReason(reason, error) {
       return 'Бот не подключён к Telegram. Проверьте подключение в настройках.';
     case 'client_inactive_over_24h':
       return 'Клиент молчит больше 24 часов. Telegram запрещает писать первым, подождите ответа.';
+    // Пользователь не писал менеджеру лично — диалога нет.
+    case 'entity_not_found_no_dialog':
+      return 'Не отправлено: у клиента, скорее всего, включена приватность Telegram «Кто может писать: только контакты», либо клиент никогда не писал менеджеру лично. Если заказ оформлен через бот, напишите клиенту первыми в Telegram — он должен подтвердить диалог.';
     default:
       // Сырая ошибка от Telegram (BUSINESS_PEER_USAGE_MISSING, PEER_ID_INVALID,
       // chat not found и т.п.) или неизвестная причина — возвращаем как есть.
@@ -377,6 +380,13 @@ crmOperationsRouter.get("/api/admin/crm/orders", authMiddleware, (req, res) => {
           status: parsed.outcome === "sent" ? "sent" : "failed",
           error: describeAutoNotifyReason(parsed.reason, parsed.error),
           via: parsed.via || parsed.source || null,
+          via_attempt: parsed.via_attempt || null,
+          // Если отправка шла через сохранённый access_hash (попытка 2),
+          // Telegram мог принять сообщение, но не доставить получателю
+          // из-за приватности «Кто может писать: только контакты».
+          warn: parsed.via_attempt === 2 && parsed.outcome === "sent"
+            ? 'Отправлено, но могло не дойти. У клиента, вероятно, включена приватность Telegram «Кто может писать: только контакты».'
+            : null,
         });
       }
 

@@ -1055,6 +1055,7 @@ function describeSendError(reason: string | undefined): string {
   if (reason.includes('BUSINESS_PEER_USAGE_MISSING')) return 'клиент отключил бота в своём чате'
   if (reason.includes('PEER_ID_INVALID')) return 'клиент ни разу не писал в чат'
   if (reason.includes('USER_IS_BLOCKED') || reason.includes('user is blocked')) return 'клиент заблокировал бота'
+  if (reason === 'entity_not_found_no_dialog') return 'у клиента нет активного диалога с менеджером. Возможная причина: приватность Telegram «Кто может писать: только контакты»'
   return reason
 }
 

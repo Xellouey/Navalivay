@@ -697,9 +697,17 @@ app.post('/send-message', checkSecret, async (req, res) => {
     // entity seed из userbot_entities при старте.
     const ENTITY_NOT_FOUND_RX = /Could not find the input entity/i;
 
+    // viaAttempt: какая попытка отправки сработала.
+    //   1 — sendMessage по ID (entity в GramJS кэше)
+    //   2 — InputPeerUser из сохранённого access_hash (может не дойти из-за
+    //       приватности получателя: «Кто может писать: только контакты»)
+    //   3 — prefetchDialogs + retry
+    //   0 — ни одна не сработала (entity_not_found_no_dialog)
     let result;
+    let viaAttempt = 0;
     try {
       result = await client.sendMessage(BigInt(chatId), { message: text });
+      viaAttempt = 1; // прямая отправка — entity был в кэше
     } catch (firstErr) {
       const firstMsg = firstErr?.errorMessage || firstErr?.message || String(firstErr);
       if (!ENTITY_NOT_FOUND_RX.test(firstMsg)) throw firstErr;
@@ -720,6 +728,7 @@ app.post('/send-message', checkSecret, async (req, res) => {
             `[userbot] entity ${chatId} не в кэше, шлю через сохранённый access_hash...`,
           );
           result = await client.sendMessage(inputPeer, { message: text });
+          viaAttempt = 2; // отправка через сохранённый access_hash
         } catch (storedErr) {
           const storedMsg =
             storedErr?.errorMessage || storedErr?.message || String(storedErr);
@@ -739,6 +748,7 @@ app.post('/send-message', checkSecret, async (req, res) => {
         await prefetchDialogs(`entity-miss-${chatId}`);
         try {
           result = await client.sendMessage(BigInt(chatId), { message: text });
+          viaAttempt = 3; // после prefetchDialogs — entity найден
         } catch (retryErr) {
           const retryMsg = retryErr?.errorMessage || retryErr?.message || String(retryErr);
           if (!ENTITY_NOT_FOUND_RX.test(retryMsg)) throw retryErr;
@@ -804,6 +814,7 @@ app.post('/send-message', checkSecret, async (req, res) => {
             source: 'userbot',
             outcome: 'sent',
             telegram_message_id: messageId,
+            via_attempt: viaAttempt,
             order_id: req.body?.order_id || null,
             auto: isAuto,
           }),

@@ -558,6 +558,11 @@
                       class="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold text-red-700"
                       :title="order.auto_notification?.error || 'Уведомление клиенту не доставлено'"
                     >Не дошло клиенту</span>
+                    <span
+                      v-else-if="order.auto_notification?.warn"
+                      class="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700"
+                      :title="order.auto_notification?.warn"
+                    >Могло не дойти</span>
                   </div>
                   <!-- Кнопка отмены (не показываем для action_required) -->
                   <button
