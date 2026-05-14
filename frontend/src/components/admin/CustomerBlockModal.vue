@@ -59,61 +59,61 @@
           <label class="block text-sm font-medium text-gray-700">Причина (видна клиенту)</label>
           <button
             type="button"
-            class="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-2.5 py-1 text-xs font-medium text-gray-500 shadow-sm transition hover:border-gray-300 hover:text-gray-700"
-            @click="showTemplates = !showTemplates"
-            title="Шаблонные причины"
+            class="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-2.5 py-1 text-xs font-medium transition"
+            :class="editTemplates ? 'border-brand-primary text-brand-dark bg-brand-primary/5' : 'text-gray-500 shadow-sm hover:border-gray-300 hover:text-gray-700'"
+            @click="editTemplates = !editTemplates"
+            title="Редактировать шаблоны"
           >
             <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
             </svg>
-            Шаблоны
+            {{ editTemplates ? 'Готово' : 'Изменить' }}
           </button>
         </div>
 
-        <!-- Выпадающий список шаблонов -->
-        <div
-          v-if="showTemplates"
-          class="rounded-lg border border-gray-200 bg-gray-50/50 p-3 space-y-2"
-        >
-          <p
-            v-if="templates.length === 0"
-            class="text-xs text-gray-400 py-1"
-          >Нет шаблонов. Добавьте новый через поле ниже.</p>
-          <div v-if="templates.length > 0" class="flex flex-wrap gap-1.5">
-            <button
-              v-for="(t, i) in templates"
-              :key="i"
-              type="button"
-              class="group inline-flex items-center gap-1 rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-xs font-medium text-gray-600 shadow-sm transition hover:border-brand-primary hover:text-brand-dark"
-              @click="reason = t; showTemplates = false"
+        <!-- Шаблоны причин (всегда видны, клик → подстановка в textarea) -->
+        <div v-if="templates.length > 0" class="flex flex-wrap gap-1.5">
+          <button
+            v-for="(t, i) in templates"
+            :key="i"
+            type="button"
+            class="group inline-flex items-center gap-1 rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-xs font-medium text-gray-600 shadow-sm transition hover:border-brand-primary hover:text-brand-dark"
+            @click="reason = t"
+          >
+            <span class="max-w-[200px] truncate">{{ t }}</span>
+            <svg
+              v-if="editTemplates"
+              class="h-3 w-3 flex-shrink-0 text-gray-300 hover:text-red-500 transition"
+              fill="none" stroke="currentColor" viewBox="0 0 24 24"
+              @click.stop="removeTemplate(i)"
             >
-              <span class="max-w-[200px] truncate">{{ t }}</span>
-              <svg
-                class="h-3 w-3 flex-shrink-0 text-gray-300 opacity-0 group-hover:opacity-100 hover:text-red-500 transition"
-                fill="none" stroke="currentColor" viewBox="0 0 24 24"
-                @click.stop="removeTemplate(i)"
-              >
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-          </div>
-          <div class="flex gap-2">
-            <input
-              v-model.trim="newTemplate"
-              type="text"
-              placeholder="Добавить шаблон..."
-              class="flex-1 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs focus:border-brand-primary focus:outline-none focus:ring-2 focus:ring-brand-primary/30"
-              @keyup.enter.prevent="addTemplate"
-            />
-            <button
-              type="button"
-              class="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-semibold text-gray-600 transition hover:border-brand-primary hover:text-brand-dark"
-              @click="addTemplate"
-            >
-              + Добавить
-            </button>
-          </div>
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
         </div>
+
+        <!-- Режим редактирования: добавление нового шаблона -->
+        <div v-if="editTemplates" class="flex gap-2">
+          <input
+            v-model.trim="newTemplate"
+            type="text"
+            placeholder="Добавить шаблон..."
+            class="flex-1 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs focus:border-brand-primary focus:outline-none focus:ring-2 focus:ring-brand-primary/30"
+            @keyup.enter.prevent="addTemplate"
+          />
+          <button
+            type="button"
+            class="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-semibold text-gray-600 transition hover:border-brand-primary hover:text-brand-dark"
+            @click="addTemplate"
+          >
+            + Добавить
+          </button>
+        </div>
+
+        <p
+          v-if="templates.length === 0 && !editTemplates"
+          class="text-xs text-gray-400"
+        >Нет шаблонов. Нажмите «Изменить» чтобы добавить.</p>
 
         <textarea
           v-model.trim="reason"
@@ -188,7 +188,7 @@ const submitting = ref(false)
 const usernameInputRef = ref<HTMLInputElement | null>(null)
 
 // Template block reasons
-const showTemplates = ref(false)
+const editTemplates = ref(false)
 const templates = ref<string[]>([])
 const newTemplate = ref('')
 
