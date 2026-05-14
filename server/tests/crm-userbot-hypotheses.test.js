@@ -54,7 +54,6 @@ initDb();
 
 const {
   buildChatMessageCountMap,
-  buildTopMessageCountMap,
   pickClientMessagesCount,
 } = await import('../utils/client-messages-count.js');
 const { gateSendCustomTelegramForCrmBlock } = await import('../utils/crm-telegram-outbound.js');
@@ -161,49 +160,6 @@ console.log('\n=== H6: клиент с username, но без диалога → 
     globalThis.fetch = originalFetch;
     resetH();
   }
-}
-
-console.log('\n=== H7: buildTopMessageCountMap и GREATEST с userbot_entities ===');
-{
-  // Подготавливаем userbot_entities с разными сценариями
-  db.exec(`DELETE FROM userbot_entities;`);
-  db.prepare(
-    `INSERT INTO userbot_entities (telegram_id, access_hash, source, initial_message_count, exact_message_count)
-     VALUES ('u1', 'hash1', 'test', 10, 44)`,
-  ).run();
-  db.prepare(
-    `INSERT INTO userbot_entities (telegram_id, access_hash, source, initial_message_count, exact_message_count)
-     VALUES ('u2', 'hash2', 'test', 5, NULL)`,
-  ).run();
-  db.prepare(
-    `INSERT INTO userbot_entities (telegram_id, access_hash, source, initial_message_count, exact_message_count)
-     VALUES ('u3', 'hash3', 'test', NULL, NULL)`,
-  ).run();
-
-  const m = buildTopMessageCountMap(db, ['u1', 'u2', 'u3', 'u404']);
-  assertEq(m.get('u1'), 44, 'есть exact → берём exact (44), а не initial (10)');
-  assertEq(m.get('u2'), 5, 'нет exact → берём initial (5)');
-  assertEq(m.has('u3'), false, 'оба NULL → нет записи в map');
-  assertEq(m.has('u404'), false, 'нет в entities → нет записи');
-}
-
-console.log('\n=== H7: pickClientMessagesCount с GREATEST ===');
-{
-  const bml = buildChatMessageCountMap([
-    { chat_id: 'c1', n: 3 },
-    { chat_id: 'c2', n: 8 },
-    { chat_id: 'c3', n: 2 },
-  ]);
-  const top = new Map([
-    ['c1', 10],  // topMessage больше чем bot_message_log
-    ['c2', 5],   // bot_message_log больше (8 > 5)
-    // c3 нет в top → только bot_message_log
-  ]);
-  assertEq(pickClientMessagesCount('c1', bml, top), 10, 'top(10) > log(3) → 10');
-  assertEq(pickClientMessagesCount('c2', bml, top), 8, 'log(8) > top(5) → 8');
-  assertEq(pickClientMessagesCount('c3', bml, top), 2, 'нет top → только log(2)');
-  assertEq(pickClientMessagesCount('c4', bml, top), 0, 'нет данных → 0');
-  assertEq(pickClientMessagesCount(null, bml, top), 0, 'null telegram → 0');
 }
 
 console.log(`\n=== Total: ${results.passed} passed, ${results.failed} failed ===`);

@@ -400,7 +400,7 @@
                   />
                 </label>
                 <label class="flex flex-col gap-1 text-xs font-medium text-gray-600">
-                  Цена, ₽
+                  Цена, BYN
                   <input
                     v-model.number="item.price"
                     type="number"
@@ -411,7 +411,7 @@
                   />
                 </label>
                 <label class="flex flex-col gap-1 text-xs font-medium text-gray-600">
-                  Ручная скидка на позицию, ₽
+                  Ручная скидка на позицию, BYN
                   <input
                     v-model.number="item.manualDiscount"
                     type="number"
@@ -466,7 +466,7 @@
                   <dd class="font-semibold text-gray-900">{{ formatCurrency(manualItemDiscountTotal) }}</dd>
                 </div>
                 <div class="flex items-center justify-between">
-                  <dt>Скидка ₽</dt>
+                  <dt>Скидка BYN</dt>
                   <dd>
                     <input
                       v-model.number="form.discountAmount"
@@ -1145,7 +1145,7 @@ function statusLabel(status: Order['status'], deliveryType?: 'pickup' | 'deliver
 function formatCurrency(value: number) {
   return new Intl.NumberFormat('ru-RU', {
     style: 'currency',
-    currency: 'RUB',
+    currency: 'BYN',
     minimumFractionDigits: 0
   }).format(value)
 }

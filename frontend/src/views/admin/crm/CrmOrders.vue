@@ -1198,7 +1198,7 @@
           </div>
         </div>
         <div>
-          <label class="text-sm font-medium text-gray-700">Скидка (₽)</label>
+          <label class="text-sm font-medium text-gray-700">Скидка (BYN)</label>
           <input
             v-model.number="discountAmount"
             type="number"
@@ -1718,7 +1718,7 @@ const nextStatusMap: Record<
 function formatCurrency(value: number) {
   return new Intl.NumberFormat("ru-RU", {
     style: "currency",
-    currency: "RUB",
+    currency: "BYN",
     minimumFractionDigits: 0,
   }).format(value);
 }
@@ -1785,7 +1785,8 @@ function messagesBadgeClass(count: number): string {
   const base = "inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-semibold";
   if (count >= 10) return `${base} bg-emerald-100 text-emerald-700`;
   if (count >= 3) return `${base} bg-gray-100 text-gray-600`;
-  return `${base} bg-red-100 text-red-700`;
+  if (count >= 1) return `${base} bg-red-100 text-red-700`;
+  return `${base} bg-gray-100 text-gray-500`;
 }
 
 function nextStatusLabel(status: Order["status"]) {
