@@ -1,13 +1,14 @@
 /**
  * Чистая логика подсчёта «сообщений с клиентом» для CRM-списка заказов.
  * Источники (по приоритету):
- *   1. exact_message_count из userbot_entities (фоновый getHistory)
- *   2. initial_message_count из userbot_entities (topMessage при prefetch)
- *   3. COUNT(bot_message_log) — только то, что попало в журнал с момента
+ *   1. exact_message_count из userbot_entities (фоновый getHistory) —
+ *      точное число сообщений в диалоге, заполняется прогревальщиком.
+ *      initial_message_count НЕ используется — это ID сообщения в
+ *      Telegram (dialog.message.id), а не количество.
+ *   2. COUNT(bot_message_log) — сообщения через нашу систему с момента
  *      включения логирования.
  *
- * Результат: GREATEST из всех доступных, что даёт максимально точную
- * аппроксимацию общего числа сообщений в чате клиента.
+ * Результат: GREATEST(exact_message_count, bot_message_log_count).
  */
 
 /**
@@ -23,9 +24,10 @@ export function buildChatMessageCountMap(countRows) {
 }
 
 /**
- * Строит Map<telegram_id, exact_message_count> из userbot_entities.
- * exact_message_count приоритетнее initial_message_count — если он есть,
- * берём его; иначе initial_message_count, иначе undefined.
+ * Строит Map<telegram_id, число сообщений> из userbot_entities.
+ * Только exact_message_count (точный подсчёт из getHistory).
+ * initial_message_count — это глобальный ID сообщения Telegram,
+ * а не количество сообщений в диалоге, поэтому игнорируется.
  *
  * @param {import('better-sqlite3').Database} db
  * @param {string[]} tgIds массив telegram_id
@@ -36,11 +38,10 @@ export function buildTopMessageCountMap(db, tgIds) {
   if (!tgIds || tgIds.length === 0) return map;
   const placeholders = tgIds.map(() => '?').join(',');
   const rows = db.prepare(`
-    SELECT telegram_id,
-           COALESCE(exact_message_count, initial_message_count) AS msg_count
+    SELECT telegram_id, exact_message_count AS msg_count
     FROM userbot_entities
     WHERE telegram_id IN (${placeholders})
-      AND (exact_message_count IS NOT NULL OR initial_message_count IS NOT NULL)
+      AND exact_message_count IS NOT NULL
   `).all(...tgIds.map(String));
   for (const row of rows) {
     map.set(String(row.telegram_id), Number(row.msg_count) || 0);

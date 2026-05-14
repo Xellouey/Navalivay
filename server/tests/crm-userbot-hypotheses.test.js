@@ -180,8 +180,8 @@ console.log('\n=== H7: buildTopMessageCountMap и GREATEST с userbot_entities =
   ).run();
 
   const m = buildTopMessageCountMap(db, ['u1', 'u2', 'u3', 'u404']);
-  assertEq(m.get('u1'), 44, 'есть exact → берём exact (44), а не initial (10)');
-  assertEq(m.get('u2'), 5, 'нет exact → берём initial (5)');
+  assertEq(m.get('u1'), 44, 'есть exact → берём exact (44)');
+  assertEq(m.has('u2'), false, 'нет exact → initial игнорируется (это ID, не счётчик)');
   assertEq(m.has('u3'), false, 'оба NULL → нет записи в map');
   assertEq(m.has('u404'), false, 'нет в entities → нет записи');
 }
