@@ -1775,6 +1775,7 @@ crmRouter.post('/api/admin/crm/orders/:orderId/generate-message', authMiddleware
       SELECT 
         o.*,
         COALESCE(o.telegram_username, c.telegram_username) as telegram_username,
+        c.telegram_id as telegram_id,
         COALESCE(o.phone, c.phone) as phone,
         c.first_name,
         c.last_name
@@ -1810,6 +1811,7 @@ crmRouter.post('/api/admin/crm/orders/:orderId/generate-message', authMiddleware
     res.json({
       message,
       telegramUsername: order.telegram_username,
+      telegramId: order.telegram_id ? String(order.telegram_id) : null,
       templateUsed: template.name
     });
   } catch (error) {

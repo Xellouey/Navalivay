@@ -2325,6 +2325,7 @@ export const useCrmStore = defineStore("crm", () => {
     return await fetchAPI<{
       message: string;
       telegramUsername: string | null;
+      telegramId: string | null;
       templateUsed: string;
     }>(`${API_BASE}/orders/${orderId}/generate-message`, {
       method: "POST",
