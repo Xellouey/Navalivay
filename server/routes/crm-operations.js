@@ -302,10 +302,12 @@ crmOperationsRouter.get("/api/admin/crm/orders", authMiddleware, (req, res) => {
         c.telegram_id as customer_telegram_id,
         COALESCE(pc.has_gift, 0) as promo_has_gift,
         pc.manager_description as promo_manager_description,
-        pc.customer_description as promo_customer_description
+        pc.customer_description as promo_customer_description,
+        CASE WHEN ue.access_hash IS NOT NULL THEN 1 ELSE 0 END as has_userbot_access
       FROM orders o
       LEFT JOIN customers c ON c.id = o.customer_id
       LEFT JOIN promo_codes pc ON pc.id = o.promo_code_id
+      LEFT JOIN userbot_entities ue ON ue.telegram_id = c.telegram_id
       ${whereClause}
       ORDER BY o.created_at DESC
       LIMIT ? OFFSET ?
@@ -427,6 +429,7 @@ crmOperationsRouter.get("/api/admin/crm/orders", authMiddleware, (req, res) => {
         auto_notification: notifyByOrder.get(order.id) || null,
         is_returning_customer: returningMap.get(order.customer_id) || false,
         is_blocked: blockedMap.get(order.customer_id) || false,
+        has_userbot_access: order.has_userbot_access === 1,
       }));
     }
 

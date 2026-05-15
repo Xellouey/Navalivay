@@ -97,6 +97,12 @@ let floodWaitUntil = 0; // ms timestamp
 // если штраф ещё активен, получит новый (меньший) FloodWait, а не
 // моментальный бан. Предотвращает сценарий: батч → 21 час блокировки.
 const FLOOD_WAIT_CAP_SEC = 1800; // 30 минут
+// Разбан функции: когда Telegram снимет rate-limit на contacts.resolveUsername
+// для аккаунта @Rez0nsky — переключить на true, и проактивный резолв
+// username'ов снова заработает. Пока false: /resolve-username сразу
+// возвращает 503, resolveUsernameViaUserbot не дёргает Telegram.
+// Manager (Павел) проверит и включит вручную через ~2 дня (17.05.2026).
+let RESOLVE_USERNAME_ENABLED = false;
 // Shutdown guard: PM2 шлёт SIGTERM, потом kill_timeout → SIGKILL. Защита от
 // двойного disconnect (GramJS на double-disconnect ловит unhandledRejection).
 let shuttingDown = false;
@@ -631,6 +637,13 @@ app.post('/resolve-username', checkSecret, async (req, res) => {
     const username = String(req.body?.username || '').trim().replace(/^@/, '');
     if (!username) {
       return res.status(400).json({ ok: false, error: 'username_required' });
+    }
+    // Функция отключена до ручного разбана (RESOLVE_USERNAME_ENABLED=false).
+    // Telegram заблокировал contacts.resolveUsername на аккаунте @Rez0nsky.
+    // Каждый вызов даёт FLOOD и продлевает блокировку. Ждём ~2 дня, затем
+    // менеджер (Павел) переключит флаг в true и проверит.
+    if (!RESOLVE_USERNAME_ENABLED) {
+      return res.status(503).json({ ok: false, error: 'resolve_disabled' });
     }
     // FloodWait guard — не дёргаем Telegram пока идёт окно ожидания.
     if (floodWaitUntil > Date.now()) {

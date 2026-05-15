@@ -608,6 +608,10 @@
                         ]"
                         :title="order.is_returning_customer ? 'У клиента уже были завершённые заказы' : 'Первый заказ клиента — обратить внимание'"
                       >{{ order.is_returning_customer ? 'Постоянный' : 'Новый' }}</span>
+                      <span v-if="!order.has_userbot_access && order.telegram_username"
+                        class="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-800"
+                        title="Клиент не в кэше юзербота. Авто-уведомления не дойдут — напишите вручную."
+                      >Вручную</span>
                     </div>
                     <button
                       v-if="order.telegram_username"
