@@ -342,11 +342,17 @@ startupPrefetch.then(async () => {
           `[userbot] проактивный прогрев: resolving ${unresolved.length} verified customers без access_hash...`,
         );
         let resolvedCount = 0;
+        let floodHits = 0;
         for (const cust of unresolved) {
           if (shuttingDown || sessionDead) break;
+          // FloodWait — ждём, не прерываем цикл. send-message handler
+          // сам выставляет floodWaitUntil, мы просто читаем и спим.
           if (floodWaitUntil > Date.now()) {
-            console.log('[userbot] проактивный прогрев прерван FloodWait');
-            break;
+            const waitMs = floodWaitUntil - Date.now() + 1000;
+            console.log(
+              `[userbot] проактивный прогрев: FloodWait, жду ${Math.ceil(waitMs / 1000)}с...`,
+            );
+            await new Promise((r) => setTimeout(r, waitMs));
           }
           try {
             const resolved = await client.invoke(
@@ -361,13 +367,28 @@ startupPrefetch.then(async () => {
               resolvedCount += 1;
             }
           } catch (resolveErr) {
+            const errMsg = resolveErr?.errorMessage || resolveErr?.message || String(resolveErr);
+            // FloodWait при resolveUsername — GramJS сам выставит sleep,
+            // floodWaitUntil обновится через send-message handler.
+            // Не считаем провалом, дадим ещё попытку на следующей итерации.
+            if (/FLOOD/i.test(errMsg)) {
+              floodHits += 1;
+              // Не сдвигаем счётчик — этот же клиент попробуем снова
+              // следующей итерацией (index остаётся тот же после continue)
+              // Увы, for-of не даёт доступа к индексу. Просто идём дальше,
+              // этот клиент будет пропущен. Следующий рестарт userbot
+              // подберёт его заново (он всё ещё в unresolved выборке).
+              continue;
+            }
             // username мог измениться/удалиться — не роняем весь цикл.
           }
-          // Задержка 1.5с между вызовами — безопасный темп для Telegram.
-          await new Promise((r) => setTimeout(r, 1500));
+          // Задержка 3с между вызовами — безопасный темп (≈20/мин).
+          // 1.5с давало FloodWait каждые ~30 вызовов.
+          await new Promise((r) => setTimeout(r, 3000));
         }
         console.log(
-          `[userbot] проактивный прогрев завершён: ${resolvedCount}/${unresolved.length} резолвнуто`,
+          `[userbot] проактивный прогрев завершён: ${resolvedCount}/${unresolved.length} резолвнуто` +
+            (floodHits > 0 ? `, ${floodHits} FloodWait-пропусков (подберутся при след. рестарте)` : ''),
         );
       }
     } catch (proactiveErr) {
