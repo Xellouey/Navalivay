@@ -8,6 +8,7 @@ import {
   handleIncomingBusinessMessage,
   logBotMessage,
 } from './utils/business-bot.js';
+import { resolveUsernameViaUserbot } from './utils/userbot-client.js';
 
 // Singleton прокси-агент для long-polling. См. комментарий ниже у Telegraf
 // init: на RU-хостинге без прокси bot не получает business updates.
@@ -301,6 +302,12 @@ if (!BOT_TOKEN) {
           [Markup.button.webApp('🛍 Открыть каталог', webAppUrl)] 
         ])
       );
+
+      // Проактивный резолв username через userbot: к моменту первой смены
+      // статуса entity уже в кэше GramJS → auto-notify уйдёт мгновенно.
+      if (customer?.telegram_username) {
+        resolveUsernameViaUserbot({ username: customer.telegram_username }).catch(() => {});
+      }
     } catch (error) {
       if (error instanceof Error && error.message === 'insufficient_stock') {
         await ctx.reply('Похоже, товар только что закончился. Мы уведомим менеджера и уточним наличие.');
