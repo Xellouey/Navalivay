@@ -107,6 +107,17 @@ let RESOLVE_USERNAME_ENABLED = false;
 // двойного disconnect (GramJS на double-disconnect ловит unhandledRejection).
 let shuttingDown = false;
 
+// =============================================================================
+// Структурированный логгер событий юзербота (JSON в stdout).
+// Все ключевые события пишутся в едином формате — можно грепать:
+//   pm2 logs navalivay-userbot --nostream | grep '{"ev"'
+// Поля: ev (event type), ts (ISO timestamp), и контекст под событие.
+// =============================================================================
+function logEvent(ev, data = {}) {
+  const line = JSON.stringify({ ev, ts: new Date().toISOString(), ...data });
+  console.log(line);
+}
+
 // ---------------------------------------------------------------------------
 // Прогрев кэша диалогов — критично для auto-notify.
 //
@@ -667,12 +678,10 @@ app.post('/resolve-username', checkSecret, async (req, res) => {
       const resolvedId = result.users[0]?.id
         ? String(result.users[0].id)
         : null;
-      console.log(
-        `[userbot] proactive resolve: @${username} → id=${resolvedId}`,
-      );
+      logEvent('resolve', { username, outcome: 'ok', telegram_id: resolvedId });
       return res.json({ ok: true, telegram_id: resolvedId });
     }
-    console.warn(`[userbot] proactive resolve: @${username} — peer не найден`);
+    logEvent('resolve', { username, outcome: 'not_found' });
     res.json({ ok: false, error: 'username_not_found' });
   } catch (err) {
     const errText = err?.errorMessage || err?.message || String(err);
@@ -768,9 +777,7 @@ app.post('/send-message', checkSecret, async (req, res) => {
     // (для клиентов, а не групп/каналов).
     const blockRow = stmtCheckBlockForTgId.get(chatId);
     if (blockRow) {
-      console.warn(
-        `[userbot] блокировка: сообщение ${chatId} не отправлено (CRM-блок активен)`,
-      );
+      logEvent('blocked', { chat_id: chatId, order_id: req.body?.order_id || null, auto: req.body?.auto === true });
       return res.status(403).json({ ok: false, error: 'customer_blocked' });
     }
 
@@ -810,6 +817,8 @@ app.post('/send-message', checkSecret, async (req, res) => {
     try {
       result = await client.sendMessage(BigInt(chatId), { message: text });
       viaAttempt = 1; // прямая отправка — entity был в кэше
+      const c1 = req.body?.order_id ? { order_id: req.body.order_id } : {};
+      logEvent('send', { outcome: 'sent', attempt: 1, chat_id: chatId, ...c1 });
     } catch (firstErr) {
       const firstMsg = firstErr?.errorMessage || firstErr?.message || String(firstErr);
       if (!ENTITY_NOT_FOUND_RX.test(firstMsg)) throw firstErr;
@@ -826,17 +835,13 @@ app.post('/send-message', checkSecret, async (req, res) => {
             userId: BigInt(chatId),
             accessHash: BigInt(stored.access_hash),
           });
-          console.warn(
-            `[userbot] entity ${chatId} не в кэше, шлю через сохранённый access_hash...`,
-          );
+          logEvent('send', { outcome: 'attempt', attempt: 2, chat_id: chatId, order_id: req.body?.order_id || null });
           result = await client.sendMessage(inputPeer, { message: text });
           viaAttempt = 2; // отправка через сохранённый access_hash
         } catch (storedErr) {
           const storedMsg =
             storedErr?.errorMessage || storedErr?.message || String(storedErr);
-          console.warn(
-            `[userbot] отправка через сохранённый access_hash упала: ${storedMsg}`,
-          );
+          logEvent('send', { outcome: 'failed', attempt: 2, chat_id: chatId, error: storedMsg, order_id: req.body?.order_id || null });
           // Не пробрасываем — попробуем третью попытку через prefetch.
         }
       }
@@ -844,9 +849,7 @@ app.post('/send-message', checkSecret, async (req, res) => {
       // Попытка 3: прогрев диалогов и retry. Помогает если клиент был в
       // кэше GramJS, но вытеснен LRU.
       if (!result) {
-        console.warn(
-          `[userbot] прогреваю диалоги и пробую ещё раз для ${chatId}...`,
-        );
+        logEvent('send', { outcome: 'attempt', attempt: 3, chat_id: chatId, order_id: req.body?.order_id || null });
         await prefetchDialogs(`entity-miss-${chatId}`);
         try {
           result = await client.sendMessage(BigInt(chatId), { message: text });
@@ -873,7 +876,7 @@ app.post('/send-message', checkSecret, async (req, res) => {
     // verified=true защищал от этого: resolveUsername вызывался только для
     // клиентов с total_orders>0 или bot_verified_at. УДАЛЕНО 15.05.2026.
     if (!result) {
-      console.warn(`[userbot] сообщение ${chatId} не отправлено: entity не найден (нет диалога)`);
+      logEvent('send', { outcome: 'failed', attempt: 0, chat_id: chatId, error: 'entity_not_found_no_dialog', order_id: req.body?.order_id || null });
       res.status(200).json({ ok: false, error: 'entity_not_found_no_dialog' });
       const isAuto = req.body?.auto === true;
       setImmediate(() => {
@@ -906,6 +909,9 @@ app.post('/send-message', checkSecret, async (req, res) => {
     // Отвечаем сразу, журналим асинхронно через setImmediate — caller
     // не ждёт INSERT, освобождаем event loop для следующего запроса.
     res.json({ ok: true, telegram_message_id: messageId });
+    const evCtx = { chat_id: chatId, attempt: viaAttempt, order_id: req.body?.order_id || null };
+    if (messageId) evCtx.msg_id = messageId;
+    logEvent('send', { outcome: 'sent', ...evCtx });
     // `auto` — признак того, что отправку запустил auto-notify (а не ручной
     // /bot/send-custom). Фронт CRM выбирает по нему последнюю запись для
     // плашки «не удалось отправить» на карточке заказа: без флага manual-
@@ -952,7 +958,9 @@ app.post('/send-message', checkSecret, async (req, res) => {
     if (floodWaitSec > 0) {
       const capped = Math.min(floodWaitSec, FLOOD_WAIT_CAP_SEC);
       floodWaitUntil = Date.now() + capped * 1000;
-      console.warn(`[userbot] FLOOD_WAIT ${floodWaitSec}s (cap=${capped}s) — userbot блокирован до ${new Date(floodWaitUntil).toISOString()}`);
+      const ctx = { chat_id: chatId, seconds: floodWaitSec, capped, order_id: req.body?.order_id || null };
+      logEvent('flood', ctx);
+      console.warn(`[userbot] FLOOD_WAIT ${floodWaitSec}s (cap=${capped}s)`);
     }
 
     // Detect dead session: после первого AUTH_KEY_UNREGISTERED помечаем
@@ -962,6 +970,7 @@ app.post('/send-message', checkSecret, async (req, res) => {
     if (!sessionDead && looksLikeSessionDead(rawError)) {
       sessionDead = true;
       sessionDeadReason = errorText;
+      logEvent('session_dead', { chat_id: chatId, error: errorText });
       console.error(
         '[userbot] СЕССИЯ МЁРТВАЯ:',
         errorText,
