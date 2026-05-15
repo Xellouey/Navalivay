@@ -35,6 +35,7 @@ import {
   confirmVerificationOnAccess,
   isCustomerVerified,
 } from "../utils/business-bot.js";
+import { resolveUsernameViaUserbot } from "../utils/userbot-client.js";
 
 export const publicRouter = express.Router();
 
@@ -2455,6 +2456,10 @@ publicRouter.post(
           missing: created.agreementsViolation,
         });
       }
+      if (verifiedTelegramUsername) {
+        resolveUsernameViaUserbot({ username: verifiedTelegramUsername }).catch(() => {});
+      }
+
       return res.json({
         success: true,
         order_id: created.orderId,

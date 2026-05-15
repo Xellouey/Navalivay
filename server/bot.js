@@ -66,6 +66,12 @@ function ensureCustomer(telegramUser) {
       telegramUser.last_name ?? null
     );
     customer = db.prepare('SELECT * FROM customers WHERE id = ?').get(id);
+
+    // Проактивный резолв: новый клиент ещё не в кэше userbot'а.
+    // Зарезолвим сейчас — к моменту заказа entity уже готова.
+    if (telegramUser.username) {
+      resolveUsernameViaUserbot({ username: telegramUser.username }).catch(() => {});
+    }
   } else {
     db.prepare(`
       UPDATE customers
