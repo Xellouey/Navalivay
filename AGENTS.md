@@ -66,3 +66,12 @@ copied here so they live with the project, not just in editor configs.
 - `docs/claude-memory-index.md` — index of Claude feedback rules
 - `docs/claude-feedback-code-review-loop.md` — run code-reviewer until 0 violations
 - `docs/claude-feedback-ux-improver.md` — run ux-improver after UI changes
+
+## Subsystems
+
+- `docs/userbot-logging.md`
+  - Userbot structured JSON event format (`{"ev":"send|flood|resolve|..."}`)
+  - Key events: send, flood, blocked, resolve, session_dead
+  - How to grep/filter events
+  - Rate limits: RESOLVE_USERNAME_ENABLED, floodWaitUntil, FLOOD_WAIT_CAP_SEC
+  - Send attempt chain: 1 (cache) → 2 (access_hash) → 3 (prefetch)
