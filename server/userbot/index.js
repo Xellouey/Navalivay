@@ -663,7 +663,11 @@ app.post('/resolve-username', checkSecret, async (req, res) => {
     res.json({ ok: false, error: 'username_not_found' });
   } catch (err) {
     const errText = err?.errorMessage || err?.message || String(err);
-    // FloodWait — выставляем и возвращаем 429 caller'у.
+    // FloodWait — возвращаем 429, но НЕ выставляем floodWaitUntil.
+    // Этот endpoint дёргается из API fire-and-forget при создании заказа.
+    // Если выставить floodWaitUntil — блокируется ВЕСЬ send-message
+    // (даже для клиентов с entity в кэше). Caller (resolveUsernameViaUserbot)
+    // обрабатывает 429 gracefully через .catch(() => {}).
     let fwSec = 0;
     if (typeof err?.seconds === 'number' && err.seconds > 0) {
       fwSec = err.seconds;
@@ -672,10 +676,8 @@ app.post('/resolve-username', checkSecret, async (req, res) => {
       if (m) fwSec = Number(m[1]);
     }
     if (fwSec > 0) {
-      const capped = Math.min(fwSec, FLOOD_WAIT_CAP_SEC);
-      floodWaitUntil = Date.now() + capped * 1000;
       return res.status(429).json({
-        ok: false, error: 'flood_wait', retry_after_seconds: capped,
+        ok: false, error: 'flood_wait', retry_after_seconds: fwSec,
       });
     }
     console.warn('[userbot] resolve-username error:', redactSecrets(errText));
