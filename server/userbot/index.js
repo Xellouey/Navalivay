@@ -617,6 +617,65 @@ const rateLimitedDelay = createRateLimiter({ maxPerSecond: MAX_SENDS_PER_SECOND 
 // выше (после client.connect() + getMe()) — prefetchDialogs на них ссылается.
 // Контекст по «когда сессия мёртвая» см. там же.
 
+// Проактивный резолв entity для verified клиента. api-процесс дёргает при
+// создании заказа — к моменту первой смены статуса entity уже в кэше GramJS
+// и auto-notify уходит через attempt 1 без задержек resolveUsername.
+app.post('/resolve-username', checkSecret, async (req, res) => {
+  try {
+    const username = String(req.body?.username || '').trim().replace(/^@/, '');
+    if (!username) {
+      return res.status(400).json({ ok: false, error: 'username_required' });
+    }
+    // FloodWait guard — не дёргаем Telegram пока идёт окно ожидания.
+    if (floodWaitUntil > Date.now()) {
+      const retryAfter = Math.ceil((floodWaitUntil - Date.now()) / 1000);
+      return res.status(429).json({
+        ok: false, error: 'flood_wait', retry_after_seconds: retryAfter,
+      });
+    }
+    if (!client.connected) {
+      return res.status(503).json({ ok: false, error: 'disconnected' });
+    }
+    await rateLimitedDelay();
+
+    const result = await client.invoke(
+      new Api.contacts.ResolveUsername({ username }),
+    );
+    if (result?.users && result.users.length > 0) {
+      for (const user of result.users) {
+        rememberEntity(user, 'proactive_order_create');
+      }
+      const resolvedId = result.users[0]?.id
+        ? String(result.users[0].id)
+        : null;
+      console.log(
+        `[userbot] proactive resolve: @${username} → id=${resolvedId}`,
+      );
+      return res.json({ ok: true, telegram_id: resolvedId });
+    }
+    console.warn(`[userbot] proactive resolve: @${username} — peer не найден`);
+    res.json({ ok: false, error: 'username_not_found' });
+  } catch (err) {
+    const errText = err?.errorMessage || err?.message || String(err);
+    // FloodWait — выставляем и возвращаем 429 caller'у.
+    let fwSec = 0;
+    if (typeof err?.seconds === 'number' && err.seconds > 0) {
+      fwSec = err.seconds;
+    } else {
+      const m = errText.match(/FLOOD(?:_WAIT)?[_\s]+(\d+)/i);
+      if (m) fwSec = Number(m[1]);
+    }
+    if (fwSec > 0) {
+      floodWaitUntil = Date.now() + fwSec * 1000;
+      return res.status(429).json({
+        ok: false, error: 'flood_wait', retry_after_seconds: fwSec,
+      });
+    }
+    console.warn('[userbot] resolve-username error:', redactSecrets(errText));
+    res.status(502).json({ ok: false, error: 'resolve_failed' });
+  }
+});
+
 app.get('/health', (req, res) => {
   res.json({
     ok: !sessionDead,

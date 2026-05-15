@@ -67,9 +67,10 @@ function describeAutoNotifyReason(reason, error) {
       return 'Бот не подключён к Telegram. Проверьте подключение в настройках.';
     case 'client_inactive_over_24h':
       return 'Клиент молчит больше 24 часов. Telegram запрещает писать первым, подождите ответа.';
-    // Пользователь не писал менеджеру лично — диалога нет.
+    // Пользователь не писал менеджеру лично — диалога нет, resolveUsername
+    // тоже не смог найти (username изменён/удалён или аккаунт деактивирован).
     case 'entity_not_found_no_dialog':
-      return 'Не отправлено: у клиента, скорее всего, включена приватность Telegram «Кто может писать: только контакты», либо клиент никогда не писал менеджеру лично. Если заказ оформлен через бот, напишите клиенту первыми в Telegram — он должен подтвердить диалог.';
+      return 'Клиент не найден в Telegram. Возможно username изменён или аккаунт удалён. Напишите клиенту первыми вручную — если диалог появится, следующие уведомления уйдут автоматически.';
     default:
       // Сырая ошибка от Telegram (BUSINESS_PEER_USAGE_MISSING, PEER_ID_INVALID,
       // chat not found и т.п.) или неизвестная причина — возвращаем как есть.
@@ -393,7 +394,7 @@ crmOperationsRouter.get("/api/admin/crm/orders", authMiddleware, (req, res) => {
             `SELECT customer_id, COUNT(*) as prior
              FROM orders
              WHERE customer_id IN (${cidPlaceholders})
-               AND status = 'delivered'
+               AND status IN ('delivered', 'completed')
                AND id NOT IN (${oidPlaceholders})
              GROUP BY customer_id`,
           )
@@ -970,6 +971,20 @@ crmOperationsRouter.post(
       recordStatusChange(orderId, null, order.status, "Создан заказ");
 
       res.json({ ...order, items: items_result });
+
+      // Проактивный резолв username через userbot: к моменту первой смены
+      // статуса entity будет в кэше GramJS → auto-notify уйдёт мгновенно
+      // через attempt 1 без задержки resolveUsername (attempt 4).
+      if (customer_id) {
+        const custRow = db.prepare(
+          `SELECT telegram_username FROM customers WHERE id = ? AND telegram_username IS NOT NULL`,
+        ).get(customer_id);
+        if (custRow?.telegram_username) {
+          import("../utils/userbot-client.js").then(({ resolveUsernameViaUserbot }) =>
+            resolveUsernameViaUserbot({ username: custRow.telegram_username }).catch(() => {}),
+          );
+        }
+      }
     } catch (error) {
       console.error("[crm] Create order error:", error);
       const clientErrors = new Set([

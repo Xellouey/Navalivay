@@ -215,3 +215,44 @@ export async function sendViaUserbot({
   }
   return { ok: true, telegram_message_id: data.telegram_message_id ?? null };
 }
+
+/**
+ * Проактивный резолв username через userbot — чтобы entity был в кэше GramJS
+ * до первого auto-notify. Вызывается при создании заказа, fire-and-forget.
+ *
+ * Контракт:
+ *   - resolveUsernameViaUserbot({ username }) → Promise<{ ok, error? }>
+ *   - Без таймаута на уровне caller'а — 5s AbortSignal внутри.
+ *   - Не бросает исключений (все ошибки возвращаются в { ok: false }).
+ *   - Не влияет на основной поток создания заказа.
+ *
+ * @param {object} args
+ * @param {string} args.username — telegram username без @
+ * @returns {Promise<{ ok: boolean, error?: string, telegram_id?: string }>}
+ */
+export async function resolveUsernameViaUserbot({ username } = {}) {
+  if (!username) {
+    return { ok: false, error: 'username_required' };
+  }
+  try {
+    const headers = { 'Content-Type': 'application/json' };
+    if (SHARED_SECRET) headers['X-Userbot-Secret'] = SHARED_SECRET;
+    const response = await fetch(`${USERBOT_BASE}/resolve-username`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ username: String(username).replace(/^@/, '') }),
+      signal: AbortSignal.timeout(5000),
+    });
+    const data = await response.json();
+    if (response.ok && data?.ok) {
+      return { ok: true, telegram_id: data.telegram_id };
+    }
+    return { ok: false, error: data?.error || `http_${response.status}` };
+  } catch (err) {
+    // Fire-and-forget — caller не должен падать. Не обновляем healthCache
+    // (это не send-message, resolve может быть временно недоступен).
+    const cause = err?.cause?.code || err?.code || '';
+    const msg = err instanceof Error ? err.message : String(err);
+    return { ok: false, error: `${msg}${cause ? ` (${cause})` : ''}` };
+  }
+}
