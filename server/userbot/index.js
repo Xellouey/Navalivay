@@ -844,56 +844,19 @@ app.post('/send-message', checkSecret, async (req, res) => {
         }
       }
     }
-    // Попытка 4: resolveUsername для verified клиентов (есть заказы или bot_verified_at).
-    // Павел 15.05.2026: 4/6 заказов не получили «собран» (entity_not_found_no_dialog),
-    // но получили «выдан» через 2-14 мин (warmup успел подгрузить entity).
-    // Причина: entity нет в кэше GramJS → первые 3 попытки падают →
-    // auto-notify не доходит. Через 2-14 мин warmup или ручное сообщение
-    // менеджера дёргает диалог → entity появляется → вторая смена работает.
+    // Попытка 4 (resolveUsername) УДАЛЕНА 15.05.2026 17:00.
+    // Причина: Telegram заблокировал contacts.resolveUsername на аккаунте
+    // @Rez0nsky после батча из 200 вызовов. Каждый вызов в attempt 4
+    // возвращал FLOOD → выставлял floodWaitUntil → блокировал ВООБЩЕ ВСЕ
+    // отправки (даже для клиентов с entity в кэше). Проактивный резолв
+    // теперь делается при СОЗДАНИИ заказа через /resolve-username endpoint
+    // (с собственным FloodWait guard), а не во время auto-notify.
     //
-    // contacts.resolveUsername отдаёт access_hash для любого публичного @username
-    // и позволяет написать даже без диалога. Раньше было удалено из-за @rk0ff-
-    // кейса (холодная рассылка), но здесь verified=true защищает от этого:
-    // resolveUsername вызывается только для клиентов с total_orders>0 или
-    // прошедших верификацию через бота. После успешного резолва GramJS
-    // кладёт entity в кэш — все будущие auto-notify пойдут через attempt 1.
-    if (!result && req.body?.verified === true && req.body?.username) {
-      const username = String(req.body.username);
-      console.warn(
-        `[userbot] attempt 4: resolveUsername @${username} для verified клиента ${chatId}...`,
-      );
-      try {
-        const resolved = await client.invoke(
-          new Api.contacts.ResolveUsername({ username }),
-        );
-        if (resolved?.peer) {
-          // GramJS возвращает users в ответе — сохраним в кэш и БД
-          if (resolved.users && resolved.users.length > 0) {
-            for (const user of resolved.users) {
-              rememberEntity(user, 'resolve_username');
-            }
-          }
-          // Пробуем отправить снова — теперь entity должен быть в GramJS-кэше
-          result = await client.sendMessage(BigInt(chatId), { message: text });
-          viaAttempt = 4; // resolveUsername + retry
-          console.log(`[userbot] resolveUsername @${username} успешен, сообщение отправлено`);
-        } else {
-          console.warn(
-            `[userbot] resolveUsername @${username}: peer не найден (username не существует?)`,
-          );
-        }
-      } catch (resolveErr) {
-        const resolveMsg = resolveErr?.errorMessage || resolveErr?.message || String(resolveErr);
-        console.warn(
-          `[userbot] resolveUsername @${username} упал:`,
-          redactSecrets(resolveMsg),
-        );
-        // Не пробрасываем — продолжаем к entity_not_found ниже.
-      }
-    }
-    // Если после всех попыток result всё ещё undefined — сообщение не ушло.
-    // Возвращаем ошибку, чтобы CRM показала «не доставлено», а не «отправлено».
-    // Павел 14.05.2026: «написало что отправлено, захожу в диалог — а он не отписал».
+    // ДО УДАЛЕНИЯ: contacts.resolveUsername отдаёт access_hash для любого
+    // публичного @username и позволяет написать даже без диалога. Раньше
+    // было удалено из-за @rk0ff-кейса (холодная рассылка), здесь
+    // verified=true защищал от этого: resolveUsername вызывался только для
+    // клиентов с total_orders>0 или bot_verified_at. УДАЛЕНО 15.05.2026.
     if (!result) {
       console.warn(`[userbot] сообщение ${chatId} не отправлено: entity не найден (нет диалога)`);
       res.status(200).json({ ok: false, error: 'entity_not_found_no_dialog' });
