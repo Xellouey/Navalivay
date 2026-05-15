@@ -368,16 +368,23 @@ startupPrefetch.then(async () => {
             }
           } catch (resolveErr) {
             const errMsg = resolveErr?.errorMessage || resolveErr?.message || String(resolveErr);
-            // FloodWait при resolveUsername — GramJS сам выставит sleep,
-            // floodWaitUntil обновится через send-message handler.
-            // Не считаем провалом, дадим ещё попытку на следующей итерации.
-            if (/FLOOD/i.test(errMsg)) {
+            // FloodWait при resolveUsername — GramJS бросит ошибку с .seconds.
+            // Обновляем floodWaitUntil, чтобы цикл знал и ждал (а не бил повторно).
+            let fwSec = 0;
+            if (typeof resolveErr?.seconds === 'number' && resolveErr.seconds > 0) {
+              fwSec = resolveErr.seconds;
+            } else {
+              const m = errMsg.match(/FLOOD(?:_WAIT)?[_\s]+(\d+)/i);
+              if (m) fwSec = Number(m[1]);
+            }
+            if (fwSec > 0) {
+              floodWaitUntil = Date.now() + fwSec * 1000 + 500;
               floodHits += 1;
-              // Не сдвигаем счётчик — этот же клиент попробуем снова
-              // следующей итерацией (index остаётся тот же после continue)
-              // Увы, for-of не даёт доступа к индексу. Просто идём дальше,
-              // этот клиент будет пропущен. Следующий рестарт userbot
-              // подберёт его заново (он всё ещё в unresolved выборке).
+              console.warn(
+                `[userbot] проактивный прогрев FloodWait ${fwSec}с, пропускаю @${cust.telegram_username}`,
+              );
+              // Ждём и идём дальше — этот клиент подберётся при след. рестарте.
+              await new Promise((r) => setTimeout(r, Math.min(fwSec * 1000, 30000)));
               continue;
             }
             // username мог измениться/удалиться — не роняем весь цикл.
