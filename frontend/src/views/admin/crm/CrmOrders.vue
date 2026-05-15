@@ -2059,14 +2059,22 @@ async function contactClient(orderId: string) {
 
   try {
     const data = await crmStore.generateOrderMessage(orderId);
-    const { message, telegramUsername } = data;
+    const { message, telegramUsername, telegramId } = data;
 
-    if (telegramUsername) {
+    // tg://openmessage?user_id= — прямой переход по числовому ID,
+    // не требует contacts.resolveUsername. Работает на Android, iOS и
+    // Telegram Desktop (с версии x64). Обходит текущий rate-limit на
+    // resolveUsername у аккаунта @Rez0nsky.
+    if (telegramId) {
+      const encodedMessage = encodeURIComponent(message);
+      const tgUrl = `tg://openmessage?user_id=${telegramId}&text=${encodedMessage}`;
+      window.open(tgUrl, "_blank");
+    } else if (telegramUsername) {
       const encodedMessage = encodeURIComponent(message);
       const telegramUrl = `https://t.me/${telegramUsername}?text=${encodedMessage}`;
       window.open(telegramUrl, "_blank");
     } else {
-      console.warn("[CRM] No telegram username for order:", orderId);
+      console.warn("[CRM] No telegram id or username for order:", orderId);
     }
   } catch (error: any) {
     console.error("[CRM] Generate message error:", error);
