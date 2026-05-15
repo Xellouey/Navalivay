@@ -48,8 +48,14 @@ export function buildAutoNotifyToast(
     return { kind: 'success', message: `${base}. Клиенту отправили.` }
   }
   if (notify.skipped) {
-    // «Тихие» причины (статус не менялся, событие без шаблона) — не ошибка,
-    // просто нечего слать. Показываем как info-уведомление без хвоста.
+    // new_customer_no_dialog — штатная логика, не ошибка.
+    // Показываем информационный тост без красной плашки, с автоскрытием.
+    if (notify.reason === 'new_customer_no_dialog') {
+      return {
+        kind: 'info',
+        message: `${base}. Уведомление не отправлено — у клиента нет завершённых заказов.`,
+      }
+    }
     const tail = describeSkipReason(notify.reason)
     if (!tail) return { kind: 'info', message: base }
     return { kind: 'error', message: `${base}. ${tail}` }
