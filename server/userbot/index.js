@@ -92,6 +92,11 @@ function looksLikeSessionDead(errorText) {
 // rate-limit. До истечения окна fast-fail все запросы — иначе Telegram
 // эскалирует и может забанить аккаунт.
 let floodWaitUntil = 0; // ms timestamp
+// Кап на FloodWait: не блокируемся дольше 30 минут, даже если Telegram
+// вернул 77К-секундный штраф. После капа userbot попробует снова —
+// если штраф ещё активен, получит новый (меньший) FloodWait, а не
+// моментальный бан. Предотвращает сценарий: батч → 21 час блокировки.
+const FLOOD_WAIT_CAP_SEC = 1800; // 30 минут
 // Shutdown guard: PM2 шлёт SIGTERM, потом kill_timeout → SIGKILL. Защита от
 // двойного disconnect (GramJS на double-disconnect ловит unhandledRejection).
 let shuttingDown = false;
@@ -408,9 +413,10 @@ async function warmupMessageCounts() {
         const m = errText.match(/FLOOD(?:_WAIT)?[_\s]+(\d+)/i);
         if (m) {
           const sec = Number(m[1]);
-          floodWaitUntil = Date.now() + sec * 1000;
+          const capped = Math.min(sec, FLOOD_WAIT_CAP_SEC);
+          floodWaitUntil = Date.now() + capped * 1000;
           console.warn(
-            `[userbot] warmupMessageCounts: FLOOD_WAIT ${sec}с на клиенте ${row.telegram_id}, жду...`,
+            `[userbot] warmupMessageCounts: FLOOD_WAIT ${sec}с (cap=${capped}с) на клиенте ${row.telegram_id}, жду...`,
           );
           await new Promise((r) => setTimeout(r, Math.min(sec * 1000, 30000)));
           continue;
@@ -666,9 +672,10 @@ app.post('/resolve-username', checkSecret, async (req, res) => {
       if (m) fwSec = Number(m[1]);
     }
     if (fwSec > 0) {
-      floodWaitUntil = Date.now() + fwSec * 1000;
+      const capped = Math.min(fwSec, FLOOD_WAIT_CAP_SEC);
+      floodWaitUntil = Date.now() + capped * 1000;
       return res.status(429).json({
-        ok: false, error: 'flood_wait', retry_after_seconds: fwSec,
+        ok: false, error: 'flood_wait', retry_after_seconds: capped,
       });
     }
     console.warn('[userbot] resolve-username error:', redactSecrets(errText));
@@ -965,8 +972,9 @@ app.post('/send-message', checkSecret, async (req, res) => {
       if (m) floodWaitSec = Number(m[1]);
     }
     if (floodWaitSec > 0) {
-      floodWaitUntil = Date.now() + floodWaitSec * 1000;
-      console.warn(`[userbot] FLOOD_WAIT ${floodWaitSec}s — userbot блокирован до ${new Date(floodWaitUntil).toISOString()}`);
+      const capped = Math.min(floodWaitSec, FLOOD_WAIT_CAP_SEC);
+      floodWaitUntil = Date.now() + capped * 1000;
+      console.warn(`[userbot] FLOOD_WAIT ${floodWaitSec}s (cap=${capped}s) — userbot блокирован до ${new Date(floodWaitUntil).toISOString()}`);
     }
 
     // Detect dead session: после первого AUTH_KEY_UNREGISTERED помечаем
