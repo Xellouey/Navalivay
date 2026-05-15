@@ -417,6 +417,12 @@
                 class="inline-flex items-center gap-1 text-sm font-semibold underline transition"
                 :class="orderToast.kind === 'error' ? 'text-red-700 hover:text-red-800' : 'text-blue-700 hover:text-blue-800'"
               >{{ orderToast.action.label }}</a>
+              <button
+                v-if="orderToast.copyable"
+                @click="copyToastValue(orderToast.copyable.value)"
+                class="inline-flex items-center gap-1 text-sm font-semibold underline transition"
+                :class="orderToast.kind === 'error' ? 'text-red-700 hover:text-red-800' : 'text-blue-700 hover:text-blue-800'"
+              >{{ orderToast.copyable.label }}</button>
             </div>
             <button
               @click="dismissOrderToast"
@@ -1502,10 +1508,15 @@ interface OrderToastAction {
   label: string;
   url: string;
 }
+interface OrderToastCopyable {
+  label: string;
+  value: string;
+}
 interface OrderToast {
   kind: OrderToastKind;
   message: string;
   action?: OrderToastAction;
+  copyable?: OrderToastCopyable;
 }
 const orderToast = ref<OrderToast | null>(null);
 const orderToastTimeout = ref<ReturnType<typeof setTimeout> | null>(null);
@@ -1530,6 +1541,19 @@ function dismissOrderToast() {
   }
 }
 
+function copyToastValue(value: string) {
+  navigator.clipboard.writeText(value).catch(() => {
+    // Fallback: textarea trick for older browsers
+    const el = document.createElement('textarea');
+    el.value = value;
+    el.style.position = 'fixed';
+    el.style.opacity = '0';
+    document.body.appendChild(el);
+    el.select();
+    document.execCommand('copy');
+    document.body.removeChild(el);
+  });
+}
 
 function getOrderLoyaltyDiscount(order: Order) {
   return (order.items || []).reduce(
@@ -2088,6 +2112,9 @@ async function contactClient(orderId: string) {
         message: `Не удалось отправить. Текст скопирован — вставьте в чат.`,
         action: telegramUsername
           ? { label: 'Открыть чат', url: `https://t.me/${telegramUsername}` }
+          : undefined,
+        copyable: telegramUsername
+          ? { label: `Скопировать @${telegramUsername}`, value: telegramUsername }
           : undefined,
       });
     }

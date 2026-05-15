@@ -32,6 +32,7 @@ import {
 } from './business-bot.js';
 import { sendViaUserbot, isUserbotAvailable } from './userbot-client.js';
 import { getActiveBlockForCustomerId } from './customer-blocks.js';
+import { db } from '../db.js';
 
 /**
  * Маппинг статусов заказа на event-ключи в bot_status_templates.
@@ -52,6 +53,20 @@ export const STATUS_TO_EVENT = Object.freeze({
   delivered: 'order_issued',
   cancelled: 'order_cancelled',
 });
+
+/**
+ * Есть ли у клиента entity в кэше юзербота (access_hash в userbot_entities).
+ * Если нет — юзербот не знает этого человека, у них нет диалога, и сообщение
+ * может быть воспринято как спам. Используется для пропуска cancelled-
+ * уведомлений новым клиентам без диалога (защита от жалоб на спам).
+ */
+function hasUserbotAccess(telegramId) {
+  if (!telegramId) return false;
+  const row = db.prepare(
+    'SELECT 1 FROM userbot_entities WHERE telegram_id = ? AND access_hash IS NOT NULL'
+  ).get(String(telegramId));
+  return !!row;
+}
 
 /**
  * @param {object} args
@@ -161,6 +176,16 @@ export async function autoNotifyForStatusChange({
     // и UI остаётся чистым после перезагрузки).
     safeLog({ outcome: 'skipped', reason: 'customer_not_verified' });
     return { sent: false, skipped: true, reason: 'customer_not_verified', event };
+  }
+
+  // Шаг 2c: не шлём «заказ отменён» клиенту, у которого нет диалога
+  // с менеджером (нет access_hash в userbot_entities). Такой клиент
+  // не знает магазин, сообщение для него — спам → жалоба → бан.
+  // Костя 15.05.2026: «он может нажать кнопочку Пожаловаться как спам,
+  // и нас могут заморозить. Уже было такое.»
+  if (event === 'order_cancelled' && !hasUserbotAccess(prepared.customerTelegramId)) {
+    safeLog({ outcome: 'skipped', reason: 'cancelled_no_userbot_access' });
+    return { sent: false, skipped: true, reason: 'cancelled_no_userbot_access', event };
   }
 
   // Шаг 3: отправляем через userbot (MTProto от лица аккаунта менеджера).
