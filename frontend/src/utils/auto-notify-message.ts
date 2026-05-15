@@ -53,7 +53,7 @@ export function buildAutoNotifyToast(
     if (notify.reason === 'new_customer_no_dialog') {
       return {
         kind: 'info',
-        message: `${base}. Уведомление не отправлено — у клиента нет завершённых заказов.`,
+        message: `${base}. Уведомление не отправлено: у клиента нет завершённых заказов.`,
       }
     }
     const tail = describeSkipReason(notify.reason)

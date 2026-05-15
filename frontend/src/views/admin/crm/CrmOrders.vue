@@ -612,11 +612,11 @@
                             ? 'bg-emerald-100 text-emerald-700'
                             : 'bg-red-100 text-red-700'
                         ]"
-                        :title="order.is_returning_customer ? 'У клиента уже были завершённые заказы' : 'Первый заказ клиента — обратить внимание'"
+                        :title="order.is_returning_customer ? 'У клиента уже были завершённые заказы' : 'Первый заказ клиента - обратить внимание'"
                       >{{ order.is_returning_customer ? 'Постоянный' : 'Новый' }}</span>
                       <span v-if="!order.has_userbot_access && order.telegram_username"
                         class="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-800"
-                        title="Клиент не в кэше юзербота. Авто-уведомления не дойдут — напишите вручную."
+                        title="Клиент не в кэше юзербота. Авто-уведомления не дойдут - напишите вручную."
                       >Вручную</span>
                     </div>
                     <button
@@ -2112,7 +2112,7 @@ async function contactClient(orderId: string) {
       navigator.clipboard.writeText(message).catch(() => {});
       showOrderToast({
         kind: 'error',
-        message: `Не удалось отправить. Текст скопирован — вставьте в чат.`,
+        message: `Не удалось отправить. Текст скопирован - вставьте в чат.`,
         action: telegramUsername
           ? { label: 'Открыть чат', url: `https://t.me/${telegramUsername}` }
           : undefined,
