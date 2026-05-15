@@ -194,14 +194,10 @@ export async function autoNotifyForStatusChange({
     return { sent: false, skipped: true, reason: 'customer_not_verified', event };
   }
 
-  // Шаг 2c: не шлём клиенту, у которого нет ни одного завершённого заказа
-  // и нет bot_verified_at. Даже одно автосообщение для такого клиента =
-  // спам → жалоба → бан. Наличие access_hash в userbot_entities само по
-  // себе не делает клиента доверенным (туда попадают все из батч-сида).
-  // Костя 15.05.2026: «он может нажать Пожаловаться как спам, и нас могут
-  // заморозить. Уже было такое.»
+  // Шаг 2c: не шлём клиенту без completed/delivered заказов.
+  // Это штатная логика, а не ошибка — не логируем, чтобы в CRM
+  // не появлялась красная рамка «не дошло клиенту».
   if (!isSafeToAutoNotify(prepared.customerTelegramId)) {
-    safeLog({ outcome: 'skipped', reason: 'new_customer_no_dialog' });
     return { sent: false, skipped: true, reason: 'new_customer_no_dialog', event };
   }
 

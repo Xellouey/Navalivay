@@ -82,6 +82,8 @@ export function describeSkipReason(reason: string | undefined): string {
       return 'Userbot не отвечает. Попробуйте через минуту.'
     case 'userbot_ambiguous':
       return 'Не дождались ответа от Telegram. Проверьте чат с клиентом перед повторной отправкой.'
+    case 'new_customer_no_dialog':
+      return ''
     default:
       return reason ? `Не отправили: ${reason}.` : ''
   }
