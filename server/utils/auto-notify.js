@@ -66,28 +66,22 @@ function hasUserbotAccess(telegramId) {
 }
 
 /**
- * Безопасно ли слать авто-уведомление этому клиенту?
- * Нет — если у клиента:
- *   - ни одного завершённого заказа (completed/delivered),
- *   - нет диалога с менеджером (доступа к юзерботу),
- *   - не проходил /start в боте (bot_verified_at).
- * Такой клиент не знает магазин, любое автосообщение — спам →
- * жалоба → бан аккаунта. Костя 15.05.2026: «он может нажать
- * Пожаловаться как спам, и нас могут заморозить. Уже было такое.»
+ * Безопасно ли слать авто-уведомление?
+ * Только если у клиента есть хотя бы один завершённый (completed/delivered)
+ * заказ — то есть он реальный покупатель, а не «новый» без единого
+ * выполненного заказа.
+ *
+ * Павел 15.05.2026: «если новый — не слать ему сообщения от юзербота никакие».
  */
 function isSafeToAutoNotify(telegramId) {
   if (!telegramId) return false;
-  // Клиент проходил /start в боте — доверенный.
-  if (hasUserbotAccess(telegramId)) return true;
   const row = db.prepare(`
-    SELECT c.bot_verified_at,
-           (SELECT 1 FROM orders WHERE customer_id = c.id AND status IN ('completed','delivered') LIMIT 1) AS has_completed
-      FROM customers c WHERE c.telegram_id = ?
+    SELECT 1 FROM customers c
+      JOIN orders o ON o.customer_id = c.id AND o.status IN ('completed','delivered')
+     WHERE c.telegram_id = ?
+     LIMIT 1
   `).get(String(telegramId));
-  if (!row) return false;
-  if (row.bot_verified_at) return true;
-  if (row.has_completed) return true;
-  return false;
+  return !!row;
 }
 
 /**
@@ -200,9 +194,10 @@ export async function autoNotifyForStatusChange({
     return { sent: false, skipped: true, reason: 'customer_not_verified', event };
   }
 
-  // Шаг 2c: не шлём клиенту, у которого нет ни одного завершённого заказа,
-  // нет диалога с менеджером (userbot access_hash), и нет bot_verified_at.
-  // Даже одно автосообщение для такого клиента = спам → жалоба → бан.
+  // Шаг 2c: не шлём клиенту, у которого нет ни одного завершённого заказа
+  // и нет bot_verified_at. Даже одно автосообщение для такого клиента =
+  // спам → жалоба → бан. Наличие access_hash в userbot_entities само по
+  // себе не делает клиента доверенным (туда попадают все из батч-сида).
   // Костя 15.05.2026: «он может нажать Пожаловаться как спам, и нас могут
   // заморозить. Уже было такое.»
   if (!isSafeToAutoNotify(prepared.customerTelegramId)) {
