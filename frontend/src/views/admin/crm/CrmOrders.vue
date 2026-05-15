@@ -2059,25 +2059,37 @@ async function contactClient(orderId: string) {
 
   try {
     const data = await crmStore.generateOrderMessage(orderId);
-    const { message, telegramUsername, telegramId } = data;
+    const { message, telegramUsername } = data;
 
-    // tg://openmessage?user_id= — прямой переход по числовому ID,
-    // не требует contacts.resolveUsername. Работает на Android, iOS и
-    // Telegram Desktop (с версии x64). Обходит текущий rate-limit на
-    // resolveUsername у аккаунта @Rez0nsky.
-    if (telegramId) {
-      const encodedMessage = encodeURIComponent(message);
-      const tgUrl = `tg://openmessage?user_id=${telegramId}&text=${encodedMessage}`;
-      window.open(tgUrl, "_blank");
-    } else if (telegramUsername) {
-      const encodedMessage = encodeURIComponent(message);
-      const telegramUrl = `https://t.me/${telegramUsername}?text=${encodedMessage}`;
-      window.open(telegramUrl, "_blank");
+    // Отправляем сообщение через юзербота: появляется в Telegram менеджера
+    // без необходимости открывать ссылки (которые не работают из-за
+    // блокировки contacts.resolveUsername на аккаунте @Rez0nsky).
+    const API_BASE = '/api/admin/crm';
+    const res = await fetch(`${API_BASE}/bot/send-custom`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ order_id: orderId, text: message }),
+    });
+    const result = await res.json();
+
+    if (result.ok) {
+      showOrderToast({ kind: 'success', message: 'Сообщение отправлено клиенту.' });
+    } else if (result.error === 'userbot_ambiguous') {
+      showOrderToast({ kind: 'error', message: 'Сообщение, возможно, отправлено. Проверьте чат с клиентом.' });
     } else {
-      console.warn("[CRM] No telegram id or username for order:", orderId);
+      // Не удалось отправить — копируем сообщение в буфер и даём ссылку
+      navigator.clipboard.writeText(message).catch(() => {});
+      showOrderToast({
+        kind: 'error',
+        message: `Не удалось отправить. Текст скопирован — вставьте в чат.`,
+        action: telegramUsername
+          ? { label: 'Открыть чат', url: `https://t.me/${telegramUsername}` }
+          : undefined,
+      });
     }
   } catch (error: any) {
-    console.error("[CRM] Generate message error:", error);
+    console.error('[CRM] Send message error:', error);
+    showOrderToast({ kind: 'error', message: 'Ошибка при отправке сообщения.' });
   } finally {
     generatingMessageForOrder.value = null;
   }
