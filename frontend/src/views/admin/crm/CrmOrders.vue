@@ -1526,11 +1526,14 @@ function showOrderToast(toast: OrderToast) {
   if (orderToastTimeout.value) {
     clearTimeout(orderToastTimeout.value);
   }
-  // Ошибки держим дольше — менеджеру нужно успеть прочитать причину.
-  const ttl = toast.kind === "error" ? 8000 : 4000;
-  orderToastTimeout.value = setTimeout(() => {
-    orderToast.value = null;
-  }, ttl);
+  // Ошибки не пропадают автоматически — менеджер сам нажмёт крестик.
+  // Костя 15.05.2026: «сообщения с ошибками сделай так чтобы они
+  // автоматически НЕ пропадали, а только когда менеджер сам нажмёт».
+  if (toast.kind !== 'error') {
+    orderToastTimeout.value = setTimeout(() => {
+      orderToast.value = null;
+    }, 4000);
+  }
 }
 
 function dismissOrderToast() {

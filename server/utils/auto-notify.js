@@ -55,10 +55,7 @@ export const STATUS_TO_EVENT = Object.freeze({
 });
 
 /**
- * Есть ли у клиента entity в кэше юзербота (access_hash в userbot_entities).
- * Если нет — юзербот не знает этого человека, у них нет диалога, и сообщение
- * может быть воспринято как спам. Используется для пропуска cancelled-
- * уведомлений новым клиентам без диалога (защита от жалоб на спам).
+ * Может ли юзербот найти клиента (access_hash в userbot_entities).
  */
 function hasUserbotAccess(telegramId) {
   if (!telegramId) return false;
@@ -66,6 +63,31 @@ function hasUserbotAccess(telegramId) {
     'SELECT 1 FROM userbot_entities WHERE telegram_id = ? AND access_hash IS NOT NULL'
   ).get(String(telegramId));
   return !!row;
+}
+
+/**
+ * Безопасно ли слать авто-уведомление этому клиенту?
+ * Нет — если у клиента:
+ *   - ни одного завершённого заказа (completed/delivered),
+ *   - нет диалога с менеджером (доступа к юзерботу),
+ *   - не проходил /start в боте (bot_verified_at).
+ * Такой клиент не знает магазин, любое автосообщение — спам →
+ * жалоба → бан аккаунта. Костя 15.05.2026: «он может нажать
+ * Пожаловаться как спам, и нас могут заморозить. Уже было такое.»
+ */
+function isSafeToAutoNotify(telegramId) {
+  if (!telegramId) return false;
+  // Клиент проходил /start в боте — доверенный.
+  if (hasUserbotAccess(telegramId)) return true;
+  const row = db.prepare(`
+    SELECT c.bot_verified_at,
+           (SELECT 1 FROM orders WHERE customer_id = c.id AND status IN ('completed','delivered') LIMIT 1) AS has_completed
+      FROM customers c WHERE c.telegram_id = ?
+  `).get(String(telegramId));
+  if (!row) return false;
+  if (row.bot_verified_at) return true;
+  if (row.has_completed) return true;
+  return false;
 }
 
 /**
@@ -178,14 +200,14 @@ export async function autoNotifyForStatusChange({
     return { sent: false, skipped: true, reason: 'customer_not_verified', event };
   }
 
-  // Шаг 2c: не шлём «заказ отменён» клиенту, у которого нет диалога
-  // с менеджером (нет access_hash в userbot_entities). Такой клиент
-  // не знает магазин, сообщение для него — спам → жалоба → бан.
-  // Костя 15.05.2026: «он может нажать кнопочку Пожаловаться как спам,
-  // и нас могут заморозить. Уже было такое.»
-  if (event === 'order_cancelled' && !hasUserbotAccess(prepared.customerTelegramId)) {
-    safeLog({ outcome: 'skipped', reason: 'cancelled_no_userbot_access' });
-    return { sent: false, skipped: true, reason: 'cancelled_no_userbot_access', event };
+  // Шаг 2c: не шлём клиенту, у которого нет ни одного завершённого заказа,
+  // нет диалога с менеджером (userbot access_hash), и нет bot_verified_at.
+  // Даже одно автосообщение для такого клиента = спам → жалоба → бан.
+  // Костя 15.05.2026: «он может нажать Пожаловаться как спам, и нас могут
+  // заморозить. Уже было такое.»
+  if (!isSafeToAutoNotify(prepared.customerTelegramId)) {
+    safeLog({ outcome: 'skipped', reason: 'new_customer_no_dialog' });
+    return { sent: false, skipped: true, reason: 'new_customer_no_dialog', event };
   }
 
   // Шаг 3: отправляем через userbot (MTProto от лица аккаунта менеджера).
