@@ -312,6 +312,71 @@ startupPrefetch.then(async () => {
       console.log(`[userbot] снято ${expiredBlocks.changes} истёкших блокировок`);
     }
 
+    // Проактивный прогрев: резолвим через resolveUsername всех клиентов
+    // с заказами, у которых ещё нет access_hash в userbot_entities.
+    // Эти клиенты не попадают в batch-посев (нет access_hash) и не
+    // попадают в iterDialogs (нет недавнего диалога). Без этого их
+    // первый auto-notify упадёт с entity_not_found — ждать warmup или
+    // ручного сообщения менеджера, чтобы entity появился в кэше.
+    //
+    // resolveUsername — индивидуальный RPC (не батчится), поэтому идём
+    // последовательно с задержкой 1.5с. Шторма не будет: клиентов без
+    // access_hash обычно десятки, а не сотни.
+    try {
+      const unresolved = db.prepare(`
+        SELECT c.telegram_id, c.telegram_username
+        FROM customers c
+        WHERE c.telegram_id IS NOT NULL
+          AND c.telegram_username IS NOT NULL
+          AND c.total_orders > 0
+          AND NOT EXISTS (
+            SELECT 1 FROM userbot_entities ue
+            WHERE ue.telegram_id = c.telegram_id
+              AND ue.access_hash IS NOT NULL
+          )
+        ORDER BY c.last_order_at DESC
+        LIMIT 200
+      `).all();
+      if (unresolved && unresolved.length > 0) {
+        console.log(
+          `[userbot] проактивный прогрев: resolving ${unresolved.length} verified customers без access_hash...`,
+        );
+        let resolvedCount = 0;
+        for (const cust of unresolved) {
+          if (shuttingDown || sessionDead) break;
+          if (floodWaitUntil > Date.now()) {
+            console.log('[userbot] проактивный прогрев прерван FloodWait');
+            break;
+          }
+          try {
+            const resolved = await client.invoke(
+              new Api.contacts.ResolveUsername({
+                username: cust.telegram_username,
+              }),
+            );
+            if (resolved?.users && resolved.users.length > 0) {
+              for (const user of resolved.users) {
+                rememberEntity(user, 'proactive_resolve');
+              }
+              resolvedCount += 1;
+            }
+          } catch (resolveErr) {
+            // username мог измениться/удалиться — не роняем весь цикл.
+          }
+          // Задержка 1.5с между вызовами — безопасный темп для Telegram.
+          await new Promise((r) => setTimeout(r, 1500));
+        }
+        console.log(
+          `[userbot] проактивный прогрев завершён: ${resolvedCount}/${unresolved.length} резолвнуто`,
+        );
+      }
+    } catch (proactiveErr) {
+      console.warn(
+        '[userbot] проактивный resolveUsername error:',
+        redactSecrets(proactiveErr?.message || proactiveErr),
+      );
+    }
+
     // После посева entity запускаем фоновый прогревальщик точного
     // количества сообщений для CRM-индикатора.
     warmupMessageCounts().catch((err) => {
@@ -778,10 +843,56 @@ app.post('/send-message', checkSecret, async (req, res) => {
         }
       }
     }
-    // Если после всех 3 попыток result всё ещё undefined — сообщение не
-    // ушло (диалога с клиентом нет). Возвращаем ошибку, чтобы CRM показала
-    // «не доставлено», а не «отправлено». Павел 14.05.2026: «написало что
-    // отправлено, захожу в диалог — а он не отписал».
+    // Попытка 4: resolveUsername для verified клиентов (есть заказы или bot_verified_at).
+    // Павел 15.05.2026: 4/6 заказов не получили «собран» (entity_not_found_no_dialog),
+    // но получили «выдан» через 2-14 мин (warmup успел подгрузить entity).
+    // Причина: entity нет в кэше GramJS → первые 3 попытки падают →
+    // auto-notify не доходит. Через 2-14 мин warmup или ручное сообщение
+    // менеджера дёргает диалог → entity появляется → вторая смена работает.
+    //
+    // contacts.resolveUsername отдаёт access_hash для любого публичного @username
+    // и позволяет написать даже без диалога. Раньше было удалено из-за @rk0ff-
+    // кейса (холодная рассылка), но здесь verified=true защищает от этого:
+    // resolveUsername вызывается только для клиентов с total_orders>0 или
+    // прошедших верификацию через бота. После успешного резолва GramJS
+    // кладёт entity в кэш — все будущие auto-notify пойдут через attempt 1.
+    if (!result && req.body?.verified === true && req.body?.username) {
+      const username = String(req.body.username);
+      console.warn(
+        `[userbot] attempt 4: resolveUsername @${username} для verified клиента ${chatId}...`,
+      );
+      try {
+        const resolved = await client.invoke(
+          new Api.contacts.ResolveUsername({ username }),
+        );
+        if (resolved?.peer) {
+          // GramJS возвращает users в ответе — сохраним в кэш и БД
+          if (resolved.users && resolved.users.length > 0) {
+            for (const user of resolved.users) {
+              rememberEntity(user, 'resolve_username');
+            }
+          }
+          // Пробуем отправить снова — теперь entity должен быть в GramJS-кэше
+          result = await client.sendMessage(BigInt(chatId), { message: text });
+          viaAttempt = 4; // resolveUsername + retry
+          console.log(`[userbot] resolveUsername @${username} успешен, сообщение отправлено`);
+        } else {
+          console.warn(
+            `[userbot] resolveUsername @${username}: peer не найден (username не существует?)`,
+          );
+        }
+      } catch (resolveErr) {
+        const resolveMsg = resolveErr?.errorMessage || resolveErr?.message || String(resolveErr);
+        console.warn(
+          `[userbot] resolveUsername @${username} упал:`,
+          redactSecrets(resolveMsg),
+        );
+        // Не пробрасываем — продолжаем к entity_not_found ниже.
+      }
+    }
+    // Если после всех попыток result всё ещё undefined — сообщение не ушло.
+    // Возвращаем ошибку, чтобы CRM показала «не доставлено», а не «отправлено».
+    // Павел 14.05.2026: «написало что отправлено, захожу в диалог — а он не отписал».
     if (!result) {
       console.warn(`[userbot] сообщение ${chatId} не отправлено: entity не найден (нет диалога)`);
       res.status(200).json({ ok: false, error: 'entity_not_found_no_dialog' });

@@ -162,10 +162,10 @@ export async function sendViaUserbot({
       method: 'POST',
       headers,
       // `auto` — признак авто-уведомления для фильтра в crm-operations.js
-      // (плашка failed на карточке). `username` + `verified` — исторические
-      // поля от бывшего resolveUsername fallback (удалён 13.05.2026 —
-      // не давал защиту от холодных рассылок: @rk0ff кейс). Оставлены
-      // для обратной совместимости API, userbot их игнорирует.
+      // (плашка failed на карточке). `username` + `verified` используются
+      // userbot'ом для attempt 4 (resolveUsername): только для verified
+      // клиентов (total_orders>0 или bot_verified_at) резолвим username
+      // через contacts.resolveUsername, если entity не в кэше.
       body: JSON.stringify({
         chat_id: String(chatId),
         text: String(text),
