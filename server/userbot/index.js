@@ -97,12 +97,12 @@ let floodWaitUntil = 0; // ms timestamp
 // если штраф ещё активен, получит новый (меньший) FloodWait, а не
 // моментальный бан. Предотвращает сценарий: батч → 21 час блокировки.
 const FLOOD_WAIT_CAP_SEC = 1800; // 30 минут
-// Разбан функции: когда Telegram снимет rate-limit на contacts.resolveUsername
-// для аккаунта @Rez0nsky — переключить на true, и проактивный резолв
-// username'ов снова заработает. Пока false: /resolve-username сразу
-// возвращает 503, resolveUsernameViaUserbot не дёргает Telegram.
-// Manager (Павел) проверит и включит вручную через ~2 дня (17.05.2026).
-let RESOLVE_USERNAME_ENABLED = false;
+// Разбан функции: Telegram снял rate-limit на contacts.resolveUsername
+// 16.05.2026 (~24ч от инцидента 15.05.2026). Тест @nvl_vapebot прошёл
+// успешно, реальные резолвы при создании заказов также работают без
+// FLOOD. Если повторно прилетит постоянный FLOOD — переключить в false
+// и ждать ещё, пока Telegram не остынет.
+let RESOLVE_USERNAME_ENABLED = true;
 // Shutdown guard: PM2 шлёт SIGTERM, потом kill_timeout → SIGKILL. Защита от
 // двойного disconnect (GramJS на double-disconnect ловит unhandledRejection).
 let shuttingDown = false;
@@ -649,10 +649,9 @@ app.post('/resolve-username', checkSecret, async (req, res) => {
     if (!username) {
       return res.status(400).json({ ok: false, error: 'username_required' });
     }
-    // Функция отключена до ручного разбана (RESOLVE_USERNAME_ENABLED=false).
-    // Telegram заблокировал contacts.resolveUsername на аккаунте @Rez0nsky.
-    // Каждый вызов даёт FLOOD и продлевает блокировку. Ждём ~2 дня, затем
-    // менеджер (Павел) переключит флаг в true и проверит.
+    // Гард остаётся даже после разбана 16.05.2026: если Telegram снова
+    // прилетит с FloodWait на resolveUsername, флаг можно дёрнуть в false
+    // без перезапуска (через окружение/правку файла) — endpoint вернёт 503.
     if (!RESOLVE_USERNAME_ENABLED) {
       return res.status(503).json({ ok: false, error: 'resolve_disabled' });
     }

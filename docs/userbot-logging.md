@@ -116,7 +116,9 @@ Events also logged into `bot_message_log` table (via `stmtInsertLog`) with:
 
 Auto-notify skips (`new_customer_no_dialog`, `customer_blocked`, etc.) are logged to `bot_message_log` from `server/utils/auto-notify.js`. The userbot JSON events cover the actual send attempt (after eligibility passes).
 
-## ResolveUsername Ban Incident (15.05.2026)
+## ResolveUsername Ban Incident (15.05.2026 — закрыт 16.05.2026)
+
+> **Статус:** разбан подтверждён 16.05.2026 ~18:18 (Минск). Тест `@nvl_vapebot` → `outcome:"ok"`, реальные резолвы при создании заказов идут без FLOOD. Прошло ~25 часов от инцидента (15.05 ~17:00 → 16.05 ~18:18). `RESOLVE_USERNAME_ENABLED = true`.
 
 ### Как это произошло
 
@@ -162,7 +164,9 @@ Auto-notify skips (`new_customer_no_dialog`, `customer_blocked`, etc.) are logge
    - Кап в 30 минут защищает от повторных многотысячных FloodWait
    - Применяется в send-message outer catch и warmupMessageCounts
 
-### Как разбанить и включить
+### Как разбанить и включить (исторически — для следующего инцидента)
+
+> Текущее состояние: `RESOLVE_USERNAME_ENABLED = true` с 16.05.2026. Раздел оставлен как чек-лист на случай повторного бана.
 
 ```bash
 # 1. Изменить флаг в server/userbot/index.js
