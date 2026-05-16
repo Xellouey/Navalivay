@@ -75,3 +75,9 @@ copied here so they live with the project, not just in editor configs.
   - How to grep/filter events
   - Rate limits: RESOLVE_USERNAME_ENABLED, floodWaitUntil, FLOOD_WAIT_CAP_SEC
   - Send attempt chain: 1 (cache) → 2 (access_hash) → 3 (prefetch)
+  - **ResolveUsername Ban Incident 15.05.2026** — подробно: как случилось, FloodWait-цикл, что сделано, как разбанить
+
+## Read first when starting
+
+- `docs/prod-hotfix-playbook.md` — before any production change
+- `docs/userbot-logging.md` — особенно секцию про бан resolveUsername

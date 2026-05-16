@@ -115,3 +115,87 @@ Events also logged into `bot_message_log` table (via `stmtInsertLog`) with:
 ## Frontend event log
 
 Auto-notify skips (`new_customer_no_dialog`, `customer_blocked`, etc.) are logged to `bot_message_log` from `server/utils/auto-notify.js`. The userbot JSON events cover the actual send attempt (after eligibility passes).
+
+## ResolveUsername Ban Incident (15.05.2026)
+
+### Как это произошло
+
+**Telegram API `contacts.ResolveUsername`** — единственный способ отправить сообщение пользователю, с которым у менеджера нет диалога. Он принимает `@username` и возвращает `access_hash`, после чего можно слать через `InputPeerUser`. Это нужно для авто-уведомлений новым клиентам, которые только создали заказ через MiniApp и ни разу не писали менеджеру.
+
+**15.05.2026** в попытке решить проблему entity_not_found, разработчик добавил **проактивный резолв 200 username'ов** при старте юзербота (batch seed). Telegram расценил это как спам-активность и наложил FloodWait на `contacts.ResolveUsername` на аккаунте @Rez0nsky. Длительность: ~21 час (типичная блокировка на нейросети-эвристике). Возвращаемая ошибка: `FLOOD_WAIT_77694` (примерно 21 час).
+
+**Проблема:** FloodWait на resolveUsername НЕ изолирован в Telegram — в GramJS он выглядит как общая ошибка. Userbot устанавливал глобальный `floodWaitUntil`, который БЛОКИРОВАЛ ВСЕ `sendMessage`, даже те, что не требуют resolveUsername (для клиентов с уже закэшированной entity).
+
+### Цикл катастрофы (до исправления)
+
+```
+1. Менеджер меняет статус → auto-notify запускается
+2. send-message не находит entity → attempt 1-3 failing
+3. attempt 4: resolveUsername(@username) → FLOOD от Telegram
+4. userbot выставляет floodWaitUntil на 30 мин (cap)
+5. Все send-message блокируются (даже для клиентов в кэше)
+6. Через 30 мин floodWaitUntil истекает
+7. Очередное auto-notify → снова attempt 4 → снова FLOOD
+8. → бесконечный цикл
+```
+
+Каждые 30 минут — блокировка на 30 минут. Авто-уведомления НЕ работали вообще для всех клиентов, даже для постоянных с entity в кэше.
+
+### Что было сделано (лечение)
+
+1. **Удалена attempt 4** из send-message handler (15.05.2026 17:00)
+   - resolveUsername больше не вызывается при отправке
+   - sendMessage теперь использует только 1 (cache) → 2 (access_hash) → 3 (prefetch)
+   - Разрыв цикла: send-message больше не триггерит FloodWait
+
+2. **/resolve-username endpoint decoupled**
+   - Ранее: при FloodWait выставлял глобальный `floodWaitUntil`, блокируя send-message
+   - Теперь: возвращает 429 без изменения `floodWaitUntil`
+   - Только resolveUsername блокируется сам для себя, send-message не страдает
+
+3. **RESOLVE_USERNAME_ENABLED = false**
+   - Все вызовы contacts.ResolveUsername отключены до ручного включения
+   - Флаг в `server/userbot/index.js` (глобальная переменная module-level)
+   - Даже если кто-то дёрнет /resolve-username — вернёт 503 без обращения к Telegram
+
+4. **FLOOD_WAIT_CAP_SEC = 1800**
+   - Кап в 30 минут защищает от повторных многотысячных FloodWait
+   - Применяется в send-message outer catch и warmupMessageCounts
+
+### Как разбанить и включить
+
+```bash
+# 1. Изменить флаг в server/userbot/index.js
+#    RESOLVE_USERNAME_ENABLED = false → true (около строки 98)
+
+# 2. Перезапустить userbot
+ssh NavalivayNew "pm2 restart navalivay-userbot"
+
+# 3. Проверить, что всё работает
+pm2 logs navalivay-userbot --nostream | grep '{"ev":"resolve"'
+# Должен появиться {"ev":"resolve","outcome":"ok",...}
+
+# 4. Создать тестовый заказ на новом клиенте (без диалога) и проверить
+#    авто-уведомление. Если снова FLOOD — выключить обратно и ждать ещё.
+```
+
+### Когда разбан
+
+Telegram обычно снимает rate-limit на resolveUsername через 24-48 часов для редко используемых функций. @Rez0nsky — аккаунт с Telegram Premium (менеджер Константин), что даёт чуть более мягкие лимиты, но не immunity.
+
+Ожидаемое время: ~17.05.2026 (через ~2 дня от 15.05.2026).
+
+**Не пытаться проверить раньше!** Каждый вызов resolveUsername в период блокировки:
+- Ест лимит пропускной способности аккаунта
+- Может продлить блокировку (Telegram видит «продолжает спамить»)
+- Рискует перевести лёгкий FloodWait в постоянный бан resolveUsername для аккаунта
+
+### Как работает без resolveUsername (сейчас)
+
+967 entity в кэше GramJS из userbot_entities + seed при старте.
+~791 диалог в кэше (топ-700 + 91 архивных).
+Все клиенты, кто когда-либо писал менеджеру или был отрезолвлен ранее — обслуживаются через attempt 1-3.
+Авто-уведомления шлются ТОЛЬКО тем, у кого есть completed/delivered заказы (постоянные клиенты).
+
+Новые клиенты (без диалога, без выданных заказов) — авто-уведомления не получают. Это штатное поведение, не ошибка. Менеджеры пишут им вручную через кнопку «Написать».
+
