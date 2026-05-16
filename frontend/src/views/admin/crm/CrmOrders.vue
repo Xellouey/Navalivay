@@ -2090,40 +2090,19 @@ async function contactClient(orderId: string) {
 
   try {
     const data = await crmStore.generateOrderMessage(orderId);
-    const { message, telegramUsername } = data;
+    const { message, telegramUsername, telegramId } = data;
 
-    // Отправляем сообщение через юзербота: появляется в Telegram менеджера
-    // без необходимости открывать ссылки (которые не работают из-за
-    // блокировки contacts.resolveUsername на аккаунте @Rez0nsky).
-    const API_BASE = '/api/admin/crm';
-    const res = await fetch(`${API_BASE}/bot/send-custom`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ order_id: orderId, text: message }),
-    });
-    const result = await res.json();
-
-    if (result.ok) {
-      showOrderToast({ kind: 'success', message: 'Сообщение отправлено клиенту.' });
-    } else if (result.error === 'userbot_ambiguous') {
-      showOrderToast({ kind: 'error', message: 'Сообщение, возможно, отправлено. Проверьте чат с клиентом.' });
+    const encoded = encodeURIComponent(message);
+    if (telegramUsername) {
+      window.open(`https://t.me/${telegramUsername}?text=${encoded}`, '_blank');
+    } else if (telegramId) {
+      window.open(`tg://openmessage?user_id=${telegramId}&text=${encoded}`, '_blank');
     } else {
-      // Не удалось отправить — копируем сообщение в буфер и даём ссылку
-      navigator.clipboard.writeText(message).catch(() => {});
-      showOrderToast({
-        kind: 'error',
-        message: `Не удалось отправить. Текст скопирован - вставьте в чат.`,
-        action: telegramUsername
-          ? { label: 'Открыть чат', url: `https://t.me/${telegramUsername}` }
-          : undefined,
-        copyable: telegramUsername
-          ? { label: `Скопировать @${telegramUsername}`, value: telegramUsername }
-          : undefined,
-      });
+      showOrderToast({ kind: 'error', message: 'У клиента нет Telegram.' });
     }
   } catch (error: any) {
-    console.error('[CRM] Send message error:', error);
-    showOrderToast({ kind: 'error', message: 'Ошибка при отправке сообщения.' });
+    console.error('[CRM] Contact client error:', error);
+    showOrderToast({ kind: 'error', message: 'Не удалось подготовить сообщение.' });
   } finally {
     generatingMessageForOrder.value = null;
   }
