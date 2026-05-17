@@ -12,6 +12,7 @@ import {
   buildLoyaltyApplication,
   releaseOrderLoyaltyReservations,
 } from "../loyalty.js";
+import { accrueWheelSpinsForOrder } from "../wheel/wheel-service.js";
 import {
   consumePromoUsageForOrder,
   releasePromoUsageForOrder,
@@ -1598,6 +1599,11 @@ crmOperationsRouter.patch(
 
         if (["completed", "delivered"].includes(desiredStatus)) {
           awardLoyaltyForOrder(id);
+          try {
+            accrueWheelSpinsForOrder(id);
+          } catch (wheelError) {
+            console.error("[wheel] accrual on PATCH /orders/:id failed", wheelError);
+          }
         }
       });
 
@@ -1945,6 +1951,11 @@ crmOperationsRouter.post(
         });
 
         awardLoyaltyForOrder(id);
+        try {
+          accrueWheelSpinsForOrder(id);
+        } catch (wheelError) {
+          console.error("[wheel] accrual on /issue failed", wheelError);
+        }
       });
 
       tx();
