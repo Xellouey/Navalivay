@@ -4,6 +4,7 @@ import { db } from "../db.js";
 import { authMiddleware } from "../auth.js";
 import { requireTelegramMiniAppAuth } from "../telegram-miniapp-auth.js";
 import { normalizeTelegramUsername } from "../loyalty.js";
+import { resolveWholesaleContextFromRequest } from "../wholesale-service.js";
 import {
   accrueWheelSpinsForOrder,
   createPrize,
@@ -13,10 +14,13 @@ import {
   getWheelSettings,
   listAdminPrizes,
   listAdminSpins,
+  listRarities,
   registerCustomerProfitForEpicPools,
   spinWheelForCustomer,
   updatePrize,
   updateWheelSettings,
+  validatePrizePayload,
+  validateWheelSettingsPayload,
 } from "../wheel/wheel-service.js";
 
 export const wheelRouter = express.Router();
@@ -58,14 +62,27 @@ function findCustomerFromAuth(req) {
   return null;
 }
 
-function isWholesaleRequest(req) {
-  const headerCode = String(req.headers["x-wholesale-code"] || "").trim();
-  const headerSecret = String(req.headers["x-wholesale-secret"] || "").trim();
-  const queryCode = String(req.query?.wholesale_code || req.query?.wholesaleCode || "").trim();
-  const querySecret = String(
-    req.query?.wholesale_secret || req.query?.wholesaleSecret || "",
-  ).trim();
-  return Boolean((headerCode && headerSecret) || (queryCode && querySecret));
+/**
+ * Resolve wholesale context for wheel routes.
+ *
+ * B4 fix: previously this checked only that the headers were present,
+ * which let any retail client forge `X-Wholesale-Code` /
+ * `X-Wholesale-Secret` from DevTools and read the wholesale prize pool.
+ * Now we delegate to resolveWholesaleContextFromRequest which validates
+ * tier+secret against wholesale_tiers. On read endpoints we fall back
+ * to retail (return false) instead of 403, so stale or malformed
+ * headers do not break UX — the customer simply sees the retail wheel.
+ */
+function isValidatedWholesaleRequest(req) {
+  try {
+    const context = resolveWholesaleContextFromRequest(req);
+    return Boolean(context?.isWholesale);
+  } catch (_error) {
+    // Bad creds (wrong tier/secret pair, missing half of the pair, etc.)
+    // are treated as retail rather than rejected outright. If the legit
+    // wholesale link is broken the customer can still browse.
+    return false;
+  }
 }
 
 wheelRouter.get(
@@ -75,7 +92,7 @@ wheelRouter.get(
   (req, res) => {
     try {
       const customer = findCustomerFromAuth(req);
-      const isWholesale = isWholesaleRequest(req);
+      const isWholesale = isValidatedWholesaleRequest(req);
       const state = getCustomerWheelState(customer?.id || null, { isWholesale });
       res.json({
         customer_id: customer?.id || null,
@@ -101,7 +118,7 @@ wheelRouter.post(
           .status(404)
           .json({ error: "customer_not_found", message: "Клиент не найден" });
       }
-      const isWholesale = isWholesaleRequest(req);
+      const isWholesale = isValidatedWholesaleRequest(req);
       const result = spinWheelForCustomer({
         customerId: customer.id,
         isWholesale,
@@ -227,7 +244,29 @@ wheelRouter.put(
   authMiddleware,
   (req, res) => {
     try {
+      // S5: surface validation errors as 400 with details so the CRM
+      // can show actionable feedback instead of a generic toast.
+      const { errors } = validateWheelSettingsPayload(req.body || {});
+      if (errors.length) {
+        return res.status(400).json({ error: "validation_failed", details: errors });
+      }
       res.json(updateWheelSettings(req.body || {}));
+    } catch (error) {
+      res.status(500).json({ error: "failed", message: error.message });
+    }
+  },
+);
+
+// S17: dedicated endpoint for the rarity dictionary so CrmWheel can
+// populate the prize-form select even before any prizes exist. Without
+// this, the manager could not save the very first prize because the
+// rarity dropdown was empty.
+wheelRouter.get(
+  "/api/admin/crm/wheel/rarities",
+  authMiddleware,
+  (req, res) => {
+    try {
+      res.json({ rarities: listRarities() });
     } catch (error) {
       res.status(500).json({ error: "failed", message: error.message });
     }
@@ -253,6 +292,10 @@ wheelRouter.post(
   authMiddleware,
   (req, res) => {
     try {
+      const { errors } = validatePrizePayload(req.body || {});
+      if (errors.length) {
+        return res.status(400).json({ error: "validation_failed", details: errors });
+      }
       res.json(createPrize(req.body || {}));
     } catch (error) {
       res.status(500).json({ error: "failed", message: error.message });
@@ -265,6 +308,10 @@ wheelRouter.put(
   authMiddleware,
   (req, res) => {
     try {
+      const { errors } = validatePrizePayload(req.body || {}, { isUpdate: true });
+      if (errors.length) {
+        return res.status(400).json({ error: "validation_failed", details: errors });
+      }
       const updated = updatePrize(req.params.id, req.body || {});
       if (!updated) {
         return res.status(404).json({ error: "not_found" });
@@ -330,9 +377,20 @@ wheelRouter.post(
       if (!customerId) {
         return res.status(400).json({ error: "customer_required" });
       }
+      // S10: only delivered orders accrue spins on the wheel. Match the
+      // canonical filter so this admin tool replays exactly the same
+      // set of orders the live accrual hook would have processed.
+      //
+      // S6: thanks to the wheel_balance_ledger introduced in B3, this
+      // loop is now safely idempotent — replaying delivered orders that
+      // have already been ledger-recorded is a no-op. Manager sees
+      // accrued_spins = 0 in that case.
       const orders = db
         .prepare(
-          `SELECT id FROM orders WHERE customer_id = ? AND status IN ('delivered','completed') ORDER BY COALESCE(completed_at, created_at) ASC`,
+          `SELECT id FROM orders
+           WHERE customer_id = ?
+             AND status = 'delivered'
+           ORDER BY COALESCE(completed_at, created_at) ASC`,
         )
         .all(customerId);
       let accruedSpins = 0;

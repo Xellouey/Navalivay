@@ -1597,13 +1597,20 @@ crmOperationsRouter.patch(
           }
         }
 
-        if (["completed", "delivered"].includes(desiredStatus)) {
+        if (desiredStatus === "delivered") {
           awardLoyaltyForOrder(id);
           try {
             accrueWheelSpinsForOrder(id);
           } catch (wheelError) {
             console.error("[wheel] accrual on PATCH /orders/:id failed", wheelError);
           }
+        } else if (desiredStatus === "completed") {
+          // `completed` is a CRM-internal transitional state. Loyalty
+          // historically also fired here for tier upgrades on
+          // not-yet-issued orders, but wheel accrual must wait for the
+          // physical `delivered` step (see docs/wheel-architecture.md
+          // and S10 audit note).
+          awardLoyaltyForOrder(id);
         }
       });
 
