@@ -257,12 +257,33 @@ export function releasePromoUsageForOrder(orderOrId) {
   const promoIds = [...new Set(rows.map((row) => row.promo_code_id).filter(Boolean))];
   for (const promoId of promoIds) {
     syncPromoCodeUsageCounters(promoId);
+    // M4-CR: when a checkout is reverted (cancellation, manager rebuild),
+    // the originating wheel prize should also unmark itself as used so
+    // the customer sees the active promo again in "Мои призы". Symmetric
+    // to markWheelSpinAsUsedForPromo. Defensive: swallow missing-table
+    // on freshly seeded DBs.
+    try {
+      db.prepare(
+        `UPDATE wheel_spins
+         SET prize_used_at = NULL
+         WHERE generated_promo_code_id = ?`,
+      ).run(promoId);
+    } catch (error) {
+      console.warn(
+        "[promo] failed to release wheel spin used flag:",
+        error?.message || error,
+      );
+    }
   }
 
   return promoIds;
 }
 
-export function validatePromoCode(code, orderAmount, { excludeOrderId = null } = {}) {
+export function validatePromoCode(
+  code,
+  orderAmount,
+  { excludeOrderId = null, expectedCustomerId = null } = {},
+) {
   const cleanCode = normalizePromoCode(code);
   if (!cleanCode) {
     return { valid: false, error: "not_found", message: "Промокод не указан" };
@@ -289,6 +310,24 @@ export function validatePromoCode(code, orderAmount, { excludeOrderId = null } =
       valid: false,
       error: "wheel_template_not_applicable",
       message: "Этот промокод нельзя применить вручную",
+    };
+  }
+
+  // S2-N1: a wheel-generated child code is bound to its winner. Without
+  // this guard the code behaves like a bearer token — anyone who sees
+  // it from the friend's screen, leaks, etc. could redeem the prize.
+  // The check is only enforced when both (a) the code carries an owner
+  // and (b) the caller passed expectedCustomerId. Internal admin paths
+  // that don't have a customer in scope (e.g. CRM testing) keep working.
+  if (
+    promo.wheel_owner_customer_id &&
+    expectedCustomerId &&
+    String(promo.wheel_owner_customer_id) !== String(expectedCustomerId)
+  ) {
+    return {
+      valid: false,
+      error: "wheel_promo_owner_mismatch",
+      message: "Этот промокод привязан к другому клиенту",
     };
   }
 

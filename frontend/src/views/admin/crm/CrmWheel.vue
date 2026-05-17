@@ -583,6 +583,10 @@
 
 <script setup lang="ts">
 import { onMounted, reactive, ref, computed, watch } from 'vue'
+import {
+  BUSINESS_TIME_ZONE,
+  getBusinessDateParts,
+} from '@/utils/businessTime'
 
 interface WheelRarity {
   code: string
@@ -851,10 +855,43 @@ async function loadSettings() {
   settingsForm.pity_threshold = data.pity_threshold
   settingsForm.default_promo_validity_days = data.default_promo_validity_days
   settingsForm.feed_size = data.feed_size
-  settingsForm.start_collecting_at = data.start_collecting_at
-    ? new Date(data.start_collecting_at).toISOString().slice(0, 16)
-    : ''
+  // S2-N5: backend stores start_collecting_at as a SQLite UTC string.
+  // The datetime-local input expects "YYYY-MM-DDTHH:MM" interpreted as
+  // local time — so we project the UTC instant into Minsk wall-clock
+  // and feed that to the input. The previous code used `.toISOString()`
+  // which is UTC and showed staff a value 3 hours behind the real
+  // Minsk start moment.
+  settingsForm.start_collecting_at = formatBackendDateForLocalInput(
+    data.start_collecting_at,
+  )
   settingsForm.elite_rarities = [...(data.elite_rarities || [])]
+}
+
+function formatBackendDateForLocalInput(value: string | null | undefined): string {
+  if (!value) return ''
+  const trimmed = String(value).trim()
+  if (!trimmed) return ''
+  // Backend format is `YYYY-MM-DD HH:MM:SS` (UTC, no offset). Tag it as
+  // UTC so Date parses correctly, then format Minsk parts manually.
+  const isoUtc = trimmed.includes('T')
+    ? /[Z+\-]\d{2}:?\d{2}$/.test(trimmed)
+      ? trimmed
+      : `${trimmed}Z`
+    : `${trimmed.replace(' ', 'T')}Z`
+  const reference = new Date(isoUtc)
+  if (Number.isNaN(reference.getTime())) return ''
+  const parts = getBusinessDateParts(reference, BUSINESS_TIME_ZONE)
+  // Hours/minutes also need to come from a Minsk-aware formatter so we
+  // can't reuse getBusinessDateParts which only returns date pieces.
+  const timeFormatter = new Intl.DateTimeFormat('en-GB', {
+    timeZone: BUSINESS_TIME_ZONE,
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  })
+  const time = timeFormatter.format(reference)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${parts.year}-${pad(parts.month)}-${pad(parts.day)}T${time}`
 }
 
 async function loadDashboard() {
@@ -1050,15 +1087,14 @@ async function saveSettings() {
     feed_size: settingsForm.feed_size,
     elite_rarities: settingsForm.elite_rarities,
   }
-  // B5 alignment: only send start_collecting_at when manager actually
-  // entered a value. Previously we sent `null` which the backend used
-  // to coerce to the literal string "null" via String(null), poisoning
-  // the comparison check. Even with the backend-side defensive guard
-  // now in place, omitting the key entirely is the cleanest contract.
+  // S2-N5: send the raw datetime-local string ("YYYY-MM-DDTHH:MM"),
+  // backend interprets it as Minsk-local. Previously we used
+  // `new Date(...).toISOString()` here, which converted using the OS
+  // timezone of whoever was operating the CRM — an admin in Moscow
+  // would set "release at 13:00 Moscow" and the wheel would start
+  // collecting one hour earlier in Minsk than they intended.
   if (settingsForm.start_collecting_at) {
-    payload.start_collecting_at = new Date(
-      settingsForm.start_collecting_at,
-    ).toISOString()
+    payload.start_collecting_at = settingsForm.start_collecting_at
   }
   try {
     await fetchJson('/api/admin/crm/wheel/settings', {

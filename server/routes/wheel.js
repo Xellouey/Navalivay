@@ -29,6 +29,17 @@ const allowInsecureTelegramFallback =
   !["production", "test"].includes(String(process.env.NODE_ENV || "").toLowerCase()) &&
   process.env.ALLOW_INSECURE_TELEGRAM_AUTH !== "0";
 
+// S2-N6: even when ALLOW_INSECURE_TELEGRAM_AUTH is on (staging dev tools),
+// the wheel feed still ships real customer first names and Telegram
+// avatars. That's PII in a context where the consumer of the API may
+// not have a verified Telegram identity. Operators can opt out via
+// WHEEL_FEED_REDACT_PII=1 (defaults to staging-on / production-off).
+// Production keeps the original behaviour because customers there
+// are always behind initData verification.
+const wheelFeedRedactPii =
+  process.env.WHEEL_FEED_REDACT_PII === "1" ||
+  (allowInsecureTelegramFallback && process.env.WHEEL_FEED_REDACT_PII !== "0");
+
 const wheelReadLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: 120,
@@ -94,6 +105,20 @@ wheelRouter.get(
       const customer = findCustomerFromAuth(req);
       const isWholesale = isValidatedWholesaleRequest(req);
       const state = getCustomerWheelState(customer?.id || null, { isWholesale });
+      // S2-N6: when the request authenticated only via the insecure
+      // fallback (no verified Telegram identity), strip avatars/names
+      // from the public feed before responding. The feed becomes a list
+      // of "Гость → Приз" entries that still proves the wheel is alive
+      // without leaking real customer PII to anonymous staging callers.
+      const usedInsecureFallback = req.telegramAuth?.source === "insecure";
+      if (wheelFeedRedactPii && usedInsecureFallback) {
+        state.feed = state.feed.map((entry) => ({
+          ...entry,
+          first_name: "Гость",
+          last_initial: "",
+          photo: null,
+        }));
+      }
       res.json({
         customer_id: customer?.id || null,
         is_wholesale: isWholesale,

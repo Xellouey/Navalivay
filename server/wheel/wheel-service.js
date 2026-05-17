@@ -1,5 +1,6 @@
 import { db } from "../db.js";
 import { randomUUID } from "node:crypto";
+import { getUtcDateForTimeZoneLocalTime, toSqliteUtcString } from "../utils/business-time.js";
 
 const SPIN_ID_PREFIX = "ws";
 const PROMO_ID_PREFIX = "wpp";
@@ -54,7 +55,32 @@ function toSqliteDateTime(value) {
   if (!value) return null;
   const str = String(value).trim();
   if (!str || str.toLowerCase() === "null") return null;
+
+  // S2-N5: when the input looks like a "naked" datetime-local string from
+  // the CRM (`YYYY-MM-DDTHH:MM` with no timezone suffix), interpret it
+  // as Minsk-local time and convert to UTC. This matches how every
+  // other date-aware field in the project is handled (loyalty rules,
+  // promo dates) and avoids the previous behaviour where the backend
+  // accepted whatever the browser produced via .toISOString() — which
+  // depended on the staff member's local OS timezone.
+  const naked = str.match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?$/);
+  if (naked) {
+    const [, year, month, day, hour, minute, second] = naked;
+    const utc = getUtcDateForTimeZoneLocalTime(
+      Number(year),
+      Number(month),
+      Number(day),
+      Number(hour),
+      Number(minute),
+      Number(second || 0),
+    );
+    return toSqliteUtcString(utc);
+  }
+
   if (str.includes("T")) {
+    // Strings carrying an explicit timezone (e.g. ISO with `Z` suffix or
+    // `+03:00` offset) are already UTC-equivalent; just normalize to
+    // SQLite shape.
     return str.replace("T", " ").replace(/\.\d+Z?$/, "").replace(/Z$/, "");
   }
   return str;
@@ -369,10 +395,14 @@ export function accrueWheelSpinsForOrder(orderId) {
       `UPDATE wheel_customer_balances
        SET spins_available = spins_available + ?,
            ${accumulatedColumn} = ?,
-           last_synced_order_id = ?,
            last_updated_at = DATETIME('now')
        WHERE customer_id = ?`,
-    ).run(spinsToAdd, remaining, orderId, order.customer_id);
+    ).run(spinsToAdd, remaining, order.customer_id);
+    // S2-N3: last_synced_order_id is no longer used for idempotency
+    // (B3 moved that to wheel_balance_ledger.order_id PRIMARY KEY).
+    // Stop writing to the column so it doesn't mislead future readers
+    // into thinking it gates accrual. The column itself is left in the
+    // schema to avoid a destructive migration.
 
     db.prepare(
       `UPDATE wheel_balance_ledger
@@ -545,7 +575,7 @@ function pickPityPrize(prizes, settings, rng = Math.random) {
   return { prize: null, fallback: "no_candidates" };
 }
 
-function generatePromoForPrize(prize, settings) {
+function generatePromoForPrize(prize, settings, ownerCustomerId = null) {
   if (!prize.promo_template_id || prize.rarity_code === "nothing") {
     return null;
   }
@@ -585,13 +615,17 @@ function generatePromoForPrize(prize, settings) {
   // is_wheel_template = 0 on the generated child code so that
   // validatePromoCode does NOT reject it. Only the original template row
   // (manually flagged in CRM) should be rejected.
+  // S2-N1: wheel_owner_customer_id binds the code to the winner so it
+  // can't be redeemed by another telegram user even if the promo string
+  // leaks.
   db.prepare(
     `INSERT INTO promo_codes (
       id, code, description, discount_type, discount_value, min_order_amount,
       max_uses, current_uses, valid_from, valid_until, active,
       customer_description, manager_description, has_gift,
-      valid_from_date, duration_days, is_wheel_template, created_at
-    ) VALUES (?, ?, ?, ?, ?, ?, 1, 0, NULL, ?, 1, ?, ?, ?, ?, ?, 0, DATETIME('now'))`,
+      valid_from_date, duration_days, is_wheel_template,
+      wheel_owner_customer_id, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, 1, 0, NULL, ?, 1, ?, ?, ?, ?, ?, 0, ?, DATETIME('now'))`,
   ).run(
     promoId,
     code,
@@ -605,6 +639,7 @@ function generatePromoForPrize(prize, settings) {
     Number(template.has_gift || 0),
     validFromDate,
     validityDays,
+    ownerCustomerId || null,
   );
 
   return { promoId, code, validUntil: validUntilDate };
@@ -707,7 +742,7 @@ export function spinWheelForCustomer({
       );
     }
 
-    const promo = generatePromoForPrize(chosenPrize, settings);
+    const promo = generatePromoForPrize(chosenPrize, settings, customerId);
     const seed = Math.floor(rng() * 0x7fffffff);
     const spinId = generateId(SPIN_ID_PREFIX);
 
@@ -745,6 +780,28 @@ export function spinWheelForCustomer({
              closed_at = DATETIME('now')
          WHERE id = ?`,
       ).run(customerId, epicReady.pool.id);
+
+      // E5: a customer can be qualified in several active epic pools at
+      // once (different prizes, different release thresholds). After
+      // they win one, the other pools must drop them — otherwise the
+      // very next spin would gift them a second epic prize "for free"
+      // because they still satisfy `list.length >= pool_size` and
+      // `list.includes(customerId)` in those other pools. Strictly
+      // serial: same transaction as the spin so a parallel spin can't
+      // observe a half-cleaned state.
+      const otherPools = db
+        .prepare(
+          "SELECT id, qualified_customers_json FROM wheel_epic_pools WHERE is_active = 1 AND id != ?",
+        )
+        .all(epicReady.pool.id);
+      for (const otherPool of otherPools) {
+        const list = parseJson(otherPool.qualified_customers_json, []);
+        if (!Array.isArray(list) || !list.includes(customerId)) continue;
+        const filtered = list.filter((id) => id !== customerId);
+        db.prepare(
+          "UPDATE wheel_epic_pools SET qualified_customers_json = ? WHERE id = ?",
+        ).run(JSON.stringify(filtered), otherPool.id);
+      }
 
       const refreshedPrize = db
         .prepare("SELECT * FROM wheel_prizes WHERE id = ?")
@@ -840,6 +897,18 @@ export function getCustomerWheelState(customerId, { isWholesale = false } = {}) 
        LEFT JOIN customers c ON c.id = s.customer_id
        WHERE s.rarity_code != 'nothing'
          AND s.customer_id IS NOT NULL
+         -- S29: do not show winners that have been deleted from CRM (deleted_at)
+         -- nor winners that currently have an active block (customer_blocks).
+         -- Showing them in the public feed would leak attempted PII recovery
+         -- after the customer asked to be erased / blocked. The block check
+         -- mirrors the canonical predicate from utils/customer-blocks.js.
+         AND c.deleted_at IS NULL
+         AND NOT EXISTS (
+           SELECT 1 FROM customer_blocks cb
+           WHERE cb.customer_id = c.id
+             AND cb.active = 1
+             AND (cb.block_until IS NULL OR cb.block_until > DATETIME('now'))
+         )
        ORDER BY s.spun_at DESC
        LIMIT ?`,
     )
@@ -1216,7 +1285,20 @@ function isPromoStillUsedAsTemplate(promoId, excludePrizeId = null) {
 }
 
 export function deletePrize(id) {
-  db.prepare("UPDATE wheel_prizes SET is_active = 0 WHERE id = ?").run(id);
+  // S24: soft-delete must also retire the active epic pool for that
+  // prize. Otherwise the pool keeps qualified_customers_json but the
+  // prize itself can't be released (is_active=0 pulls it out of
+  // weighted/epic pickers), and the next time the manager re-enables
+  // the prize an old, stale pool springs back into life with stale
+  // membership. Closing the pool inside the same call ensures the
+  // re-enable path always starts from a clean slate.
+  const tx = db.transaction(() => {
+    db.prepare("UPDATE wheel_prizes SET is_active = 0 WHERE id = ?").run(id);
+    db.prepare(
+      "UPDATE wheel_epic_pools SET is_active = 0, closed_at = DATETIME('now') WHERE prize_id = ? AND is_active = 1",
+    ).run(id);
+  });
+  tx();
 }
 
 export function listAdminSpins({ limit = 50, offset = 0, customerId, rarity } = {}) {
@@ -1294,11 +1376,18 @@ export function getAdminDashboard() {
       qualified_customers: parseJson(pool.qualified_customers_json, []),
     }));
 
+  // S2-N4: only show active prizes in the CRM dashboard. Soft-deleted
+  // prizes (`is_active = 0`) used to mix into "Призы и расход", which
+  // confused managers reviewing live performance — they couldn't tell
+  // whether `Скрыто` columns were skipped or live. Soft-deleted ones
+  // can still be inspected via the Призы tab where the manager picks
+  // "Активен"/"Все". For the dashboard we keep only live rows.
   const prizesIssued = db
     .prepare(
       `SELECT p.id, p.title, p.rarity_code, p.issued_count, p.max_total,
               p.is_for_retail, p.is_for_wholesale, p.is_active
        FROM wheel_prizes p
+       WHERE p.is_active = 1
        ORDER BY p.sort_order ASC, p.created_at ASC`,
     )
     .all();
