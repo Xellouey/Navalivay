@@ -806,13 +806,63 @@ export function spinWheelForCustomer({
       const refreshedPrize = db
         .prepare("SELECT * FROM wheel_prizes WHERE id = ?")
         .get(chosenPrize.id);
-      if (
-        Number(refreshedPrize.max_total || 0) > 0 &&
-        Number(refreshedPrize.issued_count || 0) >= Number(refreshedPrize.max_total)
-      ) {
+      const prizeMaxTotal = Number(refreshedPrize.max_total || 0);
+      const prizeIssuedCount = Number(refreshedPrize.issued_count || 0);
+      const prizeExhausted =
+        prizeMaxTotal > 0 && prizeIssuedCount >= prizeMaxTotal;
+
+      if (prizeExhausted) {
         db.prepare("UPDATE wheel_prizes SET is_active = 0 WHERE id = ?").run(
           chosenPrize.id,
         );
+      } else if (refreshedPrize.is_active) {
+        // Q4: carry-over for epic prizes with max_total > 1 (or 0 = unlimited).
+        // The pool we just closed contained N qualified customers, exactly
+        // one of whom won. The remaining N-1 already crossed the profit
+        // threshold and would otherwise have to re-qualify under a fresh
+        // pool that only counts profit accrued AFTER closed_at — which in
+        // practice means they fall out of the system unless they make new
+        // orders. Move them into a brand new active pool so the next time
+        // any of them spins they get the prize guaranteed (they are already
+        // "in the queue").
+        //
+        // This matches industry practice: lottery jackpots roll over to
+        // the next draw, and gacha pity counters carry across banners of
+        // the same type. A player who paid into eligibility keeps that
+        // eligibility until they actually win.
+        const oldQualified = parseJson(epicReady.pool.qualified_customers_json, []);
+        const carryOver = Array.isArray(oldQualified)
+          ? oldQualified.filter((id) => id && id !== customerId)
+          : [];
+
+        if (carryOver.length > 0) {
+          const newPoolId = generateId(POOL_ID_PREFIX);
+          // Q4 design choice: pool_size of the carry-over pool == the
+          // number of carried members. This keeps the contract
+          // `list.length >= pool_size` true at creation time, so the
+          // very next spin from any of these N-1 customers releases the
+          // prize. The user-visible promise is "you crossed the
+          // threshold, you're in the queue, the next time you spin you
+          // win" — anything else (re-using the original pool_size) would
+          // make them wait for a fresh qualifier, which is what we
+          // explicitly chose to fix.
+          const carryOverPoolSize = Math.max(1, carryOver.length);
+          db.prepare(
+            `INSERT INTO wheel_epic_pools (
+              id, prize_id, pool_size, threshold_byn,
+              qualified_customers_json, is_active, opened_at
+            ) VALUES (?, ?, ?, ?, ?, 1, DATETIME('now'))`,
+          ).run(
+            newPoolId,
+            chosenPrize.id,
+            carryOverPoolSize,
+            Math.max(0, safeNumber(epicReady.pool.threshold_byn, 0)),
+            JSON.stringify(carryOver),
+          );
+          console.warn(
+            `[wheel] epic pool carry-over: prize=${chosenPrize.id} carried=${carryOver.length} winner=${customerId} new_pool=${newPoolId}`,
+          );
+        }
       }
     }
 

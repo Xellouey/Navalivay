@@ -151,27 +151,169 @@ async function testEpicPoolResetsWhenPrizeAllowsMultipleReleases() {
   const first = spinWheelForCustomer({ customerId: "cust_repeat_1" });
   assert.equal(first.isEpicRelease, true);
 
+  // Q4: prize is unlimited (max_total = 0) and 2 customers are still
+  // qualified after the winner is removed. Carry-over creates a new
+  // active pool with those 2 members so the next time either of them
+  // spins they get the prize guaranteed.
   const remainingPool = db
     .prepare(
       "SELECT * FROM wheel_epic_pools WHERE prize_id = 'p_epic_repeat' AND is_active = 1",
     )
     .get();
-  // After the release the prize is unlimited so spinning should not yet have a
-  // new active pool. registerCustomerProfitForEpicPools recreates one when
-  // somebody qualifies again.
-  if (remainingPool) {
-    const list = JSON.parse(remainingPool.qualified_customers_json);
-    assert.equal(list.length, 0);
-  }
+  assert.ok(remainingPool, "carry-over pool must be created when capacity remains");
+  const carryList = JSON.parse(remainingPool.qualified_customers_json);
+  assert.equal(carryList.length, 2);
+  assert.ok(!carryList.includes("cust_repeat_1"), "winner must be removed from carry-over");
+  assert.ok(carryList.includes("cust_repeat_2"));
+  assert.ok(carryList.includes("cust_repeat_3"));
+  // Carry-over pool_size matches the number of carried members so the
+  // next spin from any of them releases the prize immediately.
+  assert.equal(remainingPool.pool_size, 2);
 
   // Prize stays active because max_total = 0.
   const prize = db.prepare("SELECT * FROM wheel_prizes WHERE id = 'p_epic_repeat'").get();
   assert.equal(prize.is_active, 1);
 }
 
+// Q4: epic with max_total > 1 (e.g. 3) — after the first release, the
+// remaining qualified customers carry over to a new active pool, do not
+// have to re-cross the threshold, and the very next spin from any of
+// them releases the prize.
+async function testEpicMaxTotal3CarriesOverNonWinners() {
+  clearWheelData();
+  insertPrize({ id: "p_nothing", rarity_code: "nothing", title: "Ничего", weight: 100 });
+  insertPrize({
+    id: "p_epic_three",
+    rarity_code: "mythic",
+    title: "Эпический x3",
+    weight: 0,
+    max_total: 3,
+    epic_pool_size: 5,
+    epic_pool_threshold_byn: 200,
+  });
+
+  for (let i = 1; i <= 5; i += 1) {
+    const cid = `cust_carry_${i}`;
+    ensureCustomer(cid);
+    makeDeliveredOrder(`order_carry_${i}`, cid, 250);
+    registerCustomerProfitForEpicPools(cid);
+  }
+
+  const initialPool = db
+    .prepare(
+      "SELECT * FROM wheel_epic_pools WHERE prize_id = 'p_epic_three' AND is_active = 1",
+    )
+    .get();
+  assert.ok(initialPool);
+  assert.equal(JSON.parse(initialPool.qualified_customers_json).length, 5);
+
+  // First spin: customer 1 wins.
+  setBalance("cust_carry_1", 1);
+  const first = spinWheelForCustomer({ customerId: "cust_carry_1" });
+  assert.equal(first.isEpicRelease, true);
+  assert.equal(first.prize.id, "p_epic_three");
+
+  // Carry-over pool created with the remaining 4 customers.
+  const carryPool = db
+    .prepare(
+      "SELECT * FROM wheel_epic_pools WHERE prize_id = 'p_epic_three' AND is_active = 1",
+    )
+    .get();
+  assert.ok(carryPool);
+  assert.notEqual(carryPool.id, initialPool.id);
+  const carriedList = JSON.parse(carryPool.qualified_customers_json);
+  assert.equal(carriedList.length, 4);
+  assert.ok(!carriedList.includes("cust_carry_1"));
+  assert.equal(carryPool.pool_size, 4);
+
+  // Prize is still active (issued_count = 1 < max_total = 3).
+  const prizeAfterFirst = db
+    .prepare("SELECT * FROM wheel_prizes WHERE id = 'p_epic_three'")
+    .get();
+  assert.equal(prizeAfterFirst.is_active, 1);
+  assert.equal(prizeAfterFirst.issued_count, 1);
+
+  // Next spin from any carry-over member releases the prize guaranteed.
+  setBalance("cust_carry_2", 1);
+  const second = spinWheelForCustomer({ customerId: "cust_carry_2" });
+  assert.equal(second.isEpicRelease, true);
+  assert.equal(second.prize.id, "p_epic_three");
+
+  // After second release: 3 customers carry over again.
+  const thirdPool = db
+    .prepare(
+      "SELECT * FROM wheel_epic_pools WHERE prize_id = 'p_epic_three' AND is_active = 1",
+    )
+    .get();
+  assert.ok(thirdPool);
+  const thirdList = JSON.parse(thirdPool.qualified_customers_json);
+  assert.equal(thirdList.length, 3);
+  assert.equal(thirdPool.pool_size, 3);
+
+  // Third spin → max_total reached → prize deactivated → no carry-over.
+  setBalance("cust_carry_3", 1);
+  const third = spinWheelForCustomer({ customerId: "cust_carry_3" });
+  assert.equal(third.isEpicRelease, true);
+
+  const finalPrize = db
+    .prepare("SELECT * FROM wheel_prizes WHERE id = 'p_epic_three'")
+    .get();
+  assert.equal(finalPrize.is_active, 0, "prize must deactivate at max_total");
+  assert.equal(finalPrize.issued_count, 3);
+
+  const noNewPool = db
+    .prepare(
+      "SELECT * FROM wheel_epic_pools WHERE prize_id = 'p_epic_three' AND is_active = 1",
+    )
+    .get();
+  assert.equal(noNewPool, undefined, "no carry-over pool when max_total reached");
+}
+
+// Q4: max_total = 1 must not carry over — single-issue prize is consumed.
+async function testEpicMaxTotal1NoCarryOver() {
+  clearWheelData();
+  insertPrize({ id: "p_nothing", rarity_code: "nothing", title: "Ничего", weight: 100 });
+  insertPrize({
+    id: "p_epic_single",
+    rarity_code: "legendary",
+    title: "Single-issue legendary",
+    weight: 0,
+    max_total: 1,
+    epic_pool_size: 3,
+    epic_pool_threshold_byn: 200,
+  });
+
+  for (let i = 1; i <= 3; i += 1) {
+    const cid = `cust_single_${i}`;
+    ensureCustomer(cid);
+    makeDeliveredOrder(`order_single_${i}`, cid, 250);
+    registerCustomerProfitForEpicPools(cid);
+  }
+
+  setBalance("cust_single_1", 1);
+  const result = spinWheelForCustomer({ customerId: "cust_single_1" });
+  assert.equal(result.isEpicRelease, true);
+
+  // Prize deactivated and no carry-over pool created — single-issue
+  // prizes do not roll forward.
+  const prize = db
+    .prepare("SELECT * FROM wheel_prizes WHERE id = 'p_epic_single'")
+    .get();
+  assert.equal(prize.is_active, 0);
+
+  const anyActive = db
+    .prepare(
+      "SELECT * FROM wheel_epic_pools WHERE prize_id = 'p_epic_single' AND is_active = 1",
+    )
+    .get();
+  assert.equal(anyActive, undefined);
+}
+
 async function main() {
   await testEpicPoolReleasesToFirstSpinAfterThreshold();
   await testEpicPoolResetsWhenPrizeAllowsMultipleReleases();
+  await testEpicMaxTotal3CarriesOverNonWinners();
+  await testEpicMaxTotal1NoCarryOver();
   console.log("[wheel-epic] OK");
 }
 
