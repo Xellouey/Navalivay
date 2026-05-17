@@ -195,6 +195,12 @@ const router = createRouter({
           component: () => import("@/views/admin/crm/CrmLoyalty.vue"),
           beforeEnter: requireAdminAuth,
         },
+        {
+          path: "crm/wheel",
+          name: "CrmWheel",
+          component: () => import("@/views/admin/crm/CrmWheel.vue"),
+          beforeEnter: requireAdminAuth,
+        },
       ],
     },
     {

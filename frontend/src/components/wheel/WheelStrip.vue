@@ -24,7 +24,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { onMounted, ref, watch } from 'vue'
 import type { WheelPrize } from '@/stores/wheel'
 import WheelPrizeCard from './WheelPrizeCard.vue'
 
@@ -151,9 +151,6 @@ onMounted(() => {
 })
 
 defineExpose({ runSpin, reset })
-
-const totalCards = computed(() => displayPrizes.value.length)
-void totalCards
 </script>
 
 <style scoped>
