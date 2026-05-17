@@ -88,7 +88,7 @@
         <template v-if="showSkeleton">Загрузка…</template>
         <template v-else-if="wheelStore.isSpinning || isAnimating">Крутится...</template>
         <template v-else-if="hasSpins">Крутить</template>
-        <template v-else>Скоро будет спин</template>
+        <template v-else>Сделай заказ от {{ threshold }} BYN</template>
       </button>
 
       <p v-if="showSkeleton" class="wheel-hero__balance wheel-hero__balance--skeleton" aria-hidden="true">

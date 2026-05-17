@@ -54,6 +54,9 @@
           <p class="wholesale-profile-card__text">
             Тут пока ничего нет, но мы добавим сюда полезный функционал.
           </p>
+          <p class="wholesale-profile-card__hint">
+            Настройка ленты рулетки доступна ниже.
+          </p>
         </article>
 
         <article
@@ -327,22 +330,30 @@ onMounted(async () => {
   await Promise.allSettled([
     userStore.fetchProfile(),
     loyaltyStore.fetchSnapshot(identity),
-    // Q6: load the consent flag silently so the toggle reflects the
-    // current state without forcing the user to wait. Errors are
+    // Q6: load the consent flag so the toggle reflects the server
+    // state. Round 4 fix: previously this was skipped for wholesale
+    // customers, but the toggle is rendered for everyone (wholesale
+    // can win wheel prizes too via is_wholesale flag) — without the
+    // fetch the toggle shows "off" even if the server has consent=1,
+    // and a tap silently revokes it. Always load. Errors are
     // swallowed because the toggle keeps the previous value (default
     // "off") if the wheel API is briefly unavailable.
-    wholesaleStore.isWholesale ? Promise.resolve() : wheelStore.fetchState().catch(() => undefined),
+    wheelStore.fetchState().catch(() => undefined),
   ]);
 });
 
 async function onToggleFeedConsent() {
-  // Q6: flip the local view first for snappy UX. If the request fails
-  // we revert and surface the error in console — there is no toast
-  // surface on this page; the next refresh will reconcile.
-  const next = !wheelStore.feedConsent;
+  // Round 4 best-practice: optimistic UI with rollback. Flip the
+  // local view first for snappy UX; if the request fails revert and
+  // surface the error in console — there is no toast surface on this
+  // page; the next refresh will reconcile.
+  const previous = wheelStore.feedConsent;
+  const next = !previous;
+  wheelStore.feedConsent = next;
   try {
     await wheelStore.setFeedConsent(next);
   } catch (error) {
+    wheelStore.feedConsent = previous;
     console.warn("[profile] feed-consent update failed", error);
   }
 }
@@ -530,6 +541,15 @@ async function goShopping() {
   font-family: 'SF Pro Display', system-ui, sans-serif;
   font-size: 14px;
   color: #5c6470;
+  margin: 0;
+  max-width: 280px;
+  line-height: 1.4;
+}
+
+.wholesale-profile-card__hint {
+  font-family: 'SF Pro Display', system-ui, sans-serif;
+  font-size: 13px;
+  color: #8a93a0;
   margin: 0;
   max-width: 280px;
   line-height: 1.4;
