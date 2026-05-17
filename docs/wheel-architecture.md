@@ -460,3 +460,142 @@ actions:
 - Продвинутые антифрод-механизмы. Сейчас полагаемся на то, что заказы
   уже модерируются в CRM (только `delivered` даёт спин и прибыль).
 - Push-уведомления о выигрыше (потенциальный follow-up).
+
+## Carry-over для эпических пулов (Q4)
+
+Закрыто 17.05.2026. Реализовано в `spinWheelForCustomer` после закрытия
+эпического пула.
+
+**Поведение.** При выдаче эпического приза с `max_total > 1` (или `0`,
+unlimited) внутри той же транзакции:
+
+1. Закрытый пул → `is_active = 0`, `released_to_customer_id`,
+   `closed_at`.
+2. Если `wheel_prizes.is_active = 1` и `(max_total = 0 OR issued_count
+   < max_total)` — берём `qualified_customers_json` старого пула,
+   удаляем победителя, создаём новый активный пул со списком
+   carry-over.
+3. `pool_size` нового пула = длине carry-over списка. Это значит, что
+   на следующем спине любого из этих клиентов сработает условие
+   `list.length >= pool_size` и эпик выдастся гарантированно.
+4. Если приз достиг `max_total` — деактивируется, новый пул не
+   создаётся.
+5. Если carry-over список пустой (например, изначально был
+   `pool_size = 1`) — нового пула не создаём.
+
+**Подтверждение по best practices.** Lottery jackpot rollover (Powerball,
+California Super Lotto) и gacha pity carryover (Genshin, HSR, Arknights,
+CZN) используют тот же паттерн: клиент, который преодолел порог
+eligibility, остаётся в очереди до получения приза.
+
+**Тесты.** `server/tests/wheel-epic.test.js`:
+
+- `testEpicPoolReleasesToFirstSpinAfterThreshold`
+- `testEpicPoolResetsWhenPrizeAllowsMultipleReleases`
+  (max_total=0, carry-over после релиза)
+- `testEpicMaxTotal3CarriesOverNonWinners`
+  (max_total=3, три последовательных релиза, carry-over после каждого
+  кроме последнего)
+- `testEpicMaxTotal1NoCarryOver`
+  (single-issue не переносится)
+
+## Live-feed consent (Q6)
+
+Закрыто 17.05.2026. Реализовано в БД, бэкенде, фронте и профиле.
+
+**БД.** `customers.wheel_feed_consent INTEGER DEFAULT 0` +
+`wheel_feed_consent_at TEXT`. Идемпотентная миграция.
+
+**API.**
+
+- `POST /api/wheel/feed-consent` — body `{ consent: boolean }`.
+  Записывает выбор клиента (любой), стэмпит timestamp.
+- `/api/wheel/state` — добавлено в payload:
+  - `feed_consent` — текущее значение булевого консента.
+  - `feed_consent_required` — true, если у клиента ещё не записан
+    выбор (`wheel_feed_consent_at IS NULL`).
+
+**SQL feed.** Запрос ленты выигрышей дополнен условием
+`c.wheel_feed_consent = 1`. По умолчанию (свежая миграция) лента
+пустая, пока клиенты не нажмут «Согласен».
+
+**Фронт.**
+
+- `WheelConsentModal.vue` показывается на `/wheel` если
+  `feed_consent_required === true` И клиент не закрыл модалку в
+  текущей сессии.
+- Кнопки «Согласен» / «Не сейчас» оба фиксируют выбор. Закрытие через
+  X не пишет ничего — модалка появится при следующем входе.
+- В `ProfileView` (розница) добавлен переключатель «Лента рулетки» —
+  использует тот же endpoint.
+
+**Юридический контекст.** Закон РБ о персональных данных требует
+согласия для публикации имени и фотографии. До получения consent
+клиент в ленте не виден.
+
+**Тесты.** `server/tests/wheel-routes.test.js`:
+
+- `testFeedExcludesCustomersWithoutConsent`
+- `testFeedConsentRequiredFlagFlips` (accept и decline оба гасят
+  модалку)
+
+## Idempotency для spin (P1)
+
+Добавлено 17.05.2026. Защищает от двойного списания спина при ретрае
+на флакающей сети Mini App.
+
+**БД.** `wheel_spins.idempotency_key TEXT` + UNIQUE partial index
+`idx_wheel_spins_idempotency` на `(customer_id, idempotency_key) WHERE
+idempotency_key IS NOT NULL`.
+
+**API.** `POST /api/wheel/spin` принимает заголовок `Idempotency-Key`
+длиной 16-128 символов:
+
+1. Перед транзакцией: lookup в `wheel_spins` по
+   `(customer_id, idempotency_key)`. Если найден — собрать тот же
+   payload и вернуть с флагом `idempotent_replay: true`.
+2. Если не найден — внутри транзакции `INSERT ... idempotency_key = ?`.
+3. Race-кейс: два параллельных POST с тем же ключом проходят первую
+   проверку, второй INSERT упирается в UNIQUE. Catch блока распознаёт
+   это по тексту ошибки (имени индекса) и возвращает реплей вместо 500.
+
+Заголовок необязательный — старые клиенты работают без него. Сильно
+рекомендуется для всех клиентов с retry-логикой.
+
+**Фронт.** `useWheelStore().spin()` генерирует `crypto.randomUUID()`
+для каждого вызова. Для каждого нового спина — новый ключ, для
+ретрая того же спина — тот же ключ (на текущий момент мы делаем
+один shot и не ретраим, но фронт уже готов к ретраям).
+
+**Тесты.** `server/tests/wheel-routes.test.js`:
+
+- `testSpinIsIdempotentByKey` (тот же ключ → тот же `spin_id`, баланс
+  не списывается; новый ключ → новый спин, баланс списан)
+
+## Структурированные логи (P3)
+
+Добавлено 17.05.2026. См. `docs/wheel-logging.md` — полный список
+событий и их формат.
+
+**События.** Все строки имеют префикс `wheel_` в поле `ev`:
+
+- `wheel_spin` — каждая прокрутка
+- `wheel_epic_release`, `wheel_pool_created`, `wheel_pool_closed`
+- `wheel_pity_release`, `wheel_pity_fallback`
+- `wheel_consent_changed`
+- `wheel_admin_action` (create_prize / update_prize / delete_prize /
+  update_settings, с `actor_id` из jwt)
+
+**Helper.** `logWheelEvent(ev, data)` в `wheel-service.js` —
+обёрнутая в try/catch строка JSON. Никогда не блокирует ответ;
+JSON-ошибки выводят tag-only fallback.
+
+**Расположение.** События эмитятся ПОСЛЕ коммита транзакции — лог
+соответствует строке в БД (нет логов от откатанных спинов).
+
+**Фильтрация в pm2.**
+
+```bash
+pm2 logs navalivay-server | grep '"ev":"wheel_'
+pm2 logs navalivay-server --nostream --lines 5000 | grep '"ev":"wheel_admin_action"'
+```

@@ -22,6 +22,38 @@ function generateId(prefix) {
   return `${prefix}_${randomUUID().replace(/-/g, "").slice(0, 20)}`;
 }
 
+/**
+ * P3: structured event logging for the wheel module.
+ *
+ * Format follows the userbot logging convention (see
+ * docs/userbot-logging.md): one line of JSON per event with `ev` and
+ * `ts` always present, plus event-specific fields. PM2/journald keep
+ * full lines, so we can grep `pm2 logs navalivay-server | grep '"ev":"wheel_'`
+ * for a quick filtered stream.
+ *
+ * Why structured: free-form `console.warn` strings drift across
+ * commits and are hard to aggregate. Structured events let us answer
+ * questions like "how many epic releases this week" with `jq` instead
+ * of regex.
+ */
+function logWheelEvent(ev, data = {}) {
+  try {
+    const line = JSON.stringify({
+      ev: `wheel_${ev}`,
+      ts: new Date().toISOString(),
+      ...data,
+    });
+    // eslint-disable-next-line no-console
+    console.log(line);
+  } catch (error) {
+    // JSON.stringify can throw on circular refs from accidental object
+    // references in `data`. Fall back to a tag-only line so we never
+    // suppress the event entirely.
+    // eslint-disable-next-line no-console
+    console.log(JSON.stringify({ ev: `wheel_${ev}`, ts: new Date().toISOString(), log_error: String(error?.message || error) }));
+  }
+}
+
 function generatePromoCode() {
   const random = randomUUID().replace(/-/g, "").slice(0, 6).toUpperCase();
   return `${PROMO_CODE_PREFIX}-${random}`;
@@ -454,16 +486,20 @@ function ensureActiveEpicPool(prize) {
   if (existing) return existing;
 
   const id = generateId(POOL_ID_PREFIX);
+  const poolSize = Math.max(1, Math.floor(safeNumber(prize.epic_pool_size, 5)));
+  const thresholdByn = Math.max(0, safeNumber(prize.epic_pool_threshold_byn, 300));
   db.prepare(
     `INSERT INTO wheel_epic_pools (
       id, prize_id, pool_size, threshold_byn, qualified_customers_json, is_active
     ) VALUES (?, ?, ?, ?, '[]', 1)`,
-  ).run(
-    id,
-    prize.id,
-    Math.max(1, Math.floor(safeNumber(prize.epic_pool_size, 5))),
-    Math.max(0, safeNumber(prize.epic_pool_threshold_byn, 300)),
-  );
+  ).run(id, prize.id, poolSize, thresholdByn);
+  logWheelEvent("pool_created", {
+    pool_id: id,
+    prize_id: prize.id,
+    pool_size: poolSize,
+    threshold_byn: thresholdByn,
+    qualified_count: 0,
+  });
   return db.prepare("SELECT * FROM wheel_epic_pools WHERE id = ?").get(id);
 }
 
@@ -691,6 +727,7 @@ export function spinWheelForCustomer({
     let isEpicRelease = false;
     let isPityRelease = false;
     let pityFallbackReason = null;
+    let carriedOverCount = 0;
 
     const epicReady = findEpicPrizeReadyForCustomer(customerId, isWholesale);
     if (epicReady) {
@@ -738,9 +775,11 @@ export function spinWheelForCustomer({
     }
 
     if (pityFallbackReason) {
-      console.warn(
-        `[wheel] pity fallback applied: reason=${pityFallbackReason}, prize=${chosenPrize.id}, customer=${customerId}`,
-      );
+      logWheelEvent("pity_fallback", {
+        customer_id: customerId,
+        prize_id: chosenPrize.id,
+        fallback_reason: pityFallbackReason,
+      });
     }
 
     const promo = generatePromoForPrize(chosenPrize, settings, customerId);
@@ -783,7 +822,6 @@ export function spinWheelForCustomer({
              closed_at = DATETIME('now')
          WHERE id = ?`,
       ).run(customerId, epicReady.pool.id);
-
       // E5: a customer can be qualified in several active epic pools at
       // once (different prizes, different release thresholds). After
       // they win one, the other pools must drop them — otherwise the
@@ -862,9 +900,16 @@ export function spinWheelForCustomer({
             Math.max(0, safeNumber(epicReady.pool.threshold_byn, 0)),
             JSON.stringify(carryOver),
           );
-          console.warn(
-            `[wheel] epic pool carry-over: prize=${chosenPrize.id} carried=${carryOver.length} winner=${customerId} new_pool=${newPoolId}`,
-          );
+          carriedOverCount = carryOver.length;
+          logWheelEvent("pool_created", {
+            pool_id: newPoolId,
+            prize_id: chosenPrize.id,
+            pool_size: carryOverPoolSize,
+            threshold_byn: Math.max(0, safeNumber(epicReady.pool.threshold_byn, 0)),
+            qualified_count: carryOver.length,
+            reason: "carry_over",
+            previous_pool_id: epicReady.pool.id,
+          });
         }
       }
     }
@@ -881,6 +926,43 @@ export function spinWheelForCustomer({
            last_updated_at = DATETIME('now')
        WHERE customer_id = ?`,
     ).run(nextConsecutiveNothing, customerId);
+
+    // P3: structured event log emitted once per successful spin. Emit
+    // AFTER all DB writes so a row in the log corresponds to a row in
+    // wheel_spins (no orphan logs from rolled-back transactions).
+    if (isEpicRelease && epicReady?.pool) {
+      logWheelEvent("pool_closed", {
+        pool_id: epicReady.pool.id,
+        prize_id: chosenPrize.id,
+        winner_id: customerId,
+        carryover_size: carriedOverCount,
+      });
+      logWheelEvent("epic_release", {
+        customer_id: customerId,
+        prize_id: chosenPrize.id,
+        rarity_code: chosenPrize.rarity_code,
+        pool_id: epicReady.pool.id,
+        carried_over_count: carriedOverCount,
+      });
+    }
+    if (isPityRelease) {
+      logWheelEvent("pity_release", {
+        customer_id: customerId,
+        prize_id: chosenPrize.id,
+        rarity_code: chosenPrize.rarity_code,
+        fallback_reason: pityFallbackReason || null,
+      });
+    }
+    logWheelEvent("spin", {
+      customer_id: customerId,
+      spin_id: spinId,
+      prize_id: chosenPrize.id,
+      rarity_code: chosenPrize.rarity_code,
+      is_epic: isEpicRelease,
+      is_pity: isPityRelease,
+      is_wholesale: Boolean(isWholesale),
+      seed,
+    });
 
     return {
       spinId,
@@ -1088,6 +1170,11 @@ export function setFeedConsent(customerId, consent) {
          wheel_feed_consent_at = DATETIME('now')
      WHERE id = ?`,
   ).run(next, customerId);
+
+  logWheelEvent("consent_changed", {
+    customer_id: customerId,
+    consent: Boolean(consent),
+  });
 
   const row = db
     .prepare(

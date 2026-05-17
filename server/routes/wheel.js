@@ -97,6 +97,28 @@ function isValidatedWholesaleRequest(req) {
   }
 }
 
+// P3: structured admin-action logger. The actor is whichever username
+// jwt-decoded into req.user; if the route bypassed auth in tests we
+// fall back to "unknown". Mirrors logWheelEvent in wheel-service.js
+// but keeps the actor binding here so the service stays admin-agnostic.
+function logAdminAction(req, action, entityId, payload = null) {
+  try {
+    const actor = req?.user?.u || req?.user?.username || "unknown";
+    console.log(
+      JSON.stringify({
+        ev: "wheel_admin_action",
+        ts: new Date().toISOString(),
+        actor_id: actor,
+        action,
+        entity_id: entityId || null,
+        payload: payload || null,
+      }),
+    );
+  } catch (_error) {
+    // Never let logging crash the response.
+  }
+}
+
 wheelRouter.get(
   "/api/wheel/state",
   wheelReadLimiter,
@@ -433,7 +455,9 @@ wheelRouter.put(
       if (errors.length) {
         return res.status(400).json({ error: "validation_failed", details: errors });
       }
-      res.json(updateWheelSettings(req.body || {}));
+      const updated = updateWheelSettings(req.body || {});
+      logAdminAction(req, "update_settings", null, req.body || {});
+      res.json(updated);
     } catch (error) {
       res.status(500).json({ error: "failed", message: error.message });
     }
@@ -479,7 +503,9 @@ wheelRouter.post(
       if (errors.length) {
         return res.status(400).json({ error: "validation_failed", details: errors });
       }
-      res.json(createPrize(req.body || {}));
+      const created = createPrize(req.body || {});
+      logAdminAction(req, "create_prize", created?.id || null, req.body || {});
+      res.json(created);
     } catch (error) {
       res.status(500).json({ error: "failed", message: error.message });
     }
@@ -510,6 +536,7 @@ wheelRouter.put(
       if (!updated) {
         return res.status(404).json({ error: "not_found" });
       }
+      logAdminAction(req, "update_prize", req.params.id, req.body || {});
       res.json(updated);
     } catch (error) {
       res.status(500).json({ error: "failed", message: error.message });
@@ -523,6 +550,7 @@ wheelRouter.delete(
   (req, res) => {
     try {
       deletePrize(req.params.id);
+      logAdminAction(req, "delete_prize", req.params.id, null);
       res.json({ ok: true });
     } catch (error) {
       res.status(500).json({ error: "failed", message: error.message });
