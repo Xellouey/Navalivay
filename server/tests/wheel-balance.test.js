@@ -141,6 +141,85 @@ async function testBeforeReleaseDoesNotAccrue() {
   updateWheelSettings({ start_collecting_at: new Date(0).toISOString() });
 }
 
+// B2 regression: prod scenario.
+//
+// The migration historically wrote start_collecting_at via
+// `new Date().toISOString()` (e.g. "2026-05-17T13:21:00.000Z"), while
+// `orders.completed_at` / `created_at` are written via SQLite's
+// `DATETIME('now')` and look like "2026-05-17 13:21:00". Lexicographically
+// any real "2026-..." order timestamp is *less than* the ISO-shaped
+// start marker (because " " < "T"), so accrual silently skipped every
+// real order on prod. This test reproduces that exact mix and verifies
+// the unified normalization works.
+async function testIsoSettingMatchesSqliteOrderTimestamp() {
+  clearWheelData();
+  // Simulate the migration writing an ISO marker.
+  db.prepare(
+    `INSERT OR REPLACE INTO wheel_settings (key, value, updated_at)
+     VALUES ('start_collecting_at', ?, DATETIME('now'))`,
+  ).run(new Date(Date.now() - 60 * 60 * 1000).toISOString());
+
+  const cid = "cust_prod_iso";
+  ensureCustomer(cid);
+  // Order created via DATETIME('now') — same shape that real orders use.
+  makeDelivered("ord_prod_iso", cid, 80);
+
+  const result = accrueWheelSpinsForOrder("ord_prod_iso");
+  assert.equal(
+    result.accrued,
+    true,
+    `Expected accrual when start_collecting_at is ISO and order is SQLite-format, got ${JSON.stringify(result)}`,
+  );
+  assert.equal(result.spins_added, 2);
+
+  updateWheelSettings({ start_collecting_at: new Date(0).toISOString() });
+}
+
+// B3 regression: balance ledger guarantees no double-credit even when
+// the same order is re-processed (recompute-customer, retried PATCH,
+// out-of-order delivery hooks).
+async function testLedgerIdempotencyAcrossRecompute() {
+  clearWheelData();
+  const cid = "cust_ledger";
+  ensureCustomer(cid);
+
+  makeDelivered("ord_l1", cid, 80);
+  makeDelivered("ord_l2", cid, 50);
+  makeDelivered("ord_l3", cid, 60);
+
+  // First pass — three orders accrued in sequence.
+  accrueWheelSpinsForOrder("ord_l1");
+  accrueWheelSpinsForOrder("ord_l2");
+  accrueWheelSpinsForOrder("ord_l3");
+
+  const balanceFirstPass = getBalance(cid);
+
+  // Second pass — recompute-customer style. Every order is replayed.
+  // After the ledger fix this MUST be a no-op.
+  for (const orderId of ["ord_l1", "ord_l2", "ord_l3"]) {
+    const second = accrueWheelSpinsForOrder(orderId);
+    assert.equal(second.accrued, false, `replay of ${orderId} should be a no-op`);
+    assert.equal(second.reason, "already_synced");
+  }
+
+  // Third pass to be paranoid.
+  for (const orderId of ["ord_l1", "ord_l2", "ord_l3"]) {
+    accrueWheelSpinsForOrder(orderId);
+  }
+
+  const balanceFinal = getBalance(cid);
+  assert.equal(balanceFinal.spins_available, balanceFirstPass.spins_available);
+  assert.equal(
+    Number(balanceFinal.accumulated_retail_byn),
+    Number(balanceFirstPass.accumulated_retail_byn),
+  );
+
+  const ledgerCount = db
+    .prepare("SELECT COUNT(*) AS c FROM wheel_balance_ledger WHERE customer_id = ?")
+    .get(cid).c;
+  assert.equal(ledgerCount, 3, "ledger keeps exactly one row per order");
+}
+
 async function main() {
   updateWheelSettings({
     spin_byn_retail: 40,
@@ -157,6 +236,8 @@ async function main() {
   await testWholesaleAccrual();
   await testIdempotentAccrual();
   await testBeforeReleaseDoesNotAccrue();
+  await testIsoSettingMatchesSqliteOrderTimestamp();
+  await testLedgerIdempotencyAcrossRecompute();
   console.log("[wheel-balance] OK");
 }
 

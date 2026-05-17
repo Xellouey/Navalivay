@@ -1,4 +1,5 @@
 import { db } from "../db.js";
+import { randomUUID } from "node:crypto";
 
 const SPIN_ID_PREFIX = "ws";
 const PROMO_ID_PREFIX = "wpp";
@@ -16,11 +17,12 @@ const DEFAULT_SETTINGS = {
 };
 
 function generateId(prefix) {
-  return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  // crypto.randomUUID is available in Node 14.17+/16+/18+. Stable, collision-safe.
+  return `${prefix}_${randomUUID().replace(/-/g, "").slice(0, 20)}`;
 }
 
 function generatePromoCode() {
-  const random = Math.random().toString(36).slice(2, 8).toUpperCase();
+  const random = randomUUID().replace(/-/g, "").slice(0, 6).toUpperCase();
   return `${PROMO_CODE_PREFIX}-${random}`;
 }
 
@@ -33,9 +35,29 @@ function parseJson(value, fallback) {
   if (typeof value !== "string") return fallback;
   try {
     return JSON.parse(value);
-  } catch (_error) {
+  } catch (error) {
+    console.warn("[wheel] parseJson failed", error?.message || error);
     return fallback;
   }
+}
+
+function isMeaningfulSettingValue(value) {
+  if (value === null || value === undefined) return false;
+  const str = String(value).trim();
+  if (!str) return false;
+  if (str.toLowerCase() === "null") return false;
+  if (str.toLowerCase() === "undefined") return false;
+  return true;
+}
+
+function toSqliteDateTime(value) {
+  if (!value) return null;
+  const str = String(value).trim();
+  if (!str || str.toLowerCase() === "null") return null;
+  if (str.includes("T")) {
+    return str.replace("T", " ").replace(/\.\d+Z?$/, "").replace(/Z$/, "");
+  }
+  return str;
 }
 
 /**
@@ -75,8 +97,9 @@ export function getWheelSettings() {
       1,
       Math.floor(safeNumber(map.get("feed_size"), DEFAULT_SETTINGS.feed_size)),
     ),
-    start_collecting_at:
-      map.get("start_collecting_at") || DEFAULT_SETTINGS.start_collecting_at,
+    start_collecting_at: isMeaningfulSettingValue(map.get("start_collecting_at"))
+      ? toSqliteDateTime(map.get("start_collecting_at"))
+      : DEFAULT_SETTINGS.start_collecting_at,
     elite_rarities: parseJson(
       map.get("elite_rarities_json"),
       DEFAULT_SETTINGS.elite_rarities_json,
@@ -111,7 +134,17 @@ export function updateWheelSettings(partial) {
         ),
     ],
     ["feed_size", (v) => String(Math.max(1, Math.floor(safeNumber(v, DEFAULT_SETTINGS.feed_size))))],
-    ["start_collecting_at", (v) => String(v)],
+    [
+      "start_collecting_at",
+      (v) => {
+        // Always normalize to SQLite "YYYY-MM-DD HH:MM:SS" format. Frontend
+        // historically sent ISO strings (with `T` and trailing Z), and SQLite
+        // stamps written via DATETIME('now') use the space-separated form.
+        // Lexicographic comparison only works when both sides match.
+        const normalized = toSqliteDateTime(v);
+        return normalized || "";
+      },
+    ],
     [
       "elite_rarities_json",
       (v) =>
@@ -129,15 +162,29 @@ export function updateWheelSettings(partial) {
 
   const tx = db.transaction(() => {
     for (const [key, transform] of allowed) {
-      if (Object.prototype.hasOwnProperty.call(partial || {}, key.replace("_json", ""))) {
-        const value = partial[key.replace("_json", "")];
-        upsert.run(key, transform(value));
+      // Accept either canonical key ("elite_rarities_json") or the public
+      // alias without the _json suffix ("elite_rarities").
+      const aliasKey = key.replace("_json", "");
+      const present =
+        Object.prototype.hasOwnProperty.call(partial || {}, aliasKey) ||
+        Object.prototype.hasOwnProperty.call(partial || {}, key);
+      if (!present) continue;
+
+      const raw = Object.prototype.hasOwnProperty.call(partial || {}, aliasKey)
+        ? partial[aliasKey]
+        : partial[key];
+
+      // For start_collecting_at specifically: don't overwrite an existing
+      // value with the literal string "null"/empty — that used to make the
+      // accrual logic compare against the string "null" and silently drop
+      // every order. If admin really wants to clear the marker, they should
+      // explicitly send the empty string and we store it as empty.
+      if (key === "start_collecting_at" && !isMeaningfulSettingValue(raw)) {
+        upsert.run(key, "");
         continue;
       }
 
-      if (Object.prototype.hasOwnProperty.call(partial || {}, key)) {
-        upsert.run(key, transform(partial[key]));
-      }
+      upsert.run(key, transform(raw));
     }
   });
 
@@ -196,24 +243,15 @@ function pickWeightedRandom(prizes, rng = Math.random) {
   return prizes[prizes.length - 1];
 }
 
-function toSqliteDateTime(value) {
-  if (!value) return "1970-01-01 00:00:00";
-  const str = String(value);
-  if (str.includes("T")) {
-    return str.replace("T", " ").replace(/\.\d+Z?$/, "").replace(/Z$/, "");
-  }
-  return str;
-}
-
 function getCustomerProfitSince(customerId, sinceIso) {
   if (!customerId) return 0;
-  const sinceSqlite = toSqliteDateTime(sinceIso);
+  const sinceSqlite = toSqliteDateTime(sinceIso) || "1970-01-01 00:00:00";
   const row = db
     .prepare(
       `SELECT COALESCE(SUM(profit), 0) AS total
        FROM orders
        WHERE customer_id = ?
-         AND status IN ('delivered','completed')
+         AND status = 'delivered'
          AND COALESCE(completed_at, created_at) >= ?`,
     )
     .get(customerId, sinceSqlite);
@@ -240,8 +278,13 @@ function ensureCustomerBalance(customerId) {
 
 /**
  * Add ledger BYN to a customer balance and convert it into spins
- * according to wheel_settings thresholds. Idempotent per orderId via
- * last_synced_order_id check.
+ * according to wheel_settings thresholds.
+ *
+ * Idempotency: enforced by INSERT OR IGNORE into wheel_balance_ledger
+ * (PRIMARY KEY = order_id). If the row already exists, the function
+ * returns { accrued: false, reason: "already_synced" } without touching
+ * the balance. This survives recompute-customer reruns, double PATCH,
+ * race conditions, etc.
  */
 export function accrueWheelSpinsForOrder(orderId) {
   if (!orderId) return { accrued: false, reason: "missing_order_id" };
@@ -256,14 +299,26 @@ export function accrueWheelSpinsForOrder(orderId) {
 
   if (!order) return { accrued: false, reason: "order_not_found" };
   if (!order.customer_id) return { accrued: false, reason: "no_customer" };
-  if (!["delivered", "completed"].includes(order.status)) {
+  // Architecturally, only `delivered` triggers wheel accrual (see
+  // docs/wheel-architecture.md). `completed` is a transitional CRM state
+  // before the order is physically issued; it must not feed the wheel.
+  if (order.status !== "delivered") {
     return { accrued: false, reason: "status_not_final" };
   }
 
   const settings = getWheelSettings();
   const startCollectingAt = settings.start_collecting_at;
+  // Both sides are normalized to SQLite "YYYY-MM-DD HH:MM:SS" format so a
+  // lexicographic comparison is safe. orders.completed_at/created_at are
+  // already in that format because they are written via DATETIME('now') or
+  // CURRENT_TIMESTAMP. start_collecting_at comes from getWheelSettings()
+  // which forces the same shape.
   const orderDate = order.completed_at || order.created_at;
-  if (startCollectingAt && orderDate && orderDate < startCollectingAt) {
+  if (
+    startCollectingAt &&
+    orderDate &&
+    String(orderDate) < String(startCollectingAt)
+  ) {
     return { accrued: false, reason: "before_release" };
   }
 
@@ -279,16 +334,29 @@ export function accrueWheelSpinsForOrder(orderId) {
     : settings.spin_byn_retail;
   if (threshold <= 0) return { accrued: false, reason: "threshold_zero" };
 
-  const balance = ensureCustomerBalance(order.customer_id);
-  if (balance.last_synced_order_id === orderId) {
-    return { accrued: false, reason: "already_synced", spins_added: 0 };
-  }
+  ensureCustomerBalance(order.customer_id);
 
   const accumulatedColumn = isWholesale
     ? "accumulated_wholesale_byn"
     : "accumulated_retail_byn";
 
   const tx = db.transaction(() => {
+    // Idempotency journal: PRIMARY KEY enforces "one accrual per order_id".
+    // If this row already exists, INSERT OR IGNORE leaves changes === 0 and
+    // we exit cleanly. This replaces the old `last_synced_order_id` check
+    // which was unsafe when orders were processed out of order.
+    const ledgerInsert = db
+      .prepare(
+        `INSERT OR IGNORE INTO wheel_balance_ledger
+         (order_id, customer_id, amount_byn, spins_added, is_wholesale, accrued_at)
+         VALUES (?, ?, ?, 0, ?, DATETIME('now'))`,
+      )
+      .run(orderId, order.customer_id, amount, isWholesale ? 1 : 0);
+
+    if (ledgerInsert.changes === 0) {
+      return { spinsAdded: 0, remaining: null, alreadySynced: true };
+    }
+
     const fresh = db
       .prepare("SELECT * FROM wheel_customer_balances WHERE customer_id = ?")
       .get(order.customer_id);
@@ -306,10 +374,19 @@ export function accrueWheelSpinsForOrder(orderId) {
        WHERE customer_id = ?`,
     ).run(spinsToAdd, remaining, orderId, order.customer_id);
 
-    return { spinsAdded: spinsToAdd, remaining };
+    db.prepare(
+      `UPDATE wheel_balance_ledger
+       SET spins_added = ?
+       WHERE order_id = ?`,
+    ).run(spinsToAdd, orderId);
+
+    return { spinsAdded: spinsToAdd, remaining, alreadySynced: false };
   });
 
   const result = tx();
+  if (result.alreadySynced) {
+    return { accrued: false, reason: "already_synced", spins_added: 0 };
+  }
   registerCustomerProfitForEpicPools(order.customer_id);
   return {
     accrued: true,
@@ -370,7 +447,11 @@ function getEpicReferenceSince(prize, settings) {
     )
     .get(prize.id);
   if (lastClosed?.closed_at) return lastClosed.closed_at;
-  return settings.start_collecting_at || "1970-01-01T00:00:00.000Z";
+  // Both sides of comparison must be in SQLite "YYYY-MM-DD HH:MM:SS"
+  // shape. start_collecting_at comes through getWheelSettings()
+  // which already normalizes to that format. Fall back to epoch zero
+  // in the same format if no marker is set.
+  return settings.start_collecting_at || "1970-01-01 00:00:00";
 }
 
 /**
@@ -424,13 +505,44 @@ function isEliteRarity(rarityCode, settings) {
 }
 
 function pickPityPrize(prizes, settings, rng = Math.random) {
-  const candidates = prizes.filter(
+  // Primary attempt: stay within the spirit of the pity rule and pick a
+  // non-elite, non-"nothing" reward.
+  const primary = prizes.filter(
     (prize) =>
       prize.rarity_code !== "nothing" &&
       !isEliteRarity(prize.rarity_code, settings) &&
       effectiveWeight(prize) > 0,
   );
-  return pickWeightedRandom(candidates, rng);
+  const primaryPick = pickWeightedRandom(primary, rng);
+  if (primaryPick) return { prize: primaryPick, fallback: null };
+
+  // Secondary fallback (S7): no qualifying non-elite reward exists. Better to
+  // give the player anything other than another "nothing" than to drop them
+  // back to weighted-random where "nothing" might fire yet again.
+  const secondary = prizes.filter(
+    (prize) =>
+      prize.rarity_code !== "nothing" && effectiveWeight(prize) > 0,
+  );
+  const secondaryPick = pickWeightedRandom(secondary, rng);
+  if (secondaryPick) {
+    return { prize: secondaryPick, fallback: "non_elite_pool_empty" };
+  }
+
+  // Tertiary fallback: even elites are exhausted. Try ANY active prize with
+  // weight > 0 (epic, anything). Worst case: nothing exists at all and the
+  // caller falls back to the literal "nothing" prize. We surface that
+  // through the second tuple element so the caller can log it.
+  const tertiary = prizes.filter(
+    (prize) =>
+      prize.rarity_code !== "nothing" &&
+      Number(prize.weight || 0) > 0,
+  );
+  const tertiaryPick = pickWeightedRandom(tertiary, rng);
+  if (tertiaryPick) {
+    return { prize: tertiaryPick, fallback: "no_candidates" };
+  }
+
+  return { prize: null, fallback: "no_candidates" };
 }
 
 function generatePromoForPrize(prize, settings) {
@@ -451,6 +563,15 @@ function generatePromoForPrize(prize, settings) {
       Math.floor(safeNumber(prize.promo_validity_days, settings.default_promo_validity_days)),
     );
   const validFromDate = new Date().toISOString().slice(0, 10);
+  // S4: precompute valid_until so admin "Просроченные" filter works for
+  // generated wheel promos. validFromDate + (validityDays - 1) gives the
+  // inclusive last day, matching how validatePromoCode interprets
+  // duration_days.
+  const validUntilDate = addDaysToIsoDate(validFromDate, validityDays - 1);
+  // valid_until is timestamped at end-of-day in ISO 8601 so the existing
+  // `now > promo.valid_until` check in validatePromoCode keeps working
+  // identically for wheel-issued and manually issued promos.
+  const validUntilIso = `${validUntilDate}T23:59:59.999Z`;
 
   let attempt = 0;
   let code = generatePromoCode();
@@ -461,13 +582,16 @@ function generatePromoForPrize(prize, settings) {
     attempt += 1;
   }
 
+  // is_wheel_template = 0 on the generated child code so that
+  // validatePromoCode does NOT reject it. Only the original template row
+  // (manually flagged in CRM) should be rejected.
   db.prepare(
     `INSERT INTO promo_codes (
       id, code, description, discount_type, discount_value, min_order_amount,
       max_uses, current_uses, valid_from, valid_until, active,
       customer_description, manager_description, has_gift,
-      valid_from_date, duration_days, created_at
-    ) VALUES (?, ?, ?, ?, ?, ?, 1, 0, NULL, NULL, 1, ?, ?, ?, ?, ?, DATETIME('now'))`,
+      valid_from_date, duration_days, is_wheel_template, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, 1, 0, NULL, ?, 1, ?, ?, ?, ?, ?, 0, DATETIME('now'))`,
   ).run(
     promoId,
     code,
@@ -475,6 +599,7 @@ function generatePromoForPrize(prize, settings) {
     template.discount_type,
     template.discount_value,
     template.min_order_amount,
+    validUntilIso,
     template.customer_description || prize.title,
     template.manager_description || null,
     Number(template.has_gift || 0),
@@ -482,8 +607,7 @@ function generatePromoForPrize(prize, settings) {
     validityDays,
   );
 
-  const validUntil = addDaysToIsoDate(validFromDate, validityDays - 1);
-  return { promoId, code, validUntil };
+  return { promoId, code, validUntil: validUntilDate };
 }
 
 function addDaysToIsoDate(isoDate, dayOffset) {
@@ -530,18 +654,36 @@ export function spinWheelForCustomer({
     let chosenPrize = null;
     let isEpicRelease = false;
     let isPityRelease = false;
+    let pityFallbackReason = null;
 
     const epicReady = findEpicPrizeReadyForCustomer(customerId, isWholesale);
     if (epicReady) {
-      chosenPrize = epicReady.prize;
-      isEpicRelease = true;
-    } else if (
+      // Race-safety re-check (B6): findEpicPrizeReadyForCustomer reads the
+      // pool outside any lock. By the time we get here another concurrent
+      // spin could have already closed this pool. Verify is_active = 1
+      // inside the tx and only commit the epic release if it's still open.
+      const stillActive = db
+        .prepare(
+          "SELECT id FROM wheel_epic_pools WHERE id = ? AND is_active = 1 LIMIT 1",
+        )
+        .get(epicReady.pool.id);
+      if (stillActive) {
+        chosenPrize = epicReady.prize;
+        isEpicRelease = true;
+      }
+    }
+
+    if (
+      !chosenPrize &&
       Number(balance.consecutive_nothing || 0) >= settings.pity_threshold
     ) {
-      const pityPrize = pickPityPrize(prizes, settings, rng);
-      if (pityPrize) {
-        chosenPrize = pityPrize;
+      const pityResult = pickPityPrize(prizes, settings, rng);
+      if (pityResult.prize) {
+        chosenPrize = pityResult.prize;
         isPityRelease = true;
+        pityFallbackReason = pityResult.fallback;
+      } else {
+        pityFallbackReason = pityResult.fallback || "no_candidates";
       }
     }
 
@@ -557,6 +699,12 @@ export function spinWheelForCustomer({
         throw error;
       }
       chosenPrize = fallback;
+    }
+
+    if (pityFallbackReason) {
+      console.warn(
+        `[wheel] pity fallback applied: reason=${pityFallbackReason}, prize=${chosenPrize.id}, customer=${customerId}`,
+      );
     }
 
     const promo = generatePromoForPrize(chosenPrize, settings);
@@ -686,11 +834,12 @@ export function getCustomerWheelState(customerId, { isWholesale = false } = {}) 
     .prepare(
       `SELECT s.id, s.spun_at, s.rarity_code, s.is_wholesale,
               p.title AS prize_title,
-              c.first_name, c.last_name, c.customer_photo
+              c.first_name, c.last_name, c.photo_url AS customer_photo
        FROM wheel_spins s
        JOIN wheel_prizes p ON p.id = s.prize_id
        LEFT JOIN customers c ON c.id = s.customer_id
        WHERE s.rarity_code != 'nothing'
+         AND s.customer_id IS NOT NULL
        ORDER BY s.spun_at DESC
        LIMIT ?`,
     )
@@ -782,6 +931,147 @@ export function listAdminPrizes() {
       is_for_retail: Boolean(prize.is_for_retail),
       is_for_wholesale: Boolean(prize.is_for_wholesale),
     }));
+}
+
+/**
+ * Validate the create/update prize payload from CRM.
+ *
+ * Returns { errors: string[] } where each entry is a short slug like
+ * `rarity_unknown`. Callers (admin routes) should respond with HTTP 400
+ * and `details: errors[]` when any entry is present.
+ */
+export function validatePrizePayload(payload, { isUpdate = false } = {}) {
+  const errors = [];
+  const data = payload || {};
+
+  if (!isUpdate || data.rarity_code !== undefined) {
+    const rarityCode = String(data.rarity_code || "").trim();
+    if (!rarityCode) {
+      errors.push("rarity_code_required");
+    } else {
+      const rarity = db
+        .prepare("SELECT 1 FROM wheel_rarities WHERE code = ? LIMIT 1")
+        .get(rarityCode);
+      if (!rarity) errors.push("rarity_unknown");
+    }
+  }
+
+  if (data.promo_template_id) {
+    const template = db
+      .prepare("SELECT 1 FROM promo_codes WHERE id = ? LIMIT 1")
+      .get(String(data.promo_template_id));
+    if (!template) errors.push("promo_template_not_found");
+  }
+
+  // is_for_retail / is_for_wholesale: at least one must be truthy.
+  // On update we only validate if both flags appear in the payload, since
+  // partial updates may legitimately touch other fields only.
+  const retailGiven = Object.prototype.hasOwnProperty.call(data, "is_for_retail");
+  const wholesaleGiven = Object.prototype.hasOwnProperty.call(data, "is_for_wholesale");
+  if (!isUpdate || (retailGiven && wholesaleGiven)) {
+    const retailFlag = retailGiven ? Boolean(data.is_for_retail) : true;
+    const wholesaleFlag = wholesaleGiven ? Boolean(data.is_for_wholesale) : false;
+    if (!retailFlag && !wholesaleFlag) {
+      errors.push("at_least_one_pool_required");
+    }
+  }
+
+  if (data.weight !== undefined) {
+    const weight = Number(data.weight);
+    if (!Number.isFinite(weight) || weight < 0) {
+      errors.push("weight_must_be_non_negative");
+    }
+  }
+
+  if (data.epic_pool_size !== undefined) {
+    const size = Number(data.epic_pool_size);
+    if (!Number.isFinite(size) || size < 1) {
+      errors.push("epic_pool_size_must_be_positive");
+    }
+  }
+
+  if (data.epic_pool_threshold_byn !== undefined) {
+    const threshold = Number(data.epic_pool_threshold_byn);
+    if (!Number.isFinite(threshold) || threshold < 1) {
+      errors.push("epic_pool_threshold_must_be_positive");
+    }
+  }
+
+  if (data.promo_validity_days !== undefined) {
+    const days = Number(data.promo_validity_days);
+    if (!Number.isFinite(days) || days < 1) {
+      errors.push("promo_validity_days_must_be_positive");
+    }
+  }
+
+  if (data.max_total !== undefined) {
+    const maxTotal = Number(data.max_total);
+    if (!Number.isFinite(maxTotal) || maxTotal < 0) {
+      errors.push("max_total_must_be_non_negative");
+    }
+  }
+
+  if (!isUpdate) {
+    if (!String(data.title || "").trim()) {
+      errors.push("title_required");
+    }
+  } else if (data.title !== undefined && !String(data.title || "").trim()) {
+    errors.push("title_required");
+  }
+
+  return { errors };
+}
+
+/**
+ * Validate the wheel settings payload (PUT /api/admin/crm/wheel/settings).
+ * Returns { errors: string[] }.
+ */
+export function validateWheelSettingsPayload(payload) {
+  const errors = [];
+  const data = payload || {};
+
+  const positiveNumberKeys = [
+    "spin_byn_retail",
+    "spin_byn_wholesale",
+    "pity_threshold",
+    "default_promo_validity_days",
+    "feed_size",
+  ];
+  for (const key of positiveNumberKeys) {
+    if (!Object.prototype.hasOwnProperty.call(data, key)) continue;
+    const value = Number(data[key]);
+    if (!Number.isFinite(value) || value < 1) {
+      errors.push(`${key}_must_be_positive`);
+    }
+  }
+
+  if (
+    Object.prototype.hasOwnProperty.call(data, "elite_rarities") ||
+    Object.prototype.hasOwnProperty.call(data, "elite_rarities_json")
+  ) {
+    const raw =
+      data.elite_rarities !== undefined ? data.elite_rarities : data.elite_rarities_json;
+    if (raw !== null && raw !== undefined && !Array.isArray(raw)) {
+      errors.push("elite_rarities_must_be_array");
+    }
+  }
+
+  if (Object.prototype.hasOwnProperty.call(data, "start_collecting_at")) {
+    const raw = data.start_collecting_at;
+    if (raw !== null && raw !== undefined && raw !== "") {
+      const str = String(raw).trim();
+      if (str.toLowerCase() === "null" || str.toLowerCase() === "undefined") {
+        errors.push("start_collecting_at_invalid");
+      } else {
+        const parsed = new Date(str);
+        if (Number.isNaN(parsed.getTime())) {
+          errors.push("start_collecting_at_invalid");
+        }
+      }
+    }
+  }
+
+  return { errors };
 }
 
 export function createPrize(payload) {

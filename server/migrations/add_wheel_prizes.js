@@ -195,6 +195,39 @@ export function migrateWheelPrizes() {
         );
       `);
     }
+
+    // B3: idempotency journal for spin accrual. PRIMARY KEY = order_id
+    // ensures each delivered order can credit spins exactly once. Older
+    // installations that still have stale `last_synced_order_id` data on
+    // wheel_customer_balances are unaffected — both columns coexist and
+    // accrual now relies solely on the ledger.
+    if (!tableExists("wheel_balance_ledger")) {
+      db.exec(`
+        CREATE TABLE wheel_balance_ledger (
+          order_id TEXT PRIMARY KEY,
+          customer_id TEXT NOT NULL,
+          amount_byn REAL NOT NULL,
+          spins_added INTEGER NOT NULL,
+          is_wholesale INTEGER NOT NULL DEFAULT 0,
+          accrued_at TEXT NOT NULL DEFAULT (DATETIME('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_wheel_balance_ledger_customer
+          ON wheel_balance_ledger(customer_id);
+      `);
+    }
+
+    // S3: mark wheel template promo codes so validatePromoCode can reject
+    // direct customer application of the template. Existing rows default
+    // to 0; CRM updates the flag explicitly via prize creation.
+    const promoColumns = db
+      .prepare("PRAGMA table_info(promo_codes)")
+      .all()
+      .map((column) => column.name);
+    if (!promoColumns.includes("is_wheel_template")) {
+      db.exec(
+        "ALTER TABLE promo_codes ADD COLUMN is_wheel_template INTEGER NOT NULL DEFAULT 0",
+      );
+    }
   } catch (error) {
     console.error("[migration] Failed to create wheel tables:", error);
     throw error;
@@ -232,10 +265,33 @@ export function seedDefaultWheelData() {
       .prepare("SELECT value FROM wheel_settings WHERE key = 'start_collecting_at'")
       .get();
     if (!startCollectingExists) {
+      // Initial seed: write in SQLite "YYYY-MM-DD HH:MM:SS" so lexicographic
+      // comparison against orders.completed_at / created_at (also written
+      // via DATETIME('now')) works as expected. Previously this used
+      // new Date().toISOString() which produced an ISO string — making any
+      // real order created via DATETIME('now') compare as "less than" the
+      // ISO timestamp and silently skip accrual.
       db.prepare(
         `INSERT INTO wheel_settings (key, value, updated_at)
-         VALUES ('start_collecting_at', ?, DATETIME('now'))`,
-      ).run(new Date().toISOString());
+         VALUES ('start_collecting_at', DATETIME('now'), DATETIME('now'))`,
+      ).run();
+    } else {
+      // Backfill: if the existing value is in ISO format ("2026-05-17T..."),
+      // rewrite it as the SQLite-friendly form. We can do it inline because
+      // both representations are unambiguous and we never lose precision
+      // (orders never carry sub-second resolution either).
+      const raw = String(startCollectingExists.value || "").trim();
+      if (raw && /T/.test(raw)) {
+        const normalized = raw
+          .replace("T", " ")
+          .replace(/\.\d+Z?$/, "")
+          .replace(/Z$/, "");
+        db.prepare(
+          `UPDATE wheel_settings
+           SET value = ?, updated_at = DATETIME('now')
+           WHERE key = 'start_collecting_at'`,
+        ).run(normalized);
+      }
     }
   } catch (error) {
     console.error("[migration] Failed to seed wheel defaults:", error);

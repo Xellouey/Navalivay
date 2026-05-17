@@ -159,7 +159,9 @@ last_pool.closed_at)`.
   клиентов (`customer_id IS NOT NULL`).
 - Сортировка: по `spun_at DESC LIMIT 30`.
 - Поле для UI: `first_name`, `last_initial` (первая буква фамилии),
-  `customer_photo` (аватар Telegram), `prize.title`, `rarity.code`,
+  `photo_url` (аватар Telegram, в SQL запросе берётся через
+  `c.photo_url AS customer_photo` для совместимости с UI), `prize.title`,
+  `rarity.code`,
   `relative_time` (например, `5 мин назад`, считается на фронте).
 - Обновление: фронт долбит `GET /api/wheel/state` каждые 30 секунд, когда
   пользователь на странице рулетки.
