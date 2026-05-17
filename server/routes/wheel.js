@@ -16,6 +16,7 @@ import {
   listAdminSpins,
   listRarities,
   registerCustomerProfitForEpicPools,
+  setFeedConsent,
   spinWheelForCustomer,
   updatePrize,
   updateWheelSettings,
@@ -136,6 +137,10 @@ wheelRouter.post(
   wheelSpinLimiter,
   requireTelegramMiniAppAuth({ allowInsecureFallback: allowInsecureTelegramFallback }),
   (req, res) => {
+    // Hoisted so the catch block can see them when responding to a
+    // late-arriving idempotency UNIQUE conflict.
+    let idempotencyKey = "";
+    let isWholesale = false;
     try {
       const customer = findCustomerFromAuth(req);
       if (!customer?.id) {
@@ -143,10 +148,77 @@ wheelRouter.post(
           .status(404)
           .json({ error: "customer_not_found", message: "Клиент не найден" });
       }
-      const isWholesale = isValidatedWholesaleRequest(req);
+      isWholesale = isValidatedWholesaleRequest(req);
+
+      // P1: idempotency. Mini App network is flaky and a retried POST
+      // would otherwise consume a second spin. Header is optional —
+      // legacy clients keep working — but recommended for any frontend
+      // that retries. We accept length 16-128 to leave room for both
+      // crypto.randomUUID() (36 chars) and shorter NanoID-like keys
+      // while rejecting obvious abuse (1-byte keys would collide
+      // across customers; 1MB keys would balloon the index).
+      const rawIdempotencyKey =
+        typeof req.get === "function"
+          ? req.get("Idempotency-Key") || req.get("idempotency-key")
+          : null;
+      idempotencyKey =
+        typeof rawIdempotencyKey === "string"
+          ? rawIdempotencyKey.trim()
+          : "";
+      if (idempotencyKey && (idempotencyKey.length < 16 || idempotencyKey.length > 128)) {
+        return res
+          .status(400)
+          .json({ error: "invalid_idempotency_key", message: "Idempotency-Key length 16-128" });
+      }
+
+      // Lookup an existing spin for the same (customer_id,
+      // idempotency_key) BEFORE the transaction — if found, return its
+      // payload verbatim. This is safe because wheel_spins rows are
+      // append-only post-commit, so the data we return is exactly what
+      // the original POST returned.
+      if (idempotencyKey) {
+        const existing = db
+          .prepare(
+            `SELECT s.*, p.title AS prize_title, p.description AS prize_description,
+                    p.image_url AS prize_image_url
+             FROM wheel_spins s
+             JOIN wheel_prizes p ON p.id = s.prize_id
+             WHERE s.customer_id = ? AND s.idempotency_key = ?`,
+          )
+          .get(customer.id, idempotencyKey);
+        if (existing) {
+          const balanceRow = db
+            .prepare(
+              "SELECT spins_available, accumulated_retail_byn, accumulated_wholesale_byn FROM wheel_customer_balances WHERE customer_id = ?",
+            )
+            .get(customer.id);
+          return res.json({
+            spin_id: existing.id,
+            prize: {
+              id: existing.prize_id,
+              title: existing.prize_title,
+              description: existing.prize_description,
+              image_url: existing.prize_image_url,
+              rarity_code: existing.rarity_code,
+            },
+            is_epic_release: Boolean(existing.is_epic_release),
+            is_pity_release: Boolean(existing.is_pity_release),
+            promo_code: existing.generated_promo_code || null,
+            promo_valid_until: existing.promo_valid_until || null,
+            animation_seed: Number(existing.seed_for_animation || 0),
+            spins_left: Number(balanceRow?.spins_available || 0),
+            accumulated_byn: isWholesale
+              ? Number(balanceRow?.accumulated_wholesale_byn || 0)
+              : Number(balanceRow?.accumulated_retail_byn || 0),
+            idempotent_replay: true,
+          });
+        }
+      }
+
       const result = spinWheelForCustomer({
         customerId: customer.id,
         isWholesale,
+        idempotencyKey: idempotencyKey || null,
       });
 
       const balanceRow = db
@@ -175,6 +247,59 @@ wheelRouter.post(
           : Number(balanceRow?.accumulated_retail_byn || 0),
       });
     } catch (error) {
+      // P1 race: two simultaneous POSTs with the same Idempotency-Key
+      // both pass the pre-transaction lookup, then the second INSERT
+      // hits the UNIQUE index. Treat that as "the other request won"
+      // and return its row instead of bubbling a 500. SQLITE_CONSTRAINT
+      // also fires on other unique columns, so we narrow on the index
+      // name embedded in the error message.
+      const message = String(error?.message || "");
+      const isIdempotencyConflict =
+        idempotencyKey &&
+        message.includes("idx_wheel_spins_idempotency");
+      if (isIdempotencyConflict) {
+        const customerForReplay = findCustomerFromAuth(req);
+        const customerIdForReplay = customerForReplay?.id;
+        if (customerIdForReplay) {
+          const replay = db
+            .prepare(
+              `SELECT s.*, p.title AS prize_title, p.description AS prize_description,
+                      p.image_url AS prize_image_url
+               FROM wheel_spins s
+               JOIN wheel_prizes p ON p.id = s.prize_id
+               WHERE s.customer_id = ? AND s.idempotency_key = ?`,
+            )
+            .get(customerIdForReplay, idempotencyKey);
+          if (replay) {
+            const balanceRow = db
+              .prepare(
+                "SELECT spins_available, accumulated_retail_byn, accumulated_wholesale_byn FROM wheel_customer_balances WHERE customer_id = ?",
+              )
+              .get(customerIdForReplay);
+            return res.json({
+              spin_id: replay.id,
+              prize: {
+                id: replay.prize_id,
+                title: replay.prize_title,
+                description: replay.prize_description,
+                image_url: replay.prize_image_url,
+                rarity_code: replay.rarity_code,
+              },
+              is_epic_release: Boolean(replay.is_epic_release),
+              is_pity_release: Boolean(replay.is_pity_release),
+              promo_code: replay.generated_promo_code || null,
+              promo_valid_until: replay.promo_valid_until || null,
+              animation_seed: Number(replay.seed_for_animation || 0),
+              spins_left: Number(balanceRow?.spins_available || 0),
+              accumulated_byn: isWholesale
+                ? Number(balanceRow?.accumulated_wholesale_byn || 0)
+                : Number(balanceRow?.accumulated_retail_byn || 0),
+              idempotent_replay: true,
+            });
+          }
+        }
+      }
+
       const knownErrors = new Set([
         "not_enough_spins",
         "no_prizes_configured",
@@ -188,6 +313,39 @@ wheelRouter.post(
       }
       console.error("[wheel] spin failed", error);
       res.status(500).json({ error: "wheel_spin_failed", message: error.message });
+    }
+  },
+);
+
+/**
+ * Q6: persist the customer's live-feed PII consent (or refusal). The
+ * frontend posts here both from the first-visit modal and the toggle
+ * in ProfileView. Body: { consent: boolean }. Anonymous callers (no
+ * customer row) get 404.
+ */
+wheelRouter.post(
+  "/api/wheel/feed-consent",
+  wheelReadLimiter,
+  requireTelegramMiniAppAuth({ allowInsecureFallback: allowInsecureTelegramFallback }),
+  (req, res) => {
+    try {
+      const customer = findCustomerFromAuth(req);
+      if (!customer?.id) {
+        return res
+          .status(404)
+          .json({ error: "customer_not_found", message: "Клиент не найден" });
+      }
+      const consent = Boolean(req.body?.consent);
+      const result = setFeedConsent(customer.id, consent);
+      if (!result) {
+        return res
+          .status(404)
+          .json({ error: "customer_not_found", message: "Клиент не найден" });
+      }
+      res.json({ success: true, ...result });
+    } catch (error) {
+      console.error("[wheel] feed-consent failed", error);
+      res.status(500).json({ error: "wheel_feed_consent_failed", message: error.message });
     }
   },
 );

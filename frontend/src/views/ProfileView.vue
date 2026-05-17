@@ -137,6 +137,26 @@
           </template>
         </article>
 
+        <article class="wheel-feed-card">
+          <div class="wheel-feed-card__text">
+            <h3 class="wheel-feed-card__title">Лента рулетки</h3>
+            <p class="wheel-feed-card__copy">
+              Показывать моё имя и фото в ленте, если выиграю приз.
+            </p>
+          </div>
+          <button
+            type="button"
+            class="wheel-feed-toggle"
+            role="switch"
+            :aria-checked="wheelStore.feedConsent"
+            :disabled="wheelStore.isUpdatingConsent"
+            :class="{ 'wheel-feed-toggle--on': wheelStore.feedConsent }"
+            @click="onToggleFeedConsent"
+          >
+            <span class="wheel-feed-toggle__knob"></span>
+          </button>
+        </article>
+
         <div v-if="loyaltyStore.snapshotError" class="loyalty-error">
           {{ loyaltyStore.snapshotError }}
         </div>
@@ -207,12 +227,14 @@ import router from "@/router";
 import { useUserStore } from "@/stores/user";
 import { useLoyaltyStore, type LoyaltySnapshotCategory } from "@/stores/loyalty";
 import { useWholesaleStore } from "@/stores/wholesale";
+import { useWheelStore } from "@/stores/wheel";
 import { getTelegramIdentity } from "@/utils/customerOrders";
 import LoyaltyBonusPopup from "@/components/LoyaltyBonusPopup.vue";
 
 const userStore = useUserStore();
 const loyaltyStore = useLoyaltyStore();
 const wholesaleStore = useWholesaleStore();
+const wheelStore = useWheelStore();
 const avatarError = ref(false);
 const activeLoyaltyKey = ref<string | null>(null);
 const showRulesModal = ref(false);
@@ -302,8 +324,28 @@ onMounted(async () => {
   // в профиль убран по просьбе заказчика — попап «У вас уже есть доступные
   // бонусы» дублировал ту же информацию, которая и так видна на странице
   // профиля сразу под карточкой бонусов.
-  await Promise.allSettled([userStore.fetchProfile(), loyaltyStore.fetchSnapshot(identity)]);
+  await Promise.allSettled([
+    userStore.fetchProfile(),
+    loyaltyStore.fetchSnapshot(identity),
+    // Q6: load the consent flag silently so the toggle reflects the
+    // current state without forcing the user to wait. Errors are
+    // swallowed because the toggle keeps the previous value (default
+    // "off") if the wheel API is briefly unavailable.
+    wholesaleStore.isWholesale ? Promise.resolve() : wheelStore.fetchState().catch(() => undefined),
+  ]);
 });
+
+async function onToggleFeedConsent() {
+  // Q6: flip the local view first for snappy UX. If the request fails
+  // we revert and surface the error in console — there is no toast
+  // surface on this page; the next refresh will reconcile.
+  const next = !wheelStore.feedConsent;
+  try {
+    await wheelStore.setFeedConsent(next);
+  } catch (error) {
+    console.warn("[profile] feed-consent update failed", error);
+  }
+}
 
 function loyaltyCategoryLabel(category: LoyaltySnapshotCategory) {
   return LOYALTY_CATEGORY_LABELS[category.key] || category.title;
@@ -678,6 +720,75 @@ async function goShopping() {
   color: #be123c;
   font-size: 14px;
   line-height: 18px;
+}
+
+.wheel-feed-card {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 16px 20px;
+  border-radius: 20px;
+  background: #ffffff;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.04);
+}
+
+.wheel-feed-card__text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.wheel-feed-card__title {
+  margin: 0 0 4px;
+  font-family: "Montserrat", sans-serif;
+  font-weight: 700;
+  font-size: 15px;
+  line-height: 19px;
+  color: #1f2933;
+}
+
+.wheel-feed-card__copy {
+  margin: 0;
+  font-family: -apple-system, "SF Pro Display", sans-serif;
+  font-size: 13px;
+  line-height: 17px;
+  color: #5c6470;
+}
+
+.wheel-feed-toggle {
+  position: relative;
+  width: 48px;
+  height: 28px;
+  flex-shrink: 0;
+  border: none;
+  border-radius: 999px;
+  background: #d8dde4;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+
+.wheel-feed-toggle:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.wheel-feed-toggle--on {
+  background: linear-gradient(106.76deg, #f50302 -2.64%, #a90f0e 85.78%);
+}
+
+.wheel-feed-toggle__knob {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.18);
+  transition: transform 0.2s ease;
+}
+
+.wheel-feed-toggle--on .wheel-feed-toggle__knob {
+  transform: translateX(20px);
 }
 
 .rules-modal-overlay {

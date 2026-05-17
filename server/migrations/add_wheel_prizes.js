@@ -253,6 +253,48 @@ export function migrateWheelPrizes() {
           WHERE promo_template_id IS NOT NULL
         )
     `);
+    // Q6: customer-facing consent for live-feed PII display.
+    //
+    // Without explicit consent we cannot show first_name + Telegram
+    // photo of the winner in the public live feed. The customer
+    // confirms (or declines) once — via WheelConsentModal on first
+    // visit, or the toggle on the retail Profile page.
+    //
+    // wheel_feed_consent values:
+    //   0 = declined or not yet asked → exclude from feed
+    //   1 = accepted → include in feed
+    //
+    // wheel_feed_consent_at is set the first time the customer answers
+    // (either way) so the modal does not pop up again.
+    const customerColumns = db
+      .prepare("PRAGMA table_info(customers)")
+      .all()
+      .map((column) => column.name);
+    if (!customerColumns.includes("wheel_feed_consent")) {
+      db.exec(
+        "ALTER TABLE customers ADD COLUMN wheel_feed_consent INTEGER NOT NULL DEFAULT 0",
+      );
+    }
+    if (!customerColumns.includes("wheel_feed_consent_at")) {
+      db.exec("ALTER TABLE customers ADD COLUMN wheel_feed_consent_at TEXT");
+    }
+
+    // P1: idempotency key for /api/wheel/spin. Stored on the spin row
+    // so a retried POST with the same key returns the original spin
+    // payload instead of consuming a second spin. Compound UNIQUE on
+    // (customer_id, idempotency_key) keeps the namespace per-customer.
+    const spinColumns = db
+      .prepare("PRAGMA table_info(wheel_spins)")
+      .all()
+      .map((column) => column.name);
+    if (!spinColumns.includes("idempotency_key")) {
+      db.exec("ALTER TABLE wheel_spins ADD COLUMN idempotency_key TEXT");
+    }
+    db.exec(`
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_wheel_spins_idempotency
+      ON wheel_spins(customer_id, idempotency_key)
+      WHERE idempotency_key IS NOT NULL
+    `);
   } catch (error) {
     console.error("[migration] Failed to create wheel tables:", error);
     throw error;

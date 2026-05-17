@@ -663,6 +663,7 @@ export function spinWheelForCustomer({
   customerId,
   isWholesale = false,
   rng = Math.random,
+  idempotencyKey = null,
 }) {
   if (!customerId) {
     const error = new Error("customer_required");
@@ -750,8 +751,9 @@ export function spinWheelForCustomer({
       `INSERT INTO wheel_spins (
         id, customer_id, prize_id, rarity_code, is_wholesale,
         generated_promo_code_id, generated_promo_code, promo_valid_until,
-        is_epic_release, is_pity_release, seed_for_animation
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        is_epic_release, is_pity_release, seed_for_animation,
+        idempotency_key
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run(
       spinId,
       customerId,
@@ -764,6 +766,7 @@ export function spinWheelForCustomer({
       isEpicRelease ? 1 : 0,
       isPityRelease ? 1 : 0,
       seed,
+      idempotencyKey || null,
     );
 
     db.prepare(
@@ -895,6 +898,24 @@ export function spinWheelForCustomer({
 export function getCustomerWheelState(customerId, { isWholesale = false } = {}) {
   const settings = getWheelSettings();
   const balance = customerId ? ensureCustomerBalance(customerId) : null;
+  // Q6: feed_consent_required tells the frontend whether to show the
+  // first-visit modal. We treat consent as "answered once" — anything
+  // other than NULL on wheel_feed_consent_at means the customer already
+  // made a choice (consent_at is stamped on both accept and decline so
+  // we don't keep nagging). Anonymous viewers (no customerId) never
+  // see the modal — the wheel itself is open, but consent only matters
+  // when there's a customer row to bind it to.
+  const customerConsentRow = customerId
+    ? db
+        .prepare(
+          "SELECT wheel_feed_consent AS consent, wheel_feed_consent_at AS consent_at FROM customers WHERE id = ?",
+        )
+        .get(customerId)
+    : null;
+  const feedConsent = Number(customerConsentRow?.consent || 0) === 1;
+  const feedConsentRequired = Boolean(
+    customerId && (!customerConsentRow || !customerConsentRow.consent_at),
+  );
   const accumulated = balance
     ? safeNumber(
         isWholesale
@@ -953,6 +974,13 @@ export function getCustomerWheelState(customerId, { isWholesale = false } = {}) 
          -- after the customer asked to be erased / blocked. The block check
          -- mirrors the canonical predicate from utils/customer-blocks.js.
          AND c.deleted_at IS NULL
+         -- Q6: only winners who explicitly opted in to PII display in
+         -- the live feed are visible. Default is 0 (no consent yet),
+         -- so a freshly-migrated DB shows an empty feed until customers
+         -- start tapping "Согласен" in the consent modal. This matches
+         -- the regulatory ask in BY (закон о персональных данных) and
+         -- the design decision logged in docs/wheel-open-questions.md Q6.
+         AND c.wheel_feed_consent = 1
          AND NOT EXISTS (
            SELECT 1 FROM customer_blocks cb
            WHERE cb.customer_id = c.id
@@ -1026,12 +1054,49 @@ export function getCustomerWheelState(customerId, { isWholesale = false } = {}) 
     rarities,
     feed,
     my_active_prizes: myActivePrizes,
+    feed_consent: feedConsent,
+    feed_consent_required: feedConsentRequired,
     settings: {
       pity_threshold: settings.pity_threshold,
       spin_byn_retail: settings.spin_byn_retail,
       spin_byn_wholesale: settings.spin_byn_wholesale,
       elite_rarities: settings.elite_rarities,
     },
+  };
+}
+
+/**
+ * Q6: persist the customer's choice for live-feed PII display.
+ *
+ * `consent` is a strict boolean. The current value plus the timestamp of
+ * the most recent choice are stamped together so the frontend can stop
+ * showing the consent modal regardless of accept vs decline. Returning
+ * `null` lets the route turn that into a 404 without leaking customer
+ * existence.
+ */
+export function setFeedConsent(customerId, consent) {
+  if (!customerId) return null;
+  const customer = db
+    .prepare("SELECT id FROM customers WHERE id = ?")
+    .get(customerId);
+  if (!customer) return null;
+
+  const next = consent ? 1 : 0;
+  db.prepare(
+    `UPDATE customers
+     SET wheel_feed_consent = ?,
+         wheel_feed_consent_at = DATETIME('now')
+     WHERE id = ?`,
+  ).run(next, customerId);
+
+  const row = db
+    .prepare(
+      "SELECT wheel_feed_consent AS consent, wheel_feed_consent_at AS consent_at FROM customers WHERE id = ?",
+    )
+    .get(customerId);
+  return {
+    consent: Number(row?.consent || 0) === 1,
+    consent_at: row?.consent_at || null,
   };
 }
 

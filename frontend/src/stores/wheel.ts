@@ -67,6 +67,8 @@ export interface WheelState {
   rarities: WheelRarity[]
   feed: WheelFeedItem[]
   my_active_prizes: WheelMyPrize[]
+  feed_consent: boolean
+  feed_consent_required: boolean
   settings: {
     pity_threshold: number
     spin_byn_retail: number
@@ -91,6 +93,7 @@ export interface WheelSpinResult {
   animation_seed: number
   spins_left: number
   accumulated_byn: number
+  idempotent_replay?: boolean
 }
 
 async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
@@ -114,6 +117,24 @@ async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
     throw error
   }
   return data as T
+}
+
+/**
+ * Generate an Idempotency-Key for /api/wheel/spin (P1).
+ *
+ * `crypto.randomUUID()` is the cleanest source: cryptographically
+ * strong, length 36, available in every browser that runs the Mini
+ * App and in Node 19+ (covers SSR). Falls back to Math.random when
+ * the polyfill is missing — safe enough for retry-dedup since the
+ * key is only used once per spin attempt and never persisted to the
+ * client.
+ */
+function generateIdempotencyKey(): string {
+  const cryptoObj = typeof globalThis !== 'undefined' ? (globalThis as { crypto?: Crypto }).crypto : undefined
+  if (cryptoObj?.randomUUID) {
+    return `wheel_${cryptoObj.randomUUID()}`
+  }
+  return `wheel_${Date.now()}_${Math.random().toString(36).slice(2)}_${Math.random().toString(36).slice(2)}`
 }
 
 const EMPTY_BALANCE: WheelBalance = {
@@ -145,6 +166,9 @@ export const useWheelStore = defineStore('wheel', () => {
   const lastResult = ref<WheelSpinResult | null>(null)
   const stateError = ref('')
   const spinError = ref('')
+  const feedConsent = ref(false)
+  const feedConsentRequired = ref(false)
+  const isUpdatingConsent = ref(false)
 
   const hasSpins = computed(() => balance.value.spins_available > 0)
   const sortedPrizes = computed(() =>
@@ -165,6 +189,8 @@ export const useWheelStore = defineStore('wheel', () => {
       eliteRarityCodes.value = data.settings.elite_rarities
       customerId.value = data.customer_id
       isWholesale.value = data.is_wholesale
+      feedConsent.value = Boolean(data.feed_consent)
+      feedConsentRequired.value = Boolean(data.feed_consent_required)
       return data
     } catch (error: any) {
       stateError.value = error?.message || 'Не удалось загрузить рулетку'
@@ -181,8 +207,14 @@ export const useWheelStore = defineStore('wheel', () => {
     isSpinning.value = true
     spinError.value = ''
     try {
+      // P1: each /api/wheel/spin POST carries a fresh idempotency key.
+      // If the POST is retried (network blip, user double-tap that
+      // bypasses the local guard, etc.) the server returns the
+      // original spin payload instead of consuming a second spin.
+      const idempotencyKey = generateIdempotencyKey()
       const result = await fetchJson<WheelSpinResult>('/api/wheel/spin', {
         method: 'POST',
+        headers: { 'Idempotency-Key': idempotencyKey },
         body: JSON.stringify({}),
       })
       lastResult.value = result
@@ -197,6 +229,29 @@ export const useWheelStore = defineStore('wheel', () => {
       throw error
     } finally {
       isSpinning.value = false
+    }
+  }
+
+  /**
+   * Q6: persist the customer's live-feed PII consent. Called from the
+   * first-visit modal (with `true` or `false`) and from the toggle on
+   * the retail Profile page (any value the user picks).
+   */
+  async function setFeedConsent(consent: boolean) {
+    isUpdatingConsent.value = true
+    try {
+      const data = await fetchJson<{ success: boolean; consent: boolean; consent_at: string | null }>(
+        '/api/wheel/feed-consent',
+        {
+          method: 'POST',
+          body: JSON.stringify({ consent: Boolean(consent) }),
+        },
+      )
+      feedConsent.value = Boolean(data.consent)
+      feedConsentRequired.value = false
+      return data
+    } finally {
+      isUpdatingConsent.value = false
     }
   }
 
@@ -224,10 +279,14 @@ export const useWheelStore = defineStore('wheel', () => {
     lastResult,
     stateError,
     spinError,
+    feedConsent,
+    feedConsentRequired,
+    isUpdatingConsent,
     hasSpins,
     sortedPrizes,
     fetchState,
     spin,
     fetchMyPrizes,
+    setFeedConsent,
   }
 })

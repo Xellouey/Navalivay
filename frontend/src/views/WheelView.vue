@@ -186,6 +186,13 @@
       </template>
     </CustomerModalShell>
 
+    <WheelConsentModal
+      :open="showConsentModal"
+      :busy="wheelStore.isUpdatingConsent"
+      @decide="handleConsentDecision"
+      @close="dismissConsentModal"
+    />
+
     <ToastNotification
       v-if="toastMessage"
       :key="toastKey"
@@ -201,6 +208,7 @@ import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import WheelStrip from '@/components/wheel/WheelStrip.vue'
 import WheelLiveFeed from '@/components/wheel/WheelLiveFeed.vue'
+import WheelConsentModal from '@/components/wheel/WheelConsentModal.vue'
 import CustomerModalShell from '@/components/CustomerModalShell.vue'
 import ToastNotification from '@/components/ToastNotification.vue'
 import { useWheelStore, type WheelPrize, type WheelSpinResult } from '@/stores/wheel'
@@ -221,6 +229,17 @@ const hasLoadedOnce = ref(false)
 // is the local "ongoing visual reveal" flag that stays true for the
 // whole spin → animation → modal flow.
 const isAnimating = ref(false)
+
+// Q6: live-feed PII consent. We show the modal once per customer,
+// the very first time they land on /wheel after the migration. The
+// backend reports `feed_consent_required` based on
+// customers.wheel_feed_consent_at being NULL — so a single accept
+// or decline closes the modal forever. We additionally guard with a
+// session-local flag so the user does not see the modal pop again
+// while they navigate away and back within the same Mini App session
+// before the state refresh lands.
+const showConsentModal = ref(false)
+const consentDismissedThisSession = ref(false)
 
 const strippedPrizes = computed<WheelPrize[]>(() => wheelStore.sortedPrizes)
 const spinsAvailable = computed(() => wheelStore.balance.spins_available)
@@ -371,6 +390,25 @@ function closeResult() {
   showResult.value = false
 }
 
+async function handleConsentDecision(consent: boolean) {
+  consentDismissedThisSession.value = true
+  showConsentModal.value = false
+  try {
+    await wheelStore.setFeedConsent(consent)
+  } catch (error) {
+    console.warn('[wheel] failed to save consent', error)
+    showToast('Не удалось сохранить выбор. Попробуй ещё раз из профиля.')
+  }
+}
+
+function dismissConsentModal() {
+  // The user can dismiss the modal via the X button without making a
+  // choice. We do not POST consent in that case — they will see the
+  // modal again next visit until they explicitly accept or decline.
+  consentDismissedThisSession.value = true
+  showConsentModal.value = false
+}
+
 function goBack() {
   if (window.history.length > 1) {
     router.back()
@@ -386,6 +424,12 @@ function goToHowTo() {
 onMounted(async () => {
   try {
     await wheelStore.fetchState()
+    if (
+      wheelStore.feedConsentRequired &&
+      !consentDismissedThisSession.value
+    ) {
+      showConsentModal.value = true
+    }
   } catch (error) {
     console.error('[wheel] state error', error)
     showToast('Не удалось загрузить рулетку. Открой страницу заново.')

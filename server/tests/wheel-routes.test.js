@@ -37,12 +37,13 @@ async function requestJson(url, options = {}) {
   return { response, data };
 }
 
-function ensureCustomer(id, telegramId, username) {
+function ensureCustomer(id, telegramId, username, { consent = 1 } = {}) {
   db.prepare(
     `INSERT OR IGNORE INTO customers (
-      id, telegram_id, telegram_username, first_name, last_name, last_visit_at, photo_url
-    ) VALUES (?, ?, ?, 'Test', 'User', DATETIME('now'), 'https://t.me/i/userpic/test.png')`,
-  ).run(id, String(telegramId), username);
+      id, telegram_id, telegram_username, first_name, last_name,
+      last_visit_at, photo_url, wheel_feed_consent, wheel_feed_consent_at
+    ) VALUES (?, ?, ?, 'Test', 'User', DATETIME('now'), 'https://t.me/i/userpic/test.png', ?, DATETIME('now'))`,
+  ).run(id, String(telegramId), username, consent ? 1 : 0);
 }
 
 function insertPrize(prizeId, rarityCode, isForRetail, isForWholesale) {
@@ -314,6 +315,162 @@ async function testPartialUpdateRejectsBothPoolsDisabled() {
   }
 }
 
+// Q6 regression: a customer with wheel_feed_consent = 0 must be excluded
+// from the public live feed even if they have winning spins on file.
+// PII protection: do not show first_name + photo without explicit
+// opt-in.
+async function testFeedExcludesCustomersWithoutConsent() {
+  // Use fresh customers + prize for an isolated assertion.
+  ensureCustomer("cust_no_consent", "777444", "wheel_no_consent", { consent: 0 });
+  ensureCustomer("cust_yes_consent", "777445", "wheel_yes_consent", { consent: 1 });
+  insertPrize("p_consent_test", "rare", 1, 0);
+  insertSpin("spin_no_consent", "cust_no_consent", "p_consent_test", "rare");
+  insertSpin("spin_yes_consent", "cust_yes_consent", "p_consent_test", "rare");
+
+  const { response, data } = await requestJson("/api/wheel/state", {
+    method: "GET",
+    headers: telegramHeaders({
+      telegram_id: "777445",
+      telegram_username: "wheel_yes_consent",
+    }),
+  });
+  assert.equal(response.status, 200);
+  const feedIds = (data?.feed || []).map((row) => row.id);
+  assert.ok(
+    !feedIds.includes("spin_no_consent"),
+    "non-consenting customer must NOT appear in feed",
+  );
+  assert.ok(
+    feedIds.includes("spin_yes_consent"),
+    "consenting customer must appear in feed",
+  );
+}
+
+// Q6 regression: state response carries feed_consent_required = true
+// for customers who have not yet answered, and false once the consent
+// is recorded (either accept or decline).
+async function testFeedConsentRequiredFlagFlips() {
+  ensureCustomer("cust_first_visit", "777446", "wheel_first_visit", { consent: 0 });
+  // Flip consent_at to NULL so the state endpoint sees an unanswered
+  // customer (helper sets it to DATETIME('now') by default).
+  db.prepare(
+    "UPDATE customers SET wheel_feed_consent = 0, wheel_feed_consent_at = NULL WHERE id = ?",
+  ).run("cust_first_visit");
+
+  const before = await requestJson("/api/wheel/state", {
+    method: "GET",
+    headers: telegramHeaders({
+      telegram_id: "777446",
+      telegram_username: "wheel_first_visit",
+    }),
+  });
+  assert.equal(before.response.status, 200);
+  assert.equal(before.data.feed_consent_required, true);
+  assert.equal(before.data.feed_consent, false);
+
+  // Decline: feed_consent stays false but consent_required flips off.
+  const post = await requestJson("/api/wheel/feed-consent", {
+    method: "POST",
+    headers: telegramHeaders({
+      telegram_id: "777446",
+      telegram_username: "wheel_first_visit",
+    }),
+    body: JSON.stringify({ consent: false }),
+  });
+  assert.equal(post.response.status, 200);
+  assert.equal(post.data.success, true);
+  assert.equal(post.data.consent, false);
+
+  const after = await requestJson("/api/wheel/state", {
+    method: "GET",
+    headers: telegramHeaders({
+      telegram_id: "777446",
+      telegram_username: "wheel_first_visit",
+    }),
+  });
+  assert.equal(after.response.status, 200);
+  assert.equal(after.data.feed_consent_required, false);
+  assert.equal(after.data.feed_consent, false);
+}
+
+// P1 regression: a second POST /api/wheel/spin with the same
+// Idempotency-Key must return the same spin_id and must NOT decrement
+// the spin balance again. Race-safe variant is exercised by the
+// route's catch-block fallback when the UNIQUE constraint fires.
+async function testSpinIsIdempotentByKey() {
+  ensureCustomer("cust_idem", "777447", "wheel_idem", { consent: 1 });
+  // Seed a prize the spin can land on.
+  insertPrize("p_idem_common", "common", 1, 0);
+  // Give the customer 2 spins so we'd notice a double-spend.
+  db.prepare(
+    `INSERT OR REPLACE INTO wheel_customer_balances (
+      customer_id, spins_available, accumulated_retail_byn,
+      accumulated_wholesale_byn, consecutive_nothing, last_updated_at
+    ) VALUES (?, 2, 0, 0, 0, DATETIME('now'))`,
+  ).run("cust_idem");
+
+  const key = "idem-test-key-1234567890abcdef";
+  const headers = telegramHeaders(
+    { telegram_id: "777447", telegram_username: "wheel_idem" },
+    { "Idempotency-Key": key },
+  );
+
+  const first = await requestJson("/api/wheel/spin", {
+    method: "POST",
+    headers,
+    body: JSON.stringify({}),
+  });
+  assert.equal(first.response.status, 200, JSON.stringify(first.data));
+  const firstSpinId = first.data.spin_id;
+  const balanceAfterFirst = db
+    .prepare("SELECT spins_available FROM wheel_customer_balances WHERE customer_id = ?")
+    .get("cust_idem");
+  assert.equal(balanceAfterFirst.spins_available, 1, "first spin must decrement balance");
+
+  const second = await requestJson("/api/wheel/spin", {
+    method: "POST",
+    headers,
+    body: JSON.stringify({}),
+  });
+  assert.equal(second.response.status, 200);
+  assert.equal(
+    second.data.spin_id,
+    firstSpinId,
+    "second POST with same key must replay the original spin id",
+  );
+  assert.equal(
+    second.data.idempotent_replay,
+    true,
+    "second response should be flagged as idempotent_replay",
+  );
+
+  const balanceAfterReplay = db
+    .prepare("SELECT spins_available FROM wheel_customer_balances WHERE customer_id = ?")
+    .get("cust_idem");
+  assert.equal(
+    balanceAfterReplay.spins_available,
+    1,
+    "idempotent replay must NOT decrement balance again",
+  );
+
+  // Sanity: a different key on the same customer does consume a spin.
+  const anotherKey = "idem-test-key-fedcba0987654321";
+  const fresh = await requestJson("/api/wheel/spin", {
+    method: "POST",
+    headers: telegramHeaders(
+      { telegram_id: "777447", telegram_username: "wheel_idem" },
+      { "Idempotency-Key": anotherKey },
+    ),
+    body: JSON.stringify({}),
+  });
+  assert.equal(fresh.response.status, 200);
+  assert.notEqual(fresh.data.spin_id, firstSpinId);
+  const balanceFinal = db
+    .prepare("SELECT spins_available FROM wheel_customer_balances WHERE customer_id = ?")
+    .get("cust_idem");
+  assert.equal(balanceFinal.spins_available, 0, "fresh key consumes a spin");
+}
+
 async function main() {
   await testWheelStateWorksWithRealLiveFeed();
   await testForgedWholesaleHeadersDoNotUnlockWholesalePool();
@@ -321,6 +478,9 @@ async function main() {
   await testWheelTemplateRejectedAtCheckout();
   await testWheelTemplateFlagClearedWhenPrizeChangesTemplate();
   await testPartialUpdateRejectsBothPoolsDisabled();
+  await testFeedExcludesCustomersWithoutConsent();
+  await testFeedConsentRequiredFlagFlips();
+  await testSpinIsIdempotentByKey();
   console.log("[wheel-routes] OK");
 }
 
