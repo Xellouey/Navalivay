@@ -308,7 +308,18 @@ wheelRouter.put(
   authMiddleware,
   (req, res) => {
     try {
-      const { errors } = validatePrizePayload(req.body || {}, { isUpdate: true });
+      // C3-CR: load the row first so validatePrizePayload can fall back
+      // to existing values for fields the partial PATCH didn't touch.
+      const existing = db
+        .prepare("SELECT * FROM wheel_prizes WHERE id = ?")
+        .get(req.params.id);
+      if (!existing) {
+        return res.status(404).json({ error: "not_found" });
+      }
+      const { errors } = validatePrizePayload(req.body || {}, {
+        isUpdate: true,
+        existing,
+      });
       if (errors.length) {
         return res.status(400).json({ error: "validation_failed", details: errors });
       }

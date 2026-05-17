@@ -939,8 +939,12 @@ export function listAdminPrizes() {
  * Returns { errors: string[] } where each entry is a short slug like
  * `rarity_unknown`. Callers (admin routes) should respond with HTTP 400
  * and `details: errors[]` when any entry is present.
+ *
+ * C3-CR: when called with `isUpdate: true`, pass the current row in
+ * `existing` so we can validate "at least one pool stays enabled" even
+ * when the partial payload only touches one of the two flags.
  */
-export function validatePrizePayload(payload, { isUpdate = false } = {}) {
+export function validatePrizePayload(payload, { isUpdate = false, existing = null } = {}) {
   const errors = [];
   const data = payload || {};
 
@@ -957,20 +961,33 @@ export function validatePrizePayload(payload, { isUpdate = false } = {}) {
   }
 
   if (data.promo_template_id) {
+    // C1-CR: extra defensive check — confirm the referenced row exists.
+    // We do not block reusing the same template across prizes; that
+    // matches the docs ("Promo-template can be used as wheel template").
     const template = db
-      .prepare("SELECT 1 FROM promo_codes WHERE id = ? LIMIT 1")
+      .prepare("SELECT id FROM promo_codes WHERE id = ? LIMIT 1")
       .get(String(data.promo_template_id));
     if (!template) errors.push("promo_template_not_found");
   }
 
   // is_for_retail / is_for_wholesale: at least one must be truthy.
-  // On update we only validate if both flags appear in the payload, since
-  // partial updates may legitimately touch other fields only.
+  // C3-CR: on partial update, fall back to the existing row's value for
+  // the flag that wasn't touched by the payload — otherwise PATCHing
+  // only `is_for_retail=false` could leave the prize with both pools
+  // disabled and never get caught here.
   const retailGiven = Object.prototype.hasOwnProperty.call(data, "is_for_retail");
   const wholesaleGiven = Object.prototype.hasOwnProperty.call(data, "is_for_wholesale");
-  if (!isUpdate || (retailGiven && wholesaleGiven)) {
-    const retailFlag = retailGiven ? Boolean(data.is_for_retail) : true;
-    const wholesaleFlag = wholesaleGiven ? Boolean(data.is_for_wholesale) : false;
+  if (!isUpdate || retailGiven || wholesaleGiven) {
+    const retailFlag = retailGiven
+      ? Boolean(data.is_for_retail)
+      : existing
+        ? Boolean(existing.is_for_retail)
+        : true;
+    const wholesaleFlag = wholesaleGiven
+      ? Boolean(data.is_for_wholesale)
+      : existing
+        ? Boolean(existing.is_for_wholesale)
+        : false;
     if (!retailFlag && !wholesaleFlag) {
       errors.push("at_least_one_pool_required");
     }
@@ -1076,30 +1093,43 @@ export function validateWheelSettingsPayload(payload) {
 
 export function createPrize(payload) {
   const id = generateId("wp");
-  db.prepare(
-    `INSERT INTO wheel_prizes (
-      id, rarity_code, title, description, image_url, weight,
-      max_total, is_for_retail, is_for_wholesale, promo_template_id,
-      promo_validity_days, epic_pool_size, epic_pool_threshold_byn,
-      is_active, sort_order
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-  ).run(
-    id,
-    String(payload.rarity_code || "common"),
-    String(payload.title || "").trim() || "Без названия",
-    payload.description ? String(payload.description) : null,
-    payload.image_url ? String(payload.image_url) : null,
-    Math.max(0, safeNumber(payload.weight, 1)),
-    Math.max(0, Math.floor(safeNumber(payload.max_total, 0))),
-    payload.is_for_retail === false ? 0 : 1,
-    payload.is_for_wholesale ? 1 : 0,
-    payload.promo_template_id || null,
-    Math.max(1, Math.floor(safeNumber(payload.promo_validity_days, 90))),
-    Math.max(1, Math.floor(safeNumber(payload.epic_pool_size, 5))),
-    Math.max(0, safeNumber(payload.epic_pool_threshold_byn, 300)),
-    payload.is_active === false ? 0 : 1,
-    Math.floor(safeNumber(payload.sort_order, 0)),
-  );
+  const tx = db.transaction(() => {
+    db.prepare(
+      `INSERT INTO wheel_prizes (
+        id, rarity_code, title, description, image_url, weight,
+        max_total, is_for_retail, is_for_wholesale, promo_template_id,
+        promo_validity_days, epic_pool_size, epic_pool_threshold_byn,
+        is_active, sort_order
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      id,
+      String(payload.rarity_code || "common"),
+      String(payload.title || "").trim() || "Без названия",
+      payload.description ? String(payload.description) : null,
+      payload.image_url ? String(payload.image_url) : null,
+      Math.max(0, safeNumber(payload.weight, 1)),
+      Math.max(0, Math.floor(safeNumber(payload.max_total, 0))),
+      payload.is_for_retail === false ? 0 : 1,
+      payload.is_for_wholesale ? 1 : 0,
+      payload.promo_template_id || null,
+      Math.max(1, Math.floor(safeNumber(payload.promo_validity_days, 90))),
+      Math.max(1, Math.floor(safeNumber(payload.epic_pool_size, 5))),
+      Math.max(0, safeNumber(payload.epic_pool_threshold_byn, 300)),
+      payload.is_active === false ? 0 : 1,
+      Math.floor(safeNumber(payload.sort_order, 0)),
+    );
+
+    // C1-CR: flag the linked promo_codes row as a wheel template so that
+    // validatePromoCode rejects direct customer application. Done inside
+    // the same transaction as the INSERT so we never end up in a state
+    // where the prize references a template that isn't flagged.
+    if (payload.promo_template_id) {
+      db.prepare(
+        "UPDATE promo_codes SET is_wheel_template = 1 WHERE id = ?",
+      ).run(payload.promo_template_id);
+    }
+  });
+  tx();
   return db.prepare("SELECT * FROM wheel_prizes WHERE id = ?").get(id);
 }
 
@@ -1110,42 +1140,79 @@ export function updatePrize(id, payload) {
   if (!existing) return null;
 
   const merged = { ...existing, ...payload };
-  db.prepare(
-    `UPDATE wheel_prizes
-     SET rarity_code = ?,
-         title = ?,
-         description = ?,
-         image_url = ?,
-         weight = ?,
-         max_total = ?,
-         is_for_retail = ?,
-         is_for_wholesale = ?,
-         promo_template_id = ?,
-         promo_validity_days = ?,
-         epic_pool_size = ?,
-         epic_pool_threshold_byn = ?,
-         is_active = ?,
-         sort_order = ?
-     WHERE id = ?`,
-  ).run(
-    String(merged.rarity_code || "common"),
-    String(merged.title || "").trim() || "Без названия",
-    merged.description ? String(merged.description) : null,
-    merged.image_url ? String(merged.image_url) : null,
-    Math.max(0, safeNumber(merged.weight, 1)),
-    Math.max(0, Math.floor(safeNumber(merged.max_total, 0))),
-    merged.is_for_retail === false || merged.is_for_retail === 0 ? 0 : 1,
-    merged.is_for_wholesale ? 1 : 0,
-    merged.promo_template_id || null,
-    Math.max(1, Math.floor(safeNumber(merged.promo_validity_days, 90))),
-    Math.max(1, Math.floor(safeNumber(merged.epic_pool_size, 5))),
-    Math.max(0, safeNumber(merged.epic_pool_threshold_byn, 300)),
-    merged.is_active === false || merged.is_active === 0 ? 0 : 1,
-    Math.floor(safeNumber(merged.sort_order, 0)),
-    id,
-  );
+  const previousTemplateId = existing.promo_template_id || null;
+  const nextTemplateId = merged.promo_template_id || null;
+
+  const tx = db.transaction(() => {
+    db.prepare(
+      `UPDATE wheel_prizes
+       SET rarity_code = ?,
+           title = ?,
+           description = ?,
+           image_url = ?,
+           weight = ?,
+           max_total = ?,
+           is_for_retail = ?,
+           is_for_wholesale = ?,
+           promo_template_id = ?,
+           promo_validity_days = ?,
+           epic_pool_size = ?,
+           epic_pool_threshold_byn = ?,
+           is_active = ?,
+           sort_order = ?
+       WHERE id = ?`,
+    ).run(
+      String(merged.rarity_code || "common"),
+      String(merged.title || "").trim() || "Без названия",
+      merged.description ? String(merged.description) : null,
+      merged.image_url ? String(merged.image_url) : null,
+      Math.max(0, safeNumber(merged.weight, 1)),
+      Math.max(0, Math.floor(safeNumber(merged.max_total, 0))),
+      merged.is_for_retail === false || merged.is_for_retail === 0 ? 0 : 1,
+      merged.is_for_wholesale ? 1 : 0,
+      nextTemplateId,
+      Math.max(1, Math.floor(safeNumber(merged.promo_validity_days, 90))),
+      Math.max(1, Math.floor(safeNumber(merged.epic_pool_size, 5))),
+      Math.max(0, safeNumber(merged.epic_pool_threshold_byn, 300)),
+      merged.is_active === false || merged.is_active === 0 ? 0 : 1,
+      Math.floor(safeNumber(merged.sort_order, 0)),
+      id,
+    );
+
+    // C1-CR: keep is_wheel_template synchronized with the actual usage
+    // graph. If the template changed, set the new one and clear the old
+    // one — but only clear when no other prize still uses it.
+    if (nextTemplateId && nextTemplateId !== previousTemplateId) {
+      db.prepare(
+        "UPDATE promo_codes SET is_wheel_template = 1 WHERE id = ?",
+      ).run(nextTemplateId);
+    }
+    if (
+      previousTemplateId &&
+      previousTemplateId !== nextTemplateId &&
+      !isPromoStillUsedAsTemplate(previousTemplateId, id)
+    ) {
+      db.prepare(
+        "UPDATE promo_codes SET is_wheel_template = 0 WHERE id = ?",
+      ).run(previousTemplateId);
+    }
+  });
+  tx();
 
   return db.prepare("SELECT * FROM wheel_prizes WHERE id = ?").get(id);
+}
+
+function isPromoStillUsedAsTemplate(promoId, excludePrizeId = null) {
+  if (!promoId) return false;
+  const params = [promoId];
+  let where = "promo_template_id = ?";
+  if (excludePrizeId) {
+    where += " AND id != ?";
+    params.push(excludePrizeId);
+  }
+  return Boolean(
+    db.prepare(`SELECT 1 FROM wheel_prizes WHERE ${where} LIMIT 1`).get(...params),
+  );
 }
 
 export function deletePrize(id) {

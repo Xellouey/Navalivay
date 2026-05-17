@@ -228,6 +228,22 @@ export function migrateWheelPrizes() {
         "ALTER TABLE promo_codes ADD COLUMN is_wheel_template INTEGER NOT NULL DEFAULT 0",
       );
     }
+
+    // C1-CR backfill: every promo_codes row that is currently referenced
+    // as a wheel prize template must carry is_wheel_template=1, otherwise
+    // the validatePromoCode guard in promo-code-service.js silently
+    // accepts the template code at checkout. Idempotent: the WHERE clause
+    // is safe to re-run on every boot.
+    db.exec(`
+      UPDATE promo_codes
+      SET is_wheel_template = 1
+      WHERE is_wheel_template = 0
+        AND id IN (
+          SELECT promo_template_id
+          FROM wheel_prizes
+          WHERE promo_template_id IS NOT NULL
+        )
+    `);
   } catch (error) {
     console.error("[migration] Failed to create wheel tables:", error);
     throw error;

@@ -16,6 +16,8 @@ process.env.ALLOW_INSECURE_TELEGRAM_AUTH = "0";
 
 const { initDb, db } = await import("../db.js");
 const { wheelRouter } = await import("../routes/wheel.js");
+const { createPrize, updatePrize } = await import("../wheel/wheel-service.js");
+const { validatePromoCode } = await import("../promo-code-service.js");
 
 initDb();
 
@@ -160,10 +162,165 @@ async function testValidatedWholesaleHeadersUnlockWholesalePool() {
   );
 }
 
+// C1-CR regression: when CRM creates a prize that points at a normal
+// promo template, the template row gets is_wheel_template=1 — and once
+// it does, validatePromoCode must refuse to apply it at checkout. Before
+// the fix, the flag was never set, so the public template code was a
+// working discount.
+async function testWheelTemplateRejectedAtCheckout() {
+  const promoId = "promo_template_rej";
+  db.prepare(
+    `INSERT OR IGNORE INTO promo_codes (
+      id, code, description, discount_type, discount_value, min_order_amount,
+      max_uses, current_uses, valid_from, valid_until, active, has_gift,
+      is_wheel_template, created_at
+    ) VALUES (?, ?, NULL, 'fixed', 5, 0, 0, 0, NULL, NULL, 1, 0, 0, DATETIME('now'))`,
+  ).run(promoId, "WHEELTPL-REJ");
+
+  // Sanity: before being linked to a prize, the code is a regular
+  // discount and validatePromoCode accepts it.
+  const before = validatePromoCode("WHEELTPL-REJ", 100);
+  assert.equal(before.valid, true, "untagged promo should be valid before becoming a wheel template");
+
+  const prize = createPrize({
+    rarity_code: "common",
+    title: "5 BYN скидка",
+    weight: 1,
+    is_for_retail: true,
+    is_for_wholesale: false,
+    promo_template_id: promoId,
+  });
+  assert.ok(prize?.id, "prize creation should succeed");
+
+  const flagRow = db
+    .prepare("SELECT is_wheel_template FROM promo_codes WHERE id = ?")
+    .get(promoId);
+  assert.equal(
+    Number(flagRow?.is_wheel_template),
+    1,
+    "createPrize must set is_wheel_template=1 on the linked promo_codes row",
+  );
+
+  const after = validatePromoCode("WHEELTPL-REJ", 100);
+  assert.equal(after.valid, false, "wheel template code must NOT be valid at checkout");
+  assert.equal(
+    after.error,
+    "wheel_template_not_applicable",
+    "validatePromoCode should report wheel_template_not_applicable",
+  );
+}
+
+// C1-CR regression: when CRM repoints a prize at a different template,
+// the previous template row should drop is_wheel_template back to 0 IF
+// no other prize still references it; the new template row must be
+// flagged. The transition happens atomically inside one transaction.
+async function testWheelTemplateFlagClearedWhenPrizeChangesTemplate() {
+  const oldId = "promo_template_old";
+  const newId = "promo_template_new";
+  db.prepare(
+    `INSERT OR IGNORE INTO promo_codes (
+      id, code, description, discount_type, discount_value, min_order_amount,
+      max_uses, current_uses, valid_from, valid_until, active, has_gift,
+      is_wheel_template, created_at
+    ) VALUES (?, ?, NULL, 'fixed', 5, 0, 0, 0, NULL, NULL, 1, 0, 0, DATETIME('now'))`,
+  ).run(oldId, "WHEELTPL-OLD");
+  db.prepare(
+    `INSERT OR IGNORE INTO promo_codes (
+      id, code, description, discount_type, discount_value, min_order_amount,
+      max_uses, current_uses, valid_from, valid_until, active, has_gift,
+      is_wheel_template, created_at
+    ) VALUES (?, ?, NULL, 'fixed', 7, 0, 0, 0, NULL, NULL, 1, 0, 0, DATETIME('now'))`,
+  ).run(newId, "WHEELTPL-NEW");
+
+  const prize = createPrize({
+    rarity_code: "common",
+    title: "Migration prize",
+    weight: 1,
+    is_for_retail: true,
+    promo_template_id: oldId,
+  });
+  assert.equal(
+    Number(
+      db.prepare("SELECT is_wheel_template FROM promo_codes WHERE id = ?").get(oldId)
+        ?.is_wheel_template,
+    ),
+    1,
+  );
+
+  updatePrize(prize.id, { promo_template_id: newId });
+
+  assert.equal(
+    Number(
+      db.prepare("SELECT is_wheel_template FROM promo_codes WHERE id = ?").get(oldId)
+        ?.is_wheel_template,
+    ),
+    0,
+    "old template should be unflagged after the prize switched",
+  );
+  assert.equal(
+    Number(
+      db.prepare("SELECT is_wheel_template FROM promo_codes WHERE id = ?").get(newId)
+        ?.is_wheel_template,
+    ),
+    1,
+    "new template should be flagged",
+  );
+}
+
+// C3-CR regression: a partial PATCH that disables `is_for_retail` on a
+// prize whose existing pool is also disabled-for-wholesale must surface
+// `at_least_one_pool_required`, not silently leave the row unreachable.
+async function testPartialUpdateRejectsBothPoolsDisabled() {
+  const prize = createPrize({
+    rarity_code: "common",
+    title: "Pool prize",
+    weight: 1,
+    is_for_retail: true,
+    is_for_wholesale: false,
+  });
+  const { response, data } = await requestJson(
+    `/api/admin/crm/wheel/prizes/${prize.id}`,
+    {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: "Bearer admin-token-not-needed-here",
+      },
+      body: JSON.stringify({ is_for_retail: false }),
+    },
+  );
+  // We don't have an admin auth helper in this test harness — endpoints
+  // that require auth return 401. Instead exercise the validator
+  // directly so the assertion stays focused on validation logic.
+  if (response.status === 401) {
+    const { validatePrizePayload } = await import("../wheel/wheel-service.js");
+    const existing = db
+      .prepare("SELECT * FROM wheel_prizes WHERE id = ?")
+      .get(prize.id);
+    const result = validatePrizePayload(
+      { is_for_retail: false },
+      { isUpdate: true, existing },
+    );
+    assert.ok(
+      result.errors.includes("at_least_one_pool_required"),
+      "partial update that empties both pools must fail validation",
+    );
+  } else {
+    assert.equal(response.status, 400, `expected 400 got ${response.status}: ${JSON.stringify(data)}`);
+    assert.ok(
+      Array.isArray(data?.details) && data.details.includes("at_least_one_pool_required"),
+      "partial update that empties both pools must fail validation",
+    );
+  }
+}
+
 async function main() {
   await testWheelStateWorksWithRealLiveFeed();
   await testForgedWholesaleHeadersDoNotUnlockWholesalePool();
   await testValidatedWholesaleHeadersUnlockWholesalePool();
+  await testWheelTemplateRejectedAtCheckout();
+  await testWheelTemplateFlagClearedWhenPrizeChangesTemplate();
+  await testPartialUpdateRejectsBothPoolsDisabled();
   console.log("[wheel-routes] OK");
 }
 
