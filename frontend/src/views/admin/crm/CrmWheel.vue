@@ -132,6 +132,16 @@
           </button>
         </div>
 
+        <div class="rounded-2xl border border-slate-200/60 bg-white p-4 shadow-sm">
+          <p class="text-sm text-slate-700">
+            <strong>Эпический пул.</strong>
+            Применяется только для редкостей «эпических» (epic, mythic, gold, legendary).
+            Размер 5 = первые 5 клиентов с прибылью &ge; порога становятся пулом, и
+            кто-то из них в ближайшем спине гарантированно получает приз. Для
+            обычных редкостей эти поля игнорируются — оставь дефолт (5 / 300 BYN).
+          </p>
+        </div>
+
         <div class="rounded-2xl border border-slate-200/60 bg-white shadow-sm overflow-hidden">
           <table class="w-full text-sm">
             <thead class="bg-slate-50/80 text-xs uppercase tracking-wider text-slate-500">
@@ -183,7 +193,7 @@
                   <button
                     type="button"
                     class="text-rose-600 hover:underline"
-                    @click="deletePrize(prize)"
+                    @click="requestDeletePrize(prize)"
                   >
                     Скрыть
                   </button>
@@ -362,10 +372,19 @@
         <form
           class="w-full max-w-xl rounded-2xl bg-white shadow-2xl p-5 max-h-[90vh] overflow-y-auto"
           @submit.prevent="savePrize"
-        >
-          <h2 class="text-lg font-semibold text-slate-900 mb-4">
+        >          <h2 class="text-lg font-semibold text-slate-900 mb-4">
             {{ prizeForm.id ? 'Редактировать приз' : 'Новый приз' }}
           </h2>
+          <div
+            v-if="prizeFormErrors.length"
+            class="mb-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800"
+            role="alert"
+          >
+            <p class="font-semibold mb-1">Не удалось сохранить:</p>
+            <ul class="list-disc list-inside space-y-0.5">
+              <li v-for="(err, idx) in prizeFormErrors" :key="idx">{{ err }}</li>
+            </ul>
+          </div>
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <label class="flex flex-col gap-1 col-span-full">
               <span class="text-xs uppercase tracking-wider text-slate-500">Название</span>
@@ -373,6 +392,7 @@
                 v-model="prizeForm.title"
                 type="text"
                 required
+                minlength="1"
                 class="rounded-lg border border-slate-200 px-3 py-2 text-sm"
               />
             </label>
@@ -388,6 +408,7 @@
               <span class="text-xs uppercase tracking-wider text-slate-500">Редкость</span>
               <select
                 v-model="prizeForm.rarity_code"
+                required
                 class="rounded-lg border border-slate-200 px-3 py-2 text-sm"
               >
                 <option v-for="rarity in rarities" :key="rarity.code" :value="rarity.code">
@@ -432,6 +453,7 @@
                 v-model.number="prizeForm.promo_validity_days"
                 type="number"
                 min="1"
+                required
                 class="rounded-lg border border-slate-200 px-3 py-2 text-sm"
               />
             </label>
@@ -441,6 +463,7 @@
                 v-model.number="prizeForm.epic_pool_size"
                 type="number"
                 min="1"
+                required
                 class="rounded-lg border border-slate-200 px-3 py-2 text-sm"
               />
             </label>
@@ -449,8 +472,9 @@
               <input
                 v-model.number="prizeForm.epic_pool_threshold_byn"
                 type="number"
-                min="0"
+                min="1"
                 step="0.01"
+                required
                 class="rounded-lg border border-slate-200 px-3 py-2 text-sm"
               />
             </label>
@@ -493,6 +517,65 @@
             </button>
           </div>
         </form>
+      </div>
+    </Transition>
+
+    <Transition name="modal-fade">
+      <div
+        v-if="confirmDeletePrize"
+        class="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4"
+        @click.self="confirmDeletePrize = null"
+      >
+        <div class="w-full max-w-sm rounded-2xl bg-white shadow-2xl p-5">
+          <h3 class="text-base font-semibold text-slate-900 mb-2">
+            Скрыть приз?
+          </h3>
+          <p class="text-sm text-slate-600 mb-4">
+            Приз «{{ confirmDeletePrize.title }}» будет помечен как неактивный
+            и перестанет выпадать. Восстановить можно через редактирование.
+          </p>
+          <div class="flex justify-end gap-2">
+            <button
+              type="button"
+              class="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 text-sm"
+              @click="confirmDeletePrize = null"
+            >
+              Отмена
+            </button>
+            <button
+              type="button"
+              class="px-4 py-2 rounded-xl bg-rose-600 text-white text-sm font-semibold"
+              @click="deletePrizeConfirmed"
+            >
+              Скрыть
+            </button>
+          </div>
+        </div>
+      </div>
+    </Transition>
+
+    <Transition name="toast-slide">
+      <div
+        v-if="toast"
+        class="fixed bottom-6 right-6 z-[70] flex items-start gap-3 rounded-xl px-4 py-3 shadow-lg max-w-sm"
+        :class="
+          toast.kind === 'success'
+            ? 'border border-emerald-200 bg-emerald-50 text-emerald-800'
+            : toast.kind === 'info'
+              ? 'border border-blue-200 bg-blue-50 text-blue-800'
+              : 'border border-red-200 bg-red-50 text-red-800'
+        "
+        role="status"
+      >
+        <span class="text-sm font-medium flex-1">{{ toast.text }}</span>
+        <button
+          type="button"
+          class="text-current opacity-70 hover:opacity-100"
+          aria-label="Закрыть"
+          @click="dismissToast"
+        >
+          ✕
+        </button>
       </div>
     </Transition>
   </div>
@@ -585,6 +668,36 @@ const tabs = [
 
 type WheelTabId = (typeof tabs)[number]['id']
 const activeTab = ref<WheelTabId>('dashboard')
+
+type ToastKind = 'success' | 'error' | 'info'
+interface ToastMessage {
+  kind: ToastKind
+  text: string
+}
+const toast = ref<ToastMessage | null>(null)
+let toastTimer: ReturnType<typeof setTimeout> | null = null
+
+function showToast(kind: ToastKind, text: string) {
+  toast.value = { kind, text }
+  if (toastTimer) clearTimeout(toastTimer)
+  // Errors stay until manager dismisses; success/info auto-hide.
+  if (kind !== 'error') {
+    toastTimer = setTimeout(() => {
+      toast.value = null
+    }, 3500)
+  }
+}
+
+function dismissToast() {
+  toast.value = null
+  if (toastTimer) {
+    clearTimeout(toastTimer)
+    toastTimer = null
+  }
+}
+
+const prizeFormErrors = ref<string[]>([])
+const confirmDeletePrize = ref<WheelPrize | null>(null)
 
 const rarities = ref<WheelRarity[]>([])
 const prizes = ref<WheelPrize[]>([])
@@ -684,6 +797,7 @@ async function fetchJson<T>(url: string, options: RequestInit = {}): Promise<T> 
 
 async function loadAll() {
   await Promise.all([
+    loadRarities(),
     loadPrizes(),
     loadSettings(),
     loadDashboard(),
@@ -691,14 +805,26 @@ async function loadAll() {
   ])
 }
 
+async function loadRarities() {
+  try {
+    const data = await fetchJson<{ rarities: WheelRarity[] }>(
+      '/api/admin/crm/wheel/rarities',
+    )
+    rarities.value = data.rarities || []
+  } catch (error) {
+    console.error('[crm-wheel] load rarities failed', error)
+    showToast('error', 'Не удалось загрузить список редкостей.')
+  }
+}
+
 async function loadPrizes() {
   const data = await fetchJson<{ prizes: WheelPrize[] }>(
     '/api/admin/crm/wheel/prizes',
   )
   prizes.value = data.prizes || []
-  if (data.prizes?.[0]?.rarity) {
-    rarities.value = []
-  }
+  // Note: rarities now come from the dedicated endpoint in loadRarities().
+  // Keep the legacy fallback for safety: if loadRarities failed for any
+  // reason, derive a partial map from whatever prizes carry inline.
   if (!rarities.value.length) {
     const rarityMap = new Map<string, WheelRarity>()
     for (const prize of data.prizes || []) {
@@ -809,10 +935,51 @@ function closeModal() {
   prizeModalOpen.value = false
 }
 
+function validatePrizeForm(): string[] {
+  const errors: string[] = []
+  if (!prizeForm.title.trim()) errors.push('Укажи название приза.')
+  if (!prizeForm.rarity_code) errors.push('Выбери редкость.')
+  if (!Number.isFinite(prizeForm.weight) || prizeForm.weight < 0) {
+    errors.push('Вес выпадения не может быть отрицательным.')
+  }
+  if (!Number.isFinite(prizeForm.max_total) || prizeForm.max_total < 0) {
+    errors.push('Лимит выдачи не может быть отрицательным.')
+  }
+  if (!Number.isFinite(prizeForm.promo_validity_days) || prizeForm.promo_validity_days < 1) {
+    errors.push('Срок промокода должен быть от 1 дня.')
+  }
+  if (!Number.isFinite(prizeForm.epic_pool_size) || prizeForm.epic_pool_size < 1) {
+    errors.push('Размер эпического пула должен быть от 1.')
+  }
+  if (
+    !Number.isFinite(prizeForm.epic_pool_threshold_byn) ||
+    prizeForm.epic_pool_threshold_byn < 1
+  ) {
+    errors.push('Порог эпического пула должен быть от 1 BYN.')
+  }
+  if (!prizeForm.is_for_retail && !prizeForm.is_for_wholesale) {
+    errors.push('Выбери хотя бы один пул: розничный или оптовый.')
+  }
+  if (
+    prizeForm.rarity_code !== 'nothing' &&
+    !prizeForm.promo_template_id
+  ) {
+    // Non-blocking warning: not strictly required by backend, but matches
+    // the docs ("Если редкость не nothing — нужен шаблон промокода").
+    errors.push(
+      'Для не-«ничего» редкости укажи шаблон промокода, иначе клиент не получит код.',
+    )
+  }
+  return errors
+}
+
 async function savePrize() {
+  prizeFormErrors.value = validatePrizeForm()
+  if (prizeFormErrors.value.length) return
+
   const payload = {
     rarity_code: prizeForm.rarity_code,
-    title: prizeForm.title,
+    title: prizeForm.title.trim(),
     description: prizeForm.description,
     weight: prizeForm.weight,
     max_total: prizeForm.max_total,
@@ -840,37 +1007,58 @@ async function savePrize() {
     }
     prizeModalOpen.value = false
     await loadPrizes()
-  } catch (error) {
+    showToast('success', prizeForm.id ? 'Приз обновлён.' : 'Приз создан.')
+  } catch (error: unknown) {
     console.error('[crm-wheel] save prize failed', error)
-    alert('Не удалось сохранить приз. Подробности в консоли.')
+    const message =
+      (error as { message?: string })?.message ||
+      'Не удалось сохранить приз. Подробности в консоли.'
+    showToast('error', message)
   }
 }
 
-async function deletePrize(prize: WheelPrize) {
-  if (!confirm(`Скрыть приз «${prize.title}»? Восстановить можно через редактирование.`)) {
-    return
-  }
+function requestDeletePrize(prize: WheelPrize) {
+  confirmDeletePrize.value = prize
+}
+
+async function deletePrizeConfirmed() {
+  const prize = confirmDeletePrize.value
+  if (!prize) return
   try {
     await fetchJson(`/api/admin/crm/wheel/prizes/${prize.id}`, {
       method: 'DELETE',
     })
     await loadPrizes()
-  } catch (error) {
+    showToast('success', `Приз «${prize.title}» скрыт.`)
+  } catch (error: unknown) {
     console.error('[crm-wheel] delete prize failed', error)
+    const message =
+      (error as { message?: string })?.message ||
+      'Не удалось скрыть приз.'
+    showToast('error', message)
+  } finally {
+    confirmDeletePrize.value = null
   }
 }
 
 async function saveSettings() {
-  const payload = {
+  const payload: Record<string, unknown> = {
     spin_byn_retail: settingsForm.spin_byn_retail,
     spin_byn_wholesale: settingsForm.spin_byn_wholesale,
     pity_threshold: settingsForm.pity_threshold,
     default_promo_validity_days: settingsForm.default_promo_validity_days,
     feed_size: settingsForm.feed_size,
-    start_collecting_at: settingsForm.start_collecting_at
-      ? new Date(settingsForm.start_collecting_at).toISOString()
-      : null,
     elite_rarities: settingsForm.elite_rarities,
+  }
+  // B5 alignment: only send start_collecting_at when manager actually
+  // entered a value. Previously we sent `null` which the backend used
+  // to coerce to the literal string "null" via String(null), poisoning
+  // the comparison check. Even with the backend-side defensive guard
+  // now in place, omitting the key entirely is the cleanest contract.
+  if (settingsForm.start_collecting_at) {
+    payload.start_collecting_at = new Date(
+      settingsForm.start_collecting_at,
+    ).toISOString()
   }
   try {
     await fetchJson('/api/admin/crm/wheel/settings', {
@@ -878,9 +1066,13 @@ async function saveSettings() {
       body: JSON.stringify(payload),
     })
     await loadSettings()
-  } catch (error) {
+    showToast('success', 'Настройки сохранены.')
+  } catch (error: unknown) {
     console.error('[crm-wheel] save settings failed', error)
-    alert('Не удалось сохранить настройки.')
+    const message =
+      (error as { message?: string })?.message ||
+      'Не удалось сохранить настройки.'
+    showToast('error', message)
   }
 }
 
@@ -911,6 +1103,16 @@ watch(activeTab, (next) => {
 }
 .modal-fade-enter-from,
 .modal-fade-leave-to {
+  opacity: 0;
+}
+
+.toast-slide-enter-active,
+.toast-slide-leave-active {
+  transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.25s ease;
+}
+.toast-slide-enter-from,
+.toast-slide-leave-to {
+  transform: translateY(20px);
   opacity: 0;
 }
 </style>
