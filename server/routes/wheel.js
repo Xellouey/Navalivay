@@ -26,6 +26,31 @@ import {
 
 export const wheelRouter = express.Router();
 
+/**
+ * Detect whether a thrown error came from the wheel_spins idempotency
+ * UNIQUE index. Round 4 fix: previously the route inlined a substring
+ * match on the SQLite error message, but better-sqlite3 does not
+ * guarantee the index name is in the message — partial-index UNIQUE
+ * violations sometimes surface as "UNIQUE constraint failed:
+ * wheel_spins.customer_id, wheel_spins.idempotency_key" (column form,
+ * no index name). We now key on `error.code` which better-sqlite3
+ * always sets to a `SQLITE_CONSTRAINT*` token.
+ *
+ * Exported so the route test can verify the predicate against the
+ * different error-message shapes SQLite produces in the wild without
+ * having to spawn a real race.
+ */
+export function isWheelIdempotencyConflict(error, idempotencyKey) {
+  if (!idempotencyKey) return false;
+  const errorCode = String(error?.code || "");
+  if (!errorCode) return false;
+  return (
+    errorCode === "SQLITE_CONSTRAINT_UNIQUE" ||
+    errorCode === "SQLITE_CONSTRAINT_PRIMARYKEY" ||
+    errorCode.startsWith("SQLITE_CONSTRAINT")
+  );
+}
+
 const allowInsecureTelegramFallback =
   !["production", "test"].includes(String(process.env.NODE_ENV || "").toLowerCase()) &&
   process.env.ALLOW_INSECURE_TELEGRAM_AUTH !== "0";
@@ -272,13 +297,20 @@ wheelRouter.post(
       // P1 race: two simultaneous POSTs with the same Idempotency-Key
       // both pass the pre-transaction lookup, then the second INSERT
       // hits the UNIQUE index. Treat that as "the other request won"
-      // and return its row instead of bubbling a 500. SQLITE_CONSTRAINT
-      // also fires on other unique columns, so we narrow on the index
-      // name embedded in the error message.
-      const message = String(error?.message || "");
-      const isIdempotencyConflict =
-        idempotencyKey &&
-        message.includes("idx_wheel_spins_idempotency");
+      // and return its row instead of bubbling a 500.
+      //
+      // Round 4 fix: previously this matched on `error.message.includes(
+      // "idx_wheel_spins_idempotency")`, but better-sqlite3 does not
+      // guarantee the index name is in the message. SQLite UNIQUE
+      // partial-index violations sometimes surface as "UNIQUE
+      // constraint failed: wheel_spins.customer_id,
+      // wheel_spins.idempotency_key" (column form, no index name).
+      // Switching to error.code === SQLITE_CONSTRAINT_UNIQUE catches
+      // both forms; we then re-lookup the (customer_id,
+      // idempotency_key) row to confirm it exists. If the lookup
+      // misses, the UNIQUE conflict was on a different column → we
+      // bubble the original 500 so the bug is not silently masked.
+      const isIdempotencyConflict = isWheelIdempotencyConflict(error, idempotencyKey);
       if (isIdempotencyConflict) {
         const customerForReplay = findCustomerFromAuth(req);
         const customerIdForReplay = customerForReplay?.id;
@@ -320,6 +352,11 @@ wheelRouter.post(
             });
           }
         }
+        // No matching spin found for this (customer_id,
+        // idempotency_key) → the UNIQUE conflict was unrelated to our
+        // partial index. Fall through to the generic error handler so
+        // the underlying bug is visible instead of masquerading as a
+        // successful replay of a non-existent spin.
       }
 
       const knownErrors = new Set([

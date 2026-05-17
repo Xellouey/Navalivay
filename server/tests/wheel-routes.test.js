@@ -15,7 +15,7 @@ process.env.NODE_ENV = "test";
 process.env.ALLOW_INSECURE_TELEGRAM_AUTH = "0";
 
 const { initDb, db } = await import("../db.js");
-const { wheelRouter } = await import("../routes/wheel.js");
+const { wheelRouter, isWheelIdempotencyConflict } = await import("../routes/wheel.js");
 const { createPrize, updatePrize } = await import("../wheel/wheel-service.js");
 const { validatePromoCode } = await import("../promo-code-service.js");
 
@@ -471,6 +471,128 @@ async function testSpinIsIdempotentByKey() {
   assert.equal(balanceFinal.spins_available, 0, "fresh key consumes a spin");
 }
 
+// Round 4: the catch-branch predicate `isWheelIdempotencyConflict`
+// must fire on every shape of UNIQUE-constraint error better-sqlite3
+// might surface for our partial index. Previously the route relied on
+// `error.message.includes("idx_wheel_spins_idempotency")`, which is
+// brittle: SQLite sometimes reports the column form ("UNIQUE
+// constraint failed: wheel_spins.customer_id,
+// wheel_spins.idempotency_key") with no index name. The replacement
+// keys on `error.code`. This test pins that contract.
+async function testIdempotencyConflictPredicateMatchesAllShapes() {
+  assert.equal(
+    isWheelIdempotencyConflict(
+      Object.assign(new Error("UNIQUE constraint failed: x"), {
+        code: "SQLITE_CONSTRAINT_UNIQUE",
+      }),
+      "",
+    ),
+    false,
+    "no idempotency key → never an idempotency conflict",
+  );
+
+  assert.equal(
+    isWheelIdempotencyConflict(
+      Object.assign(
+        new Error(
+          "UNIQUE constraint failed: wheel_spins.customer_id, wheel_spins.idempotency_key",
+        ),
+        { code: "SQLITE_CONSTRAINT_UNIQUE" },
+      ),
+      "idem-test-key-1234567890abcdef",
+    ),
+    true,
+    "column-form UNIQUE message must be recognized via error.code",
+  );
+
+  assert.equal(
+    isWheelIdempotencyConflict(
+      Object.assign(
+        new Error("UNIQUE constraint failed: index 'idx_wheel_spins_idempotency'"),
+        { code: "SQLITE_CONSTRAINT_UNIQUE" },
+      ),
+      "idem-test-key-1234567890abcdef",
+    ),
+    true,
+    "index-form UNIQUE message must be recognized via error.code",
+  );
+
+  // Generic SQLITE_CONSTRAINT* prefix is also accepted — we follow up
+  // with a (customer_id, key) lookup in the route to confirm the
+  // conflict is actually ours, so over-matching here is safe.
+  assert.equal(
+    isWheelIdempotencyConflict(
+      Object.assign(new Error("constraint failed"), {
+        code: "SQLITE_CONSTRAINT_PRIMARYKEY",
+      }),
+      "idem-test-key-1234567890abcdef",
+    ),
+    true,
+    "any SQLITE_CONSTRAINT* with a key triggers the lookup path",
+  );
+
+  assert.equal(
+    isWheelIdempotencyConflict(
+      new TypeError("something else broke"),
+      "idem-test-key-1234567890abcdef",
+    ),
+    false,
+    "non-SQLite errors must not be treated as idempotency conflicts",
+  );
+
+  assert.equal(
+    isWheelIdempotencyConflict(
+      new Error("UNIQUE constraint failed: foo"),
+      "idem-test-key-1234567890abcdef",
+    ),
+    false,
+    "Error with no `code` property must not match — we only trust SQLite's machine-readable code",
+  );
+}
+
+// Round 4: a real UNIQUE-violation against the partial index on
+// (customer_id, idempotency_key) must produce an error.code that the
+// predicate accepts. Without this assertion, a future SQLite upgrade
+// could change the error shape and the route would silently 500 on
+// every retry.
+async function testRealUniqueViolationOnIdempotencyKeyMatchesPredicate() {
+  ensureCustomer("cust_idem_real", "777448", "wheel_idem_real");
+  insertPrize("p_idem_real", "common", 1, 0);
+  const sharedKey = "idem-real-key-abcdef0123456789";
+  insertSpin("spin_idem_real_a", "cust_idem_real", "p_idem_real", "common");
+  db.prepare(
+    "UPDATE wheel_spins SET idempotency_key = ? WHERE id = ?",
+  ).run(sharedKey, "spin_idem_real_a");
+
+  let captured = null;
+  try {
+    db.prepare(
+      `INSERT INTO wheel_spins (
+        id, customer_id, prize_id, rarity_code, is_wholesale,
+        seed_for_animation, spun_at, idempotency_key
+      ) VALUES (?, ?, ?, ?, 0, 1, DATETIME('now'), ?)`,
+    ).run(
+      "spin_idem_real_b",
+      "cust_idem_real",
+      "p_idem_real",
+      "common",
+      sharedKey,
+    );
+  } catch (error) {
+    captured = error;
+  }
+  assert.ok(captured, "second INSERT with same idempotency_key must throw");
+  assert.ok(
+    String(captured.code || "").startsWith("SQLITE_CONSTRAINT"),
+    `expected SQLITE_CONSTRAINT* code, got ${JSON.stringify(captured.code)} — message: ${captured.message}`,
+  );
+  assert.equal(
+    isWheelIdempotencyConflict(captured, sharedKey),
+    true,
+    "real partial-index UNIQUE violation must be classified as an idempotency conflict",
+  );
+}
+
 async function main() {
   await testWheelStateWorksWithRealLiveFeed();
   await testForgedWholesaleHeadersDoNotUnlockWholesalePool();
@@ -481,6 +603,8 @@ async function main() {
   await testFeedExcludesCustomersWithoutConsent();
   await testFeedConsentRequiredFlagFlips();
   await testSpinIsIdempotentByKey();
+  await testIdempotencyConflictPredicateMatchesAllShapes();
+  await testRealUniqueViolationOnIdempotencyKeyMatchesPredicate();
   console.log("[wheel-routes] OK");
 }
 
