@@ -376,6 +376,33 @@ promoRouter.delete('/api/admin/crm/promo-codes/:id', authMiddleware, (req, res) 
       return res.status(404).json({ error: 'not_found' });
     }
 
+    // C1-BL: even if current_uses=0 means "never applied at checkout",
+    // a promo can still be referenced by the wheel — either as a prize
+    // template (is_wheel_template) or as the parent of an already
+    // generated child code (wheel_spins.generated_promo_code_id).
+    // Hard-deleting the row in that case turns wheel prizes into
+    // landmines: the next spin matches the prize, generatePromoForPrize
+    // returns null, and the customer's spin gets burned with no code.
+    // 409 forces the manager to either remove the prize first or use
+    // soft-delete via the "Скрыть" CRM action (active=0).
+    const usedAsTemplate = db
+      .prepare(
+        'SELECT 1 FROM wheel_prizes WHERE promo_template_id = ? LIMIT 1',
+      )
+      .get(id);
+    const usedAsGenerated = db
+      .prepare(
+        'SELECT 1 FROM wheel_spins WHERE generated_promo_code_id = ? LIMIT 1',
+      )
+      .get(id);
+    if (usedAsTemplate || usedAsGenerated) {
+      return res.status(409).json({
+        error: 'in_use_by_wheel',
+        message:
+          'Промокод используется в рулетке. Можно только скрыть (отключить).',
+      });
+    }
+
     // If used - soft delete (deactivate), otherwise hard delete
     if (existing.current_uses > 0) {
       db.prepare('UPDATE promo_codes SET active = 0 WHERE id = ?').run(id);

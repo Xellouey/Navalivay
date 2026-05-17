@@ -614,8 +614,15 @@ async function fetchAPI<T>(
   }
 
   if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: "unknown" }));
-    throw new Error(error.error || error.message || "Request failed");
+    const payload = await response.json().catch(() => ({ error: "unknown" }));
+    // Prefer the human-readable message; fall back to the slug. Attach
+    // both `code` (machine-readable, e.g. `in_use_by_wheel`) and `status`
+    // so callers can branch on specific outcomes.
+    const message = payload.message || payload.error || "Request failed";
+    const err = new Error(message) as Error & { code?: string; status?: number };
+    err.code = payload.error;
+    err.status = response.status;
+    throw err;
   }
 
   return response.json();
