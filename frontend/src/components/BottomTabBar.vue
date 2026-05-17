@@ -51,27 +51,67 @@
             <path
               d="M3 10.5L12 3L21 10.5V20C21 20.5304 20.7893 21.0391 20.4142 21.4142C20.0391 21.7893 19.5304 22 19 22H5C4.46957 22 3.96086 21.7893 3.58579 21.4142C3.21071 21.0391 3 20.5304 3 20V10.5Z"
               :stroke="isActive(tab.path) ? '#fff' : 'rgba(255,255,255,0.64)'"
-              stroke-width="1.6"
+              stroke-width="1.8"
               stroke-linecap="round"
               stroke-linejoin="round"
             />
           </svg>
 
           <svg
-            v-else-if="tab.id === 'section-2' || tab.id === 'section-3'"
+            v-else-if="tab.id === 'cart'"
             width="22"
             height="22"
             viewBox="0 0 22 22"
             fill="none"
           >
-            <rect
-              x="1"
-              y="1"
-              width="20"
-              height="20"
-              rx="4"
+            <path
+              d="M3 4H5L7 14H17L19 6H6"
+              :stroke="isActive(tab.path) ? '#fff' : 'rgba(255,255,255,0.64)'"
+              stroke-width="1.8"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+            <circle
+              cx="9"
+              cy="18"
+              r="1.6"
               :stroke="isActive(tab.path) ? '#fff' : 'rgba(255,255,255,0.64)'"
               stroke-width="1.6"
+            />
+            <circle
+              cx="16"
+              cy="18"
+              r="1.6"
+              :stroke="isActive(tab.path) ? '#fff' : 'rgba(255,255,255,0.64)'"
+              stroke-width="1.6"
+            />
+          </svg>
+
+          <svg
+            v-else-if="tab.id === 'wheel'"
+            width="24"
+            height="24"
+            viewBox="0 0 24 24"
+            fill="none"
+          >
+            <circle
+              cx="12"
+              cy="12"
+              r="9"
+              :stroke="isActive(tab.path) ? '#fff' : 'rgba(255,255,255,0.64)'"
+              stroke-width="1.8"
+            />
+            <circle
+              cx="12"
+              cy="12"
+              r="2.2"
+              :fill="isActive(tab.path) ? '#fff' : 'rgba(255,255,255,0.64)'"
+            />
+            <path
+              d="M12 3V8M12 16V21M3 12H8M16 12H21"
+              :stroke="isActive(tab.path) ? '#fff' : 'rgba(255,255,255,0.64)'"
+              stroke-width="1.8"
+              stroke-linecap="round"
             />
           </svg>
 
@@ -87,12 +127,12 @@
               cy="8"
               r="4"
               :stroke="isActive(tab.path) ? '#fff' : 'rgba(255,255,255,0.64)'"
-              stroke-width="1.6"
+              stroke-width="1.8"
             />
             <path
               d="M4 21C4 17.134 7.58172 14 12 14C16.4183 14 20 17.134 20 21"
               :stroke="isActive(tab.path) ? '#fff' : 'rgba(255,255,255,0.64)'"
-              stroke-width="1.6"
+              stroke-width="1.8"
               stroke-linecap="round"
             />
           </svg>
@@ -105,8 +145,9 @@
 </template>
 
 <script setup lang="ts">
-import { nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
+import { useWholesaleStore } from '@/stores/wholesale'
 
 interface TabItem {
   id: string
@@ -114,16 +155,37 @@ interface TabItem {
   label: string
 }
 
+const props = withDefaults(
+  defineProps<{
+    variant?: 'retail' | 'wholesale'
+  }>(),
+  { variant: 'retail' },
+)
+
 const route = useRoute()
+const wholesaleStore = useWholesaleStore()
 const bottomTabBarRef = ref<HTMLElement | null>(null)
 let resizeObserver: ResizeObserver | null = null
 
-const tabs: TabItem[] = [
+const retailTabs: TabItem[] = [
   { id: 'home', path: '/', label: 'Главная' },
-  { id: 'section-2', path: '/section-2', label: 'Раздел 2' },
-  { id: 'section-3', path: '/section-3', label: 'Раздел 3' },
+  { id: 'cart', path: '/checkout', label: 'Корзина' },
+  { id: 'wheel', path: '/wheel', label: 'Рулетка' },
   { id: 'profile', path: '/profile', label: 'Профиль' },
 ]
+
+const wholesaleTabs: TabItem[] = [
+  { id: 'home', path: '/', label: 'Главная' },
+  { id: 'cart', path: '/checkout', label: 'Корзина' },
+  { id: 'wheel', path: '/wheel', label: 'Рулетка' },
+  { id: 'profile', path: '/profile', label: 'Профиль' },
+]
+
+const tabs = computed<TabItem[]>(() =>
+  props.variant === 'wholesale' || wholesaleStore.isWholesale
+    ? wholesaleTabs
+    : retailTabs,
+)
 
 function isActive(path: string): boolean {
   if (path === '/') {

@@ -50,6 +50,10 @@
         </button>
       </section>
 
+      <section class="wheel-home-widget-section">
+        <WheelHomeWidget />
+      </section>
+
       <section class="category-section">
         <!-- Сетка категорий -->
         <div class="category-grid">
@@ -121,6 +125,7 @@ import { useCartStore } from "@/stores/cart";
 import { useWholesaleStore } from "@/stores/wholesale";
 import SmokeParticles from "@/components/SmokeParticles.vue";
 import BannerCarousel from "@/components/BannerCarousel.vue";
+import WheelHomeWidget from "@/components/wheel/WheelHomeWidget.vue";
 import {
   fetchMyActiveOrder,
   getTelegramIdentity,
@@ -241,6 +246,10 @@ onMounted(async () => {
 }
 
 .active-order-section {
+  padding: 12px 16px 0;
+}
+
+.wheel-home-widget-section {
   padding: 12px 16px 0;
 }
 

@@ -38,7 +38,29 @@
       </section>
 
       <section class="loyalty-section">
-        <article class="loyalty-card" :class="{ 'loyalty-card--empty': !selectedLoyaltyCategory }">
+        <article
+          v-if="wholesaleStore.isWholesale"
+          class="wholesale-profile-card"
+        >
+          <div class="wholesale-profile-card__icon" aria-hidden="true">
+            <svg width="36" height="36" viewBox="0 0 36 36" fill="none">
+              <rect x="6" y="11" width="24" height="18" rx="3" stroke="#1F2933" stroke-width="1.8" />
+              <path d="M11 11V8C11 6.34315 12.3431 5 14 5H22C23.6569 5 25 6.34315 25 8V11"
+                stroke="#1F2933" stroke-width="1.8" stroke-linecap="round" />
+              <path d="M6 18H30" stroke="#1F2933" stroke-width="1.8" />
+            </svg>
+          </div>
+          <h2 class="wholesale-profile-card__title">Для оптовых клиентов</h2>
+          <p class="wholesale-profile-card__text">
+            Тут пока ничего нет, но мы добавим сюда полезный функционал.
+          </p>
+        </article>
+
+        <article
+          v-else
+          class="loyalty-card"
+          :class="{ 'loyalty-card--empty': !selectedLoyaltyCategory }"
+        >
           <div class="loyalty-card-header">
             <h2 class="loyalty-card-title-main">Бонусная система</h2>
             <p v-if="loyaltyStore.loadingSnapshot" class="loyalty-loading">Обновляем...</p>
@@ -184,11 +206,13 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import router from "@/router";
 import { useUserStore } from "@/stores/user";
 import { useLoyaltyStore, type LoyaltySnapshotCategory } from "@/stores/loyalty";
+import { useWholesaleStore } from "@/stores/wholesale";
 import { getTelegramIdentity } from "@/utils/customerOrders";
 import LoyaltyBonusPopup from "@/components/LoyaltyBonusPopup.vue";
 
 const userStore = useUserStore();
 const loyaltyStore = useLoyaltyStore();
+const wholesaleStore = useWholesaleStore();
 const avatarError = ref(false);
 const activeLoyaltyKey = ref<string | null>(null);
 const showRulesModal = ref(false);
@@ -428,6 +452,45 @@ async function goShopping() {
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+
+.wholesale-profile-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 10px;
+  padding: 28px 24px;
+  border-radius: 24px;
+  background: #ffffff;
+  box-shadow: 0 4px 16px rgba(15, 23, 42, 0.06);
+}
+
+.wholesale-profile-card__icon {
+  width: 64px;
+  height: 64px;
+  border-radius: 18px;
+  background: rgba(15, 23, 42, 0.06);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.wholesale-profile-card__title {
+  font-family: 'Montserrat', sans-serif;
+  font-weight: 700;
+  font-size: 18px;
+  color: #1f2933;
+  margin: 0;
+}
+
+.wholesale-profile-card__text {
+  font-family: 'SF Pro Display', system-ui, sans-serif;
+  font-size: 14px;
+  color: #5c6470;
+  margin: 0;
+  max-width: 280px;
+  line-height: 1.4;
 }
 
 .loyalty-card {

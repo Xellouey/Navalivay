@@ -98,6 +98,21 @@ const router = createRouter({
       component: () => import("../views/PlaceholderView.vue"),
     },
     {
+      path: "/wheel",
+      name: "wheel",
+      component: () => import("../views/WheelView.vue"),
+    },
+    {
+      path: "/wheel/how-it-works",
+      name: "wheel-how-to",
+      component: () => import("../views/WheelHowToView.vue"),
+    },
+    {
+      path: "/wheel/my-prizes",
+      name: "wheel-my-prizes",
+      component: () => import("../views/WheelMyPrizesView.vue"),
+    },
+    {
       path: "/admin",
       name: "Admin",
       component: () => import("@/views/AdminView.vue"),
@@ -190,7 +205,7 @@ const router = createRouter({
   ],
 });
 
-const wholesaleRestrictedRouteNames = new Set(["profile", "section-2", "section-3"]);
+const wholesaleRestrictedRouteNames = new Set(["section-2", "section-3"]);
 
 router.beforeEach((to, _from, next) => {
   const wholesaleStore = useWholesaleStore();

@@ -4,13 +4,10 @@ import { computed, onMounted } from "vue";
 import { useRoute } from "vue-router";
 import VapeSmoke from "@/components/VapeSmoke.vue";
 import BottomTabBar from "@/components/BottomTabBar.vue";
-import WholesaleStatusBar from "@/components/WholesaleStatusBar.vue";
 import BlockedScreen from "@/components/BlockedScreen.vue";
-import { useWholesaleStore } from "@/stores/wholesale";
 import { useCustomerBlock } from "@/composables/useCustomerBlock";
 
 const route = useRoute();
-const wholesaleStore = useWholesaleStore();
 const { currentBlock, isBlocked, refreshBlock } = useCustomerBlock();
 
 // Экран блокировки клиента не показываем в админке —
@@ -24,18 +21,8 @@ const showTabBar = computed(() => {
   if (path.startsWith("/admin")) return false;
   if (path === "/checkout") return false;
   if (path === "/my-order") return false;
-  if (wholesaleStore.isWholesale) return false;
-  return true;
-});
-
-const showWholesaleStatusBar = computed(() => {
-  const path = route.path;
-  if (!wholesaleStore.isWholesale) return false;
-  if (path.startsWith("/admin")) return false;
-  if (path === "/checkout") return false;
-  if (path === "/my-order") return false;
-  if (route.name === "product") return false;
-  if (route.name === "wholesale-entry") return false;
+  // Опт получает свой набор табов вместо скрытого футера -
+  // см. docs/wholesale-rules.md и спецификацию рулетки.
   return true;
 });
 
@@ -52,7 +39,7 @@ onMounted(() => {
 <template>
   <div
     class="app-shell"
-    :class="{ 'app-shell--with-tab-bar': showTabBar || showWholesaleStatusBar }"
+    :class="{ 'app-shell--with-tab-bar': showTabBar }"
     style="background: var(--app-page-background, #ffffff)"
   >
     <div class="app-shell__content">
@@ -64,7 +51,6 @@ onMounted(() => {
     </div>
     <VapeSmoke />
     <BottomTabBar v-if="showTabBar" />
-    <WholesaleStatusBar v-if="showWholesaleStatusBar" />
     <BlockedScreen
       v-if="showBlockedScreen"
       :reason="currentBlock?.reason ?? null"
