@@ -196,17 +196,27 @@ function pickWeightedRandom(prizes, rng = Math.random) {
   return prizes[prizes.length - 1];
 }
 
+function toSqliteDateTime(value) {
+  if (!value) return "1970-01-01 00:00:00";
+  const str = String(value);
+  if (str.includes("T")) {
+    return str.replace("T", " ").replace(/\.\d+Z?$/, "").replace(/Z$/, "");
+  }
+  return str;
+}
+
 function getCustomerProfitSince(customerId, sinceIso) {
   if (!customerId) return 0;
+  const sinceSqlite = toSqliteDateTime(sinceIso);
   const row = db
     .prepare(
       `SELECT COALESCE(SUM(profit), 0) AS total
        FROM orders
        WHERE customer_id = ?
          AND status IN ('delivered','completed')
-         AND COALESCE(completed_at, created_at) >= COALESCE(?, '1970-01-01')`,
+         AND COALESCE(completed_at, created_at) >= ?`,
     )
-    .get(customerId, sinceIso);
+    .get(customerId, sinceSqlite);
   return safeNumber(row?.total, 0);
 }
 
@@ -350,6 +360,19 @@ function ensureActiveEpicPool(prize) {
   return db.prepare("SELECT * FROM wheel_epic_pools WHERE id = ?").get(id);
 }
 
+function getEpicReferenceSince(prize, settings) {
+  const lastClosed = db
+    .prepare(
+      `SELECT closed_at FROM wheel_epic_pools
+       WHERE prize_id = ? AND is_active = 0
+       ORDER BY closed_at DESC
+       LIMIT 1`,
+    )
+    .get(prize.id);
+  if (lastClosed?.closed_at) return lastClosed.closed_at;
+  return settings.start_collecting_at || "1970-01-01T00:00:00.000Z";
+}
+
 /**
  * For each active epic prize, recompute pool membership for the given
  * customer. Idempotent. Should be called whenever an order transitions to
@@ -363,9 +386,7 @@ export function registerCustomerProfitForEpicPools(customerId) {
 
   for (const prize of epicPrizes) {
     const pool = ensureActiveEpicPool(prize);
-    const since = pool.opened_at > (settings.start_collecting_at || "")
-      ? pool.opened_at
-      : settings.start_collecting_at;
+    const since = getEpicReferenceSince(prize, settings);
     const profit = getCustomerProfitSince(customerId, since);
     if (profit < safeNumber(pool.threshold_byn, 0)) continue;
 

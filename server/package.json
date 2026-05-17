@@ -7,7 +7,7 @@
     "start": "node index.js",
     "dev": "node index.js",
     "start:bot": "node bot.js",
-    "test": "node tests/public-order-smoke.test.js && node tests/wholesale-smoke.test.js && node tests/promo-lifecycle-smoke.test.js && node tests/promo-migration-smoke.test.js && node tests/loyalty-smoke.test.js && node tests/cash-pacing.test.js && node tests/low-stock-groups.test.js && node tests/agreements.test.js && node tests/business-bot.test.js && node tests/auto-notify.test.js && node tests/userbot-client.test.js && node tests/crm-userbot-hypotheses.test.js",
+    "test": "node tests/public-order-smoke.test.js && node tests/wholesale-smoke.test.js && node tests/promo-lifecycle-smoke.test.js && node tests/promo-migration-smoke.test.js && node tests/loyalty-smoke.test.js && node tests/cash-pacing.test.js && node tests/low-stock-groups.test.js && node tests/agreements.test.js && node tests/business-bot.test.js && node tests/auto-notify.test.js && node tests/userbot-client.test.js && node tests/crm-userbot-hypotheses.test.js && node tests/wheel-spin.test.js && node tests/wheel-epic.test.js && node tests/wheel-balance.test.js",
     "lint": "node -e \"console.log('Server lint not configured; skipping.')\""
   },
   "dependencies": {
