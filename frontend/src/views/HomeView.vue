@@ -50,7 +50,7 @@
         </button>
       </section>
 
-      <section class="wheel-home-widget-section">
+      <section v-if="!wholesaleStore.isWholesale" class="wheel-home-widget-section">
         <WheelHomeWidget />
       </section>
 

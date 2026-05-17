@@ -65,7 +65,7 @@ const imageBackground = computed(() => {
   display: flex;
   flex-direction: column;
   align-items: stretch;
-  border-radius: 22px;
+  border-radius: 20px;
   background: #ffffff;
   box-shadow: 0 4px 16px rgba(15, 23, 42, 0.08);
   overflow: hidden;

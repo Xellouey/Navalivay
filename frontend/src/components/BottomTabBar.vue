@@ -101,17 +101,17 @@
               :stroke="isActive(tab.path) ? '#fff' : 'rgba(255,255,255,0.64)'"
               stroke-width="1.8"
             />
-            <circle
-              cx="12"
-              cy="12"
-              r="2.2"
-              :fill="isActive(tab.path) ? '#fff' : 'rgba(255,255,255,0.64)'"
-            />
             <path
-              d="M12 3V8M12 16V21M3 12H8M16 12H21"
+              d="M3 12H21M12 3V21"
               :stroke="isActive(tab.path) ? '#fff' : 'rgba(255,255,255,0.64)'"
               stroke-width="1.8"
               stroke-linecap="round"
+            />
+            <circle
+              cx="12"
+              cy="12"
+              r="3"
+              :fill="isActive(tab.path) ? '#fff' : 'rgba(255,255,255,0.64)'"
             />
           </svg>
 

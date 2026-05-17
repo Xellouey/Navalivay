@@ -30,13 +30,30 @@
       </div>
 
       <div class="wheel-hero__strip-wrap">
-        <WheelStrip
-          ref="stripRef"
-          :prizes="strippedPrizes"
-        />
+        <template v-if="showSkeleton">
+          <div class="wheel-hero__strip-skeleton" aria-hidden="true">
+            <span
+              v-for="n in 5"
+              :key="n"
+              class="wheel-hero__strip-skeleton-card"
+            ></span>
+          </div>
+        </template>
+        <template v-else>
+          <WheelStrip
+            ref="stripRef"
+            :prizes="strippedPrizes"
+          />
+        </template>
       </div>
 
-      <div class="wheel-hero__progress" v-if="!hasSpins">
+      <div v-if="showSkeleton" class="wheel-hero__progress">
+        <div class="wheel-hero__progress-track">
+          <span class="wheel-hero__progress-fill wheel-hero__progress-fill--skeleton"></span>
+        </div>
+        <p class="wheel-hero__progress-text">Загружаем рулетку…</p>
+      </div>
+      <div class="wheel-hero__progress" v-else-if="!hasSpins">
         <div class="wheel-hero__progress-track">
           <span
             class="wheel-hero__progress-fill"
@@ -51,16 +68,20 @@
       <button
         type="button"
         class="wheel-hero__cta"
-        :class="{ 'wheel-hero__cta--disabled': !hasSpins || wheelStore.isSpinning }"
-        :disabled="!hasSpins || wheelStore.isSpinning"
+        :class="{ 'wheel-hero__cta--disabled': showSkeleton || !hasSpins || wheelStore.isSpinning }"
+        :disabled="showSkeleton || !hasSpins || wheelStore.isSpinning"
         @click="spin"
       >
-        <template v-if="wheelStore.isSpinning">Крутится...</template>
+        <template v-if="showSkeleton">Загрузка…</template>
+        <template v-else-if="wheelStore.isSpinning">Крутится...</template>
         <template v-else-if="hasSpins">Крутить</template>
         <template v-else>Скоро будет спин</template>
       </button>
 
-      <p class="wheel-hero__balance">
+      <p v-if="showSkeleton" class="wheel-hero__balance wheel-hero__balance--skeleton" aria-hidden="true">
+        &nbsp;
+      </p>
+      <p v-else class="wheel-hero__balance">
         Осталось {{ spinsAvailable }} {{ spinsWord }}
       </p>
     </header>
@@ -115,38 +136,50 @@
       </router-link>
     </section>
 
-    <Transition name="wheel-modal-fade">
-      <div v-if="showResult" class="wheel-result-overlay" @click.self="closeResult">
-        <div class="wheel-result-card">
-          <div
-            v-if="lastResult?.prize"
-            class="wheel-result-card__rarity-band"
-            :style="{ background: rarityColor(lastResult.prize.rarity_code) }"
-          >
-            {{ rarityLabel(lastResult.prize.rarity_code) }}
-          </div>
-          <p class="wheel-result-card__kicker">
-            {{ lastResult?.is_epic_release ? 'Эпическая выдача' : lastResult?.is_pity_release ? 'Гарантированный приз' : 'Тебе выпало' }}
-          </p>
-          <h2 class="wheel-result-card__title">
-            {{ lastResult?.prize?.title || '—' }}
-          </h2>
-          <p v-if="lastResult?.prize?.description" class="wheel-result-card__desc">
-            {{ lastResult.prize.description }}
-          </p>
-          <p v-if="lastResult?.promo_code" class="wheel-result-card__promo">
-            <span class="wheel-result-card__promo-label">Промокод</span>
-            <span class="wheel-result-card__promo-code">{{ lastResult.promo_code }}</span>
-          </p>
-          <p v-if="lastResult?.promo_valid_until" class="wheel-result-card__valid">
-            Действует до {{ formatDate(lastResult.promo_valid_until) }}
-          </p>
-          <button type="button" class="wheel-result-card__cta" @click="closeResult">
-            Забрать
-          </button>
+    <CustomerModalShell
+      :open="showResult"
+      :title="modalTitle"
+      reserve-tab-bar
+      @close="closeResult"
+    >
+      <div v-if="lastResult?.prize" class="wheel-result-body">
+        <div
+          v-if="lastResult.prize.rarity_code"
+          class="wheel-result-body__rarity-band"
+          :style="{ background: rarityColor(lastResult.prize.rarity_code) }"
+        >
+          {{ rarityLabel(lastResult.prize.rarity_code) }}
         </div>
+        <p class="wheel-result-body__kicker">{{ resultKicker }}</p>
+        <h3 class="wheel-result-body__title">
+          {{ lastResult.prize.title || '—' }}
+        </h3>
+        <p v-if="lastResult.prize.description" class="wheel-result-body__desc">
+          {{ lastResult.prize.description }}
+        </p>
+        <div v-if="lastResult.promo_code" class="wheel-result-body__promo">
+          <span class="wheel-result-body__promo-label">Промокод</span>
+          <span class="wheel-result-body__promo-code">{{ lastResult.promo_code }}</span>
+        </div>
+        <p v-if="lastResult.promo_valid_until" class="wheel-result-body__valid">
+          Действует до {{ formatDate(lastResult.promo_valid_until) }}
+        </p>
       </div>
-    </Transition>
+
+      <template #footer>
+        <button type="button" class="wheel-result-cta" @click="closeResult">
+          Забрать
+        </button>
+      </template>
+    </CustomerModalShell>
+
+    <ToastNotification
+      v-if="toastMessage"
+      :key="toastKey"
+      :message="toastMessage"
+      type="error"
+      @close="toastMessage = ''"
+    />
   </div>
 </template>
 
@@ -155,6 +188,8 @@ import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import WheelStrip from '@/components/wheel/WheelStrip.vue'
 import WheelLiveFeed from '@/components/wheel/WheelLiveFeed.vue'
+import CustomerModalShell from '@/components/CustomerModalShell.vue'
+import ToastNotification from '@/components/ToastNotification.vue'
 import { useWheelStore, type WheelPrize, type WheelSpinResult } from '@/stores/wheel'
 
 const wheelStore = useWheelStore()
@@ -162,6 +197,9 @@ const router = useRouter()
 const stripRef = ref<InstanceType<typeof WheelStrip> | null>(null)
 const showResult = ref(false)
 const lastResult = ref<WheelSpinResult | null>(null)
+const toastMessage = ref('')
+const toastKey = ref(0)
+const hasLoadedOnce = ref(false)
 
 const strippedPrizes = computed<WheelPrize[]>(() => wheelStore.sortedPrizes)
 const spinsAvailable = computed(() => wheelStore.balance.spins_available)
@@ -173,6 +211,15 @@ const progressPercent = computed(() => wheelStore.balance.progress_percent)
 const hasSpins = computed(() => wheelStore.hasSpins)
 const activePrizesCount = computed(() => wheelStore.myActivePrizes.length)
 
+// S16: skeleton until first /api/wheel/state has actually returned. Until
+// then we don't know whether the user has spins, what the threshold is,
+// or even whether the wheel is enabled. Showing concrete copy ("Скоро
+// будет спин", "Осталось 0 прокруток") for that empty in-between state
+// is misleading.
+const showSkeleton = computed(
+  () => !hasLoadedOnce.value && wheelStore.isLoading,
+)
+
 const spinsWord = computed(() => {
   const n = spinsAvailable.value
   if (n % 10 === 1 && n % 100 !== 11) return 'прокрутка'
@@ -180,6 +227,18 @@ const spinsWord = computed(() => {
     return 'прокрутки'
   }
   return 'прокруток'
+})
+
+const resultKicker = computed(() => {
+  if (lastResult.value?.is_epic_release) return 'Эпическая выдача'
+  if (lastResult.value?.is_pity_release) return 'Гарантированный приз'
+  return 'Тебе выпало'
+})
+
+const modalTitle = computed(() => {
+  if (lastResult.value?.is_epic_release) return 'Эпический приз'
+  if (lastResult.value?.is_pity_release) return 'Гарантированный приз'
+  return 'Поздравляем'
 })
 
 function rarityColor(code: string): string {
@@ -199,19 +258,53 @@ function formatDate(iso: string): string {
   return date.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' })
 }
 
+function showToast(message: string) {
+  toastMessage.value = message
+  toastKey.value += 1
+}
+
+function spinErrorMessage(error: unknown): string {
+  const code = (error as { code?: string })?.code
+  if (code === 'not_enough_spins') {
+    return 'Недостаточно спинов. Сделай заказ, чтобы получить ещё.'
+  }
+  if (code === 'wheel_disabled') {
+    return 'Рулетка временно недоступна. Попробуй позже.'
+  }
+  if (code === 'no_prizes_configured' || code === 'no_prizes_available') {
+    return 'Призы пока не настроены. Скоро всё заработает.'
+  }
+  if (code === 'customer_not_found') {
+    return 'Не получилось найти твой профиль. Открой Mini App заново.'
+  }
+  return 'Не удалось крутить рулетку. Проверь интернет и попробуй снова.'
+}
+
 async function spin() {
   if (!hasSpins.value || wheelStore.isSpinning) return
+  let result: WheelSpinResult | null = null
   try {
-    const result = await wheelStore.spin()
+    result = await wheelStore.spin()
     lastResult.value = result
+  } catch (error) {
+    console.error('[wheel] spin error', error)
+    showToast(spinErrorMessage(error))
+    return
+  }
+
+  // S12: even if the strip animation can't run (e.g. prize_id missing
+  // from the local pool, ref unmounted, animation throw), the spin is
+  // already committed server-side and the customer paid one spin. Show
+  // the result modal regardless so they see what they won.
+  try {
     await stripRef.value?.runSpin({
       prizeId: result.prize.id,
       seed: result.animation_seed,
     })
-    showResult.value = true
-  } catch (error) {
-    console.error('[wheel] spin error', error)
+  } catch (animError) {
+    console.warn('[wheel] strip animation error (non-fatal)', animError)
   }
+  showResult.value = true
 }
 
 function closeResult() {
@@ -237,6 +330,9 @@ onMounted(async () => {
     await wheelStore.fetchState()
   } catch (error) {
     console.error('[wheel] state error', error)
+    showToast('Не удалось загрузить рулетку. Открой страницу заново.')
+  } finally {
+    hasLoadedOnce.value = true
   }
 })
 </script>
@@ -294,6 +390,38 @@ onMounted(async () => {
   margin-bottom: 18px;
 }
 
+.wheel-hero__strip-skeleton {
+  display: flex;
+  gap: 16px;
+  height: 192px;
+  align-items: center;
+  padding: 16px;
+  overflow: hidden;
+}
+
+.wheel-hero__strip-skeleton-card {
+  flex: 0 0 140px;
+  height: 156px;
+  border-radius: 22px;
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0.18) 0%,
+    rgba(255, 255, 255, 0.32) 50%,
+    rgba(255, 255, 255, 0.18) 100%
+  );
+  background-size: 200% 100%;
+  animation: wheel-skeleton-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes wheel-skeleton-pulse {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
 .wheel-hero__progress {
   margin: 0 24px 18px;
   display: flex;
@@ -316,6 +444,18 @@ onMounted(async () => {
   width: 0%;
   background: #ffffff;
   transition: width 0.4s ease;
+}
+
+.wheel-hero__progress-fill--skeleton {
+  width: 40%;
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0.4) 0%,
+    rgba(255, 255, 255, 0.85) 50%,
+    rgba(255, 255, 255, 0.4) 100%
+  );
+  background-size: 200% 100%;
+  animation: wheel-skeleton-pulse 1.6s ease-in-out infinite;
 }
 
 .wheel-hero__progress-text {
@@ -358,6 +498,11 @@ onMounted(async () => {
   font-family: 'SF Pro Display', system-ui, sans-serif;
   font-size: 13px;
   color: rgba(255, 255, 255, 0.85);
+  min-height: 16px;
+}
+
+.wheel-hero__balance--skeleton {
+  visibility: hidden;
 }
 
 .wheel-main {
@@ -430,79 +575,65 @@ onMounted(async () => {
   display: inline-flex;
 }
 
-.wheel-result-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(15, 23, 42, 0.55);
-  backdrop-filter: blur(8px);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 24px;
-  z-index: 200;
-}
-
-.wheel-result-card {
-  width: 100%;
-  max-width: 340px;
-  background: #ffffff;
-  border-radius: 28px;
-  padding: 28px 24px 24px;
+.wheel-result-body {
   display: flex;
   flex-direction: column;
   align-items: center;
   text-align: center;
-  position: relative;
-  box-shadow: 0 24px 48px rgba(15, 23, 42, 0.24);
+  gap: 8px;
+  padding-top: 4px;
 }
 
-.wheel-result-card__rarity-band {
-  position: absolute;
-  top: -12px;
-  padding: 6px 14px;
+.wheel-result-body__rarity-band {
+  display: inline-flex;
+  align-items: center;
+  height: 24px;
+  padding: 0 14px;
   border-radius: 999px;
   font-family: 'Montserrat', sans-serif;
   font-weight: 700;
   font-size: 11px;
   letter-spacing: 0.06em;
   text-transform: uppercase;
+  color: #ffffff;
+  margin-bottom: 4px;
 }
 
-.wheel-result-card__kicker {
-  margin: 8px 0 6px;
+.wheel-result-body__kicker {
+  margin: 0;
   font-family: 'SF Pro Display', system-ui, sans-serif;
   font-size: 13px;
   color: #5c6470;
 }
 
-.wheel-result-card__title {
-  margin: 0 0 8px;
+.wheel-result-body__title {
+  margin: 0;
   font-family: 'Montserrat', sans-serif;
   font-weight: 700;
   font-size: 22px;
   color: #1f2933;
 }
 
-.wheel-result-card__desc {
-  margin: 0 0 16px;
+.wheel-result-body__desc {
+  margin: 0;
   font-family: 'SF Pro Display', system-ui, sans-serif;
   font-size: 14px;
   color: #5c6470;
 }
 
-.wheel-result-card__promo {
+.wheel-result-body__promo {
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 4px;
-  margin: 0 0 8px;
+  margin-top: 8px;
   background: rgba(245, 3, 2, 0.08);
   padding: 12px 16px;
   border-radius: 16px;
   width: 100%;
 }
 
-.wheel-result-card__promo-label {
+.wheel-result-body__promo-label {
   font-family: 'SF Pro Display', system-ui, sans-serif;
   font-size: 12px;
   color: #5c6470;
@@ -510,7 +641,7 @@ onMounted(async () => {
   letter-spacing: 0.06em;
 }
 
-.wheel-result-card__promo-code {
+.wheel-result-body__promo-code {
   font-family: 'Montserrat', sans-serif;
   font-weight: 700;
   font-size: 18px;
@@ -518,14 +649,14 @@ onMounted(async () => {
   letter-spacing: 0.05em;
 }
 
-.wheel-result-card__valid {
-  margin: 0 0 16px;
+.wheel-result-body__valid {
+  margin: 0;
   font-family: 'SF Pro Display', system-ui, sans-serif;
   font-size: 12px;
   color: #9aa0a6;
 }
 
-.wheel-result-card__cta {
+.wheel-result-cta {
   width: 100%;
   height: 48px;
   border: none;
@@ -538,13 +669,10 @@ onMounted(async () => {
   cursor: pointer;
 }
 
-.wheel-modal-fade-enter-active,
-.wheel-modal-fade-leave-active {
-  transition: opacity 0.25s ease;
-}
-
-.wheel-modal-fade-enter-from,
-.wheel-modal-fade-leave-to {
-  opacity: 0;
+@media (prefers-reduced-motion: reduce) {
+  .wheel-hero__strip-skeleton-card,
+  .wheel-hero__progress-fill--skeleton {
+    animation: none;
+  }
 }
 </style>

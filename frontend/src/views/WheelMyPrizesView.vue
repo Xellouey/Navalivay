@@ -29,7 +29,7 @@
 
     <main class="wheel-prizes-content">
       <p v-if="!prizes.length" class="wheel-prizes-empty">
-        Пока ничего нет. Заработай спин и крути рулетку.
+        {{ emptyStateMessage }}
       </p>
       <article
         v-for="prize in prizes"
@@ -100,12 +100,26 @@ let toastTimer: ReturnType<typeof setTimeout> | null = null
 
 const tabs: Array<{ key: WheelPrizeFilter; label: string }> = [
   { key: 'active', label: 'Активные' },
-  { key: 'used', label: 'Использованные' },
-  { key: 'expired', label: 'Просроченные' },
+  { key: 'used', label: 'Применённые' },
+  { key: 'expired', label: 'Истёкшие' },
   { key: 'all', label: 'Все' },
 ]
 
 const prizes = computed<WheelMyPrize[]>(() => wheelStore.myAllPrizes)
+
+const emptyStateMessage = computed(() => {
+  switch (activeTab.value) {
+    case 'active':
+      return 'Пока нет активных промокодов. Крутни рулетку, чтобы выиграть.'
+    case 'used':
+      return 'Ты ещё не использовал ни один приз.'
+    case 'expired':
+      return 'Просроченных призов нет.'
+    case 'all':
+    default:
+      return 'Здесь будут все твои выигрыши.'
+  }
+})
 
 function setTab(tab: WheelPrizeFilter) {
   if (tab === activeTab.value) return
@@ -215,9 +229,10 @@ onMounted(async () => {
 }
 
 .wheel-prizes-tab--active {
-  background: #1f2933;
+  background: linear-gradient(106.76deg, #f50302 -2.64%, #a90f0e 85.78%);
   color: #ffffff;
-  border-color: #1f2933;
+  border-color: transparent;
+  box-shadow: 0 4px 12px rgba(245, 3, 2, 0.2);
 }
 
 .wheel-prizes-content {

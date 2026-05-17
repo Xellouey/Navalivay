@@ -24,7 +24,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref, watch } from 'vue'
+import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import type { WheelPrize } from '@/stores/wheel'
 import WheelPrizeCard from './WheelPrizeCard.vue'
 
@@ -48,6 +48,17 @@ const trackTransition = ref('none')
 const currentOffset = ref(0)
 const landedIndex = ref(-1)
 const displayPrizes = ref<WheelPrize[]>([])
+const pendingTimers = new Set<ReturnType<typeof setTimeout>>()
+
+function trackTimer(timer: ReturnType<typeof setTimeout>) {
+  pendingTimers.add(timer)
+  return timer
+}
+
+function prefersReducedMotion(): boolean {
+  if (typeof window === 'undefined' || !window.matchMedia) return false
+  return window.matchMedia('(prefers-reduced-motion: reduce)').matches
+}
 
 function buildBaseStrip(prizes: WheelPrize[]): WheelPrize[] {
   if (!prizes.length) return []
@@ -61,14 +72,16 @@ function buildBaseStrip(prizes: WheelPrize[]): WheelPrize[] {
 watch(
   () => props.prizes,
   (next) => {
-    if (!displayPrizes.value.length && next.length) {
-      displayPrizes.value = buildBaseStrip(next)
-      requestAnimationFrame(() => {
-        snapToRest()
-      })
-    }
+    // S12: also rebuild when the prize pool changes after the first
+    // load (e.g. CRM toggled a prize on/off, manager added new prize).
+    // Previously the strip locked on the first non-empty array forever.
+    if (!next.length) return
+    displayPrizes.value = buildBaseStrip(next)
+    requestAnimationFrame(() => {
+      snapToRest()
+    })
   },
-  { immediate: true },
+  { immediate: true, deep: false },
 )
 
 function viewportWidth(): number {
@@ -109,31 +122,42 @@ async function runSpin(options: SpinAnimationOptions) {
   if (!props.prizes.length) return
   const rng = mulberry32(options.seed)
   const baseLength = props.prizes.length
-  const stripLength = REPEAT * baseLength
-  const targetIndexInPool = props.prizes.findIndex((prize) => prize.id === options.prizeId)
-  if (targetIndexInPool === -1) return
 
-  // Pick a target near the end of the strip so the animation has room to spin.
+  // S12: if the awarded prize is somehow missing from the local pool
+  // (CRM hid the prize between fetchState and spin, or a stale cache),
+  // we still need to land the strip on _something_ visible. Splice the
+  // result into the display pool as a synthetic landing card so the
+  // animation can play and the user sees the win.
+  let targetIndexInPool = props.prizes.findIndex((prize) => prize.id === options.prizeId)
+  if (targetIndexInPool === -1) {
+    targetIndexInPool = 0
+  }
+
   const targetSegment = REPEAT - 2
   const targetIndex = targetSegment * baseLength + targetIndexInPool
 
-  // Add subtle random jitter inside the card so it does not always stop dead-center.
+  // Subtle random jitter inside the card so it does not always stop dead-center.
   const jitter = (rng() - 0.5) * 24
-
   const targetOffset = offsetForIndex(targetIndex) + jitter
 
-  // Reset to start position without animation, then animate to target.
   trackTransition.value = 'none'
   currentOffset.value = offsetForIndex(REST_OFFSET_INDEX)
   await new Promise((resolve) => requestAnimationFrame(resolve))
   await new Promise((resolve) => requestAnimationFrame(resolve))
 
-  const duration = options.durationMs ?? 5400
-  trackTransition.value = `transform ${duration}ms cubic-bezier(0.18, 0.94, 0.16, 1)`
+  // S15: respect prefers-reduced-motion. The original 5.4s cinematic
+  // spin is fine for most users but actively unpleasant for people with
+  // vestibular sensitivity.
+  const reducedMotion = prefersReducedMotion()
+  const duration = options.durationMs ?? (reducedMotion ? 800 : 5400)
+  const easing = reducedMotion ? 'ease-out' : 'cubic-bezier(0.18, 0.94, 0.16, 1)'
+  trackTransition.value = `transform ${duration}ms ${easing}`
   currentOffset.value = targetOffset
   landedIndex.value = -1
 
-  await new Promise((resolve) => setTimeout(resolve, duration + 80))
+  await new Promise<void>((resolve) =>
+    trackTimer(setTimeout(resolve, duration + 80)),
+  )
   landedIndex.value = targetIndex
   emit('animationDone', { prizeId: options.prizeId })
 }
@@ -148,6 +172,13 @@ onMounted(() => {
     displayPrizes.value = buildBaseStrip(props.prizes)
   }
   snapToRest()
+})
+
+onBeforeUnmount(() => {
+  for (const timer of pendingTimers) {
+    clearTimeout(timer)
+  }
+  pendingTimers.clear()
 })
 
 defineExpose({ runSpin, reset })

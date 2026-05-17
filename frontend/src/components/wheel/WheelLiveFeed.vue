@@ -1,6 +1,6 @@
 <template>
-  <div v-if="items.length" class="wheel-live-feed" aria-label="Последние выигрыши">
-    <div class="wheel-live-feed__inner">
+  <div class="wheel-live-feed" aria-label="Последние выигрыши">
+    <div v-if="items.length" class="wheel-live-feed__inner">
       <div class="wheel-live-feed__row" :style="{ animationDuration: `${animationSeconds}s` }">
         <div
           v-for="(item, index) in repeated"
@@ -30,6 +30,12 @@
         </div>
       </div>
     </div>
+    <div v-else class="wheel-live-feed__empty" role="status">
+      <span class="wheel-live-feed__empty-spark" aria-hidden="true">★</span>
+      <p class="wheel-live-feed__empty-text">
+        Будь первым: крути рулетку и попади в ленту выигрышей
+      </p>
+    </div>
   </div>
 </template>
 
@@ -48,9 +54,20 @@ const repeated = computed(() => {
 
 const animationSeconds = computed(() => Math.max(20, props.items.length * 3))
 
+// S20: timestamps from the server arrive in two shapes:
+//  1. SQLite "YYYY-MM-DD HH:MM:SS" (UTC, no offset) — most common today.
+//  2. ISO "...T...Z" or "...T...+03:00" — for legacy / future-proofing.
+// Without a timezone, JavaScript treats the SQLite shape as local time
+// and produces wrong "10 ч назад"-style relatives. Normalize both into a
+// real ISO string before constructing the Date.
 function formatRelative(iso: string): string {
   if (!iso) return ''
-  const date = new Date(iso.includes('T') ? iso : iso.replace(' ', 'T') + 'Z')
+  const isoNormalized = iso.includes('T')
+    ? /[Z+\-]\d{2}:?\d{2}$/.test(iso)
+      ? iso
+      : `${iso}Z`
+    : `${iso.replace(' ', 'T')}Z`
+  const date = new Date(isoNormalized)
   const diff = Date.now() - date.getTime()
   if (Number.isNaN(diff) || diff < 0) return 'только что'
   const minutes = Math.floor(diff / 60000)
@@ -174,6 +191,42 @@ function formatRelative(iso: string): string {
   }
   to {
     transform: translate3d(-50%, 0, 0);
+  }
+}
+
+.wheel-live-feed__empty {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+}
+
+.wheel-live-feed__empty-spark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: rgba(245, 3, 2, 0.1);
+  color: #f50302;
+  font-family: 'Montserrat', sans-serif;
+  font-weight: 700;
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+.wheel-live-feed__empty-text {
+  margin: 0;
+  font-family: 'SF Pro Display', system-ui, sans-serif;
+  font-size: 13px;
+  color: #5c6470;
+  line-height: 1.3;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wheel-live-feed__row {
+    animation: none;
   }
 }
 </style>
