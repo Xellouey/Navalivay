@@ -1,32 +1,37 @@
 <template>
-  <router-link to="/wheel" class="wheel-home-widget" aria-label="Открыть рулетку призов">
+  <router-link
+    to="/wheel"
+    class="wheel-home-widget"
+    :class="`wheel-home-widget--${variant}`"
+    aria-label="Открыть рулетку призов"
+  >
     <div class="wheel-home-widget__glow" aria-hidden="true"></div>
     <div class="wheel-home-widget__icon" aria-hidden="true">
       <svg width="44" height="44" viewBox="0 0 44 44" fill="none">
-        <circle cx="22" cy="22" r="21" stroke="#FFFFFF" stroke-width="1.6" stroke-opacity="0.6" />
-        <circle cx="22" cy="22" r="13" stroke="#FFFFFF" stroke-width="1.6" />
-        <circle cx="22" cy="22" r="2.6" fill="#FFFFFF" />
+        <circle cx="22" cy="22" r="21" :stroke="iconStroke" stroke-width="1.6" stroke-opacity="0.6" />
+        <circle cx="22" cy="22" r="13" :stroke="iconStroke" stroke-width="1.6" />
+        <circle cx="22" cy="22" r="2.6" :fill="iconStroke" />
         <path
           d="M22 4 V18"
-          stroke="#FFFFFF"
+          :stroke="iconStroke"
           stroke-width="1.6"
           stroke-linecap="round"
         />
         <path
           d="M22 26 V40"
-          stroke="#FFFFFF"
+          :stroke="iconStroke"
           stroke-width="1.6"
           stroke-linecap="round"
         />
         <path
           d="M4 22 H18"
-          stroke="#FFFFFF"
+          :stroke="iconStroke"
           stroke-width="1.6"
           stroke-linecap="round"
         />
         <path
           d="M26 22 H40"
-          stroke="#FFFFFF"
+          :stroke="iconStroke"
           stroke-width="1.6"
           stroke-linecap="round"
         />
@@ -53,7 +58,7 @@
       <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
         <path
           d="M6 4L12 9L6 14"
-          stroke="#FFFFFF"
+          :stroke="arrowStroke"
           stroke-width="1.8"
           stroke-linecap="round"
           stroke-linejoin="round"
@@ -67,11 +72,14 @@
 import { computed, onMounted } from 'vue'
 import { useWheelStore } from '@/stores/wheel'
 
+type WheelHomeWidgetVariant = 'red' | 'subtle'
+
 const props = withDefaults(
   defineProps<{
     autoLoad?: boolean
+    variant?: WheelHomeWidgetVariant
   }>(),
-  { autoLoad: true },
+  { autoLoad: true, variant: 'red' },
 )
 
 const wheelStore = useWheelStore()
@@ -99,6 +107,14 @@ const spinsLabel = computed(() => {
   if ([2, 3, 4].includes(n % 10) && ![12, 13, 14].includes(n % 100)) return 'спина'
   return 'спинов'
 })
+
+// C2-UX: when HomeView already shows a red active-order banner directly
+// above the widget, two stacked red gradients break the "aggressive red
+// only where attention is needed" canon. The `subtle` variant mirrors
+// the canonical white profile-card language: white surface, red kicker,
+// dark body text, soft restrained shadow.
+const iconStroke = computed(() => (props.variant === 'subtle' ? '#F50302' : '#FFFFFF'))
+const arrowStroke = computed(() => (props.variant === 'subtle' ? '#1F2933' : '#FFFFFF'))
 </script>
 
 <style scoped>
@@ -109,11 +125,23 @@ const spinsLabel = computed(() => {
   gap: 14px;
   padding: 16px 16px 16px 18px;
   border-radius: 22px;
-  background: linear-gradient(106.76deg, #f50302 -2.64%, #a90f0e 85.78%);
-  color: #ffffff;
   text-decoration: none;
   overflow: hidden;
-  box-shadow: 0 8px 24px rgba(245, 3, 2, 0.18);
+}
+
+.wheel-home-widget--red {
+  background: linear-gradient(106.76deg, #f50302 -2.64%, #a90f0e 85.78%);
+  color: #ffffff;
+  box-shadow: 0 8px 16px rgba(97, 1, 0, 0.16);
+}
+
+/* C2-UX subtle variant — белая карточка с красным акцентом, парная
+   к канону loyalty-/profile- белых блоков. Используется когда выше
+   уже есть красная плашка (например, баннер активного заказа). */
+.wheel-home-widget--subtle {
+  background: #ffffff;
+  color: #1f2933;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.06);
 }
 
 .wheel-home-widget__glow {
@@ -126,6 +154,10 @@ const spinsLabel = computed(() => {
   pointer-events: none;
 }
 
+.wheel-home-widget--subtle .wheel-home-widget__glow {
+  background: radial-gradient(circle, rgba(245, 3, 2, 0.06) 0%, rgba(245, 3, 2, 0) 70%);
+}
+
 .wheel-home-widget__icon {
   flex: 0 0 56px;
   width: 56px;
@@ -136,6 +168,11 @@ const spinsLabel = computed(() => {
   background: rgba(255, 255, 255, 0.12);
   border-radius: 18px;
   backdrop-filter: blur(6px);
+}
+
+.wheel-home-widget--subtle .wheel-home-widget__icon {
+  background: rgba(245, 3, 2, 0.08);
+  backdrop-filter: none;
 }
 
 .wheel-home-widget__copy {
@@ -155,6 +192,10 @@ const spinsLabel = computed(() => {
   color: rgba(255, 255, 255, 0.78);
 }
 
+.wheel-home-widget--subtle .wheel-home-widget__kicker {
+  color: #f50302;
+}
+
 .wheel-home-widget__title {
   margin: 0;
   font-family: 'Montserrat', sans-serif;
@@ -163,11 +204,19 @@ const spinsLabel = computed(() => {
   line-height: 1.2;
 }
 
+.wheel-home-widget--subtle .wheel-home-widget__title {
+  color: #1f2933;
+}
+
 .wheel-home-widget__hint {
   margin: 0;
   font-family: 'SF Pro Display', system-ui, sans-serif;
   font-size: 13px;
   color: rgba(255, 255, 255, 0.85);
+}
+
+.wheel-home-widget--subtle .wheel-home-widget__hint {
+  color: #5c6470;
 }
 
 .wheel-home-widget__arrow {
@@ -178,5 +227,9 @@ const spinsLabel = computed(() => {
   display: flex;
   align-items: center;
   justify-content: center;
+}
+
+.wheel-home-widget--subtle .wheel-home-widget__arrow {
+  background: rgba(15, 23, 42, 0.06);
 }
 </style>

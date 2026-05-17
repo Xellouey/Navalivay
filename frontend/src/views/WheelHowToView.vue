@@ -108,6 +108,7 @@ onMounted(() => {
 }
 
 .wheel-howto-back {
+  position: relative;
   width: 36px;
   height: 36px;
   border-radius: 50%;
@@ -118,6 +119,14 @@ onMounted(() => {
   justify-content: center;
   cursor: pointer;
   box-shadow: 0 2px 8px rgba(15, 23, 42, 0.06);
+}
+
+/* S2-3: visual chip 36×36, tap area 44×44 via invisible ::before. */
+.wheel-howto-back::before {
+  content: "";
+  position: absolute;
+  inset: -4px;
+  border-radius: inherit;
 }
 
 .wheel-howto-title {

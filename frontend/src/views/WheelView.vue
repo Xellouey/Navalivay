@@ -48,32 +48,45 @@
       </div>
 
       <div v-if="showSkeleton" class="wheel-hero__progress">
-        <div class="wheel-hero__progress-track">
+        <div
+          class="wheel-hero__progress-track"
+          role="progressbar"
+          aria-valuemin="0"
+          aria-valuemax="100"
+          aria-valuenow="0"
+          aria-label="Загрузка прогресса"
+        >
           <span class="wheel-hero__progress-fill wheel-hero__progress-fill--skeleton"></span>
         </div>
         <p class="wheel-hero__progress-text">Загружаем рулетку…</p>
       </div>
-      <div class="wheel-hero__progress" v-else-if="!hasSpins">
-        <div class="wheel-hero__progress-track">
+      <div class="wheel-hero__progress" v-else-if="showProgress">
+        <div
+          class="wheel-hero__progress-track"
+          role="progressbar"
+          aria-valuemin="0"
+          aria-valuemax="100"
+          :aria-valuenow="progressPercent"
+          :aria-label="progressAriaLabel"
+        >
           <span
             class="wheel-hero__progress-fill"
             :style="{ width: `${progressPercent}%` }"
           ></span>
         </div>
-        <p class="wheel-hero__progress-text">
-          {{ accumulated }} из {{ threshold }} BYN до начисления спина
-        </p>
+        <p class="wheel-hero__progress-text">{{ progressLabel }}</p>
       </div>
 
       <button
         type="button"
         class="wheel-hero__cta"
-        :class="{ 'wheel-hero__cta--disabled': showSkeleton || !hasSpins || wheelStore.isSpinning }"
-        :disabled="showSkeleton || !hasSpins || wheelStore.isSpinning"
+        :class="{ 'wheel-hero__cta--disabled': isSpinDisabled }"
+        :disabled="isSpinDisabled"
+        :aria-busy="wheelStore.isSpinning || isAnimating"
         @click="spin"
       >
         <template v-if="showSkeleton">Загрузка…</template>
-        <template v-else-if="wheelStore.isSpinning">Крутится...</template>
+        <template v-else-if="wheelStore.isSpinning || isAnimating">Крутится...</template>
         <template v-else-if="hasSpins">Крутить</template>
         <template v-else>Скоро будет спин</template>
       </button>
@@ -200,6 +213,14 @@ const lastResult = ref<WheelSpinResult | null>(null)
 const toastMessage = ref('')
 const toastKey = ref(0)
 const hasLoadedOnce = ref(false)
+// C1-UX: `wheelStore.isSpinning` flips back to `false` as soon as the
+// /api/wheel/spin response is received (~300ms), but the CSGO strip
+// animation runs for ~5.4s after that. A second click during those
+// seconds would commit a second server-side spin and burn the spin
+// counter without ever showing the user the second result. `isAnimating`
+// is the local "ongoing visual reveal" flag that stays true for the
+// whole spin → animation → modal flow.
+const isAnimating = ref(false)
 
 const strippedPrizes = computed<WheelPrize[]>(() => wheelStore.sortedPrizes)
 const spinsAvailable = computed(() => wheelStore.balance.spins_available)
@@ -211,6 +232,27 @@ const progressPercent = computed(() => wheelStore.balance.progress_percent)
 const hasSpins = computed(() => wheelStore.hasSpins)
 const activePrizesCount = computed(() => wheelStore.myActivePrizes.length)
 
+// S2-8: progress bar should stay visible whenever there is meaningful
+// progress to show — both when the customer has zero spins (motivates
+// the next purchase) and when they already hold spins but are halfway
+// to the next one. Hide it only when there is literally nothing to
+// progress toward (no balance row yet, threshold misconfigured).
+const showProgress = computed(() => {
+  if (threshold.value <= 0) return false
+  if (!hasSpins.value) return true
+  return accumulated.value > 0
+})
+
+const progressLabel = computed(() => {
+  const remaining = Math.max(0, threshold.value - accumulated.value)
+  if (hasSpins.value && accumulated.value > 0) {
+    return `Ещё ${remaining} BYN до следующего спина`
+  }
+  return `${accumulated.value} из ${threshold.value} BYN до начисления спина`
+})
+
+const progressAriaLabel = computed(() => `Прогресс до следующего спина: ${progressPercent.value}%`)
+
 // S16: skeleton until first /api/wheel/state has actually returned. Until
 // then we don't know whether the user has spins, what the threshold is,
 // or even whether the wheel is enabled. Showing concrete copy ("Скоро
@@ -218,6 +260,10 @@ const activePrizesCount = computed(() => wheelStore.myActivePrizes.length)
 // is misleading.
 const showSkeleton = computed(
   () => !hasLoadedOnce.value && wheelStore.isLoading,
+)
+
+const isSpinDisabled = computed(
+  () => showSkeleton.value || !hasSpins.value || wheelStore.isSpinning || isAnimating.value,
 )
 
 const spinsWord = computed(() => {
@@ -281,36 +327,48 @@ function spinErrorMessage(error: unknown): string {
 }
 
 async function spin() {
-  if (!hasSpins.value || wheelStore.isSpinning) return
+  // C1-UX guard: block while either the network spin is in-flight OR the
+  // CSGO animation is still rolling. Either condition means a second
+  // server-side spin would happen "for free" without the user ever seeing
+  // the previous result.
+  if (!hasSpins.value || wheelStore.isSpinning || isAnimating.value) return
+
+  isAnimating.value = true
   let result: WheelSpinResult | null = null
   try {
-    result = await wheelStore.spin()
-    lastResult.value = result
-  } catch (error) {
-    console.error('[wheel] spin error', error)
-    showToast(spinErrorMessage(error))
-    return
-  }
+    try {
+      result = await wheelStore.spin()
+      lastResult.value = result
+    } catch (error) {
+      console.error('[wheel] spin error', error)
+      showToast(spinErrorMessage(error))
+      return
+    }
 
-  // S12: even if the strip animation can't run (e.g. prize_id missing
-  // from the local pool, ref unmounted, animation throw), the spin is
-  // already committed server-side and the customer paid one spin. Show
-  // the result modal regardless so they see what they won.
-  try {
-    await stripRef.value?.runSpin({
-      prizeId: result.prize.id,
-      seed: result.animation_seed,
-    })
-  } catch (animError) {
-    console.warn('[wheel] strip animation error (non-fatal)', animError)
+    // S12: even if the strip animation can't run (e.g. prize_id missing
+    // from the local pool, ref unmounted, animation throw), the spin is
+    // already committed server-side and the customer paid one spin. Show
+    // the result modal regardless so they see what they won.
+    try {
+      await stripRef.value?.runSpin({
+        prizeId: result.prize.id,
+        seed: result.animation_seed,
+      })
+    } catch (animError) {
+      console.warn('[wheel] strip animation error (non-fatal)', animError)
+    }
+    showResult.value = true
+    // S2-6: refresh state in the background so live-feed and balance
+    // reflect the new spin while the user is still reading the modal.
+    // Closing the modal no longer triggers a second fetch.
+    wheelStore.fetchState().catch(() => undefined)
+  } finally {
+    isAnimating.value = false
   }
-  showResult.value = true
 }
 
 function closeResult() {
   showResult.value = false
-  // refresh state silently to update feed and active prizes after a result.
-  wheelStore.fetchState().catch(() => undefined)
 }
 
 function goBack() {
@@ -350,7 +408,7 @@ onMounted(async () => {
   padding: 18px 0 32px;
   border-bottom-left-radius: 32px;
   border-bottom-right-radius: 32px;
-  box-shadow: 0 16px 40px rgba(245, 3, 2, 0.14);
+  box-shadow: 0 16px 40px rgba(97, 1, 0, 0.16);
 }
 
 .wheel-hero__top {
@@ -363,6 +421,7 @@ onMounted(async () => {
 
 .wheel-hero__back,
 .wheel-hero__help {
+  position: relative;
   width: 36px;
   height: 36px;
   border-radius: 50%;
@@ -376,6 +435,17 @@ onMounted(async () => {
   font-weight: 600;
   font-size: 18px;
   cursor: pointer;
+}
+
+/* S2-3: keep the visual chip at 36px but expand the actual hit-target
+   to 44×44 via an invisible ::before so iOS finger taps near the edge
+   still register. */
+.wheel-hero__back::before,
+.wheel-hero__help::before {
+  content: "";
+  position: absolute;
+  inset: -4px;
+  border-radius: inherit;
 }
 
 .wheel-hero__title {

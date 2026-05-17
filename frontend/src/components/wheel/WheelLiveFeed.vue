@@ -8,12 +8,12 @@
           class="wheel-live-feed__item"
         >
           <div class="wheel-live-feed__avatar">
-            <img v-if="item.photo" :src="item.photo" :alt="item.first_name" />
-            <span v-else>{{ item.first_name.slice(0, 1).toUpperCase() }}</span>
+            <img v-if="item.photo" :src="item.photo" :alt="item.first_name || 'Гость'" />
+            <span v-else>{{ (item.first_name || '?').slice(0, 1).toUpperCase() }}</span>
           </div>
           <div class="wheel-live-feed__copy">
             <p class="wheel-live-feed__line wheel-live-feed__line--name">
-              {{ item.first_name }}{{ item.last_initial ? ` ${item.last_initial}.` : '' }}
+              {{ item.first_name || 'Гость' }}{{ item.last_initial ? ` ${item.last_initial}.` : '' }}
             </p>
             <p class="wheel-live-feed__line wheel-live-feed__line--prize">
               {{ item.prize_title }}
@@ -52,7 +52,12 @@ const repeated = computed(() => {
   return [...props.items, ...props.items]
 })
 
-const animationSeconds = computed(() => Math.max(20, props.items.length * 3))
+// M3-CR: cap the marquee duration so a feed of ~30 entries doesn't
+// produce a 90s+ animation that looks frozen. 60s is roughly 4–5 full
+// passes for a typical feed and keeps the motion noticeable.
+const animationSeconds = computed(() =>
+  Math.min(60, Math.max(20, props.items.length * 3)),
+)
 
 // S20: timestamps from the server arrive in two shapes:
 //  1. SQLite "YYYY-MM-DD HH:MM:SS" (UTC, no offset) — most common today.

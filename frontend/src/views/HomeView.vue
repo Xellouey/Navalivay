@@ -51,7 +51,7 @@
       </section>
 
       <section v-if="!wholesaleStore.isWholesale" class="wheel-home-widget-section">
-        <WheelHomeWidget />
+        <WheelHomeWidget :variant="activeOrder ? 'subtle' : 'red'" />
       </section>
 
       <section class="category-section">

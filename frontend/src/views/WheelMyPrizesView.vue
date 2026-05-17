@@ -35,13 +35,17 @@
         v-for="prize in prizes"
         :key="prize.spin_id"
         class="wheel-prize-row"
+        :class="{
+          'wheel-prize-row--used': Boolean(prize.prize_used_at),
+          'wheel-prize-row--expired': isPrizeExpired(prize),
+        }"
       >
         <div
           class="wheel-prize-row__image"
           :style="{ background: rarityBackground(prize) }"
         >
           <img v-if="prize.prize_image_url" :src="prize.prize_image_url" :alt="prize.prize_title" />
-          <span v-else>{{ prize.prize_title.slice(0, 1).toUpperCase() }}</span>
+          <span v-else>{{ monogramFor(prize.prize_title) }}</span>
         </div>
         <div class="wheel-prize-row__copy">
           <p class="wheel-prize-row__title">{{ prize.prize_title }}</p>
@@ -58,6 +62,18 @@
               }"
             >
               {{ prize.rarity_label }}
+            </span>
+            <span
+              v-if="prize.prize_used_at"
+              class="wheel-prize-row__pill wheel-prize-row__pill--used"
+            >
+              Использован
+            </span>
+            <span
+              v-else-if="isPrizeExpired(prize)"
+              class="wheel-prize-row__pill wheel-prize-row__pill--expired"
+            >
+              Истёк
             </span>
             <span v-if="prize.promo_valid_until" class="wheel-prize-row__valid">
               до {{ formatDate(prize.promo_valid_until) }}
@@ -148,6 +164,26 @@ function rarityBackground(prize: WheelMyPrize): string {
   return `linear-gradient(135deg, ${color}33, ${color}77)`
 }
 
+// S2-7 sibling: monogram never renders empty even if title is missing.
+function monogramFor(value: string | null | undefined): string {
+  return (value || '?').slice(0, 1).toUpperCase()
+}
+
+// M6: an "active" tab item that has already passed its promo deadline
+// should still be visually marked as expired. promo_valid_until comes as
+// either a `YYYY-MM-DD` or full ISO string (S4 emits the ISO form for
+// child wheel codes); both are safe to feed to Date.
+function isPrizeExpired(prize: WheelMyPrize): boolean {
+  if (prize.prize_used_at) return false
+  if (!prize.promo_valid_until) return false
+  const iso = prize.promo_valid_until.length === 10
+    ? `${prize.promo_valid_until}T23:59:59Z`
+    : prize.promo_valid_until
+  const expiry = new Date(iso).getTime()
+  if (Number.isNaN(expiry)) return false
+  return expiry < Date.now()
+}
+
 function formatDate(iso: string): string {
   if (!iso) return ''
   const date = new Date(iso.length === 10 ? `${iso}T12:00:00Z` : iso)
@@ -183,6 +219,7 @@ onMounted(async () => {
 }
 
 .wheel-prizes-back {
+  position: relative;
   width: 36px;
   height: 36px;
   border-radius: 50%;
@@ -195,6 +232,14 @@ onMounted(async () => {
   box-shadow: 0 2px 8px rgba(15, 23, 42, 0.06);
 }
 
+/* S2-3: 36×36 visual chip with a 44×44 invisible tap target. */
+.wheel-prizes-back::before {
+  content: "";
+  position: absolute;
+  inset: -4px;
+  border-radius: inherit;
+}
+
 .wheel-prizes-title {
   font-family: 'Montserrat', sans-serif;
   font-weight: 700;
@@ -203,21 +248,21 @@ onMounted(async () => {
   margin: 0;
 }
 
+/* S2-2: equal-width tabs that never overflow horizontally. The previous
+   overflow-x:auto layout made the active tab grow beyond its slot and
+   pushed the rest off-screen on 360px devices. */
 .wheel-prizes-tabs {
   display: flex;
   gap: 8px;
   padding: 0 16px;
   margin-bottom: 12px;
-  overflow-x: auto;
-  scrollbar-width: none;
-}
-
-.wheel-prizes-tabs::-webkit-scrollbar {
-  display: none;
 }
 
 .wheel-prizes-tab {
-  padding: 10px 16px;
+  flex: 1 1 0;
+  min-width: 0;
+  white-space: nowrap;
+  padding: 10px 12px;
   border-radius: 999px;
   background: #ffffff;
   border: 1px solid rgba(15, 23, 42, 0.06);
@@ -225,14 +270,17 @@ onMounted(async () => {
   font-size: 13px;
   color: #5c6470;
   cursor: pointer;
-  white-space: nowrap;
+  text-overflow: ellipsis;
+  overflow: hidden;
 }
 
+/* S2-2: drop the red glow shadow from the active tab. The canon avoids
+   large red glows on customer surfaces; the gradient itself reads as
+   "active" without an extra halo. */
 .wheel-prizes-tab--active {
   background: linear-gradient(106.76deg, #f50302 -2.64%, #a90f0e 85.78%);
   color: #ffffff;
   border-color: transparent;
-  box-shadow: 0 4px 12px rgba(245, 3, 2, 0.2);
 }
 
 .wheel-prizes-content {
@@ -256,6 +304,43 @@ onMounted(async () => {
   background: #ffffff;
   border-radius: 22px;
   box-shadow: 0 4px 12px rgba(15, 23, 42, 0.04);
+}
+
+/* M6: visually mark prizes that are no longer usable (used or expired)
+   so the customer can scan the list at a glance. The tab filter still
+   shows them in "Все" but they read as inactive. */
+.wheel-prize-row--used,
+.wheel-prize-row--expired {
+  opacity: 0.6;
+  filter: saturate(0.5);
+}
+
+.wheel-prize-row--used .wheel-prize-row__promo-code,
+.wheel-prize-row--expired .wheel-prize-row__promo-code {
+  text-decoration: line-through;
+}
+
+.wheel-prize-row__pill {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 10px;
+  border-radius: 999px;
+  font-family: 'Montserrat', sans-serif;
+  font-weight: 600;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.wheel-prize-row__pill--used {
+  background: rgba(15, 23, 42, 0.08);
+  color: #1f2933;
+}
+
+.wheel-prize-row__pill--expired {
+  background: rgba(245, 3, 2, 0.1);
+  color: #b3251f;
 }
 
 .wheel-prize-row__image {
