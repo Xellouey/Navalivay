@@ -529,6 +529,29 @@ eligibility, остаётся в очереди до получения приз
 - В `ProfileView` (розница) добавлен переключатель «Лента рулетки» —
   использует тот же endpoint.
 
+**Round 4 (17.05.2026).** Тумблер «Лента рулетки» теперь показывается
+**всем клиентам** (включая опт), и `wheelStore.fetchState()` тоже
+вызывается для всех. Раньше для опта fetch пропускался, и тумблер на
+профиле показывал «выкл» даже если на сервере у клиента стоит
+`wheel_feed_consent = 1` (после согласия в `WheelView`). Тап «выкл»
+тогда тихо отзывал согласие. Теперь:
+
+- `ProfileView.onMounted` всегда вызывает `wheelStore.fetchState()`
+  (тернарник `wholesaleStore.isWholesale ? Promise.resolve() : ...`
+  убран).
+- `onToggleFeedConsent` обновляет `feedConsent` оптимистично и
+  откатывает значение, если запрос упал (нет toast-surface на
+  странице, console.warn остаётся).
+- В `wholesale-profile-card` добавлен hint «Настройка ленты рулетки
+  доступна ниже» — оптовик видит, что тумблер ниже его заглушки и
+  понимает, что управление есть.
+
+Это согласуется с тем, что опт реально крутит рулетку (флаг
+`is_wholesale` в `wheel_spins`) и его выигрыши попадают в ленту, если
+он дал consent. Архитектурно опт и розница имеют единый customer row,
+поле `wheel_feed_consent` тоже общее — отдельной wholesale-копии
+consent не существует.
+
 **Юридический контекст.** Закон РБ о персональных данных требует
 согласия для публикации имени и фотографии. До получения consent
 клиент в ленте не виден.
@@ -557,7 +580,27 @@ idempotency_key IS NOT NULL`.
 2. Если не найден — внутри транзакции `INSERT ... idempotency_key = ?`.
 3. Race-кейс: два параллельных POST с тем же ключом проходят первую
    проверку, второй INSERT упирается в UNIQUE. Catch блока распознаёт
-   это по тексту ошибки (имени индекса) и возвращает реплей вместо 500.
+   это по `error.code` (SQLite UNIQUE-violation
+   `SQLITE_CONSTRAINT_UNIQUE` или любой `SQLITE_CONSTRAINT*`) и
+   возвращает реплей вместо 500.
+
+**Round 4 (17.05.2026).** Раньше catch-ветка матчилась на
+`error.message.includes("idx_wheel_spins_idempotency")`. Текст ошибки
+better-sqlite3 для partial-index UNIQUE не стабилен — иногда
+приходит column-form `UNIQUE constraint failed:
+wheel_spins.customer_id, wheel_spins.idempotency_key` без имени
+индекса. На таком сообщении `.includes(...)` не срабатывал, и
+параллельный ретрай возвращал 500 вместо реплея. Сейчас:
+
+- Предикат `isWheelIdempotencyConflict(error, key)` экспортируется
+  из `server/routes/wheel.js` для тестируемости.
+- Условие — `idempotencyKey` есть И `error.code` имеет префикс
+  `SQLITE_CONSTRAINT` (включая `SQLITE_CONSTRAINT_UNIQUE` и
+  `SQLITE_CONSTRAINT_PRIMARYKEY`).
+- После предиката идёт второй lookup по `(customer_id,
+  idempotency_key)`. Если запись нашлась — отдаём реплей. Если нет —
+  это другой UNIQUE-конфликт, бросаем 500 (бьём в видимый bug, не
+  маскируем).
 
 Заголовок необязательный — старые клиенты работают без него. Сильно
 рекомендуется для всех клиентов с retry-логикой.
@@ -571,6 +614,13 @@ idempotency_key IS NOT NULL`.
 
 - `testSpinIsIdempotentByKey` (тот же ключ → тот же `spin_id`, баланс
   не списывается; новый ключ → новый спин, баланс списан)
+- `testIdempotencyConflictPredicateMatchesAllShapes` — пин-тест
+  предиката против column-form, index-form, generic
+  `SQLITE_CONSTRAINT*` и not-SQLite ошибок.
+- `testRealUniqueViolationOnIdempotencyKeyMatchesPredicate` — реальный
+  UNIQUE-violation против partial-index должен иметь
+  `error.code = SQLITE_CONSTRAINT*`. Ловит регрессию, если SQLite
+  вдруг изменит формат ошибки.
 
 ## Структурированные логи (P3)
 
