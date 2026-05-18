@@ -7,6 +7,7 @@ import { createPinia } from 'pinia'
 import App from './App.vue'
 import router from './router'
 import { applyTelegramWholesaleStartParam } from '@/utils/telegramMiniAppContext'
+import { applyDevTelegramMockIfNeeded } from '@/utils/devTelegramMock'
 
 function initTelegramChrome() {
   if (!window.Telegram?.WebApp) return
@@ -17,6 +18,7 @@ function initTelegramChrome() {
 }
 
 async function bootstrap() {
+  applyDevTelegramMockIfNeeded()
   initTelegramChrome()
 
   const app = createApp(App)
