@@ -33,9 +33,10 @@
         </p>
         <ul class="wheel-howto-rarities">
           <li
-            v-for="rarity in rarities"
+            v-for="(rarity, index) in rarities"
             :key="rarity.code"
             class="wheel-howto-rarity"
+            :class="{ 'wheel-howto-rarity--solo': isLastSolo(index) }"
             :style="{ background: rarity.bgColor, color: rarity.textColor }"
           >
             {{ rarity.label }}
@@ -75,6 +76,11 @@ const router = useRouter()
 const rarities = computed(() =>
   wheelStore.rarities.filter((rarity) => rarity.code !== 'nothing'),
 )
+
+function isLastSolo(index: number): boolean {
+  const total = rarities.value.length
+  return total % 2 === 1 && index === total - 1
+}
 const retailThreshold = computed(() => wheelStore.settings.spin_byn_retail || 40)
 const pityThreshold = computed(() => wheelStore.settings.pity_threshold || 3)
 
@@ -173,22 +179,30 @@ onMounted(() => {
   list-style: none;
   margin: 12px 0 0;
   padding: 0;
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
   gap: 8px;
 }
 
 .wheel-howto-rarity {
   display: inline-flex;
   align-items: center;
-  height: 26px;
-  padding: 0 12px;
-  border-radius: 999px;
+  justify-content: center;
+  padding: 4px 10px;
+  border-radius: 6px;
   font-family: 'Montserrat', sans-serif;
-  font-weight: 600;
-  font-size: 11px;
-  letter-spacing: 0.04em;
+  font-weight: 500;
+  font-size: 10px;
+  line-height: 12px;
+  letter-spacing: 0.02em;
   text-transform: uppercase;
+  color: #ffffff;
+}
+
+.wheel-howto-rarity--solo {
+  grid-column: 1 / -1;
+  justify-self: center;
+  width: calc(50% - 4px);
 }
 
 .wheel-howto-list {

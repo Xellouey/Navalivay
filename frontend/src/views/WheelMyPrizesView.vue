@@ -44,8 +44,18 @@
           class="wheel-prize-row__image"
           :style="{ background: rarityBackground(prize) }"
         >
-          <img v-if="prize.prize_image_url" :src="prize.prize_image_url" :alt="prize.prize_title" />
-          <span v-else>{{ monogramFor(prize.prize_title) }}</span>
+          <img
+            v-if="prize.prize_image_url"
+            :src="prize.prize_image_url"
+            :alt="prize.prize_title"
+          />
+          <span
+            v-else
+            class="wheel-prize-row__icon-default"
+            :style="{ '--my-prize-tint': prize.rarity_bg || '#9AA0A6' } as Record<string, string>"
+            :aria-label="prize.prize_title"
+            role="img"
+          ></span>
         </div>
         <div class="wheel-prize-row__copy">
           <p class="wheel-prize-row__title">{{ prize.prize_title }}</p>
@@ -173,8 +183,9 @@ function rarityBackground(prize: WheelMyPrize): string {
 }
 
 // S2-7 sibling: monogram never renders empty even if title is missing.
-function monogramFor(value: string | null | undefined): string {
-  return (value || '?').slice(0, 1).toUpperCase()
+function monogramFor(_value: string | null | undefined): string {
+  // Reserved for future fallback usage. Default tile uses the wheel-default-prize image.
+  return ''
 }
 
 // M6: an "active" tab item that has already passed its promo deadline
@@ -316,11 +327,11 @@ onMounted(async () => {
 
 .wheel-prize-row {
   display: flex;
+  align-items: center;
   gap: 12px;
-  padding: 14px;
+  padding: 12px;
   background: #ffffff;
-  border-radius: 22px;
-  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.04);
+  border-radius: 20px;
 }
 
 /* M6: visually mark prizes that are no longer usable (used or expired)
@@ -361,9 +372,9 @@ onMounted(async () => {
 }
 
 .wheel-prize-row__image {
-  flex: 0 0 84px;
-  width: 84px;
-  height: 84px;
+  flex: 0 0 72px;
+  width: 72px;
+  height: 72px;
   border-radius: 18px;
   display: flex;
   align-items: center;
@@ -380,11 +391,25 @@ onMounted(async () => {
   object-fit: contain;
 }
 
+.wheel-prize-row__icon-default {
+  width: 78%;
+  height: 78%;
+  background-color: var(--my-prize-tint, #9aa0a6);
+  -webkit-mask-image: url('@/assets/wheel-default-prize.png');
+  mask-image: url('@/assets/wheel-default-prize.png');
+  -webkit-mask-size: contain;
+  mask-size: contain;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  mask-position: center;
+}
+
 .wheel-prize-row__copy {
   flex: 1 1 auto;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
   min-width: 0;
 }
 
@@ -412,14 +437,15 @@ onMounted(async () => {
 
 .wheel-prize-row__rarity {
   display: inline-flex;
-  height: 22px;
-  padding: 0 10px;
-  border-radius: 999px;
+  padding: 4px 10px;
+  border-radius: 6px;
   font-family: 'Montserrat', sans-serif;
-  font-weight: 600;
+  font-weight: 500;
   font-size: 10px;
-  letter-spacing: 0.04em;
+  line-height: 12px;
+  letter-spacing: 0.02em;
   text-transform: uppercase;
+  color: #ffffff;
   align-items: center;
 }
 
@@ -435,9 +461,10 @@ onMounted(async () => {
   justify-content: space-between;
   gap: 8px;
   background: rgba(245, 3, 2, 0.08);
-  border-radius: 14px;
-  padding: 10px 12px;
-  margin-top: 4px;
+  border-radius: 12px;
+  padding: 8px 12px;
+  margin-top: 2px;
+  flex-wrap: wrap;
 }
 
 .wheel-prize-row__promo-label {
@@ -446,6 +473,7 @@ onMounted(async () => {
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: #5c6470;
+  flex-shrink: 0;
 }
 
 .wheel-prize-row__promo-code {
@@ -453,10 +481,14 @@ onMounted(async () => {
   border: none;
   font-family: 'Montserrat', sans-serif;
   font-weight: 700;
-  font-size: 15px;
+  font-size: clamp(13px, 3.6vw, 15px);
   color: #f50302;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.04em;
   cursor: pointer;
+  padding: 0;
+  white-space: nowrap;
+  text-align: right;
+  min-width: 0;
 }
 
 .wheel-prizes-toast {

@@ -14,7 +14,7 @@ const DEFAULT_SETTINGS = {
   default_promo_validity_days: 90,
   feed_size: 30,
   start_collecting_at: null,
-  elite_rarities_json: ["epic", "mythic", "gold", "legendary"],
+  elite_rarities_json: ["valuable"],
 };
 
 function generateId(prefix) {
@@ -1050,6 +1050,10 @@ export function getCustomerWheelState(customerId, { isWholesale = false } = {}) 
        LEFT JOIN customers c ON c.id = s.customer_id
        WHERE s.rarity_code != 'nothing'
          AND s.customer_id IS NOT NULL
+         -- Show only fresh wins from the last 24 hours so the feed
+         -- always reflects current "live" activity. Older entries
+         -- create a stale impression even when feed_size allows them.
+         AND s.spun_at >= DATETIME('now', '-24 hours')
          -- S29: do not show winners that have been deleted from CRM (deleted_at)
          -- nor winners that currently have an active block (customer_blocks).
          -- Showing them in the public feed would leak attempted PII recovery

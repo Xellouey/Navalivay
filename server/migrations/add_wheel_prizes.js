@@ -10,11 +10,16 @@ function tableExists(table) {
   );
 }
 
+// Final design palette (см. docs/wheel + Figma). bg_color может быть как
+// сплошным hex, так и CSS gradient-строкой — фронт прокидывает его в
+// `background:` для пилюль и карточек. Для border-цвета карточек фронт
+// извлекает первый hex (см. WheelPrizeCard.vue::extractFirstHex), потому
+// что CSS border-color не принимает gradient.
 const DEFAULT_RARITIES = [
   {
     code: "nothing",
     label: "Ничего",
-    bg_color: "#9AA0A6",
+    bg_color: "#8D8D8D",
     text_color: "#FFFFFF",
     sort_order: 0,
     is_elite: 0,
@@ -22,57 +27,52 @@ const DEFAULT_RARITIES = [
   {
     code: "common",
     label: "Обычный",
-    bg_color: "#C8CDD3",
-    text_color: "#1F2933",
+    bg_color: "#0095FF",
+    text_color: "#FFFFFF",
     sort_order: 10,
     is_elite: 0,
   },
   {
     code: "rare",
     label: "Редкий",
-    bg_color: "#3D5AFE",
+    bg_color:
+      "linear-gradient(90.94deg, #644CFF 0.8%, #3D25DA 313.06%)",
     text_color: "#FFFFFF",
     sort_order: 20,
     is_elite: 0,
   },
   {
-    code: "valuable",
-    label: "Ценный",
-    bg_color: "#9C27B0",
+    code: "mythic",
+    label: "Мифический",
+    bg_color:
+      "linear-gradient(90.94deg, #A603F2 0.8%, #7201A7 313.06%)",
     text_color: "#FFFFFF",
     sort_order: 30,
     is_elite: 0,
   },
   {
-    code: "epic",
-    label: "Эпический",
-    bg_color: "#FF6E40",
-    text_color: "#FFFFFF",
-    sort_order: 40,
-    is_elite: 1,
-  },
-  {
-    code: "mythic",
-    label: "Мифический",
-    bg_color: "#E91E63",
-    text_color: "#FFFFFF",
-    sort_order: 50,
-    is_elite: 1,
-  },
-  {
-    code: "gold",
-    label: "Золотой",
-    bg_color: "#F2B30A",
-    text_color: "#1F2933",
-    sort_order: 60,
-    is_elite: 1,
-  },
-  {
     code: "legendary",
     label: "Легендарный",
-    bg_color: "#FF1744",
+    bg_color:
+      "linear-gradient(90.94deg, #F502A4 0.8%, #8F0160 313.06%)",
     text_color: "#FFFFFF",
-    sort_order: 70,
+    sort_order: 40,
+    is_elite: 0,
+  },
+  {
+    code: "epic",
+    label: "Эпический",
+    bg_color: "#F50302",
+    text_color: "#FFFFFF",
+    sort_order: 50,
+    is_elite: 0,
+  },
+  {
+    code: "valuable",
+    label: "Ценный",
+    bg_color: "#FFAB00",
+    text_color: "#FFFFFF",
+    sort_order: 60,
     is_elite: 1,
   },
 ];
@@ -83,12 +83,7 @@ const DEFAULT_SETTINGS = {
   pity_threshold: "3",
   default_promo_validity_days: "90",
   feed_size: "30",
-  elite_rarities_json: JSON.stringify([
-    "epic",
-    "mythic",
-    "gold",
-    "legendary",
-  ]),
+  elite_rarities_json: JSON.stringify(["valuable"]),
 };
 
 export function migrateWheelPrizes() {

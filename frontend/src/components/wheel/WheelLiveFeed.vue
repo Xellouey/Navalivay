@@ -13,7 +13,8 @@
           </div>
           <div class="wheel-live-feed__copy">
             <p class="wheel-live-feed__line wheel-live-feed__line--name">
-              {{ item.first_name || 'Гость' }}{{ item.last_initial ? ` ${item.last_initial}.` : '' }}
+              <span>{{ item.first_name || 'Гость' }}{{ item.last_initial ? ` ${item.last_initial}.` : '' }}</span>
+              <span class="wheel-live-feed__time">{{ formatRelative(item.spun_at) }}</span>
             </p>
             <p class="wheel-live-feed__line wheel-live-feed__line--prize">
               {{ item.prize_title }}
@@ -26,7 +27,6 @@
           >
             {{ item.rarity.label }}
           </span>
-          <span class="wheel-live-feed__time">{{ formatRelative(item.spun_at) }}</span>
         </div>
       </div>
     </div>
@@ -89,10 +89,9 @@ function formatRelative(iso: string): string {
 .wheel-live-feed {
   width: 100%;
   background: #ffffff;
-  border-radius: 22px;
-  padding: 12px 0;
+  border-radius: 20px;
+  padding: 18px 0;
   overflow: hidden;
-  box-shadow: 0 4px 16px rgba(15, 23, 42, 0.06);
 }
 
 .wheel-live-feed__inner {
@@ -110,8 +109,9 @@ function formatRelative(iso: string): string {
 
 .wheel-live-feed__row {
   display: flex;
-  gap: 18px;
+  gap: 14px;
   width: max-content;
+  padding: 0 20px;
   animation-name: wheel-feed-marquee;
   animation-iteration-count: infinite;
   animation-timing-function: linear;
@@ -120,15 +120,14 @@ function formatRelative(iso: string): string {
 .wheel-live-feed__item {
   display: inline-flex;
   align-items: center;
-  gap: 10px;
-  padding: 6px 14px;
-  border-radius: 14px;
-  background: rgba(245, 247, 250, 0.7);
+  gap: 12px;
+  padding: 0;
+  background: transparent;
 }
 
 .wheel-live-feed__avatar {
-  width: 34px;
-  height: 34px;
+  width: 36px;
+  height: 36px;
   border-radius: 50%;
   background: #ECEEF2;
   display: flex;
@@ -136,9 +135,10 @@ function formatRelative(iso: string): string {
   justify-content: center;
   font-family: 'Montserrat', sans-serif;
   font-weight: 600;
-  font-size: 13px;
+  font-size: 14px;
   color: #5C6470;
   overflow: hidden;
+  flex-shrink: 0;
 }
 
 .wheel-live-feed__avatar img {
@@ -157,29 +157,34 @@ function formatRelative(iso: string): string {
 
 .wheel-live-feed__line {
   margin: 0;
-  font-size: 13px;
-  line-height: 1.2;
+  font-size: 14px;
+  line-height: 1.25;
 }
 
 .wheel-live-feed__line--name {
   color: #1F2933;
   font-weight: 600;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
 }
 
 .wheel-live-feed__line--prize {
   color: #5C6470;
+  font-size: 13px;
 }
 
 .wheel-live-feed__rarity {
   display: inline-flex;
-  height: 20px;
-  padding: 0 10px;
-  border-radius: 999px;
+  padding: 4px 10px;
+  border-radius: 6px;
   font-family: 'Montserrat', sans-serif;
-  font-weight: 600;
+  font-weight: 500;
   font-size: 10px;
-  letter-spacing: 0.04em;
+  line-height: 12px;
+  letter-spacing: 0.02em;
   text-transform: uppercase;
+  color: #ffffff;
   align-items: center;
 }
 
@@ -187,7 +192,7 @@ function formatRelative(iso: string): string {
   font-family: 'SF Pro Display', system-ui, sans-serif;
   font-size: 12px;
   color: #9AA0A6;
-  margin-left: 4px;
+  font-weight: 400;
 }
 
 @keyframes wheel-feed-marquee {

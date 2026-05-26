@@ -54,23 +54,43 @@ function onImageError() {
   imgFailed.value = true
 }
 
+// CSS `border-color` does not accept gradient values, but `bg_color` from
+// the wheel_rarities table can now be a `linear-gradient(...)` string.
+// Pull the first hex out of the gradient as a sensible solid border —
+// otherwise Vue silently drops the invalid value and the card loses its
+// rarity-tinted border entirely.
+function extractFirstHex(value: string | undefined | null): string {
+  if (!value) return '#E2E5EA'
+  const match = value.match(/#([0-9a-fA-F]{3}){1,2}\b/)
+  return match ? match[0] : value
+}
+
 const borderColor = computed(() => {
   if (props.prize.rarity?.code === 'nothing') return '#E2E5EA'
-  return props.prize.rarity?.bgColor || '#E2E5EA'
+  return extractFirstHex(props.prize.rarity?.bgColor)
 })
 
-const cardStyle = computed(() => ({
-  borderColor: borderColor.value,
-}))
-
-const imageBackground = computed(() => {
-  if (props.prize.image_url && !imgFailed.value) return '#FFFFFF'
-  const color = props.prize.rarity?.bgColor || '#E2E5EA'
-  return `linear-gradient(135deg, ${color}1A, ${color}33)`
+const cardStyle = computed(() => {
+  if (props.prize.image_url && !imgFailed.value) {
+    return {
+      borderColor: borderColor.value,
+      background: '#FFFFFF',
+    }
+  }
+  // Tinted backdrop for the default placeholder. Use the extracted solid
+  // hex so gradient rarities still get a soft tint instead of an opaque
+  // gradient that would compete with the icon glyph.
+  const tint = extractFirstHex(props.prize.rarity?.bgColor)
+  return {
+    borderColor: borderColor.value,
+    background: `linear-gradient(135deg, ${tint}1A, ${tint}33)`,
+  }
 })
+
+const imageBackground = computed(() => 'transparent')
 
 const defaultIconStyle = computed(() => {
-  const tint = props.prize.rarity?.bgColor || '#9AA0A6'
+  const tint = extractFirstHex(props.prize.rarity?.bgColor)
   return {
     backgroundColor: tint,
     '--wheel-default-prize-image': `url('${defaultPrizeImage}')`,
@@ -85,7 +105,7 @@ const defaultIconStyle = computed(() => {
   display: flex;
   flex-direction: column;
   align-items: stretch;
-  border-radius: 22px;
+  border-radius: 24px;
   background: #ffffff;
   border: 2px solid #e2e5ea;
   box-shadow: 0 4px 12px rgba(15, 23, 42, 0.06);
@@ -114,7 +134,7 @@ const defaultIconStyle = computed(() => {
 }
 
 .wheel-prize-card__icon-default {
-  width: 60%;
+  width: 100%;
   aspect-ratio: 1 / 1;
   background-color: var(--wheel-default-prize-tint, #9aa0a6);
   -webkit-mask-image: var(--wheel-default-prize-image);
@@ -132,23 +152,27 @@ const defaultIconStyle = computed(() => {
   align-self: center;
   align-items: center;
   justify-content: center;
-  height: 18px;
-  padding: 0 10px;
-  border-radius: 999px;
+  padding: 4px 10px;
+  border-radius: 6px;
   font-family: 'Montserrat', sans-serif;
-  font-weight: 600;
-  font-size: 9px;
-  letter-spacing: 0.06em;
+  font-weight: 500;
+  font-size: 10px;
+  line-height: 12px;
+  letter-spacing: 0.02em;
   text-transform: uppercase;
-  margin: 0 8px 8px;
+  color: #ffffff;
+  margin: 0 8px 10px;
   max-width: calc(100% - 16px);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
+/* "Nothing" rarity already ships with #8D8D8D bg + white text from the
+   DB — we just guard against the previous override that forced a light
+   grey chip with dark text. */
 .wheel-prize-card--nothing .wheel-prize-card__rarity {
-  background: #eceef2 !important;
-  color: #5c6470 !important;
+  background: #8D8D8D;
+  color: #ffffff;
 }
 </style>
