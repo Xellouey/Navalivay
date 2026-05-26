@@ -145,12 +145,15 @@ async function runSpin(options: SpinAnimationOptions) {
   await new Promise((resolve) => requestAnimationFrame(resolve))
   await new Promise((resolve) => requestAnimationFrame(resolve))
 
-  // S15: respect prefers-reduced-motion. The original 5.4s cinematic
-  // spin is fine for most users but actively unpleasant for people with
+  // S15: respect prefers-reduced-motion. The original cinematic spin is
+  // fine for most users but actively unpleasant for people with
   // vestibular sensitivity.
+  // CSGO-style suspense: ~6s with a longer, more even ease-out so the
+  // deceleration is visible across the last 1.5-2s instead of snapping
+  // flat almost immediately.
   const reducedMotion = prefersReducedMotion()
-  const duration = options.durationMs ?? (reducedMotion ? 800 : 5400)
-  const easing = reducedMotion ? 'ease-out' : 'cubic-bezier(0.18, 0.94, 0.16, 1)'
+  const duration = options.durationMs ?? (reducedMotion ? 800 : 5800)
+  const easing = reducedMotion ? 'ease-out' : 'cubic-bezier(0.32, 0.72, 0, 1)'
   trackTransition.value = `transform ${duration}ms ${easing}`
   currentOffset.value = targetOffset
   landedIndex.value = -1
