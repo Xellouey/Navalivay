@@ -235,14 +235,12 @@ let resizeObserver: ResizeObserver | null = null
 
 const retailTabs: TabItem[] = [
   { id: 'home', path: '/', label: 'Главная' },
-  { id: 'cart', path: '/checkout', label: 'Корзина' },
   { id: 'wheel', path: '/wheel', label: 'Рулетка' },
   { id: 'profile', path: '/profile', label: 'Профиль' },
 ]
 
 const wholesaleTabs: TabItem[] = [
   { id: 'home', path: '/', label: 'Главная' },
-  { id: 'cart', path: '/checkout', label: 'Корзина' },
   { id: 'wheel', path: '/wheel', label: 'Рулетка' },
   { id: 'profile', path: '/profile', label: 'Профиль' },
 ]

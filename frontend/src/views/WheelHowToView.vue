@@ -16,6 +16,25 @@
     </header>
 
     <main class="wheel-howto-content">
+      <section class="wheel-howto-card wheel-howto-card--hero">
+        <div class="wheel-howto-card__copy">
+          <h2 class="wheel-howto-card__title wheel-howto-card__title--inverted">
+            Какие призы можно выиграть&nbsp;?
+          </h2>
+          <p class="wheel-howto-card__text wheel-howto-card__text--inverted">
+            Призы и шансы на них могут меняться следите здесь за актуальным наличием призов и шасов из выпадения
+          </p>
+        </div>
+        <div class="wheel-howto-card__gift" aria-hidden="true">
+          <span class="wheel-howto-card__gift-glow"></span>
+          <img
+            class="wheel-howto-card__gift-image"
+            :src="giftImage"
+            alt=""
+          />
+        </div>
+      </section>
+
       <section class="wheel-howto-card">
         <h2 class="wheel-howto-card__title">Как получить спин</h2>
         <p class="wheel-howto-card__text">
@@ -45,15 +64,6 @@
       </section>
 
       <section class="wheel-howto-card">
-        <h2 class="wheel-howto-card__title">Гарантии</h2>
-        <p class="wheel-howto-card__text">
-          После {{ pityThreshold }} «пустых» прокруток подряд следующий спин
-          гарантированно даст приз. Очень редкие призы достаются только постоянным
-          клиентам — это работает автоматически по истории покупок.
-        </p>
-      </section>
-
-      <section class="wheel-howto-card">
         <h2 class="wheel-howto-card__title">Важно</h2>
         <ul class="wheel-howto-list">
           <li>Спины не сгорают, копятся неограниченно.</li>
@@ -69,6 +79,7 @@
 import { computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useWheelStore } from '@/stores/wheel'
+import giftImage from '@/assets/wheel-howto-gift.png'
 
 const wheelStore = useWheelStore()
 const router = useRouter()
@@ -157,6 +168,114 @@ onMounted(() => {
   border-radius: 22px;
   padding: 18px 18px 16px;
   box-shadow: 0 4px 12px rgba(15, 23, 42, 0.04);
+}
+
+.wheel-howto-card--hero {
+  position: relative;
+  background: linear-gradient(135deg, #18181b 0%, #2a2a2f 52%, #17171a 100%);
+  color: #FFFFFF;
+  padding: 20px 22px;
+  display: block;
+  overflow: hidden;
+  border-radius: 20px;
+  box-shadow: none;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.wheel-howto-card__copy {
+  position: relative;
+  z-index: 2;
+}
+
+@media (max-width: 380px) {
+  .wheel-howto-card--hero {
+    padding: 18px 18px;
+  }
+}
+
+.wheel-howto-card--hero .wheel-howto-card__title,
+.wheel-howto-card--hero .wheel-howto-card__title--inverted {
+  color: #FFFFFF;
+  font-family: 'SF Pro Display', system-ui, sans-serif;
+  font-weight: 700;
+  font-size: 24px;
+  line-height: 29px;
+  margin: 0 0 16px;
+  letter-spacing: -0.01em;
+  /* Title still avoids overlapping the gift on the right */
+  padding-right: 0px;
+}
+
+.wheel-howto-card--hero .wheel-howto-card__text,
+.wheel-howto-card--hero .wheel-howto-card__text--inverted {
+  color: #FFFFFF;
+  font-family: 'SF Pro Display', system-ui, sans-serif;
+  font-weight: 400;
+  font-size: 14px;
+  line-height: 17px;
+  opacity: 1;
+}
+
+@media (max-width: 380px) {
+  .wheel-howto-card--hero .wheel-howto-card__title,
+  .wheel-howto-card--hero .wheel-howto-card__title--inverted {
+    font-size: 24px;
+    line-height: 26px;
+    margin-bottom: 12px;
+    padding-right: 90px;
+  }
+  .wheel-howto-card--hero .wheel-howto-card__text,
+  .wheel-howto-card--hero .wheel-howto-card__text--inverted {
+    font-size: 13px;
+    line-height: 16px;
+  }
+}
+
+.wheel-howto-card__gift {
+  position: absolute;
+  right: 5px;
+  top: 0px;
+  width: 110px;
+  height: 100px;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.wheel-howto-card__gift-glow {
+  position: absolute;
+  width: 92px;
+  height: 92px;
+  left: 9px;
+  top: 7px;
+  background: #FDD52A;
+  opacity: 0.15;
+  filter: blur(10px);
+  border-radius: 50%;
+  z-index: 1;
+  pointer-events: none;
+}
+
+@media (max-width: 380px) {
+  .wheel-howto-card__gift {
+    right: 20px;
+    top: 12px;
+    width: 92px;
+    height: 88px;
+  }
+  .wheel-howto-card__gift-glow {
+    width: 76px;
+    height: 76px;
+    left: 8px;
+    top: 6px;
+  }
+}
+
+.wheel-howto-card__gift-image {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  z-index: 2;
 }
 
 .wheel-howto-card__title {
