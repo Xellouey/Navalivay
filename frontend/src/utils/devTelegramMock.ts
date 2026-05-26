@@ -45,12 +45,12 @@ function persistIdentity(identity: DevMockIdentity): void {
   }
 }
 
-function injectMockWebApp(identity: DevMockIdentity): void {
+function injectMockWebApp(identity: DevMockIdentity): boolean {
   const w = window as unknown as { Telegram?: { WebApp?: unknown } }
   const existing = w.Telegram?.WebApp as { initData?: string } | undefined
   if (existing && String(existing.initData || '').trim()) {
     // Реальный Mini App уже подмонтирован — не перезаписываем.
-    return
+    return false
   }
 
   const noop = () => {}
@@ -138,6 +138,257 @@ function injectMockWebApp(identity: DevMockIdentity): void {
       isVersionAtLeast: () => true,
     },
   }
+
+  return true
+}
+
+/**
+ * Патчит `window.fetch` чтобы для всех запросов к `/api/*` (кроме `/api/admin/*`)
+ * автоматически подкладывался `telegram_id` из мок-идентичности — в query для
+ * GET/HEAD/DELETE и в JSON-тело для POST/PUT/PATCH.
+ *
+ * Это нужно потому что мок не может подделать `initData` с валидной подписью,
+ * поэтому бэкенд-аутентификация падает на проверке HMAC. Insecure-fallback
+ * на бэке (`getInsecureFallbackIdentity`) читает `telegram_id` из query/body,
+ * так что прокидываем identity именно туда.
+ *
+ * Гард `import.meta.env.DEV` гарантирует что патч полностью вырезается
+ * из прод-сборки tree-shaking'ом.
+ */
+function patchFetchForDevMock(identity: DevMockIdentity): void {
+  if (typeof window === 'undefined' || typeof window.fetch !== 'function') return
+
+  const flagKey = '__navalivayDevFetchPatched' as const
+  const flagged = window as unknown as Record<string, unknown>
+  if (flagged[flagKey]) return
+  flagged[flagKey] = true
+
+  const originalFetch = window.fetch.bind(window)
+
+  const isJsonContentType = (value: string | null): boolean => {
+    if (!value) return false
+    return value.toLowerCase().includes('application/json')
+  }
+
+  const ensureQueryParams = (urlObj: URL): boolean => {
+    let mutated = false
+    if (!urlObj.searchParams.has('telegram_id')) {
+      urlObj.searchParams.set('telegram_id', identity.id)
+      mutated = true
+    }
+    if (identity.username && !urlObj.searchParams.has('telegram_username')) {
+      urlObj.searchParams.set('telegram_username', identity.username)
+      mutated = true
+    }
+    if (identity.first_name && !urlObj.searchParams.has('first_name')) {
+      urlObj.searchParams.set('first_name', identity.first_name)
+      mutated = true
+    }
+    return mutated
+  }
+
+  const ensureJsonBodyFields = (
+    body: Record<string, unknown>,
+  ): { body: Record<string, unknown>; mutated: boolean } => {
+    let mutated = false
+    if (typeof body.telegram_id === 'undefined' || body.telegram_id === null || body.telegram_id === '') {
+      body.telegram_id = identity.id
+      mutated = true
+    }
+    if (
+      identity.username &&
+      (typeof body.telegram_username === 'undefined' ||
+        body.telegram_username === null ||
+        body.telegram_username === '')
+    ) {
+      body.telegram_username = identity.username
+      mutated = true
+    }
+    if (
+      identity.first_name &&
+      (typeof body.first_name === 'undefined' || body.first_name === null || body.first_name === '')
+    ) {
+      body.first_name = identity.first_name
+      mutated = true
+    }
+    return { body, mutated }
+  }
+
+  const patchedFetch: typeof window.fetch = async (input, init) => {
+    try {
+      // Только Request/string/URL — все стандартные типы.
+      const isRequest = typeof Request !== 'undefined' && input instanceof Request
+      const rawUrl = isRequest ? (input as Request).url : String(input)
+
+      let urlObj: URL
+      try {
+        urlObj = new URL(rawUrl, window.location.origin)
+      } catch {
+        return originalFetch(input as RequestInfo, init)
+      }
+
+      // Только same-origin.
+      if (urlObj.origin !== window.location.origin) {
+        return originalFetch(input as RequestInfo, init)
+      }
+
+      const path = urlObj.pathname
+      // Админ-эндпоинты используют отдельный токен — не трогаем.
+      if (!path.startsWith('/api/') || path.startsWith('/api/admin/')) {
+        return originalFetch(input as RequestInfo, init)
+      }
+
+      const method = String(
+        (init?.method || (isRequest ? (input as Request).method : 'GET')) || 'GET',
+      ).toUpperCase()
+
+      // GET/HEAD/DELETE: подкладываем в query.
+      if (method === 'GET' || method === 'HEAD' || method === 'DELETE') {
+        const mutated = ensureQueryParams(urlObj)
+        if (!mutated) {
+          return originalFetch(input as RequestInfo, init)
+        }
+        // Если был Request — пересобираем его с новым URL, сохраняя headers/body/credentials.
+        if (isRequest) {
+          const req = input as Request
+          const cloned = new Request(urlObj.toString(), req)
+          return originalFetch(cloned, init)
+        }
+        return originalFetch(urlObj.toString(), init)
+      }
+
+      // POST/PUT/PATCH с JSON-телом: парсим, инжектим, перепаковываем.
+      if (method === 'POST' || method === 'PUT' || method === 'PATCH') {
+        let headersObj: Headers
+        let bodyText: string | null = null
+        let credentials: RequestCredentials | undefined
+        let mode: RequestMode | undefined
+        let cache: RequestCache | undefined
+        let redirect: RequestRedirect | undefined
+        let referrer: string | undefined
+        let integrity: string | undefined
+        let keepalive: boolean | undefined
+        let signal: AbortSignal | null | undefined
+
+        if (isRequest) {
+          const req = input as Request
+          headersObj = new Headers(req.headers)
+          // init может переопределить headers/body/method — учитываем это.
+          if (init?.headers) {
+            const overrideHeaders = new Headers(init.headers as HeadersInit)
+            overrideHeaders.forEach((v, k) => headersObj.set(k, v))
+          }
+          if (init?.body !== undefined) {
+            bodyText = typeof init.body === 'string' ? init.body : null
+          } else {
+            try {
+              bodyText = await req.clone().text()
+            } catch {
+              bodyText = null
+            }
+          }
+          credentials = init?.credentials ?? req.credentials
+          mode = init?.mode ?? req.mode
+          cache = init?.cache ?? req.cache
+          redirect = init?.redirect ?? req.redirect
+          referrer = init?.referrer ?? req.referrer
+          integrity = init?.integrity ?? req.integrity
+          keepalive = init?.keepalive ?? req.keepalive
+          signal = init?.signal ?? req.signal
+        } else {
+          headersObj = new Headers((init?.headers as HeadersInit) || {})
+          bodyText = typeof init?.body === 'string' ? (init?.body as string) : null
+          credentials = init?.credentials
+          mode = init?.mode
+          cache = init?.cache
+          redirect = init?.redirect
+          referrer = init?.referrer
+          integrity = init?.integrity
+          keepalive = init?.keepalive
+          signal = init?.signal
+        }
+
+        const contentType = headersObj.get('content-type')
+        const isJson = isJsonContentType(contentType)
+
+        // Если не JSON или тело не строкой (FormData/Blob/...) — fallback в query.
+        if (!isJson || typeof bodyText !== 'string') {
+          const mutated = ensureQueryParams(urlObj)
+          if (!mutated) {
+            return originalFetch(input as RequestInfo, init)
+          }
+          if (isRequest) {
+            const req = input as Request
+            const cloned = new Request(urlObj.toString(), req)
+            return originalFetch(cloned, init)
+          }
+          return originalFetch(urlObj.toString(), init)
+        }
+
+        // Парсим JSON.
+        let parsed: unknown = null
+        if (bodyText.trim()) {
+          try {
+            parsed = JSON.parse(bodyText)
+          } catch {
+            // Невалидный JSON — fallback в query.
+            const mutated = ensureQueryParams(urlObj)
+            if (!mutated) {
+              return originalFetch(input as RequestInfo, init)
+            }
+            if (isRequest) {
+              const req = input as Request
+              const cloned = new Request(urlObj.toString(), req)
+              return originalFetch(cloned, init)
+            }
+            return originalFetch(urlObj.toString(), init)
+          }
+        }
+
+        if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+          // Только plain-object body можем расширить.
+          parsed = parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {}
+        }
+
+        const { body: nextBody, mutated } = ensureJsonBodyFields(
+          parsed as Record<string, unknown>,
+        )
+
+        if (!mutated) {
+          return originalFetch(input as RequestInfo, init)
+        }
+
+        const nextBodyText = JSON.stringify(nextBody)
+
+        const nextInit: RequestInit = {
+          method,
+          headers: headersObj,
+          body: nextBodyText,
+          credentials,
+          mode,
+          cache,
+          redirect,
+          referrer,
+          integrity,
+          keepalive,
+          signal: signal ?? undefined,
+        }
+
+        return originalFetch(urlObj.toString(), nextInit)
+      }
+
+      return originalFetch(input as RequestInfo, init)
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.warn('[dev] fetch patch error, falling back to original', err)
+      return originalFetch(input as RequestInfo, init)
+    }
+  }
+
+  window.fetch = patchedFetch as typeof window.fetch
+
+  // eslint-disable-next-line no-console
+  console.info('[dev] fetch patched for dev Telegram identity')
 }
 
 function showDevBanner(identity: DevMockIdentity): void {
@@ -216,7 +467,7 @@ export function applyDevTelegramMockIfNeeded(): void {
 
   if (!identity) return
 
-  injectMockWebApp(identity)
+  const injected = injectMockWebApp(identity)
 
   ;(window as unknown as { clearDevTelegramMock: () => void }).clearDevTelegramMock = () => {
     try {
@@ -227,6 +478,11 @@ export function applyDevTelegramMockIfNeeded(): void {
     delete (window as unknown as { Telegram?: unknown }).Telegram
     window.location.reload()
   }
+
+  // Если реальный Mini App уже подмонтирован — не патчим fetch и не показываем баннер.
+  if (!injected) return
+
+  patchFetchForDevMock(identity)
 
   showDevBanner(identity)
 
