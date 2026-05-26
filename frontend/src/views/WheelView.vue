@@ -1,41 +1,41 @@
 <template>
   <div class="wheel-page">
-    <header class="wheel-hero">
-      <div class="wheel-hero__top">
-        <button
-          type="button"
-          class="wheel-hero__back"
-          aria-label="Назад"
-          @click="goBack"
-        >
-          <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-            <path
-              d="M12 4L6 10L12 16"
-              stroke="#FFFFFF"
-              stroke-width="1.8"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-            />
-          </svg>
-        </button>
-        <h1 class="wheel-hero__title">Рулетка призов</h1>
-        <button
-          type="button"
-          class="wheel-hero__help"
-          aria-label="Как работает"
-          @click="goToHowTo"
-        >
-          ?
-        </button>
-      </div>
+    <header class="wheel-header">
+      <button
+        type="button"
+        class="wheel-header__back"
+        aria-label="Назад"
+        @click="goBack"
+      >
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+          <path
+            d="M12 4L6 10L12 16"
+            stroke="#1F2933"
+            stroke-width="1.8"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+        </svg>
+      </button>
+      <h1 class="wheel-header__title">Рулетка призов</h1>
+      <button
+        type="button"
+        class="wheel-header__help"
+        aria-label="Как работает"
+        @click="goToHowTo"
+      >
+        ?
+      </button>
+    </header>
 
-      <div class="wheel-hero__strip-wrap">
+    <section class="wheel-stage">
+      <div class="wheel-stage__strip">
         <template v-if="showSkeleton">
-          <div class="wheel-hero__strip-skeleton" aria-hidden="true">
+          <div class="wheel-stage__strip-skeleton" aria-hidden="true">
             <span
               v-for="n in 5"
               :key="n"
-              class="wheel-hero__strip-skeleton-card"
+              class="wheel-stage__strip-skeleton-card"
             ></span>
           </div>
         </template>
@@ -47,22 +47,22 @@
         </template>
       </div>
 
-      <div v-if="showSkeleton" class="wheel-hero__progress">
+      <div v-if="showSkeleton" class="wheel-stage__progress">
         <div
-          class="wheel-hero__progress-track"
+          class="wheel-stage__progress-track"
           role="progressbar"
           aria-valuemin="0"
           aria-valuemax="100"
           aria-valuenow="0"
           aria-label="Загрузка прогресса"
         >
-          <span class="wheel-hero__progress-fill wheel-hero__progress-fill--skeleton"></span>
+          <span class="wheel-stage__progress-fill wheel-stage__progress-fill--skeleton"></span>
         </div>
-        <p class="wheel-hero__progress-text">Загружаем рулетку…</p>
+        <p class="wheel-stage__progress-text">Загружаем рулетку…</p>
       </div>
-      <div class="wheel-hero__progress" v-else-if="showProgress">
+      <div class="wheel-stage__progress" v-else-if="showProgress">
         <div
-          class="wheel-hero__progress-track"
+          class="wheel-stage__progress-track"
           role="progressbar"
           aria-valuemin="0"
           aria-valuemax="100"
@@ -70,34 +70,34 @@
           :aria-label="progressAriaLabel"
         >
           <span
-            class="wheel-hero__progress-fill"
+            class="wheel-stage__progress-fill"
             :style="{ width: `${progressPercent}%` }"
           ></span>
         </div>
-        <p class="wheel-hero__progress-text">{{ progressLabel }}</p>
+        <p class="wheel-stage__progress-text">{{ progressLabel }}</p>
       </div>
 
       <button
         type="button"
-        class="wheel-hero__cta"
-        :class="{ 'wheel-hero__cta--disabled': isSpinDisabled }"
+        class="wheel-stage__cta"
+        :class="{ 'wheel-stage__cta--disabled': isSpinDisabled }"
         :disabled="isSpinDisabled"
         :aria-busy="wheelStore.isSpinning || isAnimating"
         @click="spin"
       >
         <template v-if="showSkeleton">Загрузка…</template>
-        <template v-else-if="wheelStore.isSpinning || isAnimating">Крутится...</template>
+        <template v-else-if="wheelStore.isSpinning || isAnimating">Крутится…</template>
         <template v-else-if="hasSpins">Крутить</template>
         <template v-else>Сделай заказ от {{ threshold }} BYN</template>
       </button>
 
-      <p v-if="showSkeleton" class="wheel-hero__balance wheel-hero__balance--skeleton" aria-hidden="true">
+      <p v-if="showSkeleton" class="wheel-stage__balance wheel-stage__balance--skeleton" aria-hidden="true">
         &nbsp;
       </p>
-      <p v-else class="wheel-hero__balance">
+      <p v-else class="wheel-stage__balance">
         Осталось {{ spinsAvailable }} {{ spinsWord }}
       </p>
-    </header>
+    </section>
 
     <section class="wheel-main">
       <WheelLiveFeed :items="wheelStore.feed" class="wheel-main__feed" />
@@ -446,65 +446,70 @@ onMounted(async () => {
   padding-bottom: 24px;
 }
 
-.wheel-hero {
-  background: linear-gradient(106.76deg, #f50302 -2.64%, #a90f0e 85.78%);
-  color: #ffffff;
-  padding: 18px 0 32px;
-  border-bottom-left-radius: 32px;
-  border-bottom-right-radius: 32px;
-  box-shadow: 0 16px 40px rgba(97, 1, 0, 0.16);
-}
-
-.wheel-hero__top {
-  display: flex;
+/* Простой клиентский header — паттерн из WheelMyPrizesView. */
+.wheel-header {
+  display: grid;
+  grid-template-columns: 36px 1fr 36px;
   align-items: center;
-  justify-content: space-between;
-  padding: 0 16px;
-  margin-bottom: 18px;
+  gap: 12px;
+  padding: 18px 16px 12px;
 }
 
-.wheel-hero__back,
-.wheel-hero__help {
+.wheel-header__back,
+.wheel-header__help {
   position: relative;
   width: 36px;
   height: 36px;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.18);
   border: none;
+  background: #ffffff;
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #ffffff;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.06);
+  color: #1f2933;
   font-family: 'Montserrat', sans-serif;
   font-weight: 600;
   font-size: 18px;
-  cursor: pointer;
 }
 
-/* S2-3: keep the visual chip at 36px but expand the actual hit-target
-   to 44×44 via an invisible ::before so iOS finger taps near the edge
-   still register. */
-.wheel-hero__back::before,
-.wheel-hero__help::before {
+/* S2-3: 36×36 visual chip с 44×44 невидимым hit-target. */
+.wheel-header__back::before,
+.wheel-header__help::before {
   content: "";
   position: absolute;
   inset: -4px;
   border-radius: inherit;
 }
 
-.wheel-hero__title {
+.wheel-header__title {
+  margin: 0;
+  text-align: center;
   font-family: 'Montserrat', sans-serif;
   font-weight: 700;
   font-size: 18px;
   line-height: 1.2;
-  margin: 0;
+  color: #1f2933;
 }
 
-.wheel-hero__strip-wrap {
-  margin-bottom: 18px;
+/* Сцена рулетки — белый блок на фоне страницы. */
+.wheel-stage {
+  margin: 4px 16px 16px;
+  padding: 16px 0 20px;
+  background: #ffffff;
+  border-radius: 28px;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.06);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
 }
 
-.wheel-hero__strip-skeleton {
+.wheel-stage__strip {
+  position: relative;
+}
+
+.wheel-stage__strip-skeleton {
   display: flex;
   gap: 16px;
   height: 192px;
@@ -513,15 +518,15 @@ onMounted(async () => {
   overflow: hidden;
 }
 
-.wheel-hero__strip-skeleton-card {
+.wheel-stage__strip-skeleton-card {
   flex: 0 0 140px;
   height: 156px;
   border-radius: 22px;
   background: linear-gradient(
     90deg,
-    rgba(255, 255, 255, 0.18) 0%,
-    rgba(255, 255, 255, 0.32) 50%,
-    rgba(255, 255, 255, 0.18) 100%
+    rgba(15, 23, 42, 0.06) 0%,
+    rgba(15, 23, 42, 0.12) 50%,
+    rgba(15, 23, 42, 0.06) 100%
   );
   background-size: 200% 100%;
   animation: wheel-skeleton-pulse 1.6s ease-in-out infinite;
@@ -536,96 +541,96 @@ onMounted(async () => {
   }
 }
 
-.wheel-hero__progress {
-  margin: 0 24px 18px;
+.wheel-stage__progress {
+  margin: 0 24px;
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
 
-.wheel-hero__progress-track {
+.wheel-stage__progress-track {
   position: relative;
   width: 100%;
   height: 6px;
   border-radius: 4px;
-  background: rgba(255, 255, 255, 0.22);
+  background: rgba(15, 23, 42, 0.08);
   overflow: hidden;
 }
 
-.wheel-hero__progress-fill {
+.wheel-stage__progress-fill {
   position: absolute;
   inset: 0;
   width: 0%;
-  background: #ffffff;
+  background: linear-gradient(106.76deg, #f50302 -2.64%, #a90f0e 85.78%);
   transition: width 0.4s ease;
 }
 
-.wheel-hero__progress-fill--skeleton {
+.wheel-stage__progress-fill--skeleton {
   width: 40%;
   background: linear-gradient(
     90deg,
-    rgba(255, 255, 255, 0.4) 0%,
-    rgba(255, 255, 255, 0.85) 50%,
-    rgba(255, 255, 255, 0.4) 100%
+    rgba(15, 23, 42, 0.08) 0%,
+    rgba(15, 23, 42, 0.16) 50%,
+    rgba(15, 23, 42, 0.08) 100%
   );
   background-size: 200% 100%;
   animation: wheel-skeleton-pulse 1.6s ease-in-out infinite;
 }
 
-.wheel-hero__progress-text {
+.wheel-stage__progress-text {
   margin: 0;
   font-family: 'SF Pro Display', system-ui, sans-serif;
   font-size: 13px;
   text-align: center;
-  color: rgba(255, 255, 255, 0.92);
+  color: #5c6470;
 }
 
-.wheel-hero__cta {
+.wheel-stage__cta {
   display: block;
   width: calc(100% - 48px);
-  margin: 0 auto 8px;
-  height: 56px;
-  border-radius: 28px;
+  margin: 0 auto;
+  height: 64px;
+  border-radius: 32px;
   border: none;
-  background: #ffffff;
-  color: #1f2933;
+  background: linear-gradient(106.76deg, #f50302 -2.64%, #a90f0e 85.78%);
+  color: #ffffff;
   font-family: 'Montserrat', sans-serif;
   font-weight: 700;
-  font-size: 16px;
+  font-size: 17px;
   letter-spacing: 0.02em;
   cursor: pointer;
-  transition: transform 0.15s ease, opacity 0.2s ease;
+  box-shadow: 0 8px 16px rgba(97, 1, 0, 0.16);
+  transition: transform 0.15s ease, opacity 0.2s ease, box-shadow 0.2s ease;
 }
 
-.wheel-hero__cta:active {
+.wheel-stage__cta:active {
   transform: scale(0.98);
 }
 
-.wheel-hero__cta--disabled {
-  opacity: 0.6;
+.wheel-stage__cta--disabled {
+  opacity: 0.55;
   cursor: not-allowed;
+  box-shadow: none;
 }
 
-.wheel-hero__balance {
+.wheel-stage__balance {
   margin: 0;
   text-align: center;
   font-family: 'SF Pro Display', system-ui, sans-serif;
   font-size: 13px;
-  color: rgba(255, 255, 255, 0.85);
+  color: #5c6470;
   min-height: 16px;
 }
 
-.wheel-hero__balance--skeleton {
+.wheel-stage__balance--skeleton {
   visibility: hidden;
 }
 
 .wheel-main {
-  margin: -22px 16px 0;
+  margin: 0 16px;
   display: flex;
   flex-direction: column;
   gap: 12px;
-  position: relative;
-  z-index: 2;
 }
 
 .wheel-main__feed {
@@ -783,9 +788,23 @@ onMounted(async () => {
   cursor: pointer;
 }
 
+@media (max-width: 360px) {
+  .wheel-stage {
+    margin: 4px 12px 16px;
+    padding: 14px 0 18px;
+  }
+
+  .wheel-stage__cta {
+    width: calc(100% - 32px);
+    height: 56px;
+    border-radius: 28px;
+    font-size: 16px;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .wheel-hero__strip-skeleton-card,
-  .wheel-hero__progress-fill--skeleton {
+  .wheel-stage__strip-skeleton-card,
+  .wheel-stage__progress-fill--skeleton {
     animation: none;
   }
 }

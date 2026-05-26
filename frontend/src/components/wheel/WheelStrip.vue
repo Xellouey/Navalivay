@@ -214,42 +214,42 @@ defineExpose({ runSpin, reset })
 
 .wheel-strip__card--landed {
   transform: scale(1.04);
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.18);
+  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.16);
   transition: transform 0.4s ease, box-shadow 0.4s ease;
 }
 
 .wheel-strip__pointer {
   position: absolute;
-  top: 0;
-  bottom: 0;
+  top: 8px;
+  bottom: 8px;
   left: 50%;
-  width: 2px;
+  width: 3px;
   transform: translateX(-50%);
-  background: linear-gradient(180deg, #ffffff 0%, rgba(255, 255, 255, 0.7) 100%);
+  background: #f50302;
   pointer-events: none;
   z-index: 2;
   border-radius: 2px;
-  box-shadow: 0 0 12px rgba(255, 255, 255, 0.6);
+  box-shadow: 0 0 8px rgba(245, 3, 2, 0.32);
 }
 
 .wheel-strip__pointer-arrow {
   position: absolute;
-  top: -2px;
+  top: -6px;
   left: 50%;
   width: 0;
   height: 0;
   border-left: 7px solid transparent;
   border-right: 7px solid transparent;
-  border-top: 9px solid #ffffff;
+  border-top: 9px solid #f50302;
   transform: translateX(-50%);
-  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.25));
+  filter: drop-shadow(0 2px 4px rgba(245, 3, 2, 0.25));
 }
 
 .wheel-strip__edge {
   position: absolute;
   top: 0;
   bottom: 0;
-  width: 64px;
+  width: 56px;
   pointer-events: none;
   z-index: 1;
 }
@@ -258,8 +258,8 @@ defineExpose({ runSpin, reset })
   left: 0;
   background: linear-gradient(
     90deg,
-    rgba(245, 3, 2, 0.95) 0%,
-    rgba(245, 3, 2, 0) 100%
+    rgba(255, 255, 255, 1) 0%,
+    rgba(255, 255, 255, 0) 100%
   );
 }
 
@@ -267,8 +267,8 @@ defineExpose({ runSpin, reset })
   right: 0;
   background: linear-gradient(
     270deg,
-    rgba(169, 15, 14, 0.95) 0%,
-    rgba(169, 15, 14, 0) 100%
+    rgba(255, 255, 255, 1) 0%,
+    rgba(255, 255, 255, 0) 100%
   );
 }
 </style>

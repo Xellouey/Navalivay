@@ -5,6 +5,7 @@
       'wheel-prize-card--exhausted': prize.is_exhausted,
       'wheel-prize-card--nothing': prize.rarity?.code === 'nothing',
     }"
+    :style="cardStyle"
   >
     <div
       class="wheel-prize-card__image"
@@ -51,10 +52,19 @@ function onImageError() {
   imgFailed.value = true
 }
 
+const borderColor = computed(() => {
+  if (props.prize.rarity?.code === 'nothing') return '#E2E5EA'
+  return props.prize.rarity?.bgColor || '#E2E5EA'
+})
+
+const cardStyle = computed(() => ({
+  borderColor: borderColor.value,
+}))
+
 const imageBackground = computed(() => {
   if (props.prize.image_url && !imgFailed.value) return '#FFFFFF'
   const color = props.prize.rarity?.bgColor || '#E2E5EA'
-  return `linear-gradient(135deg, ${color}33, ${color}77)`
+  return `linear-gradient(135deg, ${color}1A, ${color}33)`
 })
 </script>
 
@@ -65,15 +75,16 @@ const imageBackground = computed(() => {
   display: flex;
   flex-direction: column;
   align-items: stretch;
-  border-radius: 20px;
+  border-radius: 22px;
   background: #ffffff;
-  box-shadow: 0 4px 16px rgba(15, 23, 42, 0.08);
+  border: 2px solid #e2e5ea;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.06);
   overflow: hidden;
-  transition: transform 0.2s ease;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
 }
 
 .wheel-prize-card--exhausted {
-  opacity: 0.6;
+  opacity: 0.55;
   filter: saturate(0.6);
 }
 
@@ -87,8 +98,8 @@ const imageBackground = computed(() => {
 }
 
 .wheel-prize-card__img {
-  max-width: 86%;
-  max-height: 86%;
+  max-width: 78%;
+  max-height: 78%;
   object-fit: contain;
 }
 
@@ -113,19 +124,23 @@ const imageBackground = computed(() => {
   align-self: center;
   align-items: center;
   justify-content: center;
-  height: 22px;
-  padding: 0 12px;
+  height: 18px;
+  padding: 0 10px;
   border-radius: 999px;
   font-family: 'Montserrat', sans-serif;
   font-weight: 600;
-  font-size: 11px;
-  letter-spacing: 0.04em;
+  font-size: 9px;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
-  margin: 0 12px 12px;
+  margin: 0 8px 8px;
+  max-width: calc(100% - 16px);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .wheel-prize-card--nothing .wheel-prize-card__rarity {
-  background: #ECEEF2 !important;
-  color: #5C6470 !important;
+  background: #eceef2 !important;
+  color: #5c6470 !important;
 }
 </style>
