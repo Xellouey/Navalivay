@@ -214,7 +214,7 @@ function dismiss() {
 .wheel-home-widget {
   position: fixed;
   right: 16px;
-  bottom: calc(var(--app-bottom-tab-bar-height, 0px) + 16px);
+  top: calc(env(safe-area-inset-top, 0px) + 16px);
   z-index: 100;
   width: 120px;
   height: 78px;
