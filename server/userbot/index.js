@@ -1026,6 +1026,69 @@ const httpServer = app.listen(PORT, '127.0.0.1', () => {
   console.log(`[userbot] HTTP API listens on 127.0.0.1:${PORT}`);
 });
 
+// ---------------------------------------------------------------------------
+// Self-watchdog: страхует от залипания GramJS update-loop.
+//
+// Контекст инцидента 20.05.2026: после флапа MTProto GramJS успешно
+// «реконнектнулся» (Started reconnecting → Handling reconnect!), но
+// _updateLoop повис с бесконечными `Error: TIMEOUT` от getDifference.
+// Процесс PM2 видел как online, /health отдавал connected=false, никто
+// сам процесс не убивал — зависание длилось ~3 часа, пока его не
+// заметили вручную. Внешний cron-watchdog (ops/userbot-watchdog.sh)
+// в тот момент не был зарегистрирован в crontab.
+//
+// Этот in-process watchdog независим от внешнего cron: каждые 60 секунд
+// проверяет client.connected и sessionDead. Если соединение мёртвое
+// дольше CONNECTION_DEAD_AFTER_MS — инициирует graceful shutdown,
+// PM2 поднимет процесс заново (autorestart=true).
+//
+// Защита in-depth: даже если cron слетит снова, процесс сам себя
+// подлечит максимум через 6 минут вместо неопределённого зависания.
+// ---------------------------------------------------------------------------
+const SELF_WATCHDOG_INTERVAL_MS = 60 * 1000;
+const CONNECTION_DEAD_AFTER_MS = 5 * 60 * 1000; // 5 минут подряд connected=false → exit
+let connectionDeadSince = 0;
+const selfWatchdogTimer = setInterval(() => {
+  if (shuttingDown) return;
+  // Сессия отозвана — спокойно выходим, /health уже отдаёт ok=false,
+  // PM2 поднимет, но без валидной сессии оно опять упадёт. Это лучше
+  // чем висеть молча: оператор увидит цикл рестартов в pm2 status.
+  if (sessionDead) {
+    console.error('[userbot][self-watchdog] session_dead → exit для PM2-рестарта');
+    logEvent('self_watchdog_exit', { reason: 'session_dead' });
+    shutdown('self-watchdog-session-dead').catch(() => process.exit(1));
+    return;
+  }
+  const now = Date.now();
+  if (client.connected) {
+    connectionDeadSince = 0;
+    return;
+  }
+  // FloodWait — не считаем мёртвым соединением. GramJS внутри ждёт окно
+  // и client.connected может быть false по архитектуре, без зависания.
+  if (floodWaitUntil > now) {
+    connectionDeadSince = 0;
+    return;
+  }
+  if (connectionDeadSince === 0) {
+    connectionDeadSince = now;
+    console.warn('[userbot][self-watchdog] client.connected=false, начинаю отсчёт');
+    return;
+  }
+  const deadFor = now - connectionDeadSince;
+  if (deadFor >= CONNECTION_DEAD_AFTER_MS) {
+    console.error(
+      `[userbot][self-watchdog] client.connected=false уже ${Math.round(deadFor / 1000)}с → exit для PM2-рестарта`,
+    );
+    logEvent('self_watchdog_exit', {
+      reason: 'connection_dead',
+      dead_for_ms: deadFor,
+    });
+    shutdown('self-watchdog-connection-dead').catch(() => process.exit(1));
+  }
+}, SELF_WATCHDOG_INTERVAL_MS);
+selfWatchdogTimer.unref?.();
+
 // Корректный shutdown по SIGTERM (PM2 reload) и SIGINT (Ctrl+C).
 //
 // Защита от двойного вызова: PM2 шлёт SIGTERM, потом через kill_timeout
