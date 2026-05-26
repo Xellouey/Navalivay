@@ -50,11 +50,11 @@
         </button>
       </section>
 
-      <section v-if="!wholesaleStore.isWholesale" class="wheel-home-widget-section">
-        <WheelHomeWidget :variant="activeOrder ? 'subtle' : 'red'" />
-      </section>
-
       <section class="category-section">
+        <WheelHomeWidget
+          v-if="!wholesaleStore.isWholesale"
+          class="wheel-home-widget-floating"
+        />
         <!-- Сетка категорий -->
         <div class="category-grid">
           <button
@@ -249,8 +249,11 @@ onMounted(async () => {
   padding: 12px 16px 0;
 }
 
-.wheel-home-widget-section {
-  padding: 12px 16px 0;
+.wheel-home-widget-floating {
+  position: absolute;
+  top: -10px;
+  right: 0;
+  z-index: 5;
 }
 
 .active-order-banner {

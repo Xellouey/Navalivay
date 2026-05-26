@@ -1,91 +1,79 @@
 <template>
-  <router-link
-    to="/wheel"
+  <div
+    v-if="visible"
     class="wheel-home-widget"
-    :class="`wheel-home-widget--${variant}`"
-    aria-label="Открыть рулетку призов"
+    role="button"
+    tabindex="0"
+    :aria-label="ariaLabel"
+    @click="goToWheel"
+    @keydown.enter.prevent="goToWheel"
+    @keydown.space.prevent="goToWheel"
   >
-    <div class="wheel-home-widget__glow" aria-hidden="true"></div>
-    <div class="wheel-home-widget__icon" aria-hidden="true">
-      <svg width="44" height="44" viewBox="0 0 44 44" fill="none">
-        <circle cx="22" cy="22" r="21" :stroke="iconStroke" stroke-width="1.6" stroke-opacity="0.6" />
-        <circle cx="22" cy="22" r="13" :stroke="iconStroke" stroke-width="1.6" />
-        <circle cx="22" cy="22" r="2.6" :fill="iconStroke" />
-        <path
-          d="M22 4 V18"
-          :stroke="iconStroke"
-          stroke-width="1.6"
-          stroke-linecap="round"
-        />
-        <path
-          d="M22 26 V40"
-          :stroke="iconStroke"
-          stroke-width="1.6"
-          stroke-linecap="round"
-        />
-        <path
-          d="M4 22 H18"
-          :stroke="iconStroke"
-          stroke-width="1.6"
-          stroke-linecap="round"
-        />
-        <path
-          d="M26 22 H40"
-          :stroke="iconStroke"
-          stroke-width="1.6"
-          stroke-linecap="round"
-        />
-      </svg>
+    <p class="wheel-home-widget__title">{{ titleText }}</p>
+    <p class="wheel-home-widget__progress-text">
+      {{ accumulated }}/{{ threshold }} BYN
+    </p>
+    <div class="wheel-home-widget__track" aria-hidden="true">
+      <div
+        class="wheel-home-widget__fill"
+        :style="{ width: `${clampedPercent}%` }"
+      ></div>
     </div>
-    <div class="wheel-home-widget__copy">
-      <p class="wheel-home-widget__kicker">Рулетка призов</p>
-      <p class="wheel-home-widget__title">
-        <template v-if="hasSpins">
-          У тебя {{ spinsAvailable }} {{ spinsLabel }}
-        </template>
-        <template v-else>
-          Копи спины с покупок
-        </template>
-      </p>
-      <p class="wheel-home-widget__hint">
-        <template v-if="hasSpins">Жми, чтобы крутить</template>
-        <template v-else>
-          {{ accumulated }} из {{ threshold }} BYN до спина
-        </template>
-      </p>
-    </div>
-    <div class="wheel-home-widget__arrow" aria-hidden="true">
-      <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+    <button
+      type="button"
+      class="wheel-home-widget__close"
+      aria-label="Скрыть виджет рулетки"
+      @click.stop="dismiss"
+      @keydown.enter.stop
+      @keydown.space.stop
+    >
+      <svg
+        width="13"
+        height="13"
+        viewBox="0 0 13 13"
+        fill="none"
+        aria-hidden="true"
+      >
         <path
-          d="M6 4L12 9L6 14"
-          :stroke="arrowStroke"
+          d="M2.5 2.5 L10.5 10.5 M10.5 2.5 L2.5 10.5"
+          stroke="#FFFFFF"
           stroke-width="1.8"
           stroke-linecap="round"
-          stroke-linejoin="round"
         />
       </svg>
-    </div>
-  </router-link>
+    </button>
+  </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted } from 'vue'
+import { computed, onMounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { useWheelStore } from '@/stores/wheel'
-
-type WheelHomeWidgetVariant = 'red' | 'subtle'
 
 const props = withDefaults(
   defineProps<{
     autoLoad?: boolean
-    variant?: WheelHomeWidgetVariant
   }>(),
-  { autoLoad: true, variant: 'red' },
+  { autoLoad: true },
 )
 
 const wheelStore = useWheelStore()
+const router = useRouter()
+
+const DISMISS_KEY = 'wheel_home_widget_dismissed'
+const dismissed = ref(false)
 
 onMounted(() => {
-  if (props.autoLoad && !wheelStore.prizes.length) {
+  try {
+    if (sessionStorage.getItem(DISMISS_KEY) === '1') {
+      dismissed.value = true
+    }
+  } catch {
+    // sessionStorage недоступен (приватный режим и т.п.) — просто
+    // показываем виджет, без persisted dismiss.
+  }
+
+  if (props.autoLoad && wheelStore.lastFetchedAt === null) {
     wheelStore.fetchState().catch(() => {
       // Виджет работает в degraded-режиме, ошибку логируем тихо.
     })
@@ -99,6 +87,11 @@ const accumulated = computed(() =>
 const threshold = computed(() =>
   Math.round(wheelStore.balance.threshold_byn || 40),
 )
+const clampedPercent = computed(() => {
+  const raw = wheelStore.balance.progress_percent || 0
+  if (Number.isNaN(raw)) return 0
+  return Math.max(0, Math.min(100, raw))
+})
 const hasSpins = computed(() => spinsAvailable.value > 0)
 
 const spinsLabel = computed(() => {
@@ -108,128 +101,182 @@ const spinsLabel = computed(() => {
   return 'спинов'
 })
 
-// C2-UX: when HomeView already shows a red active-order banner directly
-// above the widget, two stacked red gradients break the "aggressive red
-// only where attention is needed" canon. The `subtle` variant mirrors
-// the canonical white profile-card language: white surface, red kicker,
-// dark body text, soft restrained shadow.
-const iconStroke = computed(() => (props.variant === 'subtle' ? '#F50302' : '#FFFFFF'))
-const arrowStroke = computed(() => (props.variant === 'subtle' ? '#1F2933' : '#FFFFFF'))
+const titleText = computed(() =>
+  hasSpins.value ? `${spinsAvailable.value} ${spinsLabel.value}` : 'Скоро спин',
+)
+
+const ariaLabel = computed(() =>
+  hasSpins.value
+    ? `Открыть рулетку. Доступно ${spinsAvailable.value} ${spinsLabel.value}.`
+    : `Открыть рулетку. До спина ${accumulated.value} из ${threshold.value} BYN.`,
+)
+
+// Виджет ждёт первого успешного /api/wheel/state. До этого ничего
+// не рендерим — иначе при первом mount пользователь видит «0 BYN /
+// 40 BYN» из EMPTY_BALANCE, а через долю секунды значения мигают
+// на реальные. Лучше короткий пустой слот, чем ложный 0%.
+const visible = computed(
+  () => !dismissed.value && wheelStore.lastFetchedAt !== null,
+)
+
+function goToWheel() {
+  router.push('/wheel')
+}
+
+function dismiss() {
+  try {
+    sessionStorage.setItem(DISMISS_KEY, '1')
+  } catch {
+    // ignore — виджет всё равно скроется на оставшуюся часть жизни компонента
+  }
+  dismissed.value = true
+}
 </script>
 
 <style scoped>
 .wheel-home-widget {
   position: relative;
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  padding: 16px 16px 16px 18px;
-  border-radius: 22px;
-  text-decoration: none;
-  overflow: hidden;
-}
-
-.wheel-home-widget--red {
-  background: linear-gradient(106.76deg, #f50302 -2.64%, #a90f0e 85.78%);
+  width: 120px;
+  height: 78px;
+  padding: 0;
+  border: none;
+  border-radius: 12px;
+  background: linear-gradient(115.84deg, #3b3b3b 34.65%, #000000 78.12%);
+  box-shadow: 0 4px 24px rgba(170, 178, 189, 0.24);
   color: #ffffff;
-  box-shadow: 0 8px 16px rgba(97, 1, 0, 0.16);
+  cursor: pointer;
+  overflow: visible;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
 }
 
-/* C2-UX subtle variant — белая карточка с красным акцентом, парная
-   к канону loyalty-/profile- белых блоков. Используется когда выше
-   уже есть красная плашка (например, баннер активного заказа). */
-.wheel-home-widget--subtle {
-  background: #ffffff;
-  color: #1f2933;
-  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.06);
+.wheel-home-widget:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 28px rgba(170, 178, 189, 0.32);
 }
 
-.wheel-home-widget__glow {
-  position: absolute;
-  width: 240px;
-  height: 240px;
-  right: -90px;
-  top: -120px;
-  background: radial-gradient(circle, rgba(255, 255, 255, 0.32) 0%, rgba(255, 255, 255, 0) 70%);
-  pointer-events: none;
+.wheel-home-widget:active {
+  transform: translateY(0);
 }
 
-.wheel-home-widget--subtle .wheel-home-widget__glow {
-  background: radial-gradient(circle, rgba(245, 3, 2, 0.06) 0%, rgba(245, 3, 2, 0) 70%);
-}
-
-.wheel-home-widget__icon {
-  flex: 0 0 56px;
-  width: 56px;
-  height: 56px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(255, 255, 255, 0.12);
-  border-radius: 18px;
-  backdrop-filter: blur(6px);
-}
-
-.wheel-home-widget--subtle .wheel-home-widget__icon {
-  background: rgba(245, 3, 2, 0.08);
-  backdrop-filter: none;
-}
-
-.wheel-home-widget__copy {
-  flex: 1 1 auto;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.wheel-home-widget__kicker {
-  margin: 0;
-  font-family: 'SF Pro Display', system-ui, sans-serif;
-  font-size: 12px;
-  font-weight: 500;
-  letter-spacing: 0.02em;
-  text-transform: uppercase;
-  color: rgba(255, 255, 255, 0.78);
-}
-
-.wheel-home-widget--subtle .wheel-home-widget__kicker {
-  color: #f50302;
+.wheel-home-widget:focus-visible {
+  outline: 2px solid #f50302;
+  outline-offset: 2px;
 }
 
 .wheel-home-widget__title {
+  position: absolute;
+  left: 10px;
+  top: 8px;
   margin: 0;
   font-family: 'Montserrat', sans-serif;
   font-weight: 700;
-  font-size: 17px;
-  line-height: 1.2;
+  font-size: 16px;
+  line-height: 20px;
+  color: #ffffff;
 }
 
-.wheel-home-widget--subtle .wheel-home-widget__title {
-  color: #1f2933;
-}
-
-.wheel-home-widget__hint {
+.wheel-home-widget__progress-text {
+  position: absolute;
+  left: 10px;
+  top: 32px;
   margin: 0;
-  font-family: 'SF Pro Display', system-ui, sans-serif;
-  font-size: 13px;
-  color: rgba(255, 255, 255, 0.85);
+  font-family: -apple-system, 'SF Pro Display', system-ui, sans-serif;
+  font-weight: 400;
+  font-size: 12px;
+  line-height: 14px;
+  color: rgba(255, 255, 255, 0.92);
 }
 
-.wheel-home-widget--subtle .wheel-home-widget__hint {
-  color: #5c6470;
+.wheel-home-widget__track {
+  position: absolute;
+  left: 8px;
+  top: 58px;
+  width: 104px;
+  height: 12px;
+  border-radius: 12px;
+  background: #f5f7fa;
+  overflow: hidden;
 }
 
-.wheel-home-widget__arrow {
+.wheel-home-widget__fill {
+  height: 100%;
+  border-radius: 12px;
+  background: linear-gradient(106.76deg, #f50302 -2.64%, #a90f0e 85.78%);
+  box-shadow: 0 8px 16px rgba(97, 1, 0, 0.16);
+  transition: width 0.35s ease;
+}
+
+.wheel-home-widget__close {
+  position: absolute;
+  top: -3px;
+  right: -3px;
   width: 26px;
   height: 26px;
+  padding: 0;
+  border: none;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.18);
+  background: linear-gradient(144.09deg, #f50302 21.86%, #a90f0e 82.9%);
+  box-shadow: 0 2px 6px rgba(97, 1, 0, 0.28);
   display: flex;
   align-items: center;
   justify-content: center;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform 0.15s ease;
 }
 
-.wheel-home-widget--subtle .wheel-home-widget__arrow {
-  background: rgba(15, 23, 42, 0.06);
+.wheel-home-widget__close:hover {
+  transform: scale(1.06);
+}
+
+.wheel-home-widget__close:active {
+  transform: scale(0.96);
+}
+
+.wheel-home-widget__close:focus-visible {
+  outline: 2px solid #ffffff;
+  outline-offset: 2px;
+}
+
+@media (max-width: 360px) {
+  .wheel-home-widget {
+    width: 110px;
+    height: 72px;
+  }
+
+  .wheel-home-widget__title {
+    top: 6px;
+    font-size: 14px;
+    line-height: 18px;
+  }
+
+  .wheel-home-widget__progress-text {
+    top: 28px;
+    font-size: 11px;
+    line-height: 13px;
+  }
+
+  .wheel-home-widget__track {
+    top: 52px;
+    left: 8px;
+    width: 94px;
+    height: 11px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wheel-home-widget,
+  .wheel-home-widget__close,
+  .wheel-home-widget__fill {
+    transition: none;
+  }
+
+  .wheel-home-widget:hover,
+  .wheel-home-widget:active,
+  .wheel-home-widget__close:hover,
+  .wheel-home-widget__close:active {
+    transform: none;
+  }
 }
 </style>
