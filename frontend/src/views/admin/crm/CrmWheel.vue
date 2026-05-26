@@ -404,6 +404,20 @@
                 class="rounded-lg border border-slate-200 px-3 py-2 text-sm"
               ></textarea>
             </label>
+            <label class="flex flex-col gap-1 col-span-full">
+              <span class="text-xs uppercase tracking-wider text-slate-500">
+                URL изображения приза (опционально)
+              </span>
+              <input
+                v-model="prizeForm.image_url"
+                type="url"
+                placeholder="https://..."
+                class="rounded-lg border border-slate-200 px-3 py-2 text-sm"
+              />
+              <span class="text-[11px] text-slate-400">
+                Оставь пустым — будет использовано дефолтное изображение, окрашенное в цвет редкости.
+              </span>
+            </label>
             <label class="flex flex-col gap-1">
               <span class="text-xs uppercase tracking-wider text-slate-500">Редкость</span>
               <select
@@ -726,6 +740,7 @@ const prizeForm = reactive<{
   id: string | null
   title: string
   description: string
+  image_url: string
   rarity_code: string
   promo_template_id: string | null
   weight: number
@@ -741,6 +756,7 @@ const prizeForm = reactive<{
   id: null,
   title: '',
   description: '',
+  image_url: '',
   rarity_code: 'common',
   promo_template_id: null,
   weight: 1,
@@ -933,6 +949,7 @@ function openCreateModal() {
     id: null,
     title: '',
     description: '',
+    image_url: '',
     rarity_code: rarities.value[0]?.code || 'common',
     promo_template_id: null,
     weight: 1,
@@ -945,6 +962,7 @@ function openCreateModal() {
     is_for_wholesale: false,
     is_active: true,
   })
+  prizeFormErrors.value = []
   prizeModalOpen.value = true
 }
 
@@ -953,6 +971,7 @@ function openEditModal(prize: WheelPrize) {
     id: prize.id,
     title: prize.title,
     description: prize.description || '',
+    image_url: prize.image_url || '',
     rarity_code: prize.rarity_code,
     promo_template_id: prize.promo_template_id || null,
     weight: Number(prize.weight) || 0,
@@ -965,6 +984,7 @@ function openEditModal(prize: WheelPrize) {
     is_for_wholesale: Boolean(prize.is_for_wholesale),
     is_active: Boolean(prize.is_active),
   })
+  prizeFormErrors.value = []
   prizeModalOpen.value = true
 }
 
@@ -1018,6 +1038,7 @@ async function savePrize() {
     rarity_code: prizeForm.rarity_code,
     title: prizeForm.title.trim(),
     description: prizeForm.description,
+    image_url: prizeForm.image_url.trim() || null,
     weight: prizeForm.weight,
     max_total: prizeForm.max_total,
     promo_template_id: prizeForm.promo_template_id,

@@ -12,18 +12,19 @@
       :style="{ background: imageBackground }"
     >
       <img
-        v-if="prize.image_url"
+        v-if="prize.image_url && !imgFailed"
         :src="prize.image_url"
         :alt="prize.title"
         class="wheel-prize-card__img"
         @error="onImageError"
       />
-      <span v-else-if="prize.rarity?.code === 'nothing'" class="wheel-prize-card__nothing">
-        ничего
-      </span>
-      <span v-else class="wheel-prize-card__monogram">
-        {{ prize.title.slice(0, 1).toUpperCase() }}
-      </span>
+      <div
+        v-else
+        class="wheel-prize-card__icon-default"
+        :style="defaultIconStyle"
+        role="img"
+        :aria-label="prize.title"
+      ></div>
     </div>
     <div
       v-if="prize.rarity"
@@ -41,6 +42,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import type { WheelPrize } from '@/stores/wheel'
+import defaultPrizeImage from '@/assets/wheel-default-prize.png'
 
 const props = defineProps<{
   prize: WheelPrize
@@ -65,6 +67,14 @@ const imageBackground = computed(() => {
   if (props.prize.image_url && !imgFailed.value) return '#FFFFFF'
   const color = props.prize.rarity?.bgColor || '#E2E5EA'
   return `linear-gradient(135deg, ${color}1A, ${color}33)`
+})
+
+const defaultIconStyle = computed(() => {
+  const tint = props.prize.rarity?.bgColor || '#9AA0A6'
+  return {
+    backgroundColor: tint,
+    '--wheel-default-prize-image': `url('${defaultPrizeImage}')`,
+  }
 })
 </script>
 
@@ -103,20 +113,18 @@ const imageBackground = computed(() => {
   object-fit: contain;
 }
 
-.wheel-prize-card__monogram {
-  font-family: 'Montserrat', sans-serif;
-  font-weight: 700;
-  font-size: 44px;
-  color: rgba(15, 23, 42, 0.45);
-}
-
-.wheel-prize-card__nothing {
-  font-family: 'Montserrat', sans-serif;
-  font-weight: 600;
-  font-size: 14px;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: rgba(15, 23, 42, 0.55);
+.wheel-prize-card__icon-default {
+  width: 60%;
+  aspect-ratio: 1 / 1;
+  background-color: var(--wheel-default-prize-tint, #9aa0a6);
+  -webkit-mask-image: var(--wheel-default-prize-image);
+  mask-image: var(--wheel-default-prize-image);
+  -webkit-mask-size: contain;
+  mask-size: contain;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  mask-position: center;
 }
 
 .wheel-prize-card__rarity {
