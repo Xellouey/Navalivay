@@ -211,7 +211,7 @@ import WheelLiveFeed from '@/components/wheel/WheelLiveFeed.vue'
 import WheelConsentModal from '@/components/wheel/WheelConsentModal.vue'
 import CustomerModalShell from '@/components/CustomerModalShell.vue'
 import ToastNotification from '@/components/ToastNotification.vue'
-import { useWheelStore, type WheelPrize, type WheelSpinResult } from '@/stores/wheel'
+import { useWheelStore, WHEEL_STATE_CACHE_TTL_MS, type WheelPrize, type WheelSpinResult } from '@/stores/wheel'
 
 const wheelStore = useWheelStore()
 const router = useRouter()
@@ -220,7 +220,6 @@ const showResult = ref(false)
 const lastResult = ref<WheelSpinResult | null>(null)
 const toastMessage = ref('')
 const toastKey = ref(0)
-const hasLoadedOnce = ref(false)
 // C1-UX: `wheelStore.isSpinning` flips back to `false` as soon as the
 // /api/wheel/spin response is received (~300ms), but the CSGO strip
 // animation runs for ~5.4s after that. A second click during those
@@ -272,13 +271,13 @@ const progressLabel = computed(() => {
 
 const progressAriaLabel = computed(() => `Прогресс до следующего спина: ${progressPercent.value}%`)
 
-// S16: skeleton until first /api/wheel/state has actually returned. Until
-// then we don't know whether the user has spins, what the threshold is,
-// or even whether the wheel is enabled. Showing concrete copy ("Скоро
-// будет спин", "Осталось 0 прокруток") for that empty in-between state
-// is misleading.
+// S16 + P3-UX: skeleton показываем только пока ни одного успешного
+// /api/wheel/state ещё не было. Как только store закэшировал хотя бы
+// один ответ (lastFetchedAt !== null), повторный mount возвращается
+// сразу к данным — даже если silent refresh ещё в полёте, скелетон
+// не мерцает.
 const showSkeleton = computed(
-  () => !hasLoadedOnce.value && wheelStore.isLoading,
+  () => wheelStore.lastFetchedAt === null && wheelStore.isLoading,
 )
 
 const isSpinDisabled = computed(
@@ -379,8 +378,11 @@ async function spin() {
     showResult.value = true
     // S2-6: refresh state in the background so live-feed and balance
     // reflect the new spin while the user is still reading the modal.
-    // Closing the modal no longer triggers a second fetch.
-    wheelStore.fetchState().catch(() => undefined)
+    // Closing the modal no longer triggers a second fetch. Silent +
+    // force: spin() сам обнулил lastFetchedAt, force здесь подстраховка
+    // чтобы кэш точно не вернул старые данные; silent — чтобы фон
+    // обновления не показывал скелетон поверх уже открытой модалки.
+    wheelStore.fetchState({ silent: true, force: true }).catch(() => undefined)
   } finally {
     isAnimating.value = false
   }
@@ -422,19 +424,35 @@ function goToHowTo() {
 }
 
 onMounted(async () => {
+  // P3-UX: если кэш свежий — отдаём данные мгновенно, без скелетона.
+  // В фоне всё равно дёргаем silent refresh, чтобы feed/balance не
+  // отставали в редком кейсе «открыл рулетку, ушёл на 50 секунд,
+  // вернулся через минус-эпсилон от TTL».
+  const isCacheFresh = wheelStore.lastFetchedAt !== null
+    && Date.now() - wheelStore.lastFetchedAt < WHEEL_STATE_CACHE_TTL_MS
+
+  if (isCacheFresh) {
+    wheelStore.fetchState({ silent: true, force: true }).catch(() => undefined)
+    if (
+      wheelStore.feedConsentRequired
+      && !consentDismissedThisSession.value
+    ) {
+      showConsentModal.value = true
+    }
+    return
+  }
+
   try {
     await wheelStore.fetchState()
     if (
-      wheelStore.feedConsentRequired &&
-      !consentDismissedThisSession.value
+      wheelStore.feedConsentRequired
+      && !consentDismissedThisSession.value
     ) {
       showConsentModal.value = true
     }
   } catch (error) {
     console.error('[wheel] state error', error)
     showToast('Не удалось загрузить рулетку. Открой страницу заново.')
-  } finally {
-    hasLoadedOnce.value = true
   }
 })
 </script>

@@ -145,6 +145,20 @@ const EMPTY_BALANCE: WheelBalance = {
   consecutive_nothing: 0,
 }
 
+/**
+ * UX cache TTL для /api/wheel/state и /api/wheel/my-prizes.
+ *
+ * Пользователь жаловался на flicker полного скелетона при переходе
+ * `/wheel` → `/wheel/how-it-works` → `/wheel` (или `/wheel/my-prizes`)
+ * хотя данные были загружены секунду назад. 1 минуты достаточно для
+ * быстрых in-app переходов; за минуту feed успеет обновиться при
+ * следующем «настоящем» заходе. Всё что свежее TTL — отдаём из памяти
+ * сразу, в фоне опционально делаем silent refresh без скелетона.
+ */
+export const WHEEL_STATE_CACHE_TTL_MS = 60_000
+
+export type WheelMyPrizeFilter = 'all' | 'active' | 'used' | 'expired'
+
 export const useWheelStore = defineStore('wheel', () => {
   const balance = ref<WheelBalance>({ ...EMPTY_BALANCE })
   const prizes = ref<WheelPrize[]>([])
@@ -152,6 +166,17 @@ export const useWheelStore = defineStore('wheel', () => {
   const feed = ref<WheelFeedItem[]>([])
   const myActivePrizes = ref<WheelMyPrize[]>([])
   const myAllPrizes = ref<WheelMyPrize[]>([])
+  // P3-UX: snapshot per filter, чтобы при возврате на уже загруженный
+  // таб мы могли сразу восстановить данные из памяти без пересылки.
+  // Без этого общий myAllPrizes держал бы только последний загруженный
+  // срез — и cache-hit на старый таб отрисовывал бы прежний (чужой)
+  // массив.
+  const myPrizesByStatus = ref<Record<WheelMyPrizeFilter, WheelMyPrize[]>>({
+    all: [],
+    active: [],
+    used: [],
+    expired: [],
+  })
   const eliteRarityCodes = ref<string[]>([])
   const settings = ref<WheelState['settings']>({
     pity_threshold: 3,
@@ -169,14 +194,40 @@ export const useWheelStore = defineStore('wheel', () => {
   const feedConsent = ref(false)
   const feedConsentRequired = ref(false)
   const isUpdatingConsent = ref(false)
+  // P3-UX: timestamp последнего успешного /api/wheel/state. Пока он
+  // свежий (см. WHEEL_STATE_CACHE_TTL_MS), повторный mount компонента
+  // отдаёт уже загруженные данные без скелетона.
+  const lastFetchedAt = ref<number | null>(null)
+  // Аналогично для /api/wheel/my-prizes. Кэш per-filter: смена таба
+  // должна заново запросить нужный срез.
+  const myPrizesLastFetchedAt = ref<Record<WheelMyPrizeFilter, number | null>>({
+    all: null,
+    active: null,
+    used: null,
+    expired: null,
+  })
 
   const hasSpins = computed(() => balance.value.spins_available > 0)
   const sortedPrizes = computed(() =>
     [...prizes.value].sort((a, b) => a.sort_order - b.sort_order),
   )
 
-  async function fetchState() {
-    isLoading.value = true
+  async function fetchState(options: { silent?: boolean; force?: boolean } = {}) {
+    const { silent = false, force = false } = options
+    // P3-UX: cache hit. Возвращаем сразу: вызывающий код получит
+    // already-loaded state без сетевого запроса. fetchState() после
+    // спина передаёт force:true, чтобы баланс гарантированно
+    // обновился, даже если кэш свежий.
+    if (
+      !force
+      && lastFetchedAt.value !== null
+      && Date.now() - lastFetchedAt.value < WHEEL_STATE_CACHE_TTL_MS
+    ) {
+      return null
+    }
+    if (!silent) {
+      isLoading.value = true
+    }
     stateError.value = ''
     try {
       const data = await fetchJson<WheelState>('/api/wheel/state')
@@ -191,12 +242,22 @@ export const useWheelStore = defineStore('wheel', () => {
       isWholesale.value = data.is_wholesale
       feedConsent.value = Boolean(data.feed_consent)
       feedConsentRequired.value = Boolean(data.feed_consent_required)
+      lastFetchedAt.value = Date.now()
       return data
     } catch (error: any) {
-      stateError.value = error?.message || 'Не удалось загрузить рулетку'
+      // На ошибке lastFetchedAt не обновляем — следующий заход
+      // попробует ещё раз. В silent-режиме (фоновый refresh) ошибку
+      // в stateError тоже не пишем: пользователь видит уже
+      // загруженные данные, а network blip — не повод показывать
+      // ему красный тост или скелетон.
+      if (!silent) {
+        stateError.value = error?.message || 'Не удалось загрузить рулетку'
+      }
       throw error
     } finally {
-      isLoading.value = false
+      if (!silent) {
+        isLoading.value = false
+      }
     }
   }
 
@@ -222,6 +283,18 @@ export const useWheelStore = defineStore('wheel', () => {
         ...balance.value,
         spins_available: result.spins_left,
         accumulated_byn: result.accumulated_byn,
+      }
+      // После спина баланс/feed на сервере уже изменились. Invalidate
+      // кэш, чтобы вызванный сразу следом fetchState() (см. WheelView
+      // S2-6) реально дёрнул сеть, а не вернулся из памяти. То же
+      // самое для my-prizes: новый приз должен появиться в "active"
+      // и "all" срезах при следующем открытии экрана.
+      lastFetchedAt.value = null
+      myPrizesLastFetchedAt.value = {
+        all: null,
+        active: null,
+        used: null,
+        expired: null,
       }
       return result
     } catch (error: any) {
@@ -255,12 +328,42 @@ export const useWheelStore = defineStore('wheel', () => {
     }
   }
 
-  async function fetchMyPrizes(status: 'all' | 'active' | 'used' | 'expired' = 'all') {
+  async function fetchMyPrizes(
+    status: WheelMyPrizeFilter = 'all',
+    options: { silent?: boolean; force?: boolean } = {},
+  ) {
+    const { force = false } = options
+    if (
+      !force
+      && myPrizesLastFetchedAt.value[status] !== null
+      && Date.now() - (myPrizesLastFetchedAt.value[status] as number)
+        < WHEEL_STATE_CACHE_TTL_MS
+    ) {
+      // Cache hit: восстанавливаем prepared snapshot для этого фильтра,
+      // чтобы вью отрисовало правильный срез, даже если пользователь
+      // переключал табы.
+      myAllPrizes.value = myPrizesByStatus.value[status]
+      return myAllPrizes.value
+    }
     const data = await fetchJson<{ prizes: WheelMyPrize[] }>(
       `/api/wheel/my-prizes?status=${encodeURIComponent(status)}`,
     )
-    myAllPrizes.value = data.prizes || []
+    const list = data.prizes || []
+    myAllPrizes.value = list
+    myPrizesByStatus.value = {
+      ...myPrizesByStatus.value,
+      [status]: list,
+    }
+    myPrizesLastFetchedAt.value = {
+      ...myPrizesLastFetchedAt.value,
+      [status]: Date.now(),
+    }
     return myAllPrizes.value
+  }
+
+  function isMyPrizesCacheFresh(status: WheelMyPrizeFilter): boolean {
+    const ts = myPrizesLastFetchedAt.value[status]
+    return ts !== null && Date.now() - ts < WHEEL_STATE_CACHE_TTL_MS
   }
 
   return {
@@ -282,11 +385,14 @@ export const useWheelStore = defineStore('wheel', () => {
     feedConsent,
     feedConsentRequired,
     isUpdatingConsent,
+    lastFetchedAt,
+    myPrizesLastFetchedAt,
     hasSpins,
     sortedPrizes,
     fetchState,
     spin,
     fetchMyPrizes,
+    isMyPrizesCacheFresh,
     setFeedConsent,
   }
 })

@@ -87,9 +87,11 @@ function goBack() {
 }
 
 onMounted(() => {
-  if (!wheelStore.rarities.length) {
-    wheelStore.fetchState().catch(() => undefined)
-  }
+  // P3-UX: silent fetch использует TTL-кэш store. Если данные свежие,
+  // ничего не происходит; если устарели или ещё не загружены, тихо
+  // подтянем — у этого экрана нет скелетона, так что показывать
+  // isLoading смысла нет.
+  wheelStore.fetchState({ silent: true }).catch(() => undefined)
 })
 </script>
 

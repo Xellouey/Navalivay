@@ -143,6 +143,14 @@ function setTab(tab: WheelPrizeFilter) {
 }
 
 watch(activeTab, async (next) => {
+  // P3-UX: если для этого фильтра уже есть кэш — fetchMyPrizes сразу
+  // подменит myAllPrizes на нужный срез из памяти и выйдет, без
+  // мерцания. В фоне дёрнем silent refresh, чтобы данные обновились.
+  if (wheelStore.isMyPrizesCacheFresh(next)) {
+    await wheelStore.fetchMyPrizes(next).catch(() => undefined)
+    wheelStore.fetchMyPrizes(next, { force: true }).catch(() => undefined)
+    return
+  }
   await wheelStore.fetchMyPrizes(next).catch(() => undefined)
 })
 
@@ -200,6 +208,15 @@ function goBack() {
 }
 
 onMounted(async () => {
+  // P3-UX: cache hit — restore snapshot мгновенно (внутри fetchMyPrizes
+  // присваивает myAllPrizes из cached map), и параллельно делаем
+  // silent refresh, чтобы обновить данные без скелетона.
+  if (wheelStore.isMyPrizesCacheFresh(activeTab.value)) {
+    await wheelStore.fetchMyPrizes(activeTab.value).catch(() => undefined)
+    wheelStore.fetchMyPrizes(activeTab.value, { force: true })
+      .catch(() => undefined)
+    return
+  }
   await wheelStore.fetchMyPrizes(activeTab.value).catch(() => undefined)
 })
 </script>
