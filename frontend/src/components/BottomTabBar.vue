@@ -37,7 +37,10 @@
         :key="tab.path"
         :to="tab.path"
         class="tab-item"
-        :class="{ 'tab-item--active': isActive(tab.path) }"
+        :class="[
+          { 'tab-item--active': isActive(tab.path) },
+          `tab-item--${tab.id}`,
+        ]"
         :aria-label="tab.label"
       >
         <div class="tab-icon-wrap">
@@ -89,29 +92,92 @@
 
           <svg
             v-else-if="tab.id === 'wheel'"
-            width="24"
-            height="24"
-            viewBox="0 0 24 24"
+            class="tab-icon-wheel"
+            width="128"
+            height="26"
+            viewBox="132.55 69.25 128.8 27.5"
             fill="none"
+            preserveAspectRatio="xMidYMid meet"
           >
-            <circle
-              cx="12"
-              cy="12"
-              r="9"
+            <rect
+              x="133.3"
+              y="73.8518"
+              width="127.3"
+              height="18.2963"
+              rx="9.14815"
               :stroke="isActive(tab.path) ? '#fff' : 'rgba(255,255,255,0.64)'"
-              stroke-width="1.8"
+              stroke-width="1.5"
             />
-            <path
-              d="M3 12H21M12 3V21"
+            <rect
+              x="148.3"
+              y="79.6296"
+              width="7"
+              height="6.74074"
+              rx="2"
               :stroke="isActive(tab.path) ? '#fff' : 'rgba(255,255,255,0.64)'"
-              stroke-width="1.8"
-              stroke-linecap="round"
+              stroke-width="1.5"
             />
-            <circle
-              cx="12"
-              cy="12"
-              r="3"
-              :fill="isActive(tab.path) ? '#fff' : 'rgba(255,255,255,0.64)'"
+            <rect
+              x="159.9"
+              y="78.426"
+              width="9.5"
+              height="9.14815"
+              rx="3"
+              :stroke="isActive(tab.path) ? '#fff' : 'rgba(255,255,255,0.64)'"
+              stroke-width="1.5"
+            />
+            <rect
+              x="174.15"
+              y="77.511"
+              width="11.4"
+              height="10.9778"
+              rx="3"
+              :stroke="isActive(tab.path) ? '#fff' : 'rgba(255,255,255,0.64)'"
+              stroke-width="1.5"
+            />
+            <rect
+              x="190.3"
+              y="76.5962"
+              width="13.3"
+              height="12.8074"
+              rx="3"
+              :stroke="isActive(tab.path) ? '#fff' : 'rgba(255,255,255,0.64)'"
+              stroke-width="1.5"
+            />
+            <rect
+              x="208.35"
+              y="77.511"
+              width="11.4"
+              height="10.9778"
+              rx="3"
+              :stroke="isActive(tab.path) ? '#fff' : 'rgba(255,255,255,0.64)'"
+              stroke-width="1.5"
+            />
+            <rect
+              x="224.5"
+              y="78.426"
+              width="9.5"
+              height="9.14815"
+              rx="3"
+              :stroke="isActive(tab.path) ? '#fff' : 'rgba(255,255,255,0.64)'"
+              stroke-width="1.5"
+            />
+            <rect
+              x="238.3"
+              y="79.6296"
+              width="7"
+              height="6.74074"
+              rx="2"
+              :stroke="isActive(tab.path) ? '#fff' : 'rgba(255,255,255,0.64)'"
+              stroke-width="1.5"
+            />
+            <line
+              x1="196.8"
+              y1="70"
+              x2="196.8"
+              y2="96"
+              :stroke="isActive(tab.path) ? '#fff' : 'rgba(255,255,255,0.64)'"
+              stroke-width="1.2"
             />
           </svg>
 
@@ -284,6 +350,11 @@ onBeforeUnmount(() => {
   transition: opacity 0.2s ease;
 }
 
+.tab-item--wheel {
+  width: auto;
+  flex: 0 0 auto;
+}
+
 .tab-item:active {
   opacity: 0.7;
 }
@@ -297,9 +368,20 @@ onBeforeUnmount(() => {
   height: 24px;
 }
 
+.tab-item--wheel .tab-icon-wrap {
+  width: auto;
+  min-width: 24px;
+}
+
 .tab-icon-wrap :deep(svg) {
   width: clamp(15px, calc(100vw * 16 / 393), 16px);
   height: clamp(15px, calc(100vw * 16 / 393), 16px);
+}
+
+.tab-icon-wrap :deep(svg.tab-icon-wheel) {
+  width: auto;
+  height: clamp(20px, calc(100vw * 22 / 393), 24px);
+  max-width: 100%;
 }
 
 .tab-active-dot {
