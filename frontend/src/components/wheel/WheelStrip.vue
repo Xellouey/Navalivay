@@ -148,12 +148,14 @@ async function runSpin(options: SpinAnimationOptions) {
   // S15: respect prefers-reduced-motion. The original cinematic spin is
   // fine for most users but actively unpleasant for people with
   // vestibular sensitivity.
-  // CSGO-style suspense: ~6s with a longer, more even ease-out so the
-  // deceleration is visible across the last 1.5-2s instead of snapping
-  // flat almost immediately.
+  // CSGO-style suspense: near-linear travel with a sharp stop in the
+  // last few hundred ms. The previous easeOut curve felt artificially
+  // drawn out because the slowdown started ~30% from the end; this
+  // curve keeps the strip flying at constant speed and snaps it to
+  // rest only at the very end.
   const reducedMotion = prefersReducedMotion()
-  const duration = options.durationMs ?? (reducedMotion ? 800 : 5800)
-  const easing = reducedMotion ? 'ease-out' : 'cubic-bezier(0.32, 0.72, 0, 1)'
+  const duration = options.durationMs ?? (reducedMotion ? 800 : 5500)
+  const easing = reducedMotion ? 'ease-out' : 'cubic-bezier(0.05, 0.05, 0.15, 1)'
   trackTransition.value = `transform ${duration}ms ${easing}`
   currentOffset.value = targetOffset
   landedIndex.value = -1
