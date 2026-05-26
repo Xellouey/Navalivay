@@ -100,20 +100,44 @@
     </section>
 
     <section class="wheel-main">
-      <WheelLiveFeed :items="wheelStore.feed" class="wheel-main__feed" />
+      <WheelLiveFeed
+        v-if="wheelStore.feed.length >= 3"
+        :items="wheelStore.feed"
+        class="wheel-main__feed"
+      />
 
       <router-link to="/wheel/my-prizes" class="wheel-main__row">
         <span class="wheel-main__row-icon">
           <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
             <path
-              d="M4 6.5C4 5.67157 4.67157 5 5.5 5H14.5C15.3284 5 16 5.67157 16 6.5V14C16 14.5523 15.5523 15 15 15H5C4.44772 15 4 14.5523 4 14V6.5Z"
+              d="M3 9H17V16C17 16.5523 16.5523 17 16 17H4C3.44772 17 3 16.5523 3 16V9Z"
               stroke="#1F2933"
               stroke-width="1.5"
+              stroke-linejoin="round"
             />
             <path
-              d="M7 5V3.5C7 3.22386 7.22386 3 7.5 3H12.5C12.7761 3 13 3.22386 13 3.5V5"
+              d="M2 6.5C2 6.22386 2.22386 6 2.5 6H17.5C17.7761 6 18 6.22386 18 6.5V8.5C18 8.77614 17.7761 9 17.5 9H2.5C2.22386 9 2 8.77614 2 8.5V6.5Z"
               stroke="#1F2933"
               stroke-width="1.5"
+              stroke-linejoin="round"
+            />
+            <path
+              d="M10 6V17"
+              stroke="#1F2933"
+              stroke-width="1.5"
+              stroke-linecap="round"
+            />
+            <path
+              d="M10 6C10 6 7.5 6 6.5 5C5.71776 4.21776 5.71776 2.78224 6.5 2C7.28224 1.21776 8.71776 1.21776 9.5 2C10.5 3 10 6 10 6Z"
+              stroke="#1F2933"
+              stroke-width="1.5"
+              stroke-linejoin="round"
+            />
+            <path
+              d="M10 6C10 6 12.5 6 13.5 5C14.2822 4.21776 14.2822 2.78224 13.5 2C12.7178 1.21776 11.2822 1.21776 10.5 2C9.5 3 10 6 10 6Z"
+              stroke="#1F2933"
+              stroke-width="1.5"
+              stroke-linejoin="round"
             />
           </svg>
         </span>
@@ -172,7 +196,13 @@
         </p>
         <div v-if="lastResult.promo_code" class="wheel-result-body__promo">
           <span class="wheel-result-body__promo-label">Промокод</span>
-          <span class="wheel-result-body__promo-code">{{ lastResult.promo_code }}</span>
+          <button
+            type="button"
+            class="wheel-result-body__promo-code"
+            @click="copyResultPromo"
+          >
+            {{ lastResult.promo_code }}
+          </button>
         </div>
         <p v-if="lastResult.promo_valid_until" class="wheel-result-body__valid">
           Действует до {{ formatDate(lastResult.promo_valid_until) }}
@@ -192,6 +222,12 @@
       @decide="handleConsentDecision"
       @close="dismissConsentModal"
     />
+
+    <Transition name="wheel-copy-toast-fade">
+      <div v-if="showCopyToast" class="wheel-copy-toast" role="status">
+        Промокод скопирован
+      </div>
+    </Transition>
 
     <ToastNotification
       v-if="toastMessage"
@@ -220,6 +256,23 @@ const showResult = ref(false)
 const lastResult = ref<WheelSpinResult | null>(null)
 const toastMessage = ref('')
 const toastKey = ref(0)
+const showCopyToast = ref(false)
+let copyToastTimer: ReturnType<typeof setTimeout> | null = null
+
+async function copyResultPromo() {
+  const code = lastResult.value?.promo_code
+  if (!code) return
+  try {
+    await navigator.clipboard.writeText(code)
+  } catch (_error) {
+    // best-effort: ignore failure (no clipboard API in older browsers)
+  }
+  showCopyToast.value = true
+  if (copyToastTimer) clearTimeout(copyToastTimer)
+  copyToastTimer = setTimeout(() => {
+    showCopyToast.value = false
+  }, 1800)
+}
 // C1-UX: `wheelStore.isSpinning` flips back to `false` as soon as the
 // /api/wheel/spin response is received (~300ms), but the CSGO strip
 // animation runs for ~5.4s after that. A second click during those
@@ -517,7 +570,6 @@ onMounted(async () => {
   padding: 16px 0 20px;
   background: #ffffff;
   border-radius: 28px;
-  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.06);
   display: flex;
   flex-direction: column;
   gap: 16px;
@@ -658,31 +710,30 @@ onMounted(async () => {
 .wheel-main__row {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 14px 16px;
+  gap: 14px;
+  padding: 18px 20px;
   background: #ffffff;
   border-radius: 20px;
   text-decoration: none;
   color: #1f2933;
-  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.04);
 }
 
 .wheel-main__row-icon {
-  width: 36px;
-  height: 36px;
-  border-radius: 12px;
+  width: 24px;
+  height: 24px;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(245, 3, 2, 0.08);
-  color: #f50302;
+  color: #1f2933;
   font-family: 'Montserrat', sans-serif;
   font-weight: 600;
+  font-size: 18px;
+  background: transparent;
 }
 
 .wheel-main__row-icon--quiet {
-  background: rgba(15, 23, 42, 0.06);
   color: #1f2933;
+  background: transparent;
 }
 
 .wheel-main__row-text {
@@ -694,18 +745,19 @@ onMounted(async () => {
 }
 
 .wheel-main__row-count {
-  min-width: 22px;
-  height: 22px;
-  border-radius: 11px;
-  background: rgba(245, 3, 2, 0.12);
-  color: #f50302;
+  min-width: 26px;
+  height: 26px;
+  border-radius: 13px;
+  background: linear-gradient(106.76deg, #f50302 -2.64%, #a90f0e 85.78%);
+  color: #ffffff;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 0 8px;
+  padding: 0 9px;
   font-family: 'Montserrat', sans-serif;
-  font-weight: 600;
-  font-size: 12px;
+  font-weight: 700;
+  font-size: 13px;
+  letter-spacing: 0.02em;
 }
 
 .wheel-main__row-arrow {
@@ -784,6 +836,11 @@ onMounted(async () => {
   font-size: 18px;
   color: #f50302;
   letter-spacing: 0.05em;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  font-variant-numeric: tabular-nums;
 }
 
 .wheel-result-body__valid {
@@ -825,5 +882,31 @@ onMounted(async () => {
   .wheel-stage__progress-fill--skeleton {
     animation: none;
   }
+}
+
+.wheel-copy-toast {
+  position: fixed;
+  bottom: calc(var(--app-bottom-tab-bar-height, 130px) + 24px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(15, 23, 42, 0.92);
+  color: #ffffff;
+  font-family: 'SF Pro Display', system-ui, sans-serif;
+  font-size: 14px;
+  padding: 10px 18px;
+  border-radius: 999px;
+  z-index: 200;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.18);
+}
+
+.wheel-copy-toast-fade-enter-active,
+.wheel-copy-toast-fade-leave-active {
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.wheel-copy-toast-fade-enter-from,
+.wheel-copy-toast-fade-leave-to {
+  opacity: 0;
+  transform: translateX(-50%) translateY(8px);
 }
 </style>

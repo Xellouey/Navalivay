@@ -484,8 +484,6 @@ export function applyDevTelegramMockIfNeeded(): void {
 
   patchFetchForDevMock(identity)
 
-  showDevBanner(identity)
-
   // eslint-disable-next-line no-console
   console.warn('[dev] Telegram WebApp mock applied', identity)
 }

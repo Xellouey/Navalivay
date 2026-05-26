@@ -114,8 +114,9 @@ const defaultIconStyle = computed(() => {
 }
 
 .wheel-prize-card--exhausted {
-  opacity: 0.55;
-  filter: saturate(0.6);
+  /* Intentionally no visual changes: prizes that ran out of stock should
+     still look bright on the strip. Customers should not realise something
+     is "out" — that's an internal/business concern, not a UX signal. */
 }
 
 .wheel-prize-card__image {

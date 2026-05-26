@@ -15,7 +15,13 @@
       <h1 class="wheel-prizes-title">Мои призы</h1>
     </header>
 
-    <nav class="wheel-prizes-tabs" role="tablist" aria-label="Фильтр призов">
+    <nav
+      ref="tabsContainerRef"
+      class="wheel-prizes-tabs"
+      role="tablist"
+      aria-label="Фильтр призов"
+      @mousedown="onTabsMouseDown"
+    >
       <button
         v-for="tab in tabs"
         :key="tab.key"
@@ -52,7 +58,7 @@
           <span
             v-else
             class="wheel-prize-row__icon-default"
-            :style="{ '--my-prize-tint': prize.rarity_bg || '#9AA0A6' } as Record<string, string>"
+            :style="{ '--my-prize-tint': extractFirstHex(prize.rarity_bg) || '#9AA0A6' } as Record<string, string>"
             :aria-label="prize.prize_title"
             role="img"
           ></span>
@@ -131,6 +137,61 @@ const tabs: Array<{ key: WheelPrizeFilter; label: string }> = [
   { key: 'all', label: 'Все' },
 ]
 
+// Click-and-drag horizontal scroll for desktop. Touch devices already
+// use native swipe via `-webkit-overflow-scrolling: touch`, so this
+// helper is a desktop-only nicety.
+const tabsContainerRef = ref<HTMLElement | null>(null)
+let dragState: {
+  startX: number
+  startScroll: number
+  pointerId: number | null
+  moved: boolean
+} | null = null
+
+function onTabsMouseDown(event: MouseEvent) {
+  if (event.button !== 0) return
+  const el = tabsContainerRef.value
+  if (!el) return
+  dragState = {
+    startX: event.pageX,
+    startScroll: el.scrollLeft,
+    pointerId: null,
+    moved: false,
+  }
+  document.addEventListener('mousemove', onTabsMouseMove)
+  document.addEventListener('mouseup', onTabsMouseUp, { once: true })
+}
+
+function onTabsMouseMove(event: MouseEvent) {
+  if (!dragState || !tabsContainerRef.value) return
+  const dx = event.pageX - dragState.startX
+  if (Math.abs(dx) > 4) {
+    dragState.moved = true
+    tabsContainerRef.value.style.cursor = 'grabbing'
+    tabsContainerRef.value.style.userSelect = 'none'
+  }
+  tabsContainerRef.value.scrollLeft = dragState.startScroll - dx
+}
+
+function onTabsMouseUp() {
+  document.removeEventListener('mousemove', onTabsMouseMove)
+  if (tabsContainerRef.value) {
+    tabsContainerRef.value.style.cursor = ''
+    tabsContainerRef.value.style.userSelect = ''
+  }
+  // If the pointer actually moved we suppress the next click so the
+  // drag does not also trigger a tab-switch.
+  if (dragState?.moved && tabsContainerRef.value) {
+    const suppress = (e: MouseEvent) => {
+      e.stopPropagation()
+      e.preventDefault()
+      tabsContainerRef.value?.removeEventListener('click', suppress, true)
+    }
+    tabsContainerRef.value.addEventListener('click', suppress, { capture: true, once: true })
+  }
+  dragState = null
+}
+
 const prizes = computed<WheelMyPrize[]>(() => wheelStore.myAllPrizes)
 
 const emptyStateMessage = computed(() => {
@@ -178,8 +239,17 @@ async function copyCode(code: string) {
 }
 
 function rarityBackground(prize: WheelMyPrize): string {
-  const color = prize.rarity_bg || '#E2E5EA'
-  return `linear-gradient(135deg, ${color}33, ${color}77)`
+  // Same tint intensity as WheelPrizeCard on the spinning strip:
+  // soft 10% → 20% gradient. Keeps the visual language consistent
+  // between "Мои призы" and the wheel itself.
+  const tint = extractFirstHex(prize.rarity_bg) || '#E2E5EA'
+  return `linear-gradient(135deg, ${tint}1A, ${tint}33)`
+}
+
+function extractFirstHex(value: string | undefined | null): string {
+  if (!value) return ''
+  const m = value.match(/#([0-9a-fA-F]{3}){1,2}/)
+  return m ? m[0] : value
 }
 
 // S2-7 sibling: monogram never renders empty even if title is missing.
@@ -276,21 +346,29 @@ onMounted(async () => {
   margin: 0;
 }
 
-/* S2-2: equal-width tabs that never overflow horizontally. The previous
-   overflow-x:auto layout made the active tab grow beyond its slot and
-   pushed the rest off-screen on 360px devices. */
+/* Scroll-friendly tabs: full labels are kept (no ellipsis), and the user
+   can swipe horizontally on narrow devices. Each tab fits its content,
+   so "Использованные" and "Просроченные" stay legible end-to-end. */
 .wheel-prizes-tabs {
   display: flex;
   gap: 8px;
   padding: 0 16px;
   margin-bottom: 12px;
+  overflow-x: auto;
+  overflow-y: visible;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  cursor: grab;
+}
+
+.wheel-prizes-tabs::-webkit-scrollbar {
+  display: none;
 }
 
 .wheel-prizes-tab {
-  flex: 1 1 0;
-  min-width: 0;
+  flex: 0 0 auto;
   white-space: nowrap;
-  padding: 10px 12px;
+  padding: 10px 16px;
   border-radius: 999px;
   background: #ffffff;
   border: 1px solid rgba(15, 23, 42, 0.06);
