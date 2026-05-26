@@ -5,10 +5,13 @@ import { useRoute } from "vue-router";
 import VapeSmoke from "@/components/VapeSmoke.vue";
 import BottomTabBar from "@/components/BottomTabBar.vue";
 import BlockedScreen from "@/components/BlockedScreen.vue";
+import WheelHomeWidget from "@/components/wheel/WheelHomeWidget.vue";
 import { useCustomerBlock } from "@/composables/useCustomerBlock";
+import { useWholesaleStore } from "@/stores/wholesale";
 
 const route = useRoute();
 const { currentBlock, isBlocked, refreshBlock } = useCustomerBlock();
+const wholesaleStore = useWholesaleStore();
 
 // Экран блокировки клиента не показываем в админке —
 // у админа другая аутентификация, а не клиентский telegram_id.
@@ -23,6 +26,20 @@ const showTabBar = computed(() => {
   if (path === "/my-order") return false;
   // Опт получает свой набор табов вместо скрытого футера -
   // см. docs/wholesale-rules.md и спецификацию рулетки.
+  return true;
+});
+
+// Глобальный плавающий виджет рулетки. Показываем на всех customer-
+// экранах, кроме самой рулетки, чекаута, оформленного заказа и
+// админки. Опту виджет пока скрываем (бизнес-логика на этой итерации).
+const showWheelWidget = computed(() => {
+  if (wholesaleStore.isWholesale) return false;
+  const path = route.path;
+  if (path.startsWith("/admin")) return false;
+  if (path === "/wheel" || path.startsWith("/wheel/")) return false;
+  if (path === "/checkout") return false;
+  if (path === "/my-order") return false;
+  if (path.startsWith("/opt")) return false;
   return true;
 });
 
@@ -51,6 +68,7 @@ onMounted(() => {
     </div>
     <VapeSmoke />
     <BottomTabBar v-if="showTabBar" />
+    <WheelHomeWidget v-if="showWheelWidget" />
     <BlockedScreen
       v-if="showBlockedScreen"
       :reason="currentBlock?.reason ?? null"

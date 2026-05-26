@@ -51,10 +51,6 @@
       </section>
 
       <section class="category-section">
-        <WheelHomeWidget
-          v-if="!wholesaleStore.isWholesale"
-          class="wheel-home-widget-floating"
-        />
         <!-- Сетка категорий -->
         <div class="category-grid">
           <button
@@ -125,7 +121,6 @@ import { useCartStore } from "@/stores/cart";
 import { useWholesaleStore } from "@/stores/wholesale";
 import SmokeParticles from "@/components/SmokeParticles.vue";
 import BannerCarousel from "@/components/BannerCarousel.vue";
-import WheelHomeWidget from "@/components/wheel/WheelHomeWidget.vue";
 import {
   fetchMyActiveOrder,
   getTelegramIdentity,
@@ -247,13 +242,6 @@ onMounted(async () => {
 
 .active-order-section {
   padding: 12px 16px 0;
-}
-
-.wheel-home-widget-floating {
-  position: absolute;
-  top: -10px;
-  right: 0;
-  z-index: 5;
 }
 
 .active-order-banner {

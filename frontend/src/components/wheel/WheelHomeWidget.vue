@@ -1,52 +1,54 @@
 <template>
-  <div
-    v-if="visible"
-    class="wheel-home-widget"
-    role="button"
-    tabindex="0"
-    :aria-label="ariaLabel"
-    @click="goToWheel"
-    @keydown.enter.prevent="goToWheel"
-    @keydown.space.prevent="goToWheel"
-  >
-    <p class="wheel-home-widget__title">{{ titleText }}</p>
-    <p class="wheel-home-widget__progress-text">
-      {{ accumulated }}/{{ threshold }} BYN
-    </p>
-    <div class="wheel-home-widget__track" aria-hidden="true">
-      <div
-        class="wheel-home-widget__fill"
-        :style="{ width: `${clampedPercent}%` }"
-      ></div>
-    </div>
-    <button
-      type="button"
-      class="wheel-home-widget__close"
-      aria-label="Скрыть виджет рулетки"
-      @click.stop="dismiss"
-      @keydown.enter.stop
-      @keydown.space.stop
+  <Transition name="wheel-widget-fade" appear>
+    <div
+      v-if="visible"
+      class="wheel-home-widget"
+      role="button"
+      tabindex="0"
+      :aria-label="ariaLabel"
+      @click="goToWheel"
+      @keydown.enter.prevent="goToWheel"
+      @keydown.space.prevent="goToWheel"
     >
-      <svg
-        width="13"
-        height="13"
-        viewBox="0 0 13 13"
-        fill="none"
-        aria-hidden="true"
+      <p class="wheel-home-widget__title">{{ titleText }}</p>
+      <p class="wheel-home-widget__progress-text">
+        {{ accumulated }}/{{ threshold }} BYN
+      </p>
+      <div class="wheel-home-widget__track" aria-hidden="true">
+        <div
+          class="wheel-home-widget__fill"
+          :style="{ width: `${clampedPercent}%` }"
+        ></div>
+      </div>
+      <button
+        type="button"
+        class="wheel-home-widget__close"
+        aria-label="Скрыть виджет рулетки"
+        @click.stop="dismiss"
+        @keydown.enter.stop
+        @keydown.space.stop
       >
-        <path
-          d="M2.5 2.5 L10.5 10.5 M10.5 2.5 L2.5 10.5"
-          stroke="#FFFFFF"
-          stroke-width="1.8"
-          stroke-linecap="round"
-        />
-      </svg>
-    </button>
-  </div>
+        <svg
+          width="13"
+          height="13"
+          viewBox="0 0 13 13"
+          fill="none"
+          aria-hidden="true"
+        >
+          <path
+            d="M2.5 2.5 L10.5 10.5 M10.5 2.5 L2.5 10.5"
+            stroke="#FFFFFF"
+            stroke-width="1.8"
+            stroke-linecap="round"
+          />
+        </svg>
+      </button>
+    </div>
+  </Transition>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useWheelStore } from '@/stores/wheel'
 
@@ -60,18 +62,79 @@ const props = withDefaults(
 const wheelStore = useWheelStore()
 const router = useRouter()
 
-const DISMISS_KEY = 'wheel_home_widget_dismissed'
+// localStorage keys (раньше использовался sessionStorage и dismiss
+// сбрасывался при каждом перезапуске вкладки — теперь dismiss
+// переживает закрытие приложения, но автоматически снимается через
+// 24 часа или сразу при появлении нового спина).
+const DISMISSED_AT_KEY = 'wheel_widget_dismissed_at'
+const LAST_SEEN_SPINS_KEY = 'wheel_widget_last_seen_spins'
+const COOLDOWN_MS = 24 * 60 * 60 * 1000
+
 const dismissed = ref(false)
 
-onMounted(() => {
+function readNumber(key: string): number {
   try {
-    if (sessionStorage.getItem(DISMISS_KEY) === '1') {
-      dismissed.value = true
-    }
+    const raw = localStorage.getItem(key)
+    if (!raw) return 0
+    const n = Number(raw)
+    return Number.isFinite(n) ? n : 0
   } catch {
-    // sessionStorage недоступен (приватный режим и т.п.) — просто
-    // показываем виджет, без persisted dismiss.
+    return 0
   }
+}
+
+function clearDismissState() {
+  try {
+    localStorage.removeItem(DISMISSED_AT_KEY)
+    localStorage.removeItem(LAST_SEEN_SPINS_KEY)
+  } catch {
+    // localStorage недоступен — у нас всё равно нет persisted state.
+  }
+}
+
+/**
+ * Smart re-appear: виджет вновь становится видимым, если
+ *   • прошло 24 часа с момента dismiss; или
+ *   • баланс spins_available увеличился относительно сохранённого
+ *     `wheel_widget_last_seen_spins` (новый спин — повод снова
+ *     показать виджет).
+ *
+ * Возвращает `true`, если виджет должен быть виден.
+ */
+function shouldShow(): boolean {
+  let dismissedAt = ''
+  try {
+    dismissedAt = localStorage.getItem(DISMISSED_AT_KEY) || ''
+  } catch {
+    return true
+  }
+  if (!dismissedAt) return true
+
+  const lastSeen = readNumber(LAST_SEEN_SPINS_KEY)
+  const currentSpins = wheelStore.balance.spins_available
+  if (currentSpins > lastSeen) {
+    clearDismissState()
+    return true
+  }
+
+  const dismissedAtMs = new Date(dismissedAt).getTime()
+  if (!Number.isFinite(dismissedAtMs)) {
+    clearDismissState()
+    return true
+  }
+  if (Date.now() - dismissedAtMs >= COOLDOWN_MS) {
+    clearDismissState()
+    return true
+  }
+  return false
+}
+
+function recomputeDismissed() {
+  dismissed.value = !shouldShow()
+}
+
+onMounted(() => {
+  recomputeDismissed()
 
   if (props.autoLoad && wheelStore.lastFetchedAt === null) {
     wheelStore.fetchState().catch(() => {
@@ -79,6 +142,16 @@ onMounted(() => {
     })
   }
 })
+
+// Если пока виджет был dismiss, пользователь заработал новый спин
+// (баланс пришёл из фонового fetchState), сразу пересчитываем флаг и
+// показываем виджет: «вау, новый спин».
+watch(
+  () => wheelStore.balance.spins_available,
+  () => {
+    recomputeDismissed()
+  },
+)
 
 const spinsAvailable = computed(() => wheelStore.balance.spins_available)
 const accumulated = computed(() =>
@@ -125,7 +198,11 @@ function goToWheel() {
 
 function dismiss() {
   try {
-    sessionStorage.setItem(DISMISS_KEY, '1')
+    localStorage.setItem(DISMISSED_AT_KEY, new Date().toISOString())
+    localStorage.setItem(
+      LAST_SEEN_SPINS_KEY,
+      String(wheelStore.balance.spins_available),
+    )
   } catch {
     // ignore — виджет всё равно скроется на оставшуюся часть жизни компонента
   }
@@ -135,7 +212,10 @@ function dismiss() {
 
 <style scoped>
 .wheel-home-widget {
-  position: relative;
+  position: fixed;
+  right: 16px;
+  bottom: calc(var(--app-bottom-tab-bar-height, 0px) + 16px);
+  z-index: 100;
   width: 120px;
   height: 78px;
   padding: 0;
@@ -239,6 +319,24 @@ function dismiss() {
   outline-offset: 2px;
 }
 
+.wheel-widget-fade-enter-active {
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.wheel-widget-fade-leave-active {
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+
+.wheel-widget-fade-enter-from {
+  opacity: 0;
+  transform: scale(0.9) translateY(4px);
+}
+
+.wheel-widget-fade-leave-to {
+  opacity: 0;
+  transform: scale(0.95);
+}
+
 @media (max-width: 360px) {
   .wheel-home-widget {
     width: 110px;
@@ -276,6 +374,16 @@ function dismiss() {
   .wheel-home-widget:active,
   .wheel-home-widget__close:hover,
   .wheel-home-widget__close:active {
+    transform: none;
+  }
+
+  .wheel-widget-fade-enter-active,
+  .wheel-widget-fade-leave-active {
+    transition: none;
+  }
+
+  .wheel-widget-fade-enter-from,
+  .wheel-widget-fade-leave-to {
     transform: none;
   }
 }
