@@ -68,3 +68,25 @@ If a prod issue led to a real fix, the follow-up should usually include:
 - a regression test if practical
 - a short note in docs if the rule was previously implicit
 - Git synchronization so the current source of truth is obvious
+
+## Native Modules and Node Upgrades
+
+`better-sqlite3` (and any other native module under `server/node_modules`)
+is compiled against a specific Node.js ABI (NODE_MODULE_VERSION).
+
+If the host Node major version changes, the prebuilt `.node` file becomes
+incompatible and the API crash-loops with `ERR_DLOPEN_FAILED`. This took
+prod down once after `unattended-upgrades` moved Node from 20 to 22.
+
+Defenses (all must stay in place):
+
+1. `apt-mark hold nodejs` on the prod host. Verify with `apt-mark showhold`.
+2. `ops/systemd/navalivay-rebuild-native.sh` runs as `ExecStartPre` on
+   `navalivay-server.service`. On a healthy boot it exits in ~100 ms.
+   On ABI mismatch, missing, or corrupt canonical binary it runs
+   `npm rebuild` for the offending module and then ExecStart proceeds.
+3. `StartLimitIntervalSec=900` and `RestartSec=15` in the unit give the
+   self-heal time to finish before systemd marks the service `failed`.
+
+When intentionally upgrading Node major on prod, run
+`cd /var/www/NAVALIVAY/server && npm rebuild` before starting the service.
