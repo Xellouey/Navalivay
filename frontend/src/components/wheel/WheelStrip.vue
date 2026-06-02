@@ -198,8 +198,24 @@ defineExpose({ runSpin, reset })
   position: relative;
   width: 100%;
   height: 192px;
-  overflow: hidden;
-  padding: 16px 0;
+  /* Vertical padding gives card shadows room to render. The mask only
+     fades horizontally, so vertical box-shadow is fully visible. */
+  padding: 32px 0 36px;
+  /* Horizontal mask only — vertical shadows pass through unaltered. */
+  -webkit-mask-image: linear-gradient(
+    90deg,
+    transparent 0,
+    #000 32px,
+    #000 calc(100% - 32px),
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    90deg,
+    transparent 0,
+    #000 32px,
+    #000 calc(100% - 32px),
+    transparent 100%
+  );
 }
 
 .wheel-strip__track {
@@ -248,29 +264,17 @@ defineExpose({ runSpin, reset })
 }
 
 .wheel-strip__edge {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  width: 56px;
-  pointer-events: none;
-  z-index: 1;
+  /* Hidden — the viewport's mask-image handles the horizontal fade now,
+     and these gradient overlays would otherwise paint over the card
+     shadows in the centre. */
+  display: none;
 }
 
 .wheel-strip__edge--left {
   left: 0;
-  background: linear-gradient(
-    90deg,
-    rgba(255, 255, 255, 1) 0%,
-    rgba(255, 255, 255, 0) 100%
-  );
 }
 
 .wheel-strip__edge--right {
   right: 0;
-  background: linear-gradient(
-    270deg,
-    rgba(255, 255, 255, 1) 0%,
-    rgba(255, 255, 255, 0) 100%
-  );
 }
 </style>

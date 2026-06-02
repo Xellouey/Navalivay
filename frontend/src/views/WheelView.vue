@@ -566,13 +566,12 @@ onMounted(async () => {
 
 /* Сцена рулетки — белый блок на фоне страницы. */
 .wheel-stage {
-  margin: 4px 16px 16px;
-  padding: 16px 0 20px;
-  background: #ffffff;
-  border-radius: 28px;
+  margin: 4px 0 16px;
+  padding: 0;
+  background: transparent;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 18px;
 }
 
 .wheel-stage__strip {
@@ -865,8 +864,8 @@ onMounted(async () => {
 
 @media (max-width: 360px) {
   .wheel-stage {
-    margin: 4px 12px 16px;
-    padding: 14px 0 18px;
+    margin: 4px 0 16px;
+    padding: 0;
   }
 
   .wheel-stage__cta {

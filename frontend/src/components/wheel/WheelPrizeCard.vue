@@ -71,19 +71,11 @@ const borderColor = computed(() => {
 })
 
 const cardStyle = computed(() => {
-  if (props.prize.image_url && !imgFailed.value) {
-    return {
-      borderColor: borderColor.value,
-      background: '#FFFFFF',
-    }
-  }
-  // Tinted backdrop for the default placeholder. Use the extracted solid
-  // hex so gradient rarities still get a soft tint instead of an opaque
-  // gradient that would compete with the icon glyph.
-  const tint = extractFirstHex(props.prize.rarity?.bgColor)
+  // Match Figma reference: clean white background. Rarity shows through
+  // the colored border and the chip — no tinted backdrop on the card body.
   return {
     borderColor: borderColor.value,
-    background: `linear-gradient(135deg, ${tint}1A, ${tint}33)`,
+    background: '#FFFFFF',
   }
 })
 
@@ -100,16 +92,18 @@ const defaultIconStyle = computed(() => {
 
 <style scoped>
 .wheel-prize-card {
+  position: relative;
   width: 140px;
   flex: 0 0 140px;
+  height: 156px;
   display: flex;
   flex-direction: column;
   align-items: stretch;
   border-radius: 24px;
   background: #ffffff;
   border: 2px solid #e2e5ea;
-  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.06);
-  overflow: hidden;
+  box-shadow: 0 24px 32px rgba(170, 178, 189, 0.12);
+  /* No overflow: hidden — chip needs to dangle below the bottom edge */
   transition: transform 0.2s ease, box-shadow 0.2s ease;
 }
 
@@ -122,7 +116,7 @@ const defaultIconStyle = computed(() => {
 .wheel-prize-card__image {
   position: relative;
   width: 100%;
-  aspect-ratio: 1 / 1;
+  height: 100%;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -150,9 +144,14 @@ const defaultIconStyle = computed(() => {
 
 .wheel-prize-card__rarity {
   display: inline-flex;
-  align-self: center;
   align-items: center;
   justify-content: center;
+  position: absolute;
+  /* Chip overhangs the bottom edge of the card, half above and half below,
+     matching Figma reference 19:442 / 1:120. */
+  bottom: -10px;
+  left: 50%;
+  transform: translateX(-50%);
   padding: 4px 10px;
   border-radius: 6px;
   font-family: 'Montserrat', sans-serif;
@@ -162,11 +161,8 @@ const defaultIconStyle = computed(() => {
   letter-spacing: 0.02em;
   text-transform: uppercase;
   color: #ffffff;
-  margin: 0 8px 10px;
-  max-width: calc(100% - 16px);
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  z-index: 2;
 }
 
 /* "Nothing" rarity already ships with #8D8D8D bg + white text from the

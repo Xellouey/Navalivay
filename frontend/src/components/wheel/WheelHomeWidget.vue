@@ -214,7 +214,12 @@ function dismiss() {
 .wheel-home-widget {
   position: fixed;
   right: 16px;
-  top: calc(env(safe-area-inset-top, 0px) + 16px);
+  /* Pin to ~38% of viewport height (slightly above middle) so the
+     widget always sits in the same hot zone above the fold, regardless
+     of viewport height. iOS uses dvh for dynamic chrome adjustments;
+     vh is a safe fallback for older browsers. */
+  top: 25dvh;
+  top: 25vh;
   z-index: 100;
   width: 120px;
   height: 78px;
