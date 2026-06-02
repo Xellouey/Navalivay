@@ -580,17 +580,17 @@ onMounted(async () => {
 
 .wheel-stage__strip-skeleton {
   display: flex;
-  gap: 16px;
-  height: 192px;
-  align-items: center;
-  padding: 16px;
+  gap: 18px;
+  height: 214px;
+  align-items: flex-start;
+  padding: 0;
   overflow: hidden;
 }
 
 .wheel-stage__strip-skeleton-card {
-  flex: 0 0 140px;
-  height: 156px;
-  border-radius: 22px;
+  flex: 0 0 152px;
+  height: 152px;
+  border-radius: 24px;
   background: linear-gradient(
     90deg,
     rgba(15, 23, 42, 0.06) 0%,
@@ -611,16 +611,16 @@ onMounted(async () => {
 }
 
 .wheel-stage__progress {
-  margin: 0 24px;
+  margin: -8px 24px 0;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 12px;
 }
 
 .wheel-stage__progress-track {
   position: relative;
   width: 100%;
-  height: 6px;
+  height: 4px;
   border-radius: 4px;
   background: rgba(15, 23, 42, 0.08);
   overflow: hidden;
@@ -649,9 +649,11 @@ onMounted(async () => {
 .wheel-stage__progress-text {
   margin: 0;
   font-family: 'SF Pro Display', system-ui, sans-serif;
-  font-size: 13px;
+  font-size: 14px;
+  line-height: 1.3;
   text-align: center;
-  color: #5c6470;
+  color: #1f2933;
+  font-weight: 500;
 }
 
 .wheel-stage__cta {
@@ -666,9 +668,9 @@ onMounted(async () => {
   font-family: 'Montserrat', sans-serif;
   font-weight: 700;
   font-size: 17px;
-  letter-spacing: 0.02em;
+  letter-spacing: 0;
   cursor: pointer;
-  box-shadow: 0 8px 16px rgba(97, 1, 0, 0.16);
+  box-shadow: none;
   transition: transform 0.15s ease, opacity 0.2s ease, box-shadow 0.2s ease;
 }
 
@@ -686,8 +688,8 @@ onMounted(async () => {
   margin: 0;
   text-align: center;
   font-family: 'SF Pro Display', system-ui, sans-serif;
-  font-size: 13px;
-  color: #5c6470;
+  font-size: 14px;
+  color: #bcc2cb;
   min-height: 16px;
 }
 

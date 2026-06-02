@@ -379,7 +379,7 @@ function patchFetchForDevMock(identity: DevMockIdentity): void {
 
       return originalFetch(input as RequestInfo, init)
     } catch (err) {
-      // eslint-disable-next-line no-console
+       
       console.warn('[dev] fetch patch error, falling back to original', err)
       return originalFetch(input as RequestInfo, init)
     }
@@ -387,7 +387,7 @@ function patchFetchForDevMock(identity: DevMockIdentity): void {
 
   window.fetch = patchedFetch as typeof window.fetch
 
-  // eslint-disable-next-line no-console
+   
   console.info('[dev] fetch patched for dev Telegram identity')
 }
 
@@ -484,6 +484,6 @@ export function applyDevTelegramMockIfNeeded(): void {
 
   patchFetchForDevMock(identity)
 
-  // eslint-disable-next-line no-console
+   
   console.warn('[dev] Telegram WebApp mock applied', identity)
 }

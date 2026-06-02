@@ -14,9 +14,7 @@
           :class="{ 'wheel-strip__card--landed': index === landedIndex }"
         />
       </div>
-      <div class="wheel-strip__pointer" aria-hidden="true">
-        <span class="wheel-strip__pointer-arrow"></span>
-      </div>
+      <div class="wheel-strip__pointer" aria-hidden="true"></div>
       <div class="wheel-strip__edge wheel-strip__edge--left" aria-hidden="true"></div>
       <div class="wheel-strip__edge wheel-strip__edge--right" aria-hidden="true"></div>
     </div>
@@ -36,8 +34,8 @@ const emit = defineEmits<{
   (event: 'animationDone', payload: { prizeId: string }): void
 }>()
 
-const CARD_WIDTH = 140
-const CARD_GAP = 16
+const CARD_WIDTH = 152
+const CARD_GAP = 18
 const STEP = CARD_WIDTH + CARD_GAP
 const REPEAT = 6
 const REST_OFFSET_INDEX = 8
@@ -136,7 +134,6 @@ async function runSpin(options: SpinAnimationOptions) {
   const targetSegment = REPEAT - 2
   const targetIndex = targetSegment * baseLength + targetIndexInPool
 
-  // Subtle random jitter inside the card so it does not always stop dead-center.
   const jitter = (rng() - 0.5) * 24
   const targetOffset = offsetForIndex(targetIndex) + jitter
 
@@ -197,70 +194,50 @@ defineExpose({ runSpin, reset })
 .wheel-strip__viewport {
   position: relative;
   width: 100%;
-  height: 192px;
-  /* Vertical padding gives card shadows room to render. The mask only
-     fades horizontally, so vertical box-shadow is fully visible. */
-  padding: 32px 0 36px;
-  /* Horizontal mask only — vertical shadows pass through unaltered. */
-  -webkit-mask-image: linear-gradient(
-    90deg,
-    transparent 0,
-    #000 32px,
-    #000 calc(100% - 32px),
-    transparent 100%
-  );
-  mask-image: linear-gradient(
-    90deg,
-    transparent 0,
-    #000 32px,
-    #000 calc(100% - 32px),
-    transparent 100%
-  );
+  height: 214px;
+  overflow: hidden;
 }
 
 .wheel-strip__track {
   display: flex;
-  gap: 16px;
+  gap: 18px;
   height: 100%;
   align-items: center;
   will-change: transform;
 }
 
 .wheel-strip__card {
-  flex: 0 0 140px;
+  flex: 0 0 152px;
 }
 
 .wheel-strip__card--landed {
-  transform: scale(1.04);
-  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.16);
+  transform: none;
+  box-shadow: 0 24px 32px rgba(170, 178, 189, 0.12);
   transition: transform 0.4s ease, box-shadow 0.4s ease;
 }
 
 .wheel-strip__pointer {
   position: absolute;
-  top: 8px;
-  bottom: 8px;
+  top: 0;
+  height: 214px;
   left: 50%;
-  width: 3px;
+  width: 2px;
   transform: translateX(-50%);
   background: #f50302;
   pointer-events: none;
   z-index: 2;
   border-radius: 2px;
-  box-shadow: 0 0 8px rgba(245, 3, 2, 0.32);
 }
 
-.wheel-strip__pointer-arrow {
+.wheel-strip__pointer::after {
+  content: '';
   position: absolute;
-  top: -6px;
+  inset: 0;
   left: 50%;
-  width: 0;
-  height: 0;
-  border-left: 7px solid transparent;
-  border-right: 7px solid transparent;
-  border-top: 9px solid #f50302;
+  width: 4px;
   transform: translateX(-50%);
-  filter: drop-shadow(0 2px 4px rgba(245, 3, 2, 0.25));
+  border-left: 1px solid rgba(245, 3, 2, 0.24);
+  border-right: 1px solid rgba(245, 3, 2, 0.24);
 }
 
 .wheel-strip__edge {

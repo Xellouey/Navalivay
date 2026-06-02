@@ -34,7 +34,7 @@ describe("ProfileView loyalty section", () => {
     };
   });
 
-  it("renders loyalty showcase card and shows popup when a bonus is available", async () => {
+  it("renders loyalty showcase card and keeps the bonus popup hidden on profile", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url.startsWith("/api/customer/me")) {
@@ -93,7 +93,7 @@ describe("ProfileView loyalty section", () => {
     expect(wrapper.text()).toContain("Бонусная система");
     expect(wrapper.find(".loyalty-tab--active").text()).toContain("Жидкости");
     expect(wrapper.find(".loyalty-progress-value").text()).toContain("2 / 10");
-    expect(wrapper.find(".bonus-popup-stub").exists()).toBe(true);
+    expect(wrapper.find(".bonus-popup-stub").exists()).toBe(false);
 
     await wrapper.find(".loyalty-rules-link").trigger("click");
 

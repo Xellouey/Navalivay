@@ -93,17 +93,16 @@ const defaultIconStyle = computed(() => {
 <style scoped>
 .wheel-prize-card {
   position: relative;
-  width: 140px;
-  flex: 0 0 140px;
-  height: 156px;
+  width: 152px;
+  flex: 0 0 152px;
+  height: 152px;
   display: flex;
   flex-direction: column;
   align-items: stretch;
   border-radius: 24px;
   background: #ffffff;
-  border: 2px solid #e2e5ea;
+  border: 2.5px solid #e6e9ed;
   box-shadow: 0 24px 32px rgba(170, 178, 189, 0.12);
-  /* No overflow: hidden — chip needs to dangle below the bottom edge */
   transition: transform 0.2s ease, box-shadow 0.2s ease;
 }
 
@@ -115,21 +114,24 @@ const defaultIconStyle = computed(() => {
 
 .wheel-prize-card__image {
   position: relative;
-  width: 100%;
-  height: 100%;
+  width: 90%;
+  height: 90%;
   display: flex;
   align-items: center;
   justify-content: center;
+  margin: auto;
 }
 
 .wheel-prize-card__img {
-  max-width: 78%;
-  max-height: 78%;
+  width: 100%;
+  height: 100%;
   object-fit: contain;
+  filter: drop-shadow(0 10px 14px rgba(15, 23, 42, 0.1));
 }
 
 .wheel-prize-card__icon-default {
   width: 100%;
+  height: 100%;
   aspect-ratio: 1 / 1;
   background-color: var(--wheel-default-prize-tint, #9aa0a6);
   -webkit-mask-image: var(--wheel-default-prize-image);
@@ -149,15 +151,17 @@ const defaultIconStyle = computed(() => {
   position: absolute;
   /* Chip overhangs the bottom edge of the card, half above and half below,
      matching Figma reference 19:442 / 1:120. */
-  bottom: -10px;
+  bottom: -9px;
   left: 50%;
   transform: translateX(-50%);
+  min-width: 86px;
+  min-height: 18px;
   padding: 4px 10px;
   border-radius: 6px;
   font-family: 'Montserrat', sans-serif;
   font-weight: 500;
-  font-size: 10px;
-  line-height: 12px;
+  font-size: 8px;
+  line-height: 10px;
   letter-spacing: 0.02em;
   text-transform: uppercase;
   color: #ffffff;

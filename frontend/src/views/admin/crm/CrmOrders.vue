@@ -1432,7 +1432,7 @@ function handleBlockCreated(payload: { kind: 'active' | 'pending'; username: str
   // В CrmOrders нет глобального toast-стека — пока используем нативное уведомление
   // браузера. Когда будет общая toast-инфраструктура (см. фоновую задачу про
   // унификацию уведомлений) — мигрируем сюда.
-  // eslint-disable-next-line no-alert
+   
   window.alert(`@${payload.username}: ${verb}`);
 }
 function handleBlockNotifyResult(payload: { ok: boolean; error?: string; text?: string; username?: string }) {

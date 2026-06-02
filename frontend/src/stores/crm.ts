@@ -147,6 +147,7 @@ export interface Order {
   // true = у клиента уже были завершённые заказы (постоянный), false/undefined = первый заказ
   is_returning_customer?: boolean;
   is_blocked?: boolean;
+  has_userbot_access?: boolean;
 }
 
 export interface OrderItem {

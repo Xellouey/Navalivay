@@ -164,7 +164,27 @@
                 </td>
               </tr>
               <tr v-for="prize in prizes" :key="prize.id">
-                <td class="px-3 py-2.5 font-medium text-slate-800">{{ prize.title }}</td>
+                <td class="px-3 py-2.5">
+                  <div class="flex items-center gap-3">
+                    <div class="h-11 w-11 overflow-hidden rounded-xl border border-slate-200 bg-slate-50">
+                      <img
+                        v-if="prize.image_url"
+                        :src="prize.image_url"
+                        :alt="prize.title"
+                        class="h-full w-full object-cover"
+                      />
+                      <div
+                        v-else
+                        class="flex h-full w-full items-center justify-center text-[10px] font-medium uppercase tracking-wide text-slate-400"
+                      >
+                        Нет фото
+                      </div>
+                    </div>
+                    <div class="min-w-0">
+                      <p class="truncate font-medium text-slate-800">{{ prize.title }}</p>
+                    </div>
+                  </div>
+                </td>
                 <td class="px-3 py-2.5 text-slate-600">
                   {{ rarityLabel(prize.rarity_code) }}
                 </td>
@@ -404,20 +424,58 @@
                 class="rounded-lg border border-slate-200 px-3 py-2 text-sm"
               ></textarea>
             </label>
-            <label class="flex flex-col gap-1 col-span-full">
+            <div class="col-span-full flex flex-col gap-2">
               <span class="text-xs uppercase tracking-wider text-slate-500">
-                URL изображения приза (опционально)
+                Изображение приза
               </span>
-              <input
-                v-model="prizeForm.image_url"
-                type="url"
-                placeholder="https://..."
-                class="rounded-lg border border-slate-200 px-3 py-2 text-sm"
-              />
+              <div class="flex flex-col gap-3 rounded-2xl border border-slate-200 p-3">
+                <div
+                  class="flex h-36 w-full items-center justify-center overflow-hidden rounded-2xl border border-dashed border-slate-300 bg-slate-50"
+                >
+                  <img
+                    v-if="prizeImagePreview"
+                    :src="prizeImagePreview"
+                    :alt="prizeForm.title || 'Превью приза'"
+                    class="h-full w-full object-contain"
+                  />
+                  <div
+                    v-else
+                    class="px-4 text-center text-sm text-slate-400"
+                  >
+                    Фото пока не загружено
+                  </div>
+                </div>
+                <div class="flex flex-wrap gap-2">
+                  <input
+                    ref="prizeImageInputRef"
+                    type="file"
+                    accept="image/*"
+                    class="hidden"
+                    @change="handlePrizeImageSelected"
+                  />
+                  <button
+                    type="button"
+                    class="inline-flex items-center rounded-xl border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700"
+                    :disabled="isPrizeSaving"
+                    @click="triggerPrizeImagePicker"
+                  >
+                    {{ prizeImagePreview ? 'Заменить фото' : 'Загрузить фото' }}
+                  </button>
+                  <button
+                    v-if="prizeImagePreview"
+                    type="button"
+                    class="inline-flex items-center rounded-xl border border-rose-200 px-3 py-2 text-sm font-medium text-rose-600"
+                    :disabled="isPrizeSaving"
+                    @click="clearPrizeImage"
+                  >
+                    Удалить фото
+                  </button>
+                </div>
+              </div>
               <span class="text-[11px] text-slate-400">
-                Оставь пустым — будет использовано дефолтное изображение, окрашенное в цвет редкости.
+                Фото загружается админом и затем показывается в рулетке вместо цветной заглушки.
               </span>
-            </label>
+            </div>
             <label class="flex flex-col gap-1">
               <span class="text-xs uppercase tracking-wider text-slate-500">Редкость</span>
               <select
@@ -526,8 +584,9 @@
             <button
               type="submit"
               class="px-4 py-2 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-semibold"
+              :disabled="isPrizeSaving"
             >
-              Сохранить
+              {{ isPrizeSaving ? 'Сохраняем…' : 'Сохранить' }}
             </button>
           </div>
         </form>
@@ -596,11 +655,12 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, reactive, ref, computed, watch } from 'vue'
+import { onBeforeUnmount, onMounted, reactive, ref, computed, watch } from 'vue'
 import {
   BUSINESS_TIME_ZONE,
   getBusinessDateParts,
 } from '@/utils/businessTime'
+import { useAdminStore } from '@/stores/admin'
 
 interface WheelRarity {
   code: string
@@ -686,6 +746,7 @@ const tabs = [
 
 type WheelTabId = (typeof tabs)[number]['id']
 const activeTab = ref<WheelTabId>('dashboard')
+const adminStore = useAdminStore()
 
 type ToastKind = 'success' | 'error' | 'info'
 interface ToastMessage {
@@ -736,6 +797,10 @@ const settingsForm = reactive({
 })
 
 const prizeModalOpen = ref(false)
+const prizeImageInputRef = ref<HTMLInputElement | null>(null)
+const prizeImageFile = ref<File | null>(null)
+const prizeImagePreview = ref('')
+const isPrizeSaving = ref(false)
 const prizeForm = reactive<{
   id: string | null
   title: string
@@ -769,6 +834,17 @@ const prizeForm = reactive<{
   is_for_wholesale: false,
   is_active: true,
 })
+
+function revokePrizeImagePreview() {
+  if (prizeImagePreview.value.startsWith('blob:')) {
+    URL.revokeObjectURL(prizeImagePreview.value)
+  }
+}
+
+function setPrizeImagePreview(url: string) {
+  revokePrizeImagePreview()
+  prizeImagePreview.value = url
+}
 
 const rarityByCode = computed(() => {
   const map = new Map<string, WheelRarity>()
@@ -962,6 +1038,8 @@ function openCreateModal() {
     is_for_wholesale: false,
     is_active: true,
   })
+  prizeImageFile.value = null
+  setPrizeImagePreview('')
   prizeFormErrors.value = []
   prizeModalOpen.value = true
 }
@@ -984,12 +1062,40 @@ function openEditModal(prize: WheelPrize) {
     is_for_wholesale: Boolean(prize.is_for_wholesale),
     is_active: Boolean(prize.is_active),
   })
+  prizeImageFile.value = null
+  setPrizeImagePreview(prize.image_url || '')
   prizeFormErrors.value = []
   prizeModalOpen.value = true
 }
 
 function closeModal() {
+  prizeImageFile.value = null
+  setPrizeImagePreview('')
+  if (prizeImageInputRef.value) {
+    prizeImageInputRef.value.value = ''
+  }
   prizeModalOpen.value = false
+}
+
+function triggerPrizeImagePicker() {
+  prizeImageInputRef.value?.click()
+}
+
+function clearPrizeImage() {
+  prizeImageFile.value = null
+  prizeForm.image_url = ''
+  setPrizeImagePreview('')
+  if (prizeImageInputRef.value) {
+    prizeImageInputRef.value.value = ''
+  }
+}
+
+function handlePrizeImageSelected(event: Event) {
+  const input = event.target as HTMLInputElement | null
+  const file = input?.files?.[0] || null
+  if (!file) return
+  prizeImageFile.value = file
+  setPrizeImagePreview(URL.createObjectURL(file))
 }
 
 function validatePrizeForm(): string[] {
@@ -1034,24 +1140,35 @@ async function savePrize() {
   prizeFormErrors.value = validatePrizeForm()
   if (prizeFormErrors.value.length) return
 
-  const payload = {
-    rarity_code: prizeForm.rarity_code,
-    title: prizeForm.title.trim(),
-    description: prizeForm.description,
-    image_url: prizeForm.image_url.trim() || null,
-    weight: prizeForm.weight,
-    max_total: prizeForm.max_total,
-    promo_template_id: prizeForm.promo_template_id,
-    promo_validity_days: prizeForm.promo_validity_days,
-    epic_pool_size: prizeForm.epic_pool_size,
-    epic_pool_threshold_byn: prizeForm.epic_pool_threshold_byn,
-    is_for_retail: prizeForm.is_for_retail,
-    is_for_wholesale: prizeForm.is_for_wholesale,
-    is_active: prizeForm.is_active,
-    sort_order: prizeForm.sort_order,
-  }
-
   try {
+    isPrizeSaving.value = true
+    let imageUrl = prizeForm.image_url.trim() || null
+    if (prizeImageFile.value) {
+      const uploaded = await adminStore.uploadFiles([prizeImageFile.value], 'wheel-prizes')
+      imageUrl = uploaded?.[0] || null
+      prizeForm.image_url = imageUrl || ''
+      if (imageUrl) {
+        setPrizeImagePreview(imageUrl)
+      }
+    }
+
+    const payload = {
+      rarity_code: prizeForm.rarity_code,
+      title: prizeForm.title.trim(),
+      description: prizeForm.description,
+      image_url: imageUrl,
+      weight: prizeForm.weight,
+      max_total: prizeForm.max_total,
+      promo_template_id: prizeForm.promo_template_id,
+      promo_validity_days: prizeForm.promo_validity_days,
+      epic_pool_size: prizeForm.epic_pool_size,
+      epic_pool_threshold_byn: prizeForm.epic_pool_threshold_byn,
+      is_for_retail: prizeForm.is_for_retail,
+      is_for_wholesale: prizeForm.is_for_wholesale,
+      is_active: prizeForm.is_active,
+      sort_order: prizeForm.sort_order,
+    }
+
     if (prizeForm.id) {
       await fetchJson(`/api/admin/crm/wheel/prizes/${prizeForm.id}`, {
         method: 'PUT',
@@ -1063,7 +1180,7 @@ async function savePrize() {
         body: JSON.stringify(payload),
       })
     }
-    prizeModalOpen.value = false
+    closeModal()
     await loadPrizes()
     showToast('success', prizeForm.id ? 'Приз обновлён.' : 'Приз создан.')
   } catch (error: unknown) {
@@ -1072,6 +1189,8 @@ async function savePrize() {
       (error as { message?: string })?.message ||
       'Не удалось сохранить приз. Подробности в консоли.'
     showToast('error', message)
+  } finally {
+    isPrizeSaving.value = false
   }
 }
 
@@ -1150,6 +1269,10 @@ onMounted(async () => {
 watch(activeTab, (next) => {
   if (next === 'spins') loadSpins()
   if (next === 'dashboard') loadDashboard()
+})
+
+onBeforeUnmount(() => {
+  revokePrizeImagePreview()
 })
 </script>
 

@@ -36,7 +36,7 @@ export function parseWholesaleStartParam(param: string): { code: string; secret:
   const raw = String(param || '').trim()
   if (!raw.startsWith('w')) return null
   try {
-    let b64 = raw.slice(1).replace(/-/g, '+').replace(/_/g, '/')
+    const b64 = raw.slice(1).replace(/-/g, '+').replace(/_/g, '/')
     const pad = b64.length % 4 ? '='.repeat(4 - (b64.length % 4)) : ''
     const json = decodeURIComponent(escape(atob(b64 + pad)))
     const o = JSON.parse(json) as { c?: unknown; s?: unknown }
