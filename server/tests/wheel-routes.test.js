@@ -34,6 +34,7 @@ const DEFAULT_TEST_ALLOWLIST = [
   "wheel_parallel_idem",
   "wheel_no_prizes",
   "wheel_idem_real",
+  "wheel_audit_route",
 ];
 
 initDb();
@@ -1083,6 +1084,39 @@ async function testRarityRouteRejectsFractionalValuablePoolSize() {
   );
 }
 
+async function testAdminAuditEndpointReturnsDecisionTrailWithoutPromoCode() {
+  ensureCustomer("cust_audit_route", "777452", "wheel_audit_route", { consent: 1 });
+  insertPrize("p_audit_route_nothing", "nothing", 1, 0);
+  insertPrize("p_audit_route_common", "common", 1, 0);
+  db.prepare(
+    `INSERT OR REPLACE INTO wheel_customer_balances (
+      customer_id, spins_available, accumulated_retail_byn,
+      accumulated_wholesale_byn, consecutive_nothing, last_updated_at
+    ) VALUES ('cust_audit_route', 1, 0, 0, 0, DATETIME('now'))`,
+  ).run();
+
+  const spin = await requestJson("/api/wheel/spin", {
+    method: "POST",
+    headers: telegramHeaders(
+      { telegram_id: "777452", telegram_username: "wheel_audit_route" },
+      { "Idempotency-Key": "test-audit-route-key-0001" },
+    ),
+    body: JSON.stringify({}),
+  });
+  assert.equal(spin.response.status, 200, JSON.stringify(spin.data));
+
+  const audit = await requestJson("/api/admin/crm/wheel/audit?limit=5", {
+    method: "GET",
+    headers: adminHeaders,
+  });
+  assert.equal(audit.response.status, 200, JSON.stringify(audit.data));
+  const row = audit.data.rows.find((item) => item.spin_id === spin.data.spin_id);
+  assert.ok(row, "audit row should be available for the spin");
+  assert.ok(Array.isArray(row.effective_chances), "audit row should expose effective chances");
+  assert.ok(row.rng?.animation_seed !== undefined, "audit row should expose rng metadata");
+  assert.equal(row.promo_code, undefined, "audit export must not expose generated promo code");
+}
+
 async function main() {
   await testWheelStateWorksWithRealLiveFeed();
   await testForgedWholesaleHeadersDoNotUnlockWholesalePool();
@@ -1110,6 +1144,7 @@ async function main() {
   await testRarityRouteRejectsInvalidPayloadWithoutMutatingDb();
   await testRarityRouteSavesExplicitZeroChance();
   await testRarityRouteRejectsFractionalValuablePoolSize();
+  await testAdminAuditEndpointReturnsDecisionTrailWithoutPromoCode();
   console.log("[wheel-routes] OK");
 }
 

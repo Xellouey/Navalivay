@@ -200,6 +200,39 @@ export function migrateWheelPrizes() {
       `);
     }
 
+    // Audit trail for probability investigations. `wheel_spins` stores
+    // the final outcome; this table stores the decision context agents
+    // need later: configured chances, effective chances after availability
+    // filters, random roll metadata, and whether the spin bypassed normal
+    // probability through pity/valuable/fallback logic. Keep payloads as
+    // JSON TEXT so we can evolve analysis fields without repeated schema
+    // churn, and do not store promo codes or Telegram auth secrets here.
+    if (!tableExists("wheel_spin_audit")) {
+      db.exec(`
+        CREATE TABLE wheel_spin_audit (
+          id TEXT PRIMARY KEY,
+          spin_id TEXT NOT NULL REFERENCES wheel_spins(id) ON DELETE CASCADE,
+          customer_id TEXT NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+          decision_type TEXT NOT NULL,
+          selected_rarity_code TEXT,
+          selected_prize_id TEXT,
+          is_wholesale INTEGER NOT NULL DEFAULT 0,
+          is_pity_release INTEGER NOT NULL DEFAULT 0,
+          is_epic_release INTEGER NOT NULL DEFAULT 0,
+          configured_chances_json TEXT NOT NULL,
+          effective_chances_json TEXT NOT NULL,
+          availability_json TEXT NOT NULL,
+          rng_json TEXT NOT NULL,
+          balance_before_json TEXT NOT NULL,
+          outcome_json TEXT NOT NULL,
+          created_at TEXT NOT NULL DEFAULT (DATETIME('now'))
+        );
+        CREATE INDEX idx_wheel_spin_audit_created_at ON wheel_spin_audit(created_at);
+        CREATE INDEX idx_wheel_spin_audit_rarity ON wheel_spin_audit(selected_rarity_code, created_at);
+        CREATE INDEX idx_wheel_spin_audit_customer ON wheel_spin_audit(customer_id, created_at);
+      `);
+    }
+
     if (!tableExists("wheel_epic_pools")) {
       db.exec(`
         CREATE TABLE wheel_epic_pools (

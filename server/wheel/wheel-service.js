@@ -6,6 +6,7 @@ import { normalizeTelegramUsername } from "../loyalty.js";
 const SPIN_ID_PREFIX = "ws";
 const PROMO_ID_PREFIX = "wpp";
 const POOL_ID_PREFIX = "wep";
+const SPIN_AUDIT_ID_PREFIX = "wsa";
 const PROMO_CODE_PREFIX = "WHEEL";
 const REQUIRED_WHEEL_ACCESS_USERNAMES = ["dmitriy_mityuk", "rk0ff"];
 
@@ -74,6 +75,14 @@ function parseJson(value, fallback) {
   } catch (error) {
     console.warn("[wheel] parseJson failed", error?.message || error);
     return fallback;
+  }
+}
+
+function jsonForAudit(value, fallback = {}) {
+  try {
+    return JSON.stringify(value ?? fallback);
+  } catch {
+    return JSON.stringify(fallback);
   }
 }
 
@@ -486,22 +495,63 @@ function pickWeightedRandom(prizes, rng = Math.random) {
   return prizes[prizes.length - 1];
 }
 
-function pickUniformRandom(entries, rng = Math.random) {
+function pickUniformRandom(entries, rng = Math.random, audit = null) {
   if (!Array.isArray(entries) || !entries.length) return null;
-  const index = Math.min(entries.length - 1, Math.floor(rng() * entries.length));
+  const roll = rng();
+  const index = Math.min(entries.length - 1, Math.floor(roll * entries.length));
+  if (audit) {
+    audit.roll = roll;
+    audit.index = index;
+    audit.total_entries = entries.length;
+  }
   return entries[index];
 }
 
-function pickWeightedEntry(entries, getWeight, rng = Math.random) {
+function pickWeightedEntry(entries, getWeight, rng = Math.random, audit = null) {
   const weights = entries.map((entry) => Math.max(0, Number(getWeight(entry) || 0)));
   const total = weights.reduce((sum, w) => sum + w, 0);
   if (total <= 0) return null;
 
-  const target = rng() * total;
+  const roll = rng();
+  const target = roll * total;
   let acc = 0;
   for (let i = 0; i < entries.length; i += 1) {
+    const from = acc;
     acc += weights[i];
-    if (target <= acc) return entries[i];
+    if (target <= acc) {
+      if (audit) {
+        audit.roll = roll;
+        audit.target = target;
+        audit.total_weight = total;
+        audit.selected_index = i;
+        audit.buckets = entries.map((entry, index) => {
+          const bucketFrom = weights.slice(0, index).reduce((sum, w) => sum + w, 0);
+          return {
+            index,
+            kind: entry.kind || null,
+            rarity_code: entry.rarity?.code || entry.rarity_code || null,
+            weight: weights[index],
+            from: bucketFrom,
+            to: bucketFrom + weights[index],
+          };
+        });
+        audit.selected_bucket = {
+          index: i,
+          kind: entries[i].kind || null,
+          rarity_code: entries[i].rarity?.code || entries[i].rarity_code || null,
+          weight: weights[i],
+          from,
+          to: acc,
+        };
+      }
+      return entries[i];
+    }
+  }
+  if (audit) {
+    audit.roll = roll;
+    audit.target = target;
+    audit.total_weight = total;
+    audit.selected_index = entries.length - 1;
   }
   return entries[entries.length - 1];
 }
@@ -741,7 +791,7 @@ export function registerCustomerProfitForEpicPools(customerId) {
   return { updated: 1 };
 }
 
-function findValuablePrizeReadyForCustomer(customerId, isWholesale) {
+function findValuablePrizeReadyForCustomer(customerId, isWholesale, rng = Math.random, audit = null) {
   const pool = getActiveValuablePool();
   if (!pool) return null;
   const list = parseJson(pool.qualified_customers_json, []);
@@ -754,7 +804,30 @@ function findValuablePrizeReadyForCustomer(customerId, isWholesale) {
   });
   if (!valuablePrizes.length) return null;
 
-  return { prize: pickUniformRandom(valuablePrizes) || valuablePrizes[0], pool };
+  if (audit) {
+    audit.rng.valuable_prize_roll = {};
+    audit.effective_chances = [{
+      kind: "valuable",
+      rarity_code: "valuable",
+      chance_percent: null,
+      reason: "qualified_pool_ready",
+      prize_ids: valuablePrizes.map((prize) => prize.id),
+    }];
+    audit.availability = [{
+      rarity_code: "valuable",
+      is_available: true,
+      available_prize_count: valuablePrizes.length,
+      available_prize_ids: valuablePrizes.map((prize) => prize.id),
+      pool_id: pool.id,
+      qualified_count: Array.isArray(list) ? list.length : 0,
+      pool_size: Number(pool.pool_size || 0),
+    }];
+  }
+
+  return {
+    prize: pickUniformRandom(valuablePrizes, rng, audit?.rng?.valuable_prize_roll || null) || valuablePrizes[0],
+    pool,
+  };
 }
 
 function getNormalRarityCandidates({ isWholesale }) {
@@ -781,16 +854,27 @@ function getNothingPrizes({ isWholesale }) {
   });
 }
 
-function pickPrizeWithinRarity(prizes, rng = Math.random) {
+function pickPrizeWithinRarity(prizes, rng = Math.random, audit = null) {
   if (!Array.isArray(prizes) || !prizes.length) return null;
-  return pickUniformRandom(prizes, rng) || prizes[0];
+  if (audit) {
+    audit.candidate_prize_ids = prizes.map((prize) => prize.id);
+  }
+  return pickUniformRandom(prizes, rng, audit) || prizes[0];
 }
 
-function pickRarityDrivenPrize({ isWholesale = false, rng = Math.random }) {
+/**
+ * Builds and rolls the normal rarity map. This is intentionally documented
+ * near the code because future agents debugging "8% happened twice" need to
+ * see that configured chances are first filtered by prize availability, then
+ * `nothing` is derived as the remaining chance. The optional audit object is
+ * persisted per spin and mirrors the exact bucket ranges used for selection.
+ */
+function pickRarityDrivenPrize({ isWholesale = false, rng = Math.random, audit = null }) {
   const candidates = getNormalRarityCandidates({ isWholesale }).filter((entry) => entry.isAvailable);
   const totalChance = candidates.reduce((sum, entry) => sum + entry.chancePercent, 0);
   const clampedChance = Math.min(100, totalChance);
   const nothingChance = Math.max(0, 100 - clampedChance);
+  const allCandidates = getNormalRarityCandidates({ isWholesale });
 
   const weightedEntries = [
     ...candidates.map((entry) => ({
@@ -806,32 +890,84 @@ function pickRarityDrivenPrize({ isWholesale = false, rng = Math.random }) {
     },
   ].filter((entry) => entry.chancePercent > 0);
 
-  const selected = pickWeightedEntry(weightedEntries, (entry) => entry.chancePercent, rng);
+  if (audit) {
+    audit.configured_chances = listRarities().map((rarity) => ({
+      rarity_code: rarity.code,
+      label: rarity.label,
+      chance_percent: Number(rarity.chancePercent || 0),
+    }));
+    audit.availability = allCandidates.map((entry) => ({
+      rarity_code: entry.rarity.code,
+      configured_chance_percent: entry.chancePercent,
+      available_prize_ids: entry.prizes.map((prize) => prize.id),
+      available_prize_count: entry.prizes.length,
+      is_available: entry.isAvailable,
+    }));
+    audit.effective_chances = weightedEntries.map((entry) => ({
+      kind: entry.kind,
+      rarity_code: entry.rarity?.code || "nothing",
+      chance_percent: entry.chancePercent,
+      prize_ids: entry.prizes.map((prize) => prize.id),
+    }));
+    audit.nothing_chance = nothingChance;
+    audit.active_chance_total = clampedChance;
+    audit.rng.rarity_roll = {};
+  }
+
+  const selected = pickWeightedEntry(
+    weightedEntries,
+    (entry) => entry.chancePercent,
+    rng,
+    audit?.rng?.rarity_roll || null,
+  );
   if (!selected) {
     return { prize: null, nothingChance, activeChanceTotal: clampedChance };
   }
   if (selected.kind === "nothing") {
+    if (audit) audit.rng.prize_roll = {};
     return {
-      prize: pickPrizeWithinRarity(selected.prizes, rng),
+      prize: pickPrizeWithinRarity(selected.prizes, rng, audit?.rng?.prize_roll || null),
       nothingChance,
       activeChanceTotal: clampedChance,
     };
   }
 
+  if (audit) audit.rng.prize_roll = {};
   return {
-    prize: pickPrizeWithinRarity(selected.prizes, rng),
+    prize: pickPrizeWithinRarity(selected.prizes, rng, audit?.rng?.prize_roll || null),
     nothingChance,
     activeChanceTotal: clampedChance,
     selectedRarity: selected.rarity,
   };
 }
 
-function pickPityPrize(prizes, rng = Math.random) {
+function pickPityPrize(prizes, rng = Math.random, audit = null) {
   const primary = prizes.filter(
     (prize) =>
       !["nothing", "valuable"].includes(String(prize.rarity_code || "")),
   );
-  const primaryPick = pickUniformRandom(primary, rng);
+  if (audit) {
+    audit.configured_chances = listRarities().map((rarity) => ({
+      rarity_code: rarity.code,
+      label: rarity.label,
+      chance_percent: Number(rarity.chancePercent || 0),
+    }));
+    audit.effective_chances = [{
+      kind: "pity",
+      rarity_code: null,
+      chance_percent: null,
+      reason: "consecutive_nothing_threshold",
+      prize_ids: primary.map((prize) => prize.id),
+    }];
+    audit.availability = [{
+      rarity_code: "pity_primary",
+      is_available: primary.length > 0,
+      available_prize_count: primary.length,
+      available_prize_ids: primary.map((prize) => prize.id),
+    }];
+    audit.rng.pity_prize_roll = {};
+  }
+  const primaryPick = pickUniformRandom(primary, rng, audit?.rng?.pity_prize_roll || null);
   if (primaryPick) return { prize: primaryPick, fallback: null };
 
   // Secondary fallback (S7): no qualifying non-elite reward exists. Better to
@@ -840,7 +976,16 @@ function pickPityPrize(prizes, rng = Math.random) {
   const secondary = prizes.filter(
     (prize) => prize.rarity_code !== "nothing",
   );
-  const secondaryPick = pickUniformRandom(secondary, rng);
+  if (audit) {
+    audit.rng.pity_secondary_roll = {};
+    audit.availability.push({
+      rarity_code: "pity_secondary",
+      is_available: secondary.length > 0,
+      available_prize_count: secondary.length,
+      available_prize_ids: secondary.map((prize) => prize.id),
+    });
+  }
+  const secondaryPick = pickUniformRandom(secondary, rng, audit?.rng?.pity_secondary_roll || null);
   if (secondaryPick) {
     return { prize: secondaryPick, fallback: "non_elite_pool_empty" };
   }
@@ -928,6 +1073,64 @@ function addDaysToIsoDate(isoDate, dayOffset) {
   return date.toISOString().slice(0, 10);
 }
 
+function baseSpinAudit({ customerId, isWholesale, balance }) {
+  return {
+    customer_id: customerId,
+    is_wholesale: Boolean(isWholesale),
+    balance_before: {
+      spins_available: Number(balance?.spins_available || 0),
+      consecutive_nothing: Number(balance?.consecutive_nothing || 0),
+      accumulated_retail_byn: Number(balance?.accumulated_retail_byn || 0),
+      accumulated_wholesale_byn: Number(balance?.accumulated_wholesale_byn || 0),
+    },
+    configured_chances: [],
+    effective_chances: [],
+    availability: [],
+    rng: {},
+  };
+}
+
+function insertSpinAudit({
+  spinId,
+  customerId,
+  decisionType,
+  chosenPrize,
+  isWholesale,
+  isPityRelease,
+  isEpicRelease,
+  audit,
+  outcome,
+}) {
+  // This row is the long-term proof of how a spin was decided. Keep it
+  // inside the same transaction as wheel_spins so analytics never sees
+  // an outcome without its decision trail. JSON blobs intentionally avoid
+  // promo code strings and auth payloads; agents can join by spin/prize id.
+  db.prepare(
+    `INSERT INTO wheel_spin_audit (
+      id, spin_id, customer_id, decision_type, selected_rarity_code,
+      selected_prize_id, is_wholesale, is_pity_release, is_epic_release,
+      configured_chances_json, effective_chances_json, availability_json,
+      rng_json, balance_before_json, outcome_json
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(
+    generateId(SPIN_AUDIT_ID_PREFIX),
+    spinId,
+    customerId,
+    decisionType,
+    chosenPrize?.rarity_code || null,
+    chosenPrize?.id || null,
+    isWholesale ? 1 : 0,
+    isPityRelease ? 1 : 0,
+    isEpicRelease ? 1 : 0,
+    jsonForAudit(audit?.configured_chances, []),
+    jsonForAudit(audit?.effective_chances, []),
+    jsonForAudit(audit?.availability, []),
+    jsonForAudit(audit?.rng, {}),
+    jsonForAudit(audit?.balance_before, {}),
+    jsonForAudit(outcome, {}),
+  );
+}
+
 /**
  * Spin the wheel for a customer. Wrapped in a single transaction so a
  * concurrent call cannot double-spend a single spin or skip an epic pool.
@@ -937,6 +1140,7 @@ export function spinWheelForCustomer({
   isWholesale = false,
   rng = Math.random,
   idempotencyKey = null,
+  auditEnabled = true,
 }) {
   if (!customerId) {
     const error = new Error("customer_required");
@@ -947,6 +1151,9 @@ export function spinWheelForCustomer({
   const settings = getWheelSettings();
   const tx = db.transaction(() => {
     const balance = ensureCustomerBalance(customerId);
+    const audit = auditEnabled
+      ? baseSpinAudit({ customerId, isWholesale, balance })
+      : null;
     if (balance.spins_available <= 0) {
       const error = new Error("not_enough_spins");
       error.code = "not_enough_spins";
@@ -967,8 +1174,9 @@ export function spinWheelForCustomer({
     let isPityRelease = false;
     let pityFallbackReason = null;
     let carriedOverCount = 0;
+    let decisionType = "rarity_roll";
 
-    const valuableReady = findValuablePrizeReadyForCustomer(customerId, isWholesale);
+    const valuableReady = findValuablePrizeReadyForCustomer(customerId, isWholesale, rng, audit);
     if (valuableReady) {
       // Race-safety re-check (B6): findEpicPrizeReadyForCustomer reads the
       // pool outside any lock. By the time we get here another concurrent
@@ -982,6 +1190,7 @@ export function spinWheelForCustomer({
       if (stillActive) {
         chosenPrize = valuableReady.prize;
         isEpicRelease = true;
+        decisionType = "valuable_release";
       }
     }
 
@@ -989,19 +1198,21 @@ export function spinWheelForCustomer({
       !chosenPrize &&
       Number(balance.consecutive_nothing || 0) >= settings.pity_threshold
     ) {
-      const pityResult = pickPityPrize(prizes, rng);
+      const pityResult = pickPityPrize(prizes, rng, audit);
       if (pityResult.prize) {
         chosenPrize = pityResult.prize;
         isPityRelease = true;
         pityFallbackReason = pityResult.fallback;
+        decisionType = "pity_release";
       } else {
         pityFallbackReason = pityResult.fallback || "no_candidates";
       }
     }
 
     if (!chosenPrize) {
-      const rarityPick = pickRarityDrivenPrize({ isWholesale, rng });
+      const rarityPick = pickRarityDrivenPrize({ isWholesale, rng, audit });
       chosenPrize = rarityPick.prize;
+      decisionType = "rarity_roll";
     }
 
     if (!chosenPrize) {
@@ -1012,6 +1223,7 @@ export function spinWheelForCustomer({
         throw error;
       }
       chosenPrize = fallback;
+      decisionType = "fallback_nothing";
     }
 
     if (pityFallbackReason) {
@@ -1023,7 +1235,12 @@ export function spinWheelForCustomer({
     }
 
     const promo = generatePromoForPrize(chosenPrize, settings, customerId);
-    const seed = Math.floor(rng() * 0x7fffffff);
+    const seedRoll = rng();
+    const seed = Math.floor(seedRoll * 0x7fffffff);
+    if (audit) {
+      audit.rng.animation_seed_roll = seedRoll;
+      audit.rng.animation_seed = seed;
+    }
     const spinId = generateId(SPIN_ID_PREFIX);
 
     db.prepare(
@@ -1053,6 +1270,27 @@ export function spinWheelForCustomer({
        SET issued_count = issued_count + 1
        WHERE id = ?`,
     ).run(chosenPrize.id);
+
+    if (auditEnabled) {
+      insertSpinAudit({
+        spinId,
+        customerId,
+        decisionType,
+        chosenPrize,
+        isWholesale,
+        isPityRelease,
+        isEpicRelease,
+        audit,
+        outcome: {
+          prize_id: chosenPrize.id,
+          rarity_code: chosenPrize.rarity_code,
+          decision_type: decisionType,
+          promo_generated: Boolean(promo?.promoId),
+          pity_fallback_reason: pityFallbackReason || null,
+          valuable_pool_id: valuableReady?.pool?.id || null,
+        },
+      });
+    }
 
     if (isEpicRelease && valuableReady?.pool) {
       db.prepare(
@@ -1958,6 +2196,82 @@ export function listAdminSpins({ limit = 50, offset = 0, customerId, rarity } = 
     .get(...params);
 
   return { rows, total: Number(totalRow?.count || 0) };
+}
+
+function parseAuditRow(row) {
+  return {
+    ...row,
+    is_wholesale: Boolean(row.is_wholesale),
+    is_pity_release: Boolean(row.is_pity_release),
+    is_epic_release: Boolean(row.is_epic_release),
+    configured_chances: parseJson(row.configured_chances_json, []),
+    effective_chances: parseJson(row.effective_chances_json, []),
+    availability: parseJson(row.availability_json, []),
+    rng: parseJson(row.rng_json, {}),
+    balance_before: parseJson(row.balance_before_json, {}),
+    outcome: parseJson(row.outcome_json, {}),
+  };
+}
+
+export function listAdminSpinAudit({ limit = 100, offset = 0, from = null, to = null, rarity = null } = {}) {
+  // Agent-facing audit export. This endpoint deliberately returns raw
+  // decision JSON so another Droid can recalculate expected distributions
+  // without reading production code. Promo codes are not joined here.
+  const params = [];
+  const where = [];
+  if (from) {
+    where.push("a.created_at >= ?");
+    params.push(String(from));
+  }
+  if (to) {
+    where.push("a.created_at < ?");
+    params.push(String(to));
+  }
+  if (rarity) {
+    where.push("a.selected_rarity_code = ?");
+    params.push(String(rarity));
+  }
+  const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
+  const safeLimit = Math.max(1, Math.min(1000, Math.floor(safeNumber(limit, 100))));
+  const safeOffset = Math.max(0, Math.floor(safeNumber(offset, 0)));
+
+  const rows = db
+    .prepare(
+      `SELECT a.*, s.spun_at, p.title AS prize_title, c.telegram_username
+       FROM wheel_spin_audit a
+       JOIN wheel_spins s ON s.id = a.spin_id
+       LEFT JOIN wheel_prizes p ON p.id = a.selected_prize_id
+       LEFT JOIN customers c ON c.id = a.customer_id
+       ${whereSql}
+       ORDER BY a.created_at DESC
+       LIMIT ? OFFSET ?`,
+    )
+    .all(...params, safeLimit, safeOffset)
+    .map(parseAuditRow);
+
+  const totalRow = db
+    .prepare(`SELECT COUNT(*) AS count FROM wheel_spin_audit a ${whereSql}`)
+    .get(...params);
+
+  const summary = db
+    .prepare(
+      `SELECT selected_rarity_code AS rarity_code,
+              decision_type,
+              COUNT(*) AS count,
+              SUM(is_pity_release) AS pity_count,
+              SUM(is_epic_release) AS epic_count
+       FROM wheel_spin_audit a
+       ${whereSql}
+       GROUP BY selected_rarity_code, decision_type
+       ORDER BY count DESC`,
+    )
+    .all(...params);
+
+  return {
+    rows,
+    total: Number(totalRow?.count || 0),
+    summary,
+  };
 }
 
 export function getAdminDashboard() {

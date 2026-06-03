@@ -14,6 +14,7 @@ const { initDb, db } = await import("../db.js");
 const {
   spinWheelForCustomer,
   getAdminDashboard,
+  listAdminSpinAudit,
   getWheelSettings,
   updateRarityRule,
   updateWheelSettings,
@@ -130,7 +131,7 @@ async function testWeightedDistribution() {
   const rng = makeRng(42);
   const counts = {};
   for (let i = 0; i < 10000; i += 1) {
-    const result = spinWheelForCustomer({ customerId, rng });
+    const result = spinWheelForCustomer({ customerId, rng, auditEnabled: false });
     counts[result.prize.rarity_code] = (counts[result.prize.rarity_code] || 0) + 1;
   }
 
@@ -173,7 +174,7 @@ async function testBestPracticeSingleAvailableCommonDistribution() {
   const rng = makeRng(77);
   const counts = {};
   for (let i = 0; i < 10000; i += 1) {
-    const result = spinWheelForCustomer({ customerId, rng });
+    const result = spinWheelForCustomer({ customerId, rng, auditEnabled: false });
     counts[result.prize.rarity_code] = (counts[result.prize.rarity_code] || 0) + 1;
   }
   updateWheelSettings({ pity_threshold: 3 });
@@ -213,7 +214,7 @@ async function testProductionBaselineDistribution() {
   const rng = makeRng(123);
   const counts = {};
   for (let i = 0; i < 10000; i += 1) {
-    const result = spinWheelForCustomer({ customerId, rng });
+    const result = spinWheelForCustomer({ customerId, rng, auditEnabled: false });
     counts[result.prize.rarity_code] = (counts[result.prize.rarity_code] || 0) + 1;
   }
   updateWheelSettings({ pity_threshold: 3 });
@@ -252,14 +253,14 @@ async function testPityTriggersAfterThresholdNothings() {
   const settings = getWheelSettings();
   // Spin pity_threshold times: all nothing.
   for (let i = 0; i < settings.pity_threshold; i += 1) {
-    const result = spinWheelForCustomer({ customerId, rng });
+    const result = spinWheelForCustomer({ customerId, rng, auditEnabled: false });
     assert.equal(result.prize.rarity_code, "nothing");
   }
 
   // Re-enable common so pity has something to pick.
   db.prepare("UPDATE wheel_prizes SET weight = 1 WHERE id = 'p_common'").run();
 
-  const result = spinWheelForCustomer({ customerId, rng });
+  const result = spinWheelForCustomer({ customerId, rng, auditEnabled: false });
   assert.equal(result.isPityRelease, true);
   assert.notEqual(result.prize.rarity_code, "nothing");
 }
@@ -279,7 +280,7 @@ async function testMaxTotalExhaustionStopsPrize() {
   setBalance(customerId, 3);
 
   const rng = makeRng(7);
-  const first = spinWheelForCustomer({ customerId, rng });
+  const first = spinWheelForCustomer({ customerId, rng, auditEnabled: false });
   assert.equal(first.prize.rarity_code, "legendary");
 
   const issued = db.prepare("SELECT issued_count FROM wheel_prizes WHERE id = 'p_legendary'").get();
@@ -290,7 +291,7 @@ async function testMaxTotalExhaustionStopsPrize() {
   updateRarityRule("common", { chance_percent: 100 });
   updateRarityRule("legendary", { chance_percent: 0 });
 
-  const second = spinWheelForCustomer({ customerId, rng });
+  const second = spinWheelForCustomer({ customerId, rng, auditEnabled: false });
   assert.notEqual(second.prize.rarity_code, "legendary");
 }
 
@@ -311,7 +312,7 @@ async function testPrizeSelectionWithinRarityIgnoresPrizeWeights() {
   const rng = makeRng(11);
   const counts = {};
   for (let i = 0; i < 1000; i += 1) {
-    const result = spinWheelForCustomer({ customerId, rng });
+    const result = spinWheelForCustomer({ customerId, rng, auditEnabled: false });
     counts[result.prize.id] = (counts[result.prize.id] || 0) + 1;
   }
   updateWheelSettings({ pity_threshold: 3 });
@@ -439,7 +440,7 @@ async function testUnavailablePrizeInAvailableRarityNeverDrops() {
 
   const rng = makeRng(23);
   for (let i = 0; i < 100; i += 1) {
-    const result = spinWheelForCustomer({ customerId, rng });
+    const result = spinWheelForCustomer({ customerId, rng, auditEnabled: false });
     assert.equal(result.prize.id, "p_common_available");
   }
 }
@@ -510,6 +511,47 @@ async function testNotEnoughSpins() {
   });
 }
 
+async function testSpinAuditCapturesEffectiveChanceAndRng() {
+  clearWheelData();
+  insertPrize({ id: "p_audit_nothing", rarity_code: "nothing", title: "Ничего", weight: 1 });
+  insertPrize({ id: "p_audit_common", rarity_code: "common", title: "Обычный", weight: 1 });
+  insertPrize({ id: "p_audit_mythic", rarity_code: "mythic", title: "Мифический", weight: 1 });
+  updateRarityRule("common", { chance_percent: 20 });
+  updateRarityRule("rare", { chance_percent: 0 });
+  updateRarityRule("mythic", { chance_percent: 8 });
+  updateRarityRule("legendary", { chance_percent: 0 });
+  updateRarityRule("epic", { chance_percent: 0 });
+  updateWheelSettings({ pity_threshold: 999999 });
+
+  const customerId = "cust-spin-audit";
+  ensureCustomer(customerId);
+  setBalance(customerId, 1);
+
+  const result = spinWheelForCustomer({
+    customerId,
+    rng: makeSequenceRng([0.25, 0.1, 0.5]),
+  });
+  assert.equal(result.prize.rarity_code, "mythic");
+
+  const audit = listAdminSpinAudit({ limit: 1 });
+  assert.equal(audit.total, 1);
+  const row = audit.rows[0];
+  assert.equal(row.spin_id, result.spinId);
+  assert.equal(row.decision_type, "rarity_roll");
+  assert.equal(row.selected_rarity_code, "mythic");
+  assert.equal(row.rng.rarity_roll.roll, 0.25);
+  assert.equal(row.rng.rarity_roll.selected_bucket.rarity_code, "mythic");
+  assert.ok(
+    row.effective_chances.some((entry) => entry.rarity_code === "nothing" && entry.chance_percent === 72),
+    "audit should record derived nothing chance after active rarity filters",
+  );
+  assert.ok(
+    row.availability.some((entry) => entry.rarity_code === "mythic" && entry.is_available),
+    "audit should record mythic availability at spin time",
+  );
+  updateWheelSettings({ pity_threshold: 3 });
+}
+
 async function main() {
   // Make sure default settings reflect base test assumptions.
   updateWheelSettings({
@@ -535,6 +577,7 @@ async function main() {
   await testNoDropAvailableWithoutNothingDoesNotSpendSpin();
   await testDashboardTotalsMatchRecordedSpins();
   await testNotEnoughSpins();
+  await testSpinAuditCapturesEffectiveChanceAndRng();
 
   console.log("[wheel-spin] OK");
 }

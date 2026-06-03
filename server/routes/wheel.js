@@ -15,6 +15,7 @@ import {
   getWheelSettings,
   listAdminRarityRules,
   listAdminPrizes,
+  listAdminSpinAudit,
   listAdminSpins,
   listRarities,
   registerCustomerProfitForEpicPools,
@@ -667,6 +668,31 @@ wheelRouter.get(
           limit,
           offset,
           customerId: customer_id || null,
+          rarity: rarity || null,
+        }),
+      );
+    } catch (error) {
+      res.status(500).json({ error: "failed", message: error.message });
+    }
+  },
+);
+
+wheelRouter.get(
+  "/api/admin/crm/wheel/audit",
+  authMiddleware,
+  (req, res) => {
+    try {
+      // Read-only export for probability audits. The service returns raw
+      // JSON decision blobs (effective chance map, RNG roll, availability)
+      // so another agent can verify distribution math without querying
+      // sensitive promo/auth data.
+      const { limit, offset, from, to, rarity } = req.query || {};
+      res.json(
+        listAdminSpinAudit({
+          limit,
+          offset,
+          from: from || null,
+          to: to || null,
           rarity: rarity || null,
         }),
       );
