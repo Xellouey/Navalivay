@@ -500,7 +500,6 @@ async function handleUnblock(blockId: string | number) {
     await crmStore.fetchCustomerBlocksList()
   } catch (err: any) {
     console.error('[crm-customers] unblock failed', err)
-
     window.alert(err?.message || 'Не удалось снять блок')
   } finally {
     removingBlockId.value = null

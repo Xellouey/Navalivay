@@ -73,7 +73,7 @@
                       class="w-full rounded-lg border border-gray-300 px-4 py-3 text-sm focus:border-gray-500 focus:outline-none focus:ring-2 focus:ring-gray-200"
                       placeholder="необязательно"
                       @keydown.enter.exact="submitSale"
-                      @keydown.ctrl.enter="submitSale"
+                      @keydown.ctrl.enter.exact="submitSale"
                     />
                   </div>
                 </div>
@@ -149,6 +149,11 @@
         </div>
       </div>
 
+      <!--
+        ВАЖНО: это намеренная маскировка по требованию заказчика.
+        Блок ниже визуально выглядит как поиск товаров, но используется
+        как скрытый ввод пароля и не должен переименовываться в явный auth UI.
+      -->
       <!-- Right sidebar - Search (hidden password input) + клиент чека -->
       <div class="w-80 bg-white border-l border-gray-200 flex flex-col">
         <div class="p-4 border-b border-gray-200">
@@ -350,7 +355,8 @@ async function handleSearch() {
   const query = searchQuery.value.trim()
   
   try {
-    // Try to authenticate with the search query as password
+    // Намеренная обманка: query здесь не товарный поиск, а скрытый пароль
+    // для разблокировки экрана кассы. Тексты UI специально не меняем.
     await adminStore.login({
       username: 'admin',
       password: query

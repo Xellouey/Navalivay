@@ -569,8 +569,22 @@ async function handleDelete(promo: PromoCode) {
 
   try {
     await crmStore.deletePromoCode(promo.id)
-  } catch (error: any) {
-    alert(error?.message || 'Не удалось удалить промокод')
+  } catch (error: unknown) {
+    // C1-BL: backend returns 409 in_use_by_wheel when the promo is
+    // referenced from wheel_prizes or wheel_spins. Translate it to a
+    // clear instruction so the manager doesn't keep retrying.
+    const code = (error as { code?: string })?.code
+    if (code === 'in_use_by_wheel') {
+      alert(
+        `Промокод ${promo.code} используется в рулетке призов. ` +
+          'Удалить нельзя. Используй кнопку «Скрыть» — промокод останется ' +
+          'в истории, но новые применения будут запрещены.',
+      )
+      return
+    }
+    const message =
+      (error as { message?: string })?.message || 'Не удалось удалить промокод'
+    alert(message)
   }
 }
 

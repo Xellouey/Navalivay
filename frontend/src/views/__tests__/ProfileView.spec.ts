@@ -34,7 +34,7 @@ describe("ProfileView loyalty section", () => {
     };
   });
 
-  it("renders loyalty showcase card without forcing a duplicate bonus popup", async () => {
+  it("renders loyalty showcase card and keeps the bonus popup hidden on profile", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url.startsWith("/api/customer/me")) {

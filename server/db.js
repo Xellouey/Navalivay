@@ -53,6 +53,7 @@ import { migrateCashPacingTables } from './migrations/add_cash_pacing_tables.js'
 import { migrateWholesalePricing } from './migrations/add_wholesale_pricing.js';
 import { migrateCrmPerformanceIndexes } from './migrations/add_crm_performance_indexes.js';
 import { migrateOrderNumberSearch } from './migrations/add_order_number_search.js';
+import { migrateWheelPrizes, seedDefaultWheelData } from './migrations/add_wheel_prizes.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -205,9 +206,11 @@ export function initDb() {
   migrateWholesalePricing();
   migrateCrmPerformanceIndexes();
   migrateOrderNumberSearch();
+  migrateWheelPrizes();
 
   seedIfEmpty();
   seedDefaultLoyaltyData();
+  seedDefaultWheelData();
 }
 
 function seedIfEmpty() {

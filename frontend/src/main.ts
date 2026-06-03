@@ -8,6 +8,7 @@ import App from './App.vue'
 import router from './router'
 import { applyTelegramWholesaleStartParam } from '@/utils/telegramMiniAppContext'
 import { loadTelegramWebAppSdk } from '@/utils/loadTelegramWebAppSdk'
+import { applyDevTelegramMockIfNeeded } from '@/utils/devTelegramMock'
 
 function initTelegramChrome() {
   if (!window.Telegram?.WebApp) return
@@ -18,8 +19,9 @@ function initTelegramChrome() {
 }
 
 async function bootstrap() {
-  await loadTelegramWebAppSdk();
-  initTelegramChrome();
+  applyDevTelegramMockIfNeeded()
+  await loadTelegramWebAppSdk()
+  initTelegramChrome()
 
   const app = createApp(App)
   app.use(createPinia())

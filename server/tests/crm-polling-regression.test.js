@@ -94,8 +94,17 @@ console.log('\n=== Adversarial: action-required poll uses composite orders index
   );
 }
 
-if (fs.existsSync(TMP_DB)) {
-  fs.rmSync(TMP_DB, { force: true });
+try {
+  db.close();
+} catch {
+  /* noop */
+}
+for (const file of [TMP_DB, `${TMP_DB}-shm`, `${TMP_DB}-wal`]) {
+  try {
+    fs.rmSync(file, { force: true });
+  } catch {
+    /* noop */
+  }
 }
 
 if (results.failed > 0) {

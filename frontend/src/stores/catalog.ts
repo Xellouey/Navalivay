@@ -505,8 +505,8 @@ export const useCatalogStore = defineStore('catalog', () => {
 
     const myGen = ++fetchAllProductsLatestGen
 
-    const inFlight = {} as { promise: Promise<void> }
-    inFlight.promise = (async () => {
+    const inFlightRef: { current?: Promise<void> } = {}
+    const promise: Promise<void> = (async () => {
       try {
         const response = await fetch('/api/products?limit=1000&offset=0', {
           headers: getWholesaleHeaders(),
@@ -523,13 +523,13 @@ export const useCatalogStore = defineStore('catalog', () => {
       } catch (err) {
         console.error('Error fetching all products for counts:', err)
       } finally {
-        if (fetchAllProductsInFlight.get(key) === inFlight.promise) {
+        if (fetchAllProductsInFlight.get(key) === inFlightRef.current) {
           fetchAllProductsInFlight.delete(key)
         }
       }
     })()
 
-    const promise = inFlight.promise
+    inFlightRef.current = promise
     fetchAllProductsInFlight.set(key, promise)
     await promise
   }

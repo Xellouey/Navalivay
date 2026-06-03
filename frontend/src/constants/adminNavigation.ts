@@ -11,7 +11,8 @@ import {
   ArchiveBoxXMarkIcon,
   ArchiveBoxIcon,
   ReceiptPercentIcon,
-  GiftIcon
+  GiftIcon,
+  SparklesIcon
 } from '@heroicons/vue/24/outline'
 
 export const adminTabOptions = ['dashboard', 'products', 'categories', 'banners', 'settings'] as const
@@ -90,5 +91,12 @@ export const crmLinks: SidebarLink[] = [
     description: 'Скидки и акции',
     icon: GiftIcon,
     to: '/admin/crm/loyalty'
+  },
+  {
+    id: 'crm-wheel',
+    name: 'Рулетка призов',
+    description: 'Призы, спины',
+    icon: SparklesIcon,
+    to: '/admin/crm/wheel'
   }
 ]

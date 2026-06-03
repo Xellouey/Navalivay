@@ -4,14 +4,14 @@ import { computed, onMounted } from "vue";
 import { useRoute } from "vue-router";
 import VapeSmoke from "@/components/VapeSmoke.vue";
 import BottomTabBar from "@/components/BottomTabBar.vue";
-import WholesaleStatusBar from "@/components/WholesaleStatusBar.vue";
 import BlockedScreen from "@/components/BlockedScreen.vue";
-import { useWholesaleStore } from "@/stores/wholesale";
+import WheelHomeWidget from "@/components/wheel/WheelHomeWidget.vue";
 import { useCustomerBlock } from "@/composables/useCustomerBlock";
+import { useWholesaleStore } from "@/stores/wholesale";
 
 const route = useRoute();
-const wholesaleStore = useWholesaleStore();
 const { currentBlock, isBlocked, refreshBlock } = useCustomerBlock();
+const wholesaleStore = useWholesaleStore();
 
 // Экран блокировки клиента не показываем в админке —
 // у админа другая аутентификация, а не клиентский telegram_id.
@@ -24,18 +24,22 @@ const showTabBar = computed(() => {
   if (path.startsWith("/admin")) return false;
   if (path === "/checkout") return false;
   if (path === "/my-order") return false;
-  if (wholesaleStore.isWholesale) return false;
+  // Опт получает свой набор табов вместо скрытого футера -
+  // см. docs/wholesale-rules.md и спецификацию рулетки.
   return true;
 });
 
-const showWholesaleStatusBar = computed(() => {
+// Глобальный плавающий виджет рулетки. Показываем на всех customer-
+// экранах, кроме самой рулетки, чекаута, оформленного заказа и
+// админки. Опту виджет пока скрываем (бизнес-логика на этой итерации).
+const showWheelWidget = computed(() => {
+  if (wholesaleStore.isWholesale) return false;
   const path = route.path;
-  if (!wholesaleStore.isWholesale) return false;
   if (path.startsWith("/admin")) return false;
+  if (path === "/wheel" || path.startsWith("/wheel/")) return false;
   if (path === "/checkout") return false;
   if (path === "/my-order") return false;
-  if (route.name === "product") return false;
-  if (route.name === "wholesale-entry") return false;
+  if (path.startsWith("/opt")) return false;
   return true;
 });
 
@@ -52,7 +56,7 @@ onMounted(() => {
 <template>
   <div
     class="app-shell"
-    :class="{ 'app-shell--with-tab-bar': showTabBar || showWholesaleStatusBar }"
+    :class="{ 'app-shell--with-tab-bar': showTabBar }"
     style="background: var(--app-page-background, #ffffff)"
   >
     <div class="app-shell__content">
@@ -64,7 +68,7 @@ onMounted(() => {
     </div>
     <VapeSmoke />
     <BottomTabBar v-if="showTabBar" />
-    <WholesaleStatusBar v-if="showWholesaleStatusBar" />
+    <WheelHomeWidget v-if="showWheelWidget" />
     <BlockedScreen
       v-if="showBlockedScreen"
       :reason="currentBlock?.reason ?? null"

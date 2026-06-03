@@ -164,6 +164,7 @@ export function consumePromoUsageForOrder({
 
     for (const row of existingRows) {
       syncPromoCodeUsageCounters(row.promo_code_id);
+      markWheelSpinAsUsedForPromo(row.promo_code_id, finalConsumedAt);
     }
 
     return db.prepare("SELECT * FROM promo_usage WHERE order_id = ?").get(orderId);
@@ -198,7 +199,37 @@ export function consumePromoUsageForOrder({
   );
 
   syncPromoCodeUsageCounters(resolvedPromoCodeId);
+  markWheelSpinAsUsedForPromo(resolvedPromoCodeId, finalConsumedAt);
   return db.prepare("SELECT * FROM promo_usage WHERE order_id = ?").get(orderId);
+}
+
+/**
+ * S1: When a wheel-generated promo is actually consumed by an order, mark
+ * the originating wheel_spin as `prize_used_at`. Safe to call with any
+ * promo_code_id — non-wheel promos simply won't match and the UPDATE is
+ * a no-op.
+ *
+ * Defensive: if the wheel_spins table doesn't exist yet (e.g. fresh DB
+ * before migrations ran), swallow the error and continue. Promo
+ * consumption must never fail because of a wheel-side issue.
+ */
+function markWheelSpinAsUsedForPromo(promoCodeId, consumedAt) {
+  if (!promoCodeId) return;
+  try {
+    db.prepare(
+      `UPDATE wheel_spins
+       SET prize_used_at = ?
+       WHERE generated_promo_code_id = ?
+         AND prize_used_at IS NULL`,
+    ).run(consumedAt, promoCodeId);
+  } catch (error) {
+    // Most likely "no such table" if migrations haven't run. Don't break
+    // the promo flow over it; just log.
+    console.warn(
+      "[promo] failed to mark wheel spin as used:",
+      error?.message || error,
+    );
+  }
 }
 
 export function releasePromoUsageForOrder(orderOrId) {
@@ -226,12 +257,33 @@ export function releasePromoUsageForOrder(orderOrId) {
   const promoIds = [...new Set(rows.map((row) => row.promo_code_id).filter(Boolean))];
   for (const promoId of promoIds) {
     syncPromoCodeUsageCounters(promoId);
+    // M4-CR: when a checkout is reverted (cancellation, manager rebuild),
+    // the originating wheel prize should also unmark itself as used so
+    // the customer sees the active promo again in "Мои призы". Symmetric
+    // to markWheelSpinAsUsedForPromo. Defensive: swallow missing-table
+    // on freshly seeded DBs.
+    try {
+      db.prepare(
+        `UPDATE wheel_spins
+         SET prize_used_at = NULL
+         WHERE generated_promo_code_id = ?`,
+      ).run(promoId);
+    } catch (error) {
+      console.warn(
+        "[promo] failed to release wheel spin used flag:",
+        error?.message || error,
+      );
+    }
   }
 
   return promoIds;
 }
 
-export function validatePromoCode(code, orderAmount, { excludeOrderId = null } = {}) {
+export function validatePromoCode(
+  code,
+  orderAmount,
+  { excludeOrderId = null, expectedCustomerId = null } = {},
+) {
   const cleanCode = normalizePromoCode(code);
   if (!cleanCode) {
     return { valid: false, error: "not_found", message: "Промокод не указан" };
@@ -245,6 +297,38 @@ export function validatePromoCode(code, orderAmount, { excludeOrderId = null } =
 
   if (!promo.active) {
     return { valid: false, error: "inactive", message: "Промокод неактивен" };
+  }
+
+  // S3: Wheel prize templates are internal blueprints for generating
+  // per-customer promo codes via the roulette. They must NEVER be applied
+  // directly at checkout — anyone who knew or guessed the template code
+  // would otherwise get a working discount. Generated child codes are
+  // written with is_wheel_template = 0 so this filter only catches the
+  // template row itself.
+  if (Number(promo.is_wheel_template || 0) === 1) {
+    return {
+      valid: false,
+      error: "wheel_template_not_applicable",
+      message: "Этот промокод нельзя применить вручную",
+    };
+  }
+
+  // S2-N1: a wheel-generated child code is bound to its winner. Without
+  // this guard the code behaves like a bearer token — anyone who sees
+  // it from the friend's screen, leaks, etc. could redeem the prize.
+  // The check is only enforced when both (a) the code carries an owner
+  // and (b) the caller passed expectedCustomerId. Internal admin paths
+  // that don't have a customer in scope (e.g. CRM testing) keep working.
+  if (
+    promo.wheel_owner_customer_id &&
+    expectedCustomerId &&
+    String(promo.wheel_owner_customer_id) !== String(expectedCustomerId)
+  ) {
+    return {
+      valid: false,
+      error: "wheel_promo_owner_mismatch",
+      message: "Этот промокод привязан к другому клиенту",
+    };
   }
 
   const now = new Date().toISOString();

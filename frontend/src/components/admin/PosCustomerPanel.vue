@@ -370,11 +370,19 @@ watch(searchQuery, (q) => {
   }, 250)
 })
 
+function handleWindowEscape(event: KeyboardEvent) {
+  if (event.key === 'Escape' && showCreateModal.value) {
+    closeCreateModal()
+  }
+}
+
 onMounted(() => {
   loadRecent()
+  window.addEventListener('keydown', handleWindowEscape)
 })
 
 onBeforeUnmount(() => {
+  window.removeEventListener('keydown', handleWindowEscape)
   if (searchDebounce !== null) {
     clearTimeout(searchDebounce)
     searchDebounce = null

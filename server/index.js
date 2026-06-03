@@ -16,14 +16,49 @@ import { crmFinanceRouter } from './routes/crm-finance.js';
 import { posRouter } from './routes/pos.js';
 import { promoRouter } from './routes/promo.js';
 import { loyaltyRouter } from './routes/loyalty.js';
+import { wheelRouter } from './routes/wheel.js';
 import { archiveOldDeliveredOrders, scheduleArchiving } from './cleanup-delivered-orders.js';
+import { DEV_BACKEND_PORT, PROD_BACKEND_PORT } from '../shared/runtime-ports.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
-const PORT = process.env.PORT || 8082;
+const isProduction = String(process.env.NODE_ENV || '').toLowerCase() === 'production';
+const PORT = process.env.PORT || (isProduction ? PROD_BACKEND_PORT : DEV_BACKEND_PORT);
 app.set('trust proxy', 1);
+
+function parseAllowedCorsOrigins() {
+  const configured = String(process.env.CORS_ORIGINS || '')
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+  if (configured.length) return configured;
+
+  if (process.env.BASE_URL) {
+    try {
+      return [new URL(process.env.BASE_URL).origin];
+    } catch (error) {
+      console.warn('[cors] Invalid BASE_URL, no production CORS origin configured');
+    }
+  }
+  return [];
+}
+
+function buildCorsOptions() {
+  if (process.env.NODE_ENV !== 'production') {
+    return { origin: true, credentials: true };
+  }
+  const allowedOrigins = parseAllowedCorsOrigins();
+  return {
+    credentials: true,
+    origin(origin, callback) {
+      if (!origin) return callback(null, true);
+      if (allowedOrigins.includes(origin)) return callback(null, true);
+      return callback(null, false);
+    },
+  };
+}
 
 function sanitizeRequestUrl(originalUrl = '') {
   if (!originalUrl || !originalUrl.includes('?')) {
@@ -57,7 +92,7 @@ app.use(morgan(':method :safe-url :status :response-time ms - :res[content-lengt
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
-app.use(cors({ origin: true, credentials: true }));
+app.use(cors(buildCorsOptions()));
 app.use(helmet({ contentSecurityPolicy: false }));
 
 
@@ -71,6 +106,7 @@ app.use('/uploads', express.static(uploadsDir, {
     res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0');
     res.setHeader('Pragma', 'no-cache');
     res.setHeader('Expires', '0');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
   }
 }));
 
@@ -95,6 +131,8 @@ app.use(posRouter);
 app.use(promoRouter);
 // Loyalty API
 app.use(loyaltyRouter);
+// Wheel API
+app.use(wheelRouter);
 
 
 app.listen(PORT, () => {

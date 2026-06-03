@@ -1958,7 +1958,7 @@ publicRouter.put(
           nextPromoResult = validatePromoCodeForOrder(
             normalizedPromoCode,
             orderBuild.totalAmount,
-            { excludeOrderId: id },
+            { excludeOrderId: id, expectedCustomerId: order.customer_id || null },
           );
           if (!nextPromoResult.valid) {
             throwPromoValidationError(nextPromoResult);
@@ -2326,6 +2326,7 @@ publicRouter.post(
           createdPromoResult = validatePromoCodeForOrder(
             normalizedPromoCode,
             orderBuild.totalAmount,
+            { expectedCustomerId: resolvedCustomerId || null },
           );
           if (!createdPromoResult.valid) {
             throwPromoValidationError(createdPromoResult);
@@ -2499,9 +2500,16 @@ publicRouter.post(
 
 
 // Validate promo code (public endpoint)
+//
+// S2-N1: optionally enforce wheel_owner_customer_id when telegram auth
+// is present. The endpoint stays open to keep CRM-tester flows working,
+// but if a verified Telegram identity rides along (real Mini App
+// request), we resolve the customer and pass it to the validator so
+// wheel-owned codes get rejected for the wrong telegram user.
 publicRouter.post("/api/promo/validate", (req, res) => {
   try {
     const { code, order_amount = 0, order_id, editing_order_id } = req.body;
+    const expectedCustomerId = resolveCustomerIdFromAuth(req);
     const result = validatePromoCodeForOrder(code, Number(order_amount), {
       excludeOrderId:
         typeof editing_order_id === "string" && editing_order_id.trim()
@@ -2509,6 +2517,7 @@ publicRouter.post("/api/promo/validate", (req, res) => {
           : typeof order_id === "string" && order_id.trim()
             ? order_id.trim()
             : null,
+      expectedCustomerId,
     });
 
     if (result.valid) {
@@ -2537,6 +2546,42 @@ publicRouter.post("/api/promo/validate", (req, res) => {
     res.status(500).json({ valid: false, error: "failed", message: "Ошибка проверки промокода" });
   }
 });
+
+function resolveCustomerIdFromAuth(req) {
+  // Best-effort: look at request body / headers for any signal of a
+  // Telegram identity. We do not call requireTelegramMiniAppAuth — that
+  // would change the contract from "always 200" to "401 if no auth"
+  // and break downstream callers that don't carry headers.
+  try {
+    const headerValue = req.headers?.["x-telegram-init-data"];
+    if (typeof headerValue === "string" && headerValue.trim()) {
+      const params = new URLSearchParams(headerValue.trim());
+      const userJson = params.get("user");
+      if (userJson) {
+        const user = JSON.parse(userJson);
+        if (user?.id) {
+          const row = db
+            .prepare("SELECT id FROM customers WHERE telegram_id = ?")
+            .get(String(user.id));
+          if (row?.id) return row.id;
+        }
+      }
+    }
+    const testHeader = req.headers?.["x-test-telegram-auth"];
+    if (typeof testHeader === "string" && testHeader.trim()) {
+      const [id] = String(testHeader).split(":");
+      if (id) {
+        const row = db
+          .prepare("SELECT id FROM customers WHERE telegram_id = ?")
+          .get(String(id).trim());
+        if (row?.id) return row.id;
+      }
+    }
+  } catch (_error) {
+    // Any parse / malformed-input issue: fall back to anonymous validation.
+  }
+  return null;
+}
 
 function upsertPublicCustomer({
   telegramId,

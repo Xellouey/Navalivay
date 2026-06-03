@@ -37,7 +37,10 @@
         :key="tab.path"
         :to="tab.path"
         class="tab-item"
-        :class="{ 'tab-item--active': isActive(tab.path) }"
+        :class="[
+          { 'tab-item--active': isActive(tab.path) },
+          `tab-item--${tab.id}`,
+        ]"
         :aria-label="tab.label"
       >
         <div class="tab-icon-wrap">
@@ -51,27 +54,130 @@
             <path
               d="M3 10.5L12 3L21 10.5V20C21 20.5304 20.7893 21.0391 20.4142 21.4142C20.0391 21.7893 19.5304 22 19 22H5C4.46957 22 3.96086 21.7893 3.58579 21.4142C3.21071 21.0391 3 20.5304 3 20V10.5Z"
               :stroke="isActive(tab.path) ? '#fff' : 'rgba(255,255,255,0.64)'"
-              stroke-width="1.6"
+              stroke-width="1.8"
               stroke-linecap="round"
               stroke-linejoin="round"
             />
           </svg>
 
           <svg
-            v-else-if="tab.id === 'section-2' || tab.id === 'section-3'"
+            v-else-if="tab.id === 'cart'"
             width="22"
             height="22"
             viewBox="0 0 22 22"
             fill="none"
           >
-            <rect
-              x="1"
-              y="1"
-              width="20"
-              height="20"
-              rx="4"
+            <path
+              d="M3 4H5L7 14H17L19 6H6"
+              :stroke="isActive(tab.path) ? '#fff' : 'rgba(255,255,255,0.64)'"
+              stroke-width="1.8"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+            <circle
+              cx="9"
+              cy="18"
+              r="1.6"
               :stroke="isActive(tab.path) ? '#fff' : 'rgba(255,255,255,0.64)'"
               stroke-width="1.6"
+            />
+            <circle
+              cx="16"
+              cy="18"
+              r="1.6"
+              :stroke="isActive(tab.path) ? '#fff' : 'rgba(255,255,255,0.64)'"
+              stroke-width="1.6"
+            />
+          </svg>
+
+          <svg
+            v-else-if="tab.id === 'wheel'"
+            class="tab-icon-wheel"
+            width="128"
+            height="26"
+            viewBox="132.55 69.25 128.8 27.5"
+            fill="none"
+            preserveAspectRatio="xMidYMid meet"
+          >
+            <rect
+              x="133.3"
+              y="73.8518"
+              width="127.3"
+              height="18.2963"
+              rx="9.14815"
+              :stroke="isActive(tab.path) ? '#fff' : 'rgba(255,255,255,0.64)'"
+              stroke-width="1.5"
+            />
+            <rect
+              x="148.3"
+              y="79.6296"
+              width="7"
+              height="6.74074"
+              rx="2"
+              :stroke="isActive(tab.path) ? '#fff' : 'rgba(255,255,255,0.64)'"
+              stroke-width="1.5"
+            />
+            <rect
+              x="159.9"
+              y="78.426"
+              width="9.5"
+              height="9.14815"
+              rx="3"
+              :stroke="isActive(tab.path) ? '#fff' : 'rgba(255,255,255,0.64)'"
+              stroke-width="1.5"
+            />
+            <rect
+              x="174.15"
+              y="77.511"
+              width="11.4"
+              height="10.9778"
+              rx="3"
+              :stroke="isActive(tab.path) ? '#fff' : 'rgba(255,255,255,0.64)'"
+              stroke-width="1.5"
+            />
+            <rect
+              x="190.3"
+              y="76.5962"
+              width="13.3"
+              height="12.8074"
+              rx="3"
+              :stroke="isActive(tab.path) ? '#fff' : 'rgba(255,255,255,0.64)'"
+              stroke-width="1.5"
+            />
+            <rect
+              x="208.35"
+              y="77.511"
+              width="11.4"
+              height="10.9778"
+              rx="3"
+              :stroke="isActive(tab.path) ? '#fff' : 'rgba(255,255,255,0.64)'"
+              stroke-width="1.5"
+            />
+            <rect
+              x="224.5"
+              y="78.426"
+              width="9.5"
+              height="9.14815"
+              rx="3"
+              :stroke="isActive(tab.path) ? '#fff' : 'rgba(255,255,255,0.64)'"
+              stroke-width="1.5"
+            />
+            <rect
+              x="238.3"
+              y="79.6296"
+              width="7"
+              height="6.74074"
+              rx="2"
+              :stroke="isActive(tab.path) ? '#fff' : 'rgba(255,255,255,0.64)'"
+              stroke-width="1.5"
+            />
+            <line
+              x1="196.8"
+              y1="70"
+              x2="196.8"
+              y2="96"
+              :stroke="isActive(tab.path) ? '#fff' : 'rgba(255,255,255,0.64)'"
+              stroke-width="1.2"
             />
           </svg>
 
@@ -87,12 +193,12 @@
               cy="8"
               r="4"
               :stroke="isActive(tab.path) ? '#fff' : 'rgba(255,255,255,0.64)'"
-              stroke-width="1.6"
+              stroke-width="1.8"
             />
             <path
               d="M4 21C4 17.134 7.58172 14 12 14C16.4183 14 20 17.134 20 21"
               :stroke="isActive(tab.path) ? '#fff' : 'rgba(255,255,255,0.64)'"
-              stroke-width="1.6"
+              stroke-width="1.8"
               stroke-linecap="round"
             />
           </svg>
@@ -105,8 +211,9 @@
 </template>
 
 <script setup lang="ts">
-import { nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
+import { useWholesaleStore } from '@/stores/wholesale'
 
 interface TabItem {
   id: string
@@ -114,16 +221,35 @@ interface TabItem {
   label: string
 }
 
+const props = withDefaults(
+  defineProps<{
+    variant?: 'retail' | 'wholesale'
+  }>(),
+  { variant: 'retail' },
+)
+
 const route = useRoute()
+const wholesaleStore = useWholesaleStore()
 const bottomTabBarRef = ref<HTMLElement | null>(null)
 let resizeObserver: ResizeObserver | null = null
 
-const tabs: TabItem[] = [
+const retailTabs: TabItem[] = [
   { id: 'home', path: '/', label: 'Главная' },
-  { id: 'section-2', path: '/section-2', label: 'Раздел 2' },
-  { id: 'section-3', path: '/section-3', label: 'Раздел 3' },
+  { id: 'wheel', path: '/wheel', label: 'Рулетка' },
   { id: 'profile', path: '/profile', label: 'Профиль' },
 ]
+
+const wholesaleTabs: TabItem[] = [
+  { id: 'home', path: '/', label: 'Главная' },
+  { id: 'wheel', path: '/wheel', label: 'Рулетка' },
+  { id: 'profile', path: '/profile', label: 'Профиль' },
+]
+
+const tabs = computed<TabItem[]>(() =>
+  props.variant === 'wholesale' || wholesaleStore.isWholesale
+    ? wholesaleTabs
+    : retailTabs,
+)
 
 function isActive(path: string): boolean {
   if (path === '/') {
@@ -222,6 +348,11 @@ onBeforeUnmount(() => {
   transition: opacity 0.2s ease;
 }
 
+.tab-item--wheel {
+  width: auto;
+  flex: 0 0 auto;
+}
+
 .tab-item:active {
   opacity: 0.7;
 }
@@ -235,9 +366,20 @@ onBeforeUnmount(() => {
   height: 24px;
 }
 
+.tab-item--wheel .tab-icon-wrap {
+  width: auto;
+  min-width: 24px;
+}
+
 .tab-icon-wrap :deep(svg) {
   width: clamp(15px, calc(100vw * 16 / 393), 16px);
   height: clamp(15px, calc(100vw * 16 / 393), 16px);
+}
+
+.tab-icon-wrap :deep(svg.tab-icon-wheel) {
+  width: auto;
+  height: clamp(20px, calc(100vw * 22 / 393), 24px);
+  max-width: 100%;
 }
 
 .tab-active-dot {

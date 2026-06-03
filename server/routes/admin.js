@@ -158,33 +158,38 @@ function enrichAdminCategoryGroup(group) {
 
 export const adminRouter = express.Router();
 
+function adminCookieOptions() {
+  return {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'strict',
+    path: '/',
+    maxAge: 7 * 24 * 60 * 60 * 1000,
+  };
+}
 
 // Login
 adminRouter.post('/api/admin/login', async (req, res) => {
   try {
-    console.log('[login] Login attempt:', req.body);
+    console.log('[login] Login attempt');
     const { username, password } = req.body || {};
     if (!username || !password) {
       console.log('[login] Missing username or password');
       return res.status(400).json({ error: 'missing' });
     }
     const expectedUser = getAdminUsername();
-    console.log('[login] Expected user:', expectedUser, 'Got:', username);
     if (username !== expectedUser) {
       console.log('[login] Username mismatch');
       return res.status(401).json({ error: 'unauthorized' });
     }
-    console.log('[login] Verifying password...');
     const ok = await verifyPassword(password);
-    console.log('[login] Password verification result:', ok);
     if (!ok) {
       console.log('[login] Password verification failed');
       return res.status(401).json({ error: 'unauthorized' });
     }
-    console.log('[login] Issuing token...');
     const token = issueToken(username);
-    console.log('[login] Token issued, setting cookie and returning response');
-  res.cookie('navalivay', token, { httpOnly: true, maxAge: 7 * 24 * 60 * 60 * 1000 });
+    console.log('[login] Token issued');
+    res.cookie('navalivay', token, adminCookieOptions());
     res.json({ ok: true, token });
   } catch (error) {
     console.error('[login] Login error:', error);

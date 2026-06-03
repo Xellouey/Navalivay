@@ -38,7 +38,32 @@
       </section>
 
       <section class="loyalty-section">
-        <article class="loyalty-card" :class="{ 'loyalty-card--empty': !selectedLoyaltyCategory }">
+        <article
+          v-if="wholesaleStore.isWholesale"
+          class="wholesale-profile-card"
+        >
+          <div class="wholesale-profile-card__icon" aria-hidden="true">
+            <svg width="36" height="36" viewBox="0 0 36 36" fill="none">
+              <rect x="6" y="11" width="24" height="18" rx="3" stroke="#1F2933" stroke-width="1.8" />
+              <path d="M11 11V8C11 6.34315 12.3431 5 14 5H22C23.6569 5 25 6.34315 25 8V11"
+                stroke="#1F2933" stroke-width="1.8" stroke-linecap="round" />
+              <path d="M6 18H30" stroke="#1F2933" stroke-width="1.8" />
+            </svg>
+          </div>
+          <h2 class="wholesale-profile-card__title">Для оптовых клиентов</h2>
+          <p class="wholesale-profile-card__text">
+            Тут пока ничего нет, но мы добавим сюда полезный функционал.
+          </p>
+          <p class="wholesale-profile-card__hint">
+            Настройка ленты рулетки доступна ниже.
+          </p>
+        </article>
+
+        <article
+          v-else
+          class="loyalty-card"
+          :class="{ 'loyalty-card--empty': !selectedLoyaltyCategory }"
+        >
           <div class="loyalty-card-header">
             <h2 class="loyalty-card-title-main">Бонусная система</h2>
             <p v-if="loyaltyStore.loadingSnapshot" class="loyalty-loading">Обновляем...</p>
@@ -115,6 +140,26 @@
           </template>
         </article>
 
+        <article class="wheel-feed-card">
+          <div class="wheel-feed-card__text">
+            <h3 class="wheel-feed-card__title">Лента рулетки</h3>
+            <p class="wheel-feed-card__copy">
+              Показывать моё имя и фото в ленте, если выиграю приз.
+            </p>
+          </div>
+          <button
+            type="button"
+            class="wheel-feed-toggle"
+            role="switch"
+            :aria-checked="wheelStore.feedConsent"
+            :disabled="wheelStore.isUpdatingConsent"
+            :class="{ 'wheel-feed-toggle--on': wheelStore.feedConsent }"
+            @click="onToggleFeedConsent"
+          >
+            <span class="wheel-feed-toggle__knob"></span>
+          </button>
+        </article>
+
         <div v-if="loyaltyStore.snapshotError" class="loyalty-error">
           {{ loyaltyStore.snapshotError }}
         </div>
@@ -184,11 +229,15 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import router from "@/router";
 import { useUserStore } from "@/stores/user";
 import { useLoyaltyStore, type LoyaltySnapshotCategory } from "@/stores/loyalty";
+import { useWholesaleStore } from "@/stores/wholesale";
+import { useWheelStore } from "@/stores/wheel";
 import { getTelegramIdentity } from "@/utils/customerOrders";
 import LoyaltyBonusPopup from "@/components/LoyaltyBonusPopup.vue";
 
 const userStore = useUserStore();
 const loyaltyStore = useLoyaltyStore();
+const wholesaleStore = useWholesaleStore();
+const wheelStore = useWheelStore();
 const avatarError = ref(false);
 const activeLoyaltyKey = ref<string | null>(null);
 const showRulesModal = ref(false);
@@ -278,8 +327,36 @@ onMounted(async () => {
   // в профиль убран по просьбе заказчика — попап «У вас уже есть доступные
   // бонусы» дублировал ту же информацию, которая и так видна на странице
   // профиля сразу под карточкой бонусов.
-  await Promise.allSettled([userStore.fetchProfile(), loyaltyStore.fetchSnapshot(identity)]);
+  await Promise.allSettled([
+    userStore.fetchProfile(),
+    loyaltyStore.fetchSnapshot(identity),
+    // Q6: load the consent flag so the toggle reflects the server
+    // state. Round 4 fix: previously this was skipped for wholesale
+    // customers, but the toggle is rendered for everyone (wholesale
+    // can win wheel prizes too via is_wholesale flag) — without the
+    // fetch the toggle shows "off" even if the server has consent=1,
+    // and a tap silently revokes it. Always load. Errors are
+    // swallowed because the toggle keeps the previous value (default
+    // "off") if the wheel API is briefly unavailable.
+    wheelStore.fetchState().catch(() => undefined),
+  ]);
 });
+
+async function onToggleFeedConsent() {
+  // Round 4 best-practice: optimistic UI with rollback. Flip the
+  // local view first for snappy UX; if the request fails revert and
+  // surface the error in console — there is no toast surface on this
+  // page; the next refresh will reconcile.
+  const previous = wheelStore.feedConsent;
+  const next = !previous;
+  wheelStore.feedConsent = next;
+  try {
+    await wheelStore.setFeedConsent(next);
+  } catch (error) {
+    wheelStore.feedConsent = previous;
+    console.warn("[profile] feed-consent update failed", error);
+  }
+}
 
 function loyaltyCategoryLabel(category: LoyaltySnapshotCategory) {
   return LOYALTY_CATEGORY_LABELS[category.key] || category.title;
@@ -428,6 +505,54 @@ async function goShopping() {
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+
+.wholesale-profile-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 10px;
+  padding: 28px 24px;
+  border-radius: 24px;
+  background: #ffffff;
+  box-shadow: 0 4px 16px rgba(15, 23, 42, 0.06);
+}
+
+.wholesale-profile-card__icon {
+  width: 64px;
+  height: 64px;
+  border-radius: 18px;
+  background: rgba(15, 23, 42, 0.06);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.wholesale-profile-card__title {
+  font-family: 'Montserrat', sans-serif;
+  font-weight: 700;
+  font-size: 18px;
+  color: #1f2933;
+  margin: 0;
+}
+
+.wholesale-profile-card__text {
+  font-family: 'SF Pro Display', system-ui, sans-serif;
+  font-size: 14px;
+  color: #5c6470;
+  margin: 0;
+  max-width: 280px;
+  line-height: 1.4;
+}
+
+.wholesale-profile-card__hint {
+  font-family: 'SF Pro Display', system-ui, sans-serif;
+  font-size: 13px;
+  color: #8a93a0;
+  margin: 0;
+  max-width: 280px;
+  line-height: 1.4;
 }
 
 .loyalty-card {
@@ -615,6 +740,75 @@ async function goShopping() {
   color: #be123c;
   font-size: 14px;
   line-height: 18px;
+}
+
+.wheel-feed-card {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 16px 20px;
+  border-radius: 20px;
+  background: #ffffff;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.04);
+}
+
+.wheel-feed-card__text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.wheel-feed-card__title {
+  margin: 0 0 4px;
+  font-family: "Montserrat", sans-serif;
+  font-weight: 700;
+  font-size: 15px;
+  line-height: 19px;
+  color: #1f2933;
+}
+
+.wheel-feed-card__copy {
+  margin: 0;
+  font-family: -apple-system, "SF Pro Display", sans-serif;
+  font-size: 13px;
+  line-height: 17px;
+  color: #5c6470;
+}
+
+.wheel-feed-toggle {
+  position: relative;
+  width: 48px;
+  height: 28px;
+  flex-shrink: 0;
+  border: none;
+  border-radius: 999px;
+  background: #d8dde4;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+
+.wheel-feed-toggle:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.wheel-feed-toggle--on {
+  background: linear-gradient(106.76deg, #f50302 -2.64%, #a90f0e 85.78%);
+}
+
+.wheel-feed-toggle__knob {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.18);
+  transition: transform 0.2s ease;
+}
+
+.wheel-feed-toggle--on .wheel-feed-toggle__knob {
+  transform: translateX(20px);
 }
 
 .rules-modal-overlay {

@@ -1,7 +1,11 @@
 /**
  * PM2 ecosystem для NAVALIVAY.
  *
- * На прод-сервере используется PM2 (а не systemd) — три процесса:
+ * Важно: основной production runtime в текущем проекте — systemd.
+ * Этот файл остаётся запасным вариантом только для окружений, где
+ * процессы уже осознанно подняты через PM2.
+ *
+ * В PM2-окружении поднимаются три процесса:
  *   - navalivay-api      Express, http://127.0.0.1:8082
  *   - navalivay-bot      Telegraf bot (long polling / business mode)
  *   - navalivay-userbot  GramJS userbot, http://127.0.0.1:8083 (через proxychains4)

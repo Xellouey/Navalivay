@@ -99,8 +99,17 @@ console.log('\n=== Legacy text search still finds username matches ===');
   assertEq(rows.map((row) => row.id), ['o_other', 'o_prefix'], 'legacy search behavior is preserved for non-numeric text');
 }
 
-if (fs.existsSync(TMP_DB)) {
-  fs.rmSync(TMP_DB, { force: true });
+try {
+  db.close();
+} catch {
+  /* noop */
+}
+for (const file of [TMP_DB, `${TMP_DB}-shm`, `${TMP_DB}-wal`]) {
+  try {
+    fs.rmSync(file, { force: true });
+  } catch {
+    /* noop */
+  }
 }
 
 if (results.failed > 0) {

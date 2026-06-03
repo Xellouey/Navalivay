@@ -148,7 +148,7 @@ export interface Order {
   // true = у клиента уже были завершённые заказы (постоянный), false/undefined = первый заказ
   is_returning_customer?: boolean;
   is_blocked?: boolean;
-  has_userbot_access?: number;
+  has_userbot_access?: boolean;
 }
 
 export interface OrderItem {
@@ -616,8 +616,15 @@ async function fetchAPI<T>(
   }
 
   if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: "unknown" }));
-    throw new Error(error.error || error.message || "Request failed");
+    const payload = await response.json().catch(() => ({ error: "unknown" }));
+    // Prefer the human-readable message; fall back to the slug. Attach
+    // both `code` (machine-readable, e.g. `in_use_by_wheel`) and `status`
+    // so callers can branch on specific outcomes.
+    const message = payload.message || payload.error || "Request failed";
+    const err = new Error(message) as Error & { code?: string; status?: number };
+    err.code = payload.error;
+    err.status = response.status;
+    throw err;
   }
 
   return response.json();
@@ -668,7 +675,7 @@ export const useCrmStore = defineStore("crm", () => {
   let pollingInitialized = false;
   const POLLING_INTERVAL_MS = 15000;
   const latestOrderActivityAt = ref<string | null>(null);
-  const orderActivityListeners = new Set<() => void>();
+  const orderActivityListeners = new Set<(activitySince: string) => void>();
 
   function setNotificationsEnabled(enabled: boolean) {
     notificationsEnabled.value = enabled;

@@ -109,9 +109,16 @@ console.log('\n=== fetchEnrichedOrdersByIds returns items for batch ===');
 }
 
 try {
-  fs.unlinkSync(TMP_DB);
+  db.close();
 } catch {
   /* noop */
+}
+for (const file of [TMP_DB, `${TMP_DB}-shm`, `${TMP_DB}-wal`]) {
+  try {
+    fs.unlinkSync(file);
+  } catch {
+    /* noop */
+  }
 }
 
 console.log(`\n=== crm-kanban-board.test.js: ${results.passed} passed, ${results.failed} failed ===`);

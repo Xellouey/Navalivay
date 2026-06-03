@@ -11,12 +11,15 @@
         @click.self="emit('close')"
       >
         <section
+          ref="cardRef"
           class="customer-modal-card"
           :style="{ '--customer-modal-max-width': maxWidth }"
+          @keydown="onKeydown"
         >
           <div class="customer-modal-header">
             <h2 :id="titleId" class="customer-modal-title">{{ title }}</h2>
             <button
+              ref="closeButtonRef"
               type="button"
               class="customer-modal-close"
               :aria-label="closeLabel"
@@ -47,7 +50,7 @@
 </template>
 
 <script setup lang="ts">
-import { onBeforeUnmount, watch } from "vue";
+import { nextTick, onBeforeUnmount, ref, watch } from "vue";
 
 interface Props {
   open: boolean;
@@ -69,6 +72,65 @@ const emit = defineEmits<{
 
 const titleId = `customer-modal-title-${Math.random().toString(36).slice(2, 10)}`;
 
+const cardRef = ref<HTMLElement | null>(null);
+const closeButtonRef = ref<HTMLButtonElement | null>(null);
+
+// S2-5: remember whatever element was focused at the moment the modal
+// opened so we can hand focus back when it closes — keyboard users and
+// screen-reader users land back where they were instead of on <body>.
+let lastFocusedBeforeOpen: HTMLElement | null = null;
+
+const FOCUSABLE_SELECTOR = [
+  "a[href]",
+  "area[href]",
+  'button:not([disabled])',
+  'input:not([disabled]):not([type="hidden"])',
+  "select:not([disabled])",
+  "textarea:not([disabled])",
+  '[tabindex]:not([tabindex="-1"])',
+  "[contenteditable=true]",
+].join(",");
+
+function getFocusableElements(): HTMLElement[] {
+  if (!cardRef.value) return [];
+  const nodes = cardRef.value.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR);
+  return Array.from(nodes).filter((node) => {
+    if (node.hasAttribute("disabled")) return false;
+    // Skip elements that are visually hidden (display:none / aria-hidden).
+    if (node.getAttribute("aria-hidden") === "true") return false;
+    return node.offsetParent !== null || node === document.activeElement;
+  });
+}
+
+function onKeydown(event: KeyboardEvent) {
+  if (event.key === "Escape") {
+    event.stopPropagation();
+    emit("close");
+    return;
+  }
+  if (event.key !== "Tab") return;
+
+  const focusable = getFocusableElements();
+  if (!focusable.length) {
+    event.preventDefault();
+    closeButtonRef.value?.focus();
+    return;
+  }
+  const first = focusable[0];
+  const last = focusable[focusable.length - 1];
+  const active = document.activeElement as HTMLElement | null;
+
+  if (event.shiftKey) {
+    if (active === first || !cardRef.value?.contains(active)) {
+      event.preventDefault();
+      last.focus();
+    }
+  } else if (active === last || !cardRef.value?.contains(active)) {
+    event.preventDefault();
+    first.focus();
+  }
+}
+
 function syncScrollLock(isOpen: boolean) {
   if (typeof document === "undefined") {
     return;
@@ -81,8 +143,34 @@ function syncScrollLock(isOpen: boolean) {
 
 watch(
   () => props.open,
-  (isOpen) => {
+  async (isOpen, wasOpen) => {
     syncScrollLock(isOpen);
+    if (isOpen && !wasOpen) {
+      lastFocusedBeforeOpen =
+        typeof document !== "undefined"
+          ? (document.activeElement as HTMLElement | null)
+          : null;
+      // Wait for the Transition to render the modal content before
+      // hunting for focusable nodes.
+      await nextTick();
+      const focusable = getFocusableElements();
+      // Skip the close-button as the very first stop — focus the first
+      // meaningful action (CTA in footer or first body control). If
+      // nothing else is focusable, fall back to the close button.
+      const preferred = focusable.find(
+        (node) => node !== closeButtonRef.value,
+      );
+      (preferred || closeButtonRef.value || focusable[0])?.focus();
+    } else if (!isOpen && wasOpen) {
+      const target = lastFocusedBeforeOpen;
+      lastFocusedBeforeOpen = null;
+      if (target && typeof target.focus === "function") {
+        // Defer until the modal is removed from DOM so the focus return
+        // doesn't fight with autofocus that lived inside it.
+        await nextTick();
+        target.focus();
+      }
+    }
   },
   { immediate: true },
 );
@@ -145,6 +233,7 @@ onBeforeUnmount(() => {
 }
 
 .customer-modal-close {
+  position: relative;
   width: 40px;
   height: 40px;
   flex-shrink: 0;
@@ -155,6 +244,15 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: center;
   cursor: pointer;
+}
+
+/* S2-3: visual button stays at 40×40, expand actual hit-target to 44×44
+   so customers don't miss-tap it on small screens. */
+.customer-modal-close::before {
+  content: "";
+  position: absolute;
+  inset: -2px;
+  border-radius: inherit;
 }
 
 .customer-modal-body {
