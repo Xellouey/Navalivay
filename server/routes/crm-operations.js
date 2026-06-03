@@ -18,7 +18,17 @@ import {
   reservePromoUsageForOrder,
 } from "../promo-code-service.js";
 import { autoNotifyForStatusChange } from "../utils/auto-notify.js";
-
+import { buildCrmOrderPollSummary } from "../utils/crm-order-polling.js";
+import { buildCrmOrdersSearch } from "../utils/crm-order-search.js";
+import {
+  describeAutoNotifyReason,
+  enrichOrdersWithRelations,
+} from "../utils/crm-order-enrichment.js";
+import {
+  buildKanbanBoardSync,
+  fetchEnrichedOrdersByIds,
+  fetchKanbanBoardOrders,
+} from "../utils/crm-kanban-board.js";
 
 export const crmOperationsRouter = express.Router();
 
@@ -31,51 +41,6 @@ function generateId(prefix) {
 function getNextNumber(table, field) {
   const row = db.prepare(`SELECT MAX(${field}) as maxNum FROM ${table}`).get();
   return (row?.maxNum || 0) + 1;
-}
-
-// Человекочитаемое описание причин неуспешного auto-notify для tooltip
-// плашки на карточке заказа. Менеджеру не должно показываться сырое
-// «customer_not_verified» — он не разработчик, ему нужно понятное объяснение.
-// На фронте дублировать этот словарь смысла нет: одна точка правды на бэке.
-function describeAutoNotifyReason(reason, error) {
-  if (!reason && !error) return null;
-  const key = String(reason || '').trim();
-  // Порядок case'ов соответствует порядку проверок в auto-notify.js — так
-  // легче держать словарь в синхроне при добавлении новых skip-причин.
-  switch (key) {
-    // Шаг 1 (prepareStatusNotification, сейчас не логируется в bot_message_log,
-    // но если кто-то добавит safeLog — описание уже готово).
-    case 'order_not_found':
-      return 'Заказ не найден.';
-    case 'customer_has_no_telegram_id':
-      return 'У клиента не привязан Telegram.';
-    case 'template_inactive_or_missing':
-      return 'Шаблон сообщения выключен в настройках бота.';
-    case 'template_empty':
-      return 'Шаблон пустой. Заполните текст в настройках бота.';
-    // Шаг 2a: клиент в блоке.
-    case 'customer_blocked':
-      return 'Клиент заблокирован, уведомления ему не уходят.';
-    // Шаг 2b: верификация клиента.
-    case 'customer_not_verified':
-      return 'Клиент ещё не подтвердил Telegram. Пусть нажмёт /start в боте.';
-    // Шаг 3.1: userbot отправил, но ответ потерялся (timeout, разрыв TCP).
-    case 'userbot_ambiguous':
-      return 'Telegram не ответил вовремя. Проверьте чат с клиентом перед повторной отправкой.';
-    // Шаг 3.2: business mode fallback.
-    case 'no_active_connection':
-      return 'Бот не подключён к Telegram. Проверьте подключение в настройках.';
-    case 'client_inactive_over_24h':
-      return 'Клиент молчит больше 24 часов. Telegram запрещает писать первым, подождите ответа.';
-    // Пользователь не писал менеджеру лично — диалога нет, resolveUsername
-    // тоже не смог найти (username изменён/удалён или аккаунт деактивирован).
-    case 'entity_not_found_no_dialog':
-      return 'Клиент не найден в Telegram. Возможно username изменён или аккаунт удалён. Напишите клиенту первыми вручную — если диалог появится, следующие уведомления уйдут автоматически.';
-    default:
-      // Сырая ошибка от Telegram (BUSINESS_PEER_USAGE_MISSING, PEER_ID_INVALID,
-      // chat not found и т.п.) или неизвестная причина — возвращаем как есть.
-      return error || reason || null;
-  }
 }
 
 function recordStatusChange(orderId, previousStatus, newStatus, note) {
@@ -253,6 +218,52 @@ function buildAdminOrderItemsWithLoyalty({
 // =========================
 // ORDERS (Заказы)
 // =========================
+crmOperationsRouter.get("/api/admin/crm/orders/poll-summary", authMiddleware, (req, res) => {
+  try {
+    const summary = buildCrmOrderPollSummary({ db });
+    res.json(summary);
+  } catch (error) {
+    console.error("[crm] Get orders poll summary error:", error);
+    res.status(500).json({ error: "failed", message: error.message });
+  }
+});
+
+// Канбан: только релевантные заказы (без delivered/completed), полный payload для карточек.
+crmOperationsRouter.get("/api/admin/crm/orders/board", authMiddleware, (req, res) => {
+  try {
+    const limit = Math.min(parseInt(req.query.limit, 10) || 200, 200);
+    const orders = fetchKanbanBoardOrders({ db, limit });
+    res.json({
+      orders,
+      pagination: {
+        page: 1,
+        limit,
+        total: orders.length,
+        totalPages: 1,
+      },
+    });
+  } catch (error) {
+    console.error("[crm] Get kanban board orders error:", error);
+    res.status(500).json({ error: "failed", message: error.message });
+  }
+});
+
+// Инкрементальная синхронизация канбана после poll-summary (только изменённые id).
+crmOperationsRouter.get("/api/admin/crm/orders/board-sync", authMiddleware, (req, res) => {
+  try {
+    const since = req.query.since ? String(req.query.since).trim() : null;
+    const sync = buildKanbanBoardSync({ db, since: since || null });
+    const orders = fetchEnrichedOrdersByIds({ db, orderIds: sync.changedOrderIds });
+    res.json({
+      ...sync,
+      orders,
+    });
+  } catch (error) {
+    console.error("[crm] Get kanban board sync error:", error);
+    res.status(500).json({ error: "failed", message: error.message });
+  }
+});
+
 crmOperationsRouter.get("/api/admin/crm/orders", authMiddleware, (req, res) => {
   try {
     const { status, page = 1, limit = 20, search } = req.query;
@@ -268,21 +279,17 @@ crmOperationsRouter.get("/api/admin/crm/orders", authMiddleware, (req, res) => {
     // Показываем только неархивные заказы
     whereClauses.push("o.archived = 0");
 
+    let orderByClause = "o.created_at DESC";
+    let orderByParams = [];
+
     if (search) {
       const searchTerm = String(search).trim();
       if (searchTerm) {
-        // Поиск по номеру заказа, имени клиента или username
-        whereClauses.push(
-          "(CAST(o.order_number AS TEXT) LIKE ? OR c.first_name LIKE ? OR c.last_name LIKE ? OR c.telegram_username LIKE ? OR o.telegram_username LIKE ?)",
-        );
-        const likePattern = `%${searchTerm}%`;
-        params.push(
-          likePattern,
-          likePattern,
-          likePattern,
-          likePattern,
-          likePattern,
-        );
+        const searchSpec = buildCrmOrdersSearch({ searchTerm });
+        whereClauses.push(searchSpec.whereClause);
+        params.push(...searchSpec.params);
+        orderByClause = searchSpec.orderBy;
+        orderByParams = searchSpec.orderByParams;
       }
     }
 
@@ -309,129 +316,15 @@ crmOperationsRouter.get("/api/admin/crm/orders", authMiddleware, (req, res) => {
       LEFT JOIN promo_codes pc ON pc.id = o.promo_code_id
       LEFT JOIN userbot_entities ue ON ue.telegram_id = c.telegram_id
       ${whereClause}
-      ORDER BY o.created_at DESC
+      ORDER BY ${orderByClause}
       LIMIT ? OFFSET ?
     `;
 
     const orders = db
       .prepare(ordersSql)
-      .all(...params, parseInt(limit), offset);
+      .all(...params, ...orderByParams, parseInt(limit), offset);
 
-    let ordersWithItems = orders;
-    if (orders.length > 0) {
-      const orderIds = orders.map((order) => order.id);
-      const placeholders = orderIds.map(() => "?").join(",");
-      const itemsRows = db
-        .prepare(
-          `
-        SELECT oi.*, p.description as product_description
-        FROM order_items oi
-        LEFT JOIN products p ON oi.product_id = p.id
-        WHERE oi.order_id IN (${placeholders})
-      `,
-        )
-        .all(...orderIds);
-
-      const itemsByOrder = itemsRows.reduce((acc, item) => {
-        const list = acc.get(item.order_id) || [];
-        list.push(item);
-        acc.set(item.order_id, list);
-        return acc;
-      }, new Map());
-
-      // Подтягиваем последний outbound статус по каждому заказу из
-      // bot_message_log (Костя 10.05.2026: «для всех случаев неуспешной
-      // отправки сделай красной рамкой»). Берём последнюю исходящую
-      // запись любого типа (авто или ручной) — это финальный исход отправки.
-      const notifyRows = db
-        .prepare(
-          `SELECT json_extract(meta, '$.order_id') AS order_id, meta, id
-             FROM bot_message_log
-            WHERE direction = 'out'
-              AND json_extract(meta, '$.order_id') IN (${placeholders})
-            ORDER BY id DESC`,
-        )
-        .all(...orderIds);
-
-      const notifyByOrder = new Map();
-      for (const row of notifyRows) {
-        if (notifyByOrder.has(row.order_id)) continue; // уже взяли последний (ORDER BY id DESC)
-        let parsed = {};
-        try {
-          parsed = JSON.parse(row.meta || "{}");
-        } catch (e) {
-          /* noop */
-        }
-        // Любой исход кроме 'sent' трактуем как failed — Дима 10.05.2026:
-        // «при любых ошибках должна быть рамка». outcome=skipped (клиент не
-        // верифицирован, нет business connection и т.п.), failed (Telegram
-        // отверг), ambiguous (userbot мог отправить, ответ потерян) — все
-        // показываются красной плашкой. Описание причины переводим в
-        // человекочитаемый вид — менеджер не должен видеть сырой
-        // «customer_not_verified» в подсказке.
-        notifyByOrder.set(row.order_id, {
-          status: parsed.outcome === "sent" ? "sent" : "failed",
-          error: describeAutoNotifyReason(parsed.reason, parsed.error),
-          via: parsed.via || parsed.source || null,
-          via_attempt: parsed.via_attempt || null,
-          // Если отправка шла через сохранённый access_hash (попытка 2),
-          // Telegram мог принять сообщение, но не доставить получателю
-          // из-за приватности «Кто может писать: только контакты».
-          warn: parsed.via_attempt === 2 && parsed.outcome === "sent"
-            ? 'Отправлено, но могло не дойти. У клиента, вероятно, включена приватность Telegram «Кто может писать: только контакты».'
-            : null,
-        });
-      }
-
-      // Определяем, является ли клиент «постоянным» (уже были завершённые заказы)
-      const customerIds = [
-        ...new Set(orders.map((o) => o.customer_id).filter(Boolean)),
-      ];
-      const returningMap = new Map();
-      if (customerIds.length > 0) {
-        const cidPlaceholders = customerIds.map(() => '?').join(',');
-        const oidPlaceholders = orderIds.map(() => '?').join(',');
-        const returningRows = db
-          .prepare(
-            `SELECT customer_id, COUNT(*) as prior
-             FROM orders
-             WHERE customer_id IN (${cidPlaceholders})
-               AND status IN ('delivered', 'completed')
-               AND id NOT IN (${oidPlaceholders})
-             GROUP BY customer_id`,
-          )
-          .all(...customerIds, ...orderIds);
-        for (const row of returningRows) {
-          returningMap.set(row.customer_id, row.prior > 0);
-        }
-      }
-
-      // Определяем, заблокирован ли клиент (активный блок)
-      const blockedMap = new Map();
-      if (customerIds.length > 0) {
-        const cidPlaceholders2 = customerIds.map(() => '?').join(',');
-        const blockedRows = db.prepare(`
-          SELECT customer_id, 1 as blocked
-          FROM customer_blocks
-          WHERE customer_id IN (${cidPlaceholders2})
-            AND active = 1
-            AND (block_until IS NULL OR block_until > DATETIME('now'))
-          GROUP BY customer_id
-        `).all(...customerIds);
-        for (const row of blockedRows) {
-          blockedMap.set(row.customer_id, true);
-        }
-      }
-
-      ordersWithItems = orders.map((order) => ({
-        ...order,
-        items: itemsByOrder.get(order.id) || [],
-        auto_notification: notifyByOrder.get(order.id) || null,
-        is_returning_customer: returningMap.get(order.customer_id) || false,
-        is_blocked: blockedMap.get(order.customer_id) || false,
-        has_userbot_access: order.has_userbot_access === 1,
-      }));
-    }
+    const ordersWithItems = enrichOrdersWithRelations(db, orders);
 
     res.json({
       orders: ordersWithItems,
@@ -1662,26 +1555,25 @@ crmOperationsRouter.patch(
       // куда хуже. Менеджер видит факт отправки/skip в UI по плашке
       // saveSuccess сразу после ответа, может перезапустить через
       // /bot/send-custom если что-то не дошло.
-      let autoNotification = null;
-      if (updated.status !== statusAtTxStart) {
-        try {
-          autoNotification = await autoNotifyForStatusChange({
+      const statusChanged = updated.status !== statusAtTxStart;
+      res.json({
+        ...updated,
+        items: updatedItems,
+        auto_notification: statusChanged ? { pending: true } : null,
+      });
+
+      if (statusChanged) {
+        setImmediate(() => {
+          void autoNotifyForStatusChange({
             orderId: id,
             newStatus: updated.status,
             previousStatus: statusAtTxStart,
             reactivate: Boolean(reactivate),
+          }).catch((notifyErr) => {
+            console.error("[crm] deferred auto-notify error:", notifyErr);
           });
-        } catch (notifyErr) {
-          // Намеренно НЕ пробрасываем notifyErr.message в response — это
-          // могло бы утечь stack trace, путь к БД, имя env-переменной и
-          // т.п. (любая программная ошибка внутри auto-notify даёт сюда).
-          // Telegram-ошибки мы и так маппим в reason внутри auto-notify.
-          console.error("[crm] auto-notify internal error:", notifyErr);
-          autoNotification = { sent: false, reason: "notify_internal_error" };
-        }
+        });
       }
-
-      res.json({ ...updated, items: updatedItems, auto_notification: autoNotification });
     } catch (error) {
       console.error("[crm] Update order error:", error);
       const clientErrors = new Set([
@@ -1987,25 +1879,25 @@ crmOperationsRouter.post(
       // заказ — не отправляет»). Раньше /issue имел отдельный поток без
       // вызова auto-notify, поэтому статус delivered шёл молча. Сейчас
       // дёргаем тот же helper что в PATCH /orders/:id.
-      let autoNotification = null;
-      if (updatedOrder.status !== previousStatus) {
-        try {
-          autoNotification = await autoNotifyForStatusChange({
+      const statusChangedOnIssue = updatedOrder.status !== previousStatus;
+      res.json({
+        order: updatedOrder,
+        transaction,
+        auto_notification: statusChangedOnIssue ? { pending: true } : null,
+      });
+
+      if (statusChangedOnIssue) {
+        setImmediate(() => {
+          void autoNotifyForStatusChange({
             orderId: id,
             newStatus: updatedOrder.status,
             previousStatus,
             reactivate: false,
+          }).catch((notifyErr) => {
+            console.error("[crm] deferred /issue auto-notify error:", notifyErr);
           });
-        } catch (notifyErr) {
-          console.error("[crm] /issue auto-notify error:", notifyErr);
-          autoNotification = {
-            sent: false,
-            reason: "notify_internal_error",
-          };
-        }
+        });
       }
-
-      res.json({ order: updatedOrder, transaction, auto_notification: autoNotification });
     } catch (error) {
       console.error("[crm] Issue order error:", error);
       res.status(500).json({ error: "failed", message: error.message });

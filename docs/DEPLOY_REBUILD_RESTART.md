@@ -2,6 +2,11 @@
 
 ## Что важно знать
 
+- Источник истины для production API на текущем сервере — `systemd` unit `navalivay-server.service`, а не PM2.
+- `nginx` проксирует `/api` на `127.0.0.1:8082`, поэтому любые проверки и рестарты надо привязывать именно к сервису, который держит `8082`.
+- Если одновременно держать API и в PM2, и в systemd, можно получить тихую деградацию: новый код будет перезапускаться не там, а боевой трафик останется на старом процессе.
+- После изменений CRM orders/search полезно дополнительно проверять `GET /api/admin/crm/orders/poll-summary`: рабочий сервер должен отдавать `401 Unauthorized` без токена, а не `404 not_found`.
+
 - Telegram Mini App и оптовые ссылки: переменные `TELEGRAM_BOT_USERNAME`, `TELEGRAM_MINI_APP_SHORT_NAME`, публичные поля `/api/settings` и поведение бота описаны в [`docs/telegram-mini-app.md`](telegram-mini-app.md). После изменения `.env` перезапустите и API, и бота (если он зависит от тех же переменных).
 - Прод-сборка frontend берётся из [`frontend/package.json`](../frontend/package.json) через скрипт `build-only`.
 - Полный `npm run build` из корня проекта вызывает frontend type-check и может падать из-за TypeScript-диагностики, даже если production bundle собирается нормально.
@@ -9,7 +14,7 @@
 - Основной backend-сервис — `navalivay-server.service`.
 - Сервис `navalivay-bot.service` является опциональным и может отсутствовать на конкретном сервере.
 - Проверка живости API выполняется по `http://127.0.0.1:8082/api/health`, как и в [`ops/deploy.sh`](../ops/deploy.sh).
-- Конфиг [`server/ecosystem.config.cjs`](../server/ecosystem.config.cjs) сохраняется только как альтернативный вариант для отдельных окружений, где приложения были явно подняты через PM2.
+- Конфиг [`server/ecosystem.config.cjs`](../server/ecosystem.config.cjs) и `PM2` здесь считать локальным/dev-инструментом или вариантом для отдельных нестандартных окружений. На текущем production-сервере PM2 не является источником истины для CRM API.
 
 ## Правильная процедура после `git pull`
 
@@ -80,6 +85,44 @@ curl -fsS http://127.0.0.1:8082/api/health
 
 ## Правильные команды
 
+### Как понять, какой процесс реально обслуживает API
+
+Перед любым спорным рестартом проверь именно владельца `8082`:
+
+```bash
+ss -ltnp 'sport = :8082'
+systemctl status navalivay-server --no-pager -n 20
+```
+
+Ожидаемо в production:
+- `8082` слушает процесс из `navalivay-server.service`,
+- PM2 не должен держать отдельный `navalivay-api` на том же порту.
+
+### Правильный рестарт CRM/API
+
+Использовать только так:
+
+```bash
+sudo systemctl restart navalivay-server
+sleep 2
+curl -i -s http://127.0.0.1:8082/api/health
+curl -i -s http://127.0.0.1:8082/api/admin/crm/orders/poll-summary
+```
+
+Ожидаемо:
+- `/api/health` отвечает `200`,
+- `/api/admin/crm/orders/poll-summary` без токена отвечает `401`,
+- ответ `404` означает, что поднят не тот код или не тот процесс.
+
+### Чего нельзя делать
+
+Нельзя использовать `pm2 restart navalivay-api` как штатный production-рестарт CRM API на текущем сервере.
+Если в PM2 осталась старая запись `navalivay-api`, её нужно удалить, чтобы не было путаницы и конфликта по `8082`.
+
+```bash
+pm2 delete navalivay-api
+```
+
 ### Только перезапуск API
 
 ```bash
@@ -106,7 +149,7 @@ npm --prefix frontend run build-only && sudo systemctl restart navalivay-server 
 Важно: скрипт специально запрещает запуск от root, поэтому из root-shell удобнее выполнять команды systemd напрямую.
 
 ## Когда использовать PM2
-PM2 не является основным production-механизмом на текущем сервере.
+PM2 не является основным production-механизмом на текущем сервере. По сути, здесь он относится к локалке/dev-сценариям или отдельным нестандартным инсталляциям.
 
 Использовать команды из [`server/ecosystem.config.cjs`](../server/ecosystem.config.cjs) имеет смысл только если:
 1. на конкретном сервере приложения действительно были подняты через PM2,

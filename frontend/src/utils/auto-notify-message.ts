@@ -16,6 +16,7 @@
 export type AutoNotifyResult = {
   sent?: boolean
   skipped?: boolean
+  pending?: boolean
   reason?: string
   event?: string
   via?: string | null
@@ -41,6 +42,12 @@ export function buildAutoNotifyToast(
   const base = options.actionDescription
   if (!notify) {
     return { kind: 'info', message: base }
+  }
+  if (notify.pending) {
+    return {
+      kind: 'info',
+      message: `${base}. Уведомление клиенту отправляется в фоне.`,
+    }
   }
   if (notify.sent) {
     // «Отправили», не «дошло» — userbot подтверждает только успех отправки,

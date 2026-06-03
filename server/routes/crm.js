@@ -128,9 +128,9 @@ crmRouter.get('/api/admin/crm/dashboard', authMiddleware, (req, res) => {
     }
     
     // Для статистики заказов используем created_at
-    const createdAtFilter = `datetime(created_at) >= '${toSqliteDate(start)}' AND datetime(created_at) < '${toSqliteDate(end)}'`;
+    const createdAtFilter = `created_at >= '${toSqliteDate(start)}' AND created_at < '${toSqliteDate(end)}'`;
     // Для финансовой статистики используем paid_at (дата оплаты/выдачи)
-    const paidAtFilter = `datetime(paid_at) >= '${toSqliteDate(start)}' AND datetime(paid_at) < '${toSqliteDate(end)}'`;
+    const paidAtFilter = `paid_at >= '${toSqliteDate(start)}' AND paid_at < '${toSqliteDate(end)}'`;
 
     // Выручка, прибыль, количество продаж - по дате ОПЛАТЫ (paid_at)
     const stats = db.prepare(`
@@ -344,8 +344,8 @@ crmRouter.get('/api/admin/crm/dashboard-timeseries', authMiddleware, (req, res) 
           FROM orders o
           WHERE o.status IN ('completed', 'delivered')
             AND o.paid_at IS NOT NULL
-            AND datetime(o.paid_at) >= ?
-            AND datetime(o.paid_at) < ?
+            AND o.paid_at >= ?
+            AND o.paid_at < ?
         `).get(toSqliteDate(monthStart), toSqliteDate(monthEnd));
 
         // POS продажи за этот месяц
@@ -388,8 +388,8 @@ crmRouter.get('/api/admin/crm/dashboard-timeseries', authMiddleware, (req, res) 
           FROM orders o
           WHERE o.status IN ('completed', 'delivered')
             AND o.paid_at IS NOT NULL
-            AND datetime(o.paid_at) >= ?
-            AND datetime(o.paid_at) < ?
+            AND o.paid_at >= ?
+            AND o.paid_at < ?
         `).get(toSqliteDate(dayStart), toSqliteDate(dayEnd));
 
         // POS продажи за этот день

@@ -157,18 +157,13 @@
       @close="closePasswordModal"
       @cancel="closePasswordModal"
     >
-      <form class="space-y-4" @submit.prevent="submitPassword">
-        <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">Ключ</label>
-          <input
-            v-model="passwordInput"
-            type="password"
-            class="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
-            placeholder="XXX-XXX-XXX"
-            :disabled="verifyingPassword"
-          />
-          <p v-if="passwordError" class="mt-2 text-sm text-red-600">{{ passwordError }}</p>
-        </div>
+      <form class="space-y-4" autocomplete="on" @submit.prevent="submitPassword">
+        <CrmProfitPasswordField
+          v-model="passwordInput"
+          :password-error="passwordError"
+          :verifying-password="verifyingPassword"
+          input-class="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
+        />
         <div class="flex gap-3 pt-2">
           <button
             type="submit"
@@ -321,6 +316,7 @@ import AdminModal from '@/components/AdminModal.vue'
 import CrmCashPacingPanel from '@/components/admin/CrmCashPacingPanel.vue'
 import type { CashTransaction } from '@/stores/crm'
 import { LockClosedIcon } from '@heroicons/vue/24/outline'
+import CrmProfitPasswordField from '@/components/crm/CrmProfitPasswordField.vue'
 
 const crmStore = useCrmStore()
 const { cashAccounts, cashTransactions, profitUnlocked, verifyingProfitAccess } = storeToRefs(crmStore)

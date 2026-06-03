@@ -1,5 +1,6 @@
 import { defineStore } from "pinia";
-import { ref, computed } from "vue";
+import { ref, computed, shallowRef } from "vue";
+import { isKanbanBoardOrder } from "@/utils/crm-kanban-board";
 
 const API_BASE = "/api/admin/crm";
 
@@ -147,6 +148,7 @@ export interface Order {
   // true = у клиента уже были завершённые заказы (постоянный), false/undefined = первый заказ
   is_returning_customer?: boolean;
   is_blocked?: boolean;
+  has_userbot_access?: number;
 }
 
 export interface OrderItem {
@@ -665,6 +667,8 @@ export const useCrmStore = defineStore("crm", () => {
   let pollingTimer: ReturnType<typeof setInterval> | null = null;
   let pollingInitialized = false;
   const POLLING_INTERVAL_MS = 15000;
+  const latestOrderActivityAt = ref<string | null>(null);
+  const orderActivityListeners = new Set<() => void>();
 
   function setNotificationsEnabled(enabled: boolean) {
     notificationsEnabled.value = enabled;
@@ -785,7 +789,7 @@ export const useCrmStore = defineStore("crm", () => {
     try {
       new Notification(title, {
         body,
-        icon: "/favicon.ico",
+        icon: "/favicon.png",
       });
     } catch (error) {
       console.warn("[CRM] Browser notification failed:", error);
@@ -794,6 +798,112 @@ export const useCrmStore = defineStore("crm", () => {
   
   function hideInAppToast() {
     inAppToast.value = { show: false, message: "", count: 0 };
+  }
+
+  type OrderPollSummary = {
+    newOrderIds: string[];
+    actionRequiredIds: string[];
+    latestOrderActivityAt: string | null;
+  };
+
+  function notifyOrderActivityListeners(activitySince: string) {
+    for (const listener of orderActivityListeners) {
+      try {
+        listener(activitySince);
+      } catch (error) {
+        console.error("[CRM] Order activity listener failed:", error);
+      }
+    }
+  }
+
+  function subscribeOrderActivity(listener: (activitySince: string) => void) {
+    orderActivityListeners.add(listener);
+    return () => {
+      orderActivityListeners.delete(listener);
+    };
+  }
+
+  function applyOrderPollSummary(summary: OrderPollSummary) {
+    const currentNewOrders = summary.newOrderIds || [];
+    const currentIds = new Set(currentNewOrders);
+
+    const newIds: string[] = [];
+    currentIds.forEach((id) => {
+      if (!lastKnownOrderIds.value.has(id)) {
+        newIds.push(id);
+        unseenOrderIds.value.add(id);
+      }
+    });
+
+    lastKnownOrderIds.value = currentIds;
+
+    const cleanedUnseen = new Set<string>();
+    unseenOrderIds.value.forEach((id) => {
+      if (currentIds.has(id)) {
+        cleanedUnseen.add(id);
+      }
+    });
+    unseenOrderIds.value = cleanedUnseen;
+    newOrdersCount.value = unseenOrderIds.value.size;
+
+    const currentActionIds = new Set(summary.actionRequiredIds || []);
+    const newActionIds: string[] = [];
+    currentActionIds.forEach((id) => {
+      if (!lastKnownActionIds.value.has(id)) {
+        newActionIds.push(id);
+        unseenActionIds.value.add(id);
+      }
+    });
+
+    lastKnownActionIds.value = currentActionIds;
+
+    const cleanedAction = new Set<string>();
+    unseenActionIds.value.forEach((id) => {
+      if (currentActionIds.has(id)) {
+        cleanedAction.add(id);
+      }
+    });
+    unseenActionIds.value = cleanedAction;
+    actionRequiredCount.value = unseenActionIds.value.size;
+
+    const previousActivity = latestOrderActivityAt.value;
+    latestOrderActivityAt.value = summary.latestOrderActivityAt || null;
+    if (previousActivity && latestOrderActivityAt.value && previousActivity !== latestOrderActivityAt.value) {
+      notifyOrderActivityListeners(previousActivity);
+    }
+
+    if (pollingInitialized && newIds.length > 0) {
+      if (notificationsEnabled.value) {
+        triggerBrowserNotification(newIds.length);
+      }
+      if (soundEnabled.value) {
+        playNotificationSound();
+      }
+    }
+
+    if (pollingInitialized && newActionIds.length > 0) {
+      if (notificationsEnabled.value) {
+        triggerBrowserNotification(newActionIds.length, true);
+      }
+      if (soundEnabled.value) {
+        playNotificationSound();
+      }
+    }
+
+    pollingInitialized = true;
+  }
+
+  async function fetchOrderPollSummary() {
+    return await fetchAPI<OrderPollSummary>(`${API_BASE}/orders/poll-summary`);
+  }
+
+  async function pollOrderSummary() {
+    try {
+      const summary = await fetchOrderPollSummary();
+      applyOrderPollSummary(summary);
+    } catch (error) {
+      console.error("[CRM] Poll order summary failed:", error);
+    }
   }
 
   async function ensureNotificationPermission() {
@@ -811,102 +921,21 @@ export const useCrmStore = defineStore("crm", () => {
   }
 
   async function checkForNewOrders() {
-    try {
-      const data = await fetchAPI<{ orders: Order[] }>(
-        `${API_BASE}/orders?status=new&limit=100`
-      );
-      const currentNewOrders = data.orders || [];
-      const currentIds = new Set(currentNewOrders.map((o) => o.id));
-
-      // Find truly new orders (not seen before)
-      const newIds: string[] = [];
-      currentIds.forEach((id) => {
-        if (!lastKnownOrderIds.value.has(id)) {
-          newIds.push(id);
-          unseenOrderIds.value.add(id);
-        }
-      });
-
-      // Update last known IDs
-      lastKnownOrderIds.value = currentIds;
-
-      // Clean up unseen IDs that are no longer in "new" status
-      const cleanedUnseen = new Set<string>();
-      unseenOrderIds.value.forEach((id) => {
-        if (currentIds.has(id)) {
-          cleanedUnseen.add(id);
-        }
-      });
-      unseenOrderIds.value = cleanedUnseen;
-      newOrdersCount.value = unseenOrderIds.value.size;
-
-      // Trigger notifications for new orders (only if not first load)
-      if (pollingInitialized && newIds.length > 0) {
-        if (notificationsEnabled.value) {
-          triggerBrowserNotification(newIds.length);
-        }
-        if (soundEnabled.value) {
-          playNotificationSound();
-        }
-      }
-
-      pollingInitialized = true;
-    } catch (error) {
-      console.error("[CRM] Check for new orders failed:", error);
-    }
+    await pollOrderSummary();
   }
 
   async function checkForActionRequired() {
-    try {
-      const data = await fetchAPI<{ orders: Order[] }>(
-        `${API_BASE}/orders?limit=200`
-      );
-      const allOrders = data.orders || [];
-      const actionOrders = allOrders.filter((o) => o.needs_manager_action === 1);
-      const currentIds = new Set(actionOrders.map((o) => o.id));
-
-      const newActionIds: string[] = [];
-      currentIds.forEach((id) => {
-        if (!lastKnownActionIds.value.has(id)) {
-          newActionIds.push(id);
-          unseenActionIds.value.add(id);
-        }
-      });
-
-      lastKnownActionIds.value = currentIds;
-
-      const cleanedUnseen = new Set<string>();
-      unseenActionIds.value.forEach((id) => {
-        if (currentIds.has(id)) {
-          cleanedUnseen.add(id);
-        }
-      });
-      unseenActionIds.value = cleanedUnseen;
-      actionRequiredCount.value = unseenActionIds.value.size;
-
-      if (pollingInitialized && newActionIds.length > 0) {
-        if (notificationsEnabled.value) {
-          triggerBrowserNotification(newActionIds.length, true);
-        }
-        if (soundEnabled.value) {
-          playNotificationSound();
-        }
-      }
-    } catch (error) {
-      console.error("[CRM] Check for action required failed:", error);
-    }
+    await pollOrderSummary();
   }
 
   function startPolling() {
     if (pollingTimer) return;
-    checkForNewOrders(); // Initial check
-    checkForActionRequired();
+    void pollOrderSummary();
     // Низкий приоритет — индикатор сайдбара. Ловим .catch чтобы не валить
     // основные опросы заказов.
     fetchLowStockSummary().catch(() => {});
     pollingTimer = setInterval(() => {
-      checkForNewOrders();
-      checkForActionRequired();
+      void pollOrderSummary();
       fetchLowStockSummary().catch(() => {});
     }, POLLING_INTERVAL_MS);
   }
@@ -1266,8 +1295,8 @@ export const useCrmStore = defineStore("crm", () => {
     );
   }
 
-  // Orders
-  const orders = ref<Order[]>([]);
+  // Orders (shallowRef — большие списки без deep-reactivity на каждую позицию)
+  const orders = shallowRef<Order[]>([]);
   const currentOrder = ref<Order | null>(null);
   const loadingOrders = ref(false);
   const ordersPagination = ref({
@@ -1277,13 +1306,78 @@ export const useCrmStore = defineStore("crm", () => {
     totalPages: 0,
   });
 
+  type KanbanBoardSyncResponse = {
+    latestOrderActivityAt: string | null;
+    boardOrderIds: string[];
+    changedOrderIds: string[];
+    removedOrderIds: string[];
+    orders: Order[];
+  };
+
+  function upsertOrdersInList(updated: Order[]) {
+    if (!updated.length) return;
+    const byId = new Map(orders.value.map((order) => [order.id, order]));
+    for (const order of updated) {
+      byId.set(order.id, order);
+    }
+    orders.value = Array.from(byId.values());
+  }
+
+  function removeOrdersFromList(orderIds: string[]) {
+    if (!orderIds.length) return;
+    const remove = new Set(orderIds);
+    orders.value = orders.value.filter((order) => !remove.has(order.id));
+  }
+
+  async function fetchKanbanBoard(params?: {
+    background?: boolean;
+    limit?: number;
+  }) {
+    const background = params?.background === true;
+    if (!background) {
+      loadingOrders.value = true;
+    }
+    try {
+      const query = new URLSearchParams();
+      if (params?.limit) query.append("limit", params.limit.toString());
+      const response = await fetchAPI<{
+        orders: Order[];
+        pagination: typeof ordersPagination.value;
+      }>(`${API_BASE}/orders/board?${query}`);
+      orders.value = response.orders;
+      ordersPagination.value = response.pagination;
+    } finally {
+      if (!background) {
+        loadingOrders.value = false;
+      }
+    }
+  }
+
+  async function syncKanbanBoardSince(activitySince: string) {
+    const query = new URLSearchParams();
+    query.append("since", activitySince);
+    const sync = await fetchAPI<KanbanBoardSyncResponse>(
+      `${API_BASE}/orders/board-sync?${query}`,
+    );
+    removeOrdersFromList(sync.removedOrderIds || []);
+    upsertOrdersInList(sync.orders || []);
+    if (sync.latestOrderActivityAt) {
+      latestOrderActivityAt.value = sync.latestOrderActivityAt;
+    }
+  }
+
   async function fetchOrders(params?: {
     status?: string;
     page?: number;
     limit?: number;
     search?: string;
+    /** Не скрывать канбан спиннером — фоновое обновление (poll, кнопка «Обновить»). */
+    background?: boolean;
   }) {
-    loadingOrders.value = true;
+    const background = params?.background === true;
+    if (!background) {
+      loadingOrders.value = true;
+    }
     try {
       const query = new URLSearchParams();
       if (params?.status) query.append("status", params.status);
@@ -1298,7 +1392,9 @@ export const useCrmStore = defineStore("crm", () => {
       orders.value = response.orders;
       ordersPagination.value = response.pagination;
     } finally {
-      loadingOrders.value = false;
+      if (!background) {
+        loadingOrders.value = false;
+      }
     }
   }
 
@@ -1385,6 +1481,19 @@ export const useCrmStore = defineStore("crm", () => {
     return order;
   }
 
+  function upsertOrderInList(order: Order) {
+    if (!isKanbanBoardOrder(order)) {
+      removeOrdersFromList([order.id]);
+      return;
+    }
+    const index = orders.value.findIndex((item) => item.id === order.id);
+    if (index === -1) {
+      orders.value = [order, ...orders.value];
+      return;
+    }
+    orders.value = orders.value.map((item, i) => (i === index ? order : item));
+  }
+
   async function updateOrder(
     id: string,
     data: {
@@ -1418,10 +1527,7 @@ export const useCrmStore = defineStore("crm", () => {
     // Отделяем технический результат авто-уведомления от полей самого заказа,
     // чтобы он не утекал в orders.value (там должен лежать чистый Order).
     const { auto_notification: autoNotification, ...order } = response;
-    const index = orders.value.findIndex((o) => o.id === id);
-    if (index !== -1) {
-      orders.value[index] = order as Order;
-    }
+    upsertOrderInList(order as Order);
     return { ...(order as Order), auto_notification: autoNotification ?? null };
   }
 
@@ -1429,10 +1535,7 @@ export const useCrmStore = defineStore("crm", () => {
     const order = await fetchAPI<Order>(`${API_BASE}/orders/${id}/resolve-action`, {
       method: "POST",
     });
-    const index = orders.value.findIndex((o) => o.id === id);
-    if (index !== -1) {
-      orders.value[index] = order;
-    }
+    upsertOrderInList(order);
     // Remove from unseen action ids
     if (unseenActionIds.value.has(id)) {
       unseenActionIds.value.delete(id);
@@ -1469,10 +1572,7 @@ export const useCrmStore = defineStore("crm", () => {
       }),
     });
 
-    const index = orders.value.findIndex((o) => o.id === id);
-    if (index !== -1) {
-      orders.value[index] = response.order;
-    }
+    upsertOrderInList(response.order);
 
     cashTransactions.value.unshift(response.transaction);
     return response;
@@ -1483,10 +1583,7 @@ export const useCrmStore = defineStore("crm", () => {
       method: "DELETE",
     });
 
-    const index = orders.value.findIndex((o) => o.id === id);
-    if (index !== -1) {
-      orders.value[index] = order;
-    }
+    upsertOrderInList(order);
     if (currentOrder.value?.id === id) {
       currentOrder.value = order;
     }
@@ -2435,6 +2532,7 @@ export const useCrmStore = defineStore("crm", () => {
     setAutoRefreshEnabled,
     startPolling,
     stopPolling,
+    subscribeOrderActivity,
     checkForNewOrders,
     checkForActionRequired,
     markOrderAsSeen,
@@ -2499,6 +2597,8 @@ export const useCrmStore = defineStore("crm", () => {
     loadingOrders,
     ordersPagination,
     fetchOrders,
+    fetchKanbanBoard,
+    syncKanbanBoardSince,
     fetchOrder,
     fetchOrderHistory,
     deliveredOrders,
