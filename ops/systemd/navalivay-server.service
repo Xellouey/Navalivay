@@ -1,8 +1,9 @@
 [Unit]
 Description=NAVALIVAY Mini App Server
 After=network.target
-StartLimitIntervalSec=300
-StartLimitBurst=10
+# Window covers slow self-healing native rebuilds after a Node ABI change.
+StartLimitIntervalSec=900
+StartLimitBurst=5
 
 [Service]
 Type=simple
@@ -10,9 +11,15 @@ WorkingDirectory=/var/www/NAVALIVAY/server
 # Port 8082 is owned by the production API. If a stale manual process is still
 # listening there, stop it before starting to avoid EADDRINUSE and 502 errors.
 ExecStartPre=/usr/bin/bash -lc 'pids=$$(/usr/bin/lsof -t -iTCP:8082 -sTCP:LISTEN 2>/dev/null || true); if [ -n "$$pids" ]; then /usr/bin/kill -TERM $$pids || true; /usr/bin/sleep 2; fi; pids=$$(/usr/bin/lsof -t -iTCP:8082 -sTCP:LISTEN 2>/dev/null || true); if [ -n "$$pids" ]; then /usr/bin/kill -KILL $$pids || true; /usr/bin/sleep 1; fi'
+# Self-heal native modules (e.g. better-sqlite3) when host Node ABI changes.
+# This is a fallback; primary defense is `apt-mark hold nodejs`.
+ExecStartPre=/usr/bin/bash -lc '/var/www/NAVALIVAY/ops/systemd/navalivay-rebuild-native.sh'
 ExecStart=/usr/bin/node index.js
 Restart=on-failure
-RestartSec=5
+# Slightly longer than the native-rebuild can take, so systemd doesn't
+# burn the StartLimitBurst before the rebuild has a chance to finish.
+RestartSec=15
+TimeoutStartSec=300
 TimeoutStopSec=30
 # Keep the public storefront available even if .env is not deployed yet.
 EnvironmentFile=-/var/www/NAVALIVAY/server/.env

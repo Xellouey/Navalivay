@@ -7,7 +7,7 @@
         >
           <!-- Обновить -->
           <button
-            @click="refreshOrders()"
+            @click="deferClick(() => refreshOrders())"
             :disabled="isRefreshing"
             class="inline-flex items-center gap-2 rounded-xl border border-slate-200/40 bg-gradient-to-br from-slate-50/90 to-gray-50/60 px-4 py-2 text-sm font-medium text-slate-600 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-slate-300/50 hover:shadow-md disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:translate-y-0"
           >
@@ -44,11 +44,11 @@
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
               </svg>
               <span class="hidden sm:inline">Настройки</span>
-              <svg 
-                class="h-3.5 w-3.5 transition-transform duration-200" 
+              <svg
+                class="h-3.5 w-3.5 transition-transform duration-200"
                 :class="{ 'rotate-180': settingsDropdownOpen }"
-                fill="none" 
-                stroke="currentColor" 
+                fill="none"
+                stroke="currentColor"
                 viewBox="0 0 24 24"
               >
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
@@ -70,17 +70,17 @@
                 <div class="px-2 py-1.5 mb-2">
                   <h3 class="text-[11px] font-semibold uppercase tracking-[0.2em] text-gray-400">Уведомления</h3>
                 </div>
-                
+
                 <!-- Автообновление -->
                 <button
                   @click="crmStore.setAutoRefreshEnabled(!autoRefreshEnabled)"
                   class="flex w-full items-center justify-between gap-3 rounded-xl border px-3 py-2.5 text-left transition-all duration-200 hover:-translate-y-0.5 focus:outline-none"
-                  :class="autoRefreshEnabled 
-                    ? 'border-emerald-200/60 bg-gradient-to-br from-emerald-50/90 to-green-50/60 shadow-lg shadow-emerald-100/50' 
+                  :class="autoRefreshEnabled
+                    ? 'border-emerald-200/60 bg-gradient-to-br from-emerald-50/90 to-green-50/60 shadow-lg shadow-emerald-100/50'
                     : 'border-slate-200/40 bg-gradient-to-br from-slate-50/90 to-gray-50/60 hover:border-slate-300/50 hover:shadow-md'"
                 >
                   <div class="flex items-center gap-3">
-                    <span 
+                    <span
                       class="flex h-9 w-9 items-center justify-center rounded-xl transition-all"
                       :class="autoRefreshEnabled ? 'bg-emerald-100/80 text-emerald-600 shadow-sm shadow-emerald-200/50' : 'bg-slate-100/80 text-slate-500'"
                     >
@@ -103,18 +103,18 @@
                     />
                   </div>
                 </button>
-                
+
                 <!-- Уведомления -->
                 <button
                   @click="crmStore.setNotificationsEnabled(!notificationsEnabled)"
                   :disabled="!notificationsSupported || notificationPermissionDenied"
                   class="mt-2 flex w-full items-center justify-between gap-3 rounded-xl border px-3 py-2.5 text-left transition-all duration-200 hover:-translate-y-0.5 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0"
-                  :class="notificationsEnabled 
-                    ? 'border-sky-200/60 bg-gradient-to-br from-sky-50/90 to-blue-50/60 shadow-lg shadow-sky-100/50' 
+                  :class="notificationsEnabled
+                    ? 'border-sky-200/60 bg-gradient-to-br from-sky-50/90 to-blue-50/60 shadow-lg shadow-sky-100/50'
                     : 'border-slate-200/40 bg-gradient-to-br from-slate-50/90 to-gray-50/60 hover:border-slate-300/50 hover:shadow-md'"
                 >
                   <div class="flex items-center gap-3">
-                    <span 
+                    <span
                       class="flex h-9 w-9 items-center justify-center rounded-xl transition-all"
                       :class="notificationsEnabled ? 'bg-sky-100/80 text-sky-600 shadow-sm shadow-sky-200/50' : 'bg-slate-100/80 text-slate-500'"
                     >
@@ -137,17 +137,17 @@
                     />
                   </div>
                 </button>
-                
+
                 <!-- Звук -->
                 <button
                   @click="crmStore.setSoundEnabled(!soundEnabled)"
                   class="mt-2 flex w-full items-center justify-between gap-3 rounded-xl border px-3 py-2.5 text-left transition-all duration-200 hover:-translate-y-0.5 focus:outline-none"
-                  :class="soundEnabled 
-                    ? 'border-purple-200/60 bg-gradient-to-br from-purple-50/90 to-violet-50/60 shadow-lg shadow-purple-100/50' 
+                  :class="soundEnabled
+                    ? 'border-purple-200/60 bg-gradient-to-br from-purple-50/90 to-violet-50/60 shadow-lg shadow-purple-100/50'
                     : 'border-slate-200/40 bg-gradient-to-br from-slate-50/90 to-gray-50/60 hover:border-slate-300/50 hover:shadow-md'"
                 >
                   <div class="flex items-center gap-3">
-                    <span 
+                    <span
                       class="flex h-9 w-9 items-center justify-center rounded-xl transition-all"
                       :class="soundEnabled ? 'bg-purple-100/80 text-purple-600 shadow-sm shadow-purple-200/50' : 'bg-slate-100/80 text-slate-500'"
                     >
@@ -170,7 +170,7 @@
                     />
                   </div>
                 </button>
-                
+
                 <!-- Разрешить уведомления (если нужно) -->
                 <template v-if="notificationPermissionStatus === 'default'">
                   <div class="my-3 border-t border-slate-100"></div>
@@ -189,7 +189,7 @@
                     </div>
                   </button>
                 </template>
-                
+
                 <!-- Статус уведомлений если заблокированы -->
                 <template v-if="notificationPermissionStatus === 'denied'">
                   <div class="my-3 border-t border-slate-100"></div>
@@ -235,7 +235,7 @@
                 <div class="px-2 py-1.5 mb-2">
                   <h3 class="text-[11px] font-semibold uppercase tracking-[0.2em] text-gray-400">Дополнительно</h3>
                 </div>
-                
+
                 <button
                   @click="$router.push('/admin/crm/message-templates'); moreDropdownOpen = false"
                   class="flex w-full items-center gap-3 rounded-xl border border-slate-200/40 bg-gradient-to-br from-slate-50/90 to-gray-50/60 px-3 py-2.5 text-left transition-all duration-200 hover:-translate-y-0.5 hover:border-slate-300/50 hover:shadow-md focus:outline-none"
@@ -250,7 +250,7 @@
                     <div class="text-xs text-slate-400">Готовые ответы клиентам</div>
                   </div>
                 </button>
-                
+
                 <button
                   @click="$router.push('/admin/crm/orders/archive'); moreDropdownOpen = false"
                   class="mt-2 flex w-full items-center gap-3 rounded-xl border border-slate-200/40 bg-gradient-to-br from-slate-50/90 to-gray-50/60 px-3 py-2.5 text-left transition-all duration-200 hover:-translate-y-0.5 hover:border-slate-300/50 hover:shadow-md focus:outline-none"
@@ -893,7 +893,7 @@
                     </button>
                     <button
                       v-if="order.manager_action_type === 'modified'"
-                      @click.stop="handleResolveAction(order)"
+                      @click.stop="deferClick(() => handleResolveAction(order))"
                       :disabled="resolvingOrderId === order.id"
                       class="admin-link-button admin-link-button--compact bg-orange-600 text-white hover:bg-orange-700 disabled:opacity-60"
                     >
@@ -901,7 +901,7 @@
                     </button>
                     <button
                       v-else-if="order.manager_action_type === 'cancelled_by_customer'"
-                      @click.stop="handleResolveAction(order)"
+                      @click.stop="deferClick(() => handleResolveAction(order))"
                       :disabled="resolvingOrderId === order.id"
                       class="admin-link-button admin-link-button--compact bg-red-600 text-white hover:bg-red-700 disabled:opacity-60"
                     >
@@ -918,7 +918,7 @@
                     </button>
                     <button
                       v-if="canAdvance(order)"
-                      @click.stop="advanceOrder(order)"
+                      @click.stop="deferClick(() => advanceOrder(order))"
                       class="admin-link-button admin-link-button--compact"
                       :class="advanceButtonClass(order)"
                     >
@@ -1007,7 +1007,7 @@
           Отмена
         </button>
         <button
-          @click="submitPayment"
+          @click="deferClick(() => submitPayment())"
           class="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-5 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-emerald-400"
           :disabled="isIssuing || !selectedAccountId || paymentAmount <= 0"
         >
@@ -1039,22 +1039,12 @@
       @close="closePasswordModal"
       @cancel="closePasswordModal"
     >
-      <form class="space-y-4" @submit.prevent="submitPassword">
-        <div>
-          <label class="mb-1 block text-sm font-medium text-gray-700"
-            >Ключ</label
-          >
-          <input
-            v-model="passwordInput"
-            type="password"
-            class="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-100"
-            placeholder="XXX-XXX-XXX"
-            :disabled="verifyingPassword"
-          />
-          <p v-if="passwordError" class="mt-2 text-sm text-red-600">
-            {{ passwordError }}
-          </p>
-        </div>
+      <form class="space-y-4" autocomplete="on" @submit.prevent="submitPassword">
+        <CrmProfitPasswordField
+          v-model="passwordInput"
+          :password-error="passwordError"
+          :verifying-password="verifyingPassword"
+        />
         <div class="flex gap-3 pt-2">
           <button
             type="submit"
@@ -1268,7 +1258,7 @@
           Отмена
         </button>
         <button
-          @click="applyDiscount"
+          @click="deferClick(() => applyDiscount())"
           class="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-emerald-700 disabled:opacity-50"
           :disabled="isApplyingDiscount || discountAmount < 0"
         >
@@ -1305,7 +1295,7 @@
           Нет, оставить
         </button>
         <button
-          @click="confirmCancelOrder"
+          @click="deferClick(() => confirmCancelOrder())"
           class="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-red-700 disabled:opacity-50"
           :disabled="isCancelling"
         >
@@ -1357,7 +1347,7 @@
         Нет отмененных заказов
       </div>
     </AdminModal>
-    
+
     <!-- In-app Toast Notification (Safari fallback) -->
     <Teleport to="body">
       <Transition name="toast-slide">
@@ -1401,6 +1391,14 @@ import AdminModal from "@/components/AdminModal.vue";
 import CustomerBlockModal from "@/components/admin/CustomerBlockModal.vue";
 import { LockClosedIcon, NoSymbolIcon } from "@heroicons/vue/24/outline";
 import { buildAutoNotifyToast } from "@/utils/auto-notify-message";
+import CrmProfitPasswordField from "@/components/crm/CrmProfitPasswordField.vue";
+
+/** Отдаёт клик браузеру сразу — меньше [Violation] 'click' handler took Nms */
+function deferClick(fn: () => void | Promise<void>) {
+  queueMicrotask(() => {
+    void fn();
+  });
+}
 
 const crmStore = useCrmStore();
 const {
@@ -1432,7 +1430,7 @@ function handleBlockCreated(payload: { kind: 'active' | 'pending'; username: str
   // В CrmOrders нет глобального toast-стека — пока используем нативное уведомление
   // браузера. Когда будет общая toast-инфраструктура (см. фоновую задачу про
   // унификацию уведомлений) — мигрируем сюда.
-  // eslint-disable-next-line no-alert
+
   window.alert(`@${payload.username}: ${verb}`);
 }
 function handleBlockNotifyResult(payload: { ok: boolean; error?: string; text?: string; username?: string }) {
@@ -1467,7 +1465,7 @@ const settingsDropdownRef = ref<HTMLElement | null>(null);
 const moreDropdownRef = ref<HTMLElement | null>(null);
 
 // Computed for settings indicator
-const hasActiveSettings = computed(() => 
+const hasActiveSettings = computed(() =>
   autoRefreshEnabled.value || notificationsEnabled.value || soundEnabled.value
 );
 
@@ -1475,9 +1473,9 @@ const searchQuery = ref("");
 let searchDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 
 // Use store for notification settings (global)
-const { 
-  notificationsEnabled, 
-  soundEnabled, 
+const {
+  notificationsEnabled,
+  soundEnabled,
   autoRefreshEnabled,
   unseenOrderIds: storeUnseenOrderIds,
   newOrdersCount
@@ -1492,8 +1490,8 @@ const unseenOrderIds = computed(() => storeUnseenOrderIds.value);
 const notificationsSupported =
   typeof window !== "undefined" && "Notification" in window;
 
-const refreshIntervalMs = 15000;
-let refreshTimer: ReturnType<typeof setInterval> | null = null;
+let unsubscribeOrderActivity: (() => void) | null = null;
+let pollActivityRefreshTimer: ReturnType<typeof setTimeout> | null = null;
 let highlightTimer: ReturnType<typeof setTimeout> | null = null;
 
 const previewLimit = 4;
@@ -1622,7 +1620,6 @@ async function handleResolveAction(order: Order) {
   resolvingOrderId.value = order.id;
   try {
     await crmStore.resolveManagerAction(order.id);
-    await crmStore.fetchOrders();
   } catch (error) {
     console.error("[CRM] Resolve action failed:", error);
   } finally {
@@ -1824,11 +1821,13 @@ function previewItems(order: Order) {
 }
 
 function toggleOrderExpanded(orderId: string) {
-  if (expandedOrders.value.has(orderId)) {
-    expandedOrders.value.delete(orderId);
+  const next = new Set(expandedOrders.value);
+  if (next.has(orderId)) {
+    next.delete(orderId);
   } else {
-    expandedOrders.value.add(orderId);
+    next.add(orderId);
   }
+  expandedOrders.value = next;
 }
 
 function isOrderExpanded(orderId: string) {
@@ -1943,7 +1942,7 @@ function onDrop(columnKey: string) {
 
   const order = dragOrder.value;
   onDragEnd();
-  advanceOrder(order);
+  deferClick(() => advanceOrder(order));
 }
 
 async function openPaymentModal(order: Order) {
@@ -1994,7 +1993,6 @@ async function submitPayment() {
     paymentModalOpen.value = false;
     paymentOrder.value = null;
     paymentNotes.value = "";
-    await refreshOrders({ skipNotify: true });
     // Тост по итогу авто-уведомления клиенту (Костя 10.05.2026).
     const toast = buildAutoNotifyToast(result.auto_notification, {
       actionDescription: `Заказ #${orderNumber}: ${orderStatusLabel("delivered", deliveryType).toLowerCase()}`,
@@ -2049,7 +2047,9 @@ function handleSearch() {
   }, 400);
 }
 
-async function refreshOrders(options: { skipNotify?: boolean } = {}) {
+async function refreshOrders(
+  options: { skipNotify?: boolean; trigger?: string; showBoardLoader?: boolean } = {},
+) {
   if (isRefreshing.value) return;
   isRefreshing.value = true;
 
@@ -2057,7 +2057,16 @@ async function refreshOrders(options: { skipNotify?: boolean } = {}) {
 
   try {
     const searchParam = searchQuery.value.trim() || undefined;
-    await crmStore.fetchOrders({ limit: 200, search: searchParam });
+    const background = options.showBoardLoader !== true;
+    if (searchParam) {
+      await crmStore.fetchOrders({
+        limit: 200,
+        search: searchParam,
+        background,
+      });
+    } else {
+      await crmStore.fetchKanbanBoard({ limit: 200, background });
+    }
     lastUpdateAt.value = new Date();
 
     if (options.skipNotify) {
@@ -2090,53 +2099,41 @@ async function contactClient(orderId: string) {
 
   try {
     const data = await crmStore.generateOrderMessage(orderId);
-    const { message, telegramUsername } = data;
+    const { message, telegramUsername, telegramId } = data;
 
-    // Отправляем сообщение через юзербота: появляется в Telegram менеджера
-    // без необходимости открывать ссылки (которые не работают из-за
-    // блокировки contacts.resolveUsername на аккаунте @Rez0nsky).
-    const API_BASE = '/api/admin/crm';
-    const res = await fetch(`${API_BASE}/bot/send-custom`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ order_id: orderId, text: message }),
-    });
-    const result = await res.json();
-
-    if (result.ok) {
-      showOrderToast({ kind: 'success', message: 'Сообщение отправлено клиенту.' });
-    } else if (result.error === 'userbot_ambiguous') {
-      showOrderToast({ kind: 'error', message: 'Сообщение, возможно, отправлено. Проверьте чат с клиентом.' });
+    const encoded = encodeURIComponent(message);
+    if (telegramUsername) {
+      window.open(`https://t.me/${telegramUsername}?text=${encoded}`, '_blank');
+    } else if (telegramId) {
+      window.open(`tg://openmessage?user_id=${telegramId}&text=${encoded}`, '_blank');
     } else {
-      // Не удалось отправить — копируем сообщение в буфер и даём ссылку
-      navigator.clipboard.writeText(message).catch(() => {});
-      showOrderToast({
-        kind: 'error',
-        message: `Не удалось отправить. Текст скопирован - вставьте в чат.`,
-        action: telegramUsername
-          ? { label: 'Открыть чат', url: `https://t.me/${telegramUsername}` }
-          : undefined,
-        copyable: telegramUsername
-          ? { label: `Скопировать @${telegramUsername}`, value: telegramUsername }
-          : undefined,
-      });
+      showOrderToast({ kind: 'error', message: 'У клиента нет Telegram.' });
     }
   } catch (error: any) {
-    console.error('[CRM] Send message error:', error);
-    showOrderToast({ kind: 'error', message: 'Ошибка при отправке сообщения.' });
+    console.error('[CRM] Contact client error:', error);
+    showOrderToast({ kind: 'error', message: 'Не удалось подготовить сообщение.' });
   } finally {
     generatingMessageForOrder.value = null;
   }
 }
 
 onMounted(async () => {
-  await refreshOrders({ skipNotify: true });
+  await refreshOrders({ skipNotify: true, trigger: 'initial', showBoardLoader: true });
   if (cashAccounts.value.length === 0) {
     await crmStore.fetchCashAccounts();
   }
-  scheduleAutoRefresh();
+  unsubscribeOrderActivity = crmStore.subscribeOrderActivity((activitySince) => {
+    if (!autoRefreshEnabled.value) return;
+    if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
+    if (pollActivityRefreshTimer) clearTimeout(pollActivityRefreshTimer);
+    pollActivityRefreshTimer = setTimeout(() => {
+      pollActivityRefreshTimer = null;
+      void crmStore.syncKanbanBoardSince(activitySince);
+    }, 800);
+  });
+  document.addEventListener('visibilitychange', handleVisibilityChange);
   // Don't auto-mark as seen - user should interact with orders to mark them seen
-  
+
   // Unlock AudioContext on first user interaction (required for Safari)
   const unlockOnInteraction = () => {
     crmStore.unlockAudioContext();
@@ -2145,16 +2142,17 @@ onMounted(async () => {
   };
   document.addEventListener('click', unlockOnInteraction, { once: true });
   document.addEventListener('touchstart', unlockOnInteraction, { once: true });
-  
+
   // Close dropdowns on click outside
   document.addEventListener('click', handleClickOutside);
 });
 
 onUnmounted(() => {
-  if (refreshTimer) {
-    clearInterval(refreshTimer);
-    refreshTimer = null;
+  if (unsubscribeOrderActivity) {
+    unsubscribeOrderActivity();
+    unsubscribeOrderActivity = null;
   }
+  document.removeEventListener('visibilitychange', handleVisibilityChange);
   if (highlightTimer) {
     clearTimeout(highlightTimer);
     highlightTimer = null;
@@ -2162,6 +2160,10 @@ onUnmounted(() => {
   if (searchDebounceTimer) {
     clearTimeout(searchDebounceTimer);
     searchDebounceTimer = null;
+  }
+  if (pollActivityRefreshTimer) {
+    clearTimeout(pollActivityRefreshTimer);
+    pollActivityRefreshTimer = null;
   }
   document.removeEventListener('click', handleClickOutside);
 });
@@ -2176,15 +2178,10 @@ function handleClickOutside(event: MouseEvent) {
   }
 }
 
-function scheduleAutoRefresh() {
-  if (refreshTimer) {
-    clearInterval(refreshTimer);
-    refreshTimer = null;
-  }
+function handleVisibilityChange() {
   if (!autoRefreshEnabled.value) return;
-  refreshTimer = setInterval(() => {
-    void refreshOrders();
-  }, refreshIntervalMs);
+  if (document.visibilityState !== 'visible') return;
+  void refreshOrders({ skipNotify: true });
 }
 
 function markOrderSeen(orderId: string) {
@@ -2221,8 +2218,10 @@ watch(() => deliveredSearch.value, () => {
   }, 400);
 });
 
-watch(autoRefreshEnabled, () => {
-  scheduleAutoRefresh();
+watch(autoRefreshEnabled, (enabled) => {
+  if (!enabled) return;
+  if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
+  void refreshOrders({ skipNotify: true });
 });
 
 function openDeliveredModal(preset: DeliveredFilter = "all") {
@@ -2298,7 +2297,6 @@ async function applyDiscount() {
     discountModalOpen.value = false;
     discountOrder.value = null;
     discountAmount.value = 0;
-    await refreshOrders({ skipNotify: true });
   } catch (error: any) {
     const errorMessage = error?.message || "Не удалось применить скидку";
     showOrderToast({ kind: "error", message: `Заказ #${activeOrder.order_number}: ${errorMessage}` });
@@ -2320,7 +2318,6 @@ async function removeDiscount() {
     discountModalOpen.value = false;
     discountOrder.value = null;
     discountAmount.value = 0;
-    await refreshOrders({ skipNotify: true });
   } catch (error: any) {
     const errorMessage = error?.message || "Не удалось убрать скидку";
     showOrderToast({ kind: "error", message: `Заказ #${activeOrder.order_number}: ${errorMessage}` });
@@ -2350,7 +2347,6 @@ async function confirmCancelOrder() {
     // Закрываем модалку напрямую
     cancelModalOpen.value = false;
     cancelOrder.value = null;
-    await refreshOrders({ skipNotify: true });
   } catch (error: any) {
     const errorMessage = error?.message || "Не удалось отменить заказ";
     showOrderToast({ kind: "error", message: `Заказ #${activeOrder.order_number}: ${errorMessage}` });

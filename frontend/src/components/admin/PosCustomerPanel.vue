@@ -216,7 +216,7 @@
         tabindex="-1"
         class="fixed inset-0 z-[210] flex items-center justify-center bg-black/50 px-4"
         @click.self="closeCreateModal"
-        @keydown.esc.window="closeCreateModal"
+        @keydown.esc="closeCreateModal"
       >
         <div class="w-full max-w-sm rounded-2xl bg-white p-5 shadow-xl">
           <h3 id="pos-customer-modal-title" class="text-lg font-semibold text-gray-900 mb-3">Новый клиент кассы</h3>

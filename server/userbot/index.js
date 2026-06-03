@@ -97,12 +97,12 @@ let floodWaitUntil = 0; // ms timestamp
 // если штраф ещё активен, получит новый (меньший) FloodWait, а не
 // моментальный бан. Предотвращает сценарий: батч → 21 час блокировки.
 const FLOOD_WAIT_CAP_SEC = 1800; // 30 минут
-// Разбан функции: когда Telegram снимет rate-limit на contacts.resolveUsername
-// для аккаунта @Rez0nsky — переключить на true, и проактивный резолв
-// username'ов снова заработает. Пока false: /resolve-username сразу
-// возвращает 503, resolveUsernameViaUserbot не дёргает Telegram.
-// Manager (Павел) проверит и включит вручную через ~2 дня (17.05.2026).
-let RESOLVE_USERNAME_ENABLED = false;
+// Разбан функции: Telegram снял rate-limit на contacts.resolveUsername
+// 16.05.2026 (~24ч от инцидента 15.05.2026). Тест @nvl_vapebot прошёл
+// успешно, реальные резолвы при создании заказов также работают без
+// FLOOD. Если повторно прилетит постоянный FLOOD — переключить в false
+// и ждать ещё, пока Telegram не остынет.
+let RESOLVE_USERNAME_ENABLED = true;
 // Shutdown guard: PM2 шлёт SIGTERM, потом kill_timeout → SIGKILL. Защита от
 // двойного disconnect (GramJS на double-disconnect ловит unhandledRejection).
 let shuttingDown = false;
@@ -649,10 +649,9 @@ app.post('/resolve-username', checkSecret, async (req, res) => {
     if (!username) {
       return res.status(400).json({ ok: false, error: 'username_required' });
     }
-    // Функция отключена до ручного разбана (RESOLVE_USERNAME_ENABLED=false).
-    // Telegram заблокировал contacts.resolveUsername на аккаунте @Rez0nsky.
-    // Каждый вызов даёт FLOOD и продлевает блокировку. Ждём ~2 дня, затем
-    // менеджер (Павел) переключит флаг в true и проверит.
+    // Гард остаётся даже после разбана 16.05.2026: если Telegram снова
+    // прилетит с FloodWait на resolveUsername, флаг можно дёрнуть в false
+    // без перезапуска (через окружение/правку файла) — endpoint вернёт 503.
     if (!RESOLVE_USERNAME_ENABLED) {
       return res.status(503).json({ ok: false, error: 'resolve_disabled' });
     }
@@ -1026,6 +1025,69 @@ app.post('/send-message', checkSecret, async (req, res) => {
 const httpServer = app.listen(PORT, '127.0.0.1', () => {
   console.log(`[userbot] HTTP API listens on 127.0.0.1:${PORT}`);
 });
+
+// ---------------------------------------------------------------------------
+// Self-watchdog: страхует от залипания GramJS update-loop.
+//
+// Контекст инцидента 20.05.2026: после флапа MTProto GramJS успешно
+// «реконнектнулся» (Started reconnecting → Handling reconnect!), но
+// _updateLoop повис с бесконечными `Error: TIMEOUT` от getDifference.
+// Процесс PM2 видел как online, /health отдавал connected=false, никто
+// сам процесс не убивал — зависание длилось ~3 часа, пока его не
+// заметили вручную. Внешний cron-watchdog (ops/userbot-watchdog.sh)
+// в тот момент не был зарегистрирован в crontab.
+//
+// Этот in-process watchdog независим от внешнего cron: каждые 60 секунд
+// проверяет client.connected и sessionDead. Если соединение мёртвое
+// дольше CONNECTION_DEAD_AFTER_MS — инициирует graceful shutdown,
+// PM2 поднимет процесс заново (autorestart=true).
+//
+// Защита in-depth: даже если cron слетит снова, процесс сам себя
+// подлечит максимум через 6 минут вместо неопределённого зависания.
+// ---------------------------------------------------------------------------
+const SELF_WATCHDOG_INTERVAL_MS = 60 * 1000;
+const CONNECTION_DEAD_AFTER_MS = 5 * 60 * 1000; // 5 минут подряд connected=false → exit
+let connectionDeadSince = 0;
+const selfWatchdogTimer = setInterval(() => {
+  if (shuttingDown) return;
+  // Сессия отозвана — спокойно выходим, /health уже отдаёт ok=false,
+  // PM2 поднимет, но без валидной сессии оно опять упадёт. Это лучше
+  // чем висеть молча: оператор увидит цикл рестартов в pm2 status.
+  if (sessionDead) {
+    console.error('[userbot][self-watchdog] session_dead → exit для PM2-рестарта');
+    logEvent('self_watchdog_exit', { reason: 'session_dead' });
+    shutdown('self-watchdog-session-dead').catch(() => process.exit(1));
+    return;
+  }
+  const now = Date.now();
+  if (client.connected) {
+    connectionDeadSince = 0;
+    return;
+  }
+  // FloodWait — не считаем мёртвым соединением. GramJS внутри ждёт окно
+  // и client.connected может быть false по архитектуре, без зависания.
+  if (floodWaitUntil > now) {
+    connectionDeadSince = 0;
+    return;
+  }
+  if (connectionDeadSince === 0) {
+    connectionDeadSince = now;
+    console.warn('[userbot][self-watchdog] client.connected=false, начинаю отсчёт');
+    return;
+  }
+  const deadFor = now - connectionDeadSince;
+  if (deadFor >= CONNECTION_DEAD_AFTER_MS) {
+    console.error(
+      `[userbot][self-watchdog] client.connected=false уже ${Math.round(deadFor / 1000)}с → exit для PM2-рестарта`,
+    );
+    logEvent('self_watchdog_exit', {
+      reason: 'connection_dead',
+      dead_for_ms: deadFor,
+    });
+    shutdown('self-watchdog-connection-dead').catch(() => process.exit(1));
+  }
+}, SELF_WATCHDOG_INTERVAL_MS);
+selfWatchdogTimer.unref?.();
 
 // Корректный shutdown по SIGTERM (PM2 reload) и SIGINT (Ctrl+C).
 //

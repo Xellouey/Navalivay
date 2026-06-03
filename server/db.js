@@ -51,6 +51,8 @@ import { migrateOrderItemDisplayFields } from './migrations/add_order_item_displ
 import { migrateLoyaltyTables, seedDefaultLoyaltyData } from './migrations/add_loyalty_tables.js';
 import { migrateCashPacingTables } from './migrations/add_cash_pacing_tables.js';
 import { migrateWholesalePricing } from './migrations/add_wholesale_pricing.js';
+import { migrateCrmPerformanceIndexes } from './migrations/add_crm_performance_indexes.js';
+import { migrateOrderNumberSearch } from './migrations/add_order_number_search.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -201,6 +203,8 @@ export function initDb() {
   migrateLoyaltyTables();
   migrateCashPacingTables();
   migrateWholesalePricing();
+  migrateCrmPerformanceIndexes();
+  migrateOrderNumberSearch();
 
   seedIfEmpty();
   seedDefaultLoyaltyData();

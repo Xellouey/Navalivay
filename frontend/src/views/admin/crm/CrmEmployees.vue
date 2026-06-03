@@ -73,11 +73,21 @@
         </div>
         <div v-if="!editingEmployee">
           <label class="block text-sm font-medium text-gray-700 mb-1">Логин</label>
-          <input v-model="form.username" type="text" class="w-full px-3 py-2 border border-gray-300 rounded-md" />
+          <input
+            v-model="form.username"
+            type="text"
+            autocomplete="username"
+            class="w-full px-3 py-2 border border-gray-300 rounded-md"
+          />
         </div>
         <div v-if="!editingEmployee">
           <label class="block text-sm font-medium text-gray-700 mb-1">Пароль</label>
-          <input v-model="form.password" type="password" class="w-full px-3 py-2 border border-gray-300 rounded-md" />
+          <input
+            v-model="form.password"
+            type="password"
+            autocomplete="new-password"
+            class="w-full px-3 py-2 border border-gray-300 rounded-md"
+          />
         </div>
         <div>
           <label class="block text-sm font-medium text-gray-700 mb-1">Должность</label>

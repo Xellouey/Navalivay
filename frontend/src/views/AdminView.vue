@@ -19,6 +19,7 @@
                     <input
                       v-model="profitPassword"
                       type="password"
+                      autocomplete="current-password"
                       class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-brand-dark focus:outline-none focus:ring-2 focus:ring-brand-dark/20"
                       placeholder="Пароль"
                     />
@@ -486,6 +487,7 @@
                   <input
                     v-model="profitPassword"
                     type="password"
+                    autocomplete="current-password"
                     class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-brand-dark focus:outline-none focus:ring-2 focus:ring-brand-dark/20"
                     placeholder="Пароль"
                   />
@@ -525,6 +527,7 @@
                   <input
                     v-model="profitPassword"
                     type="password"
+                    autocomplete="current-password"
                     class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-brand-dark focus:outline-none focus:ring-2 focus:ring-brand-dark/20"
                     placeholder="Пароль"
                   />
@@ -2176,7 +2179,6 @@ const chartTransitioning = ref(false)
 const chartData = computed(() => {
   const metric = selectedMetric.value
   if (!dashboardTimeseries.value || dashboardTimeseries.value.length === 0) {
-    console.log('[Chart] No timeseries data available')
     return []
   }
   
@@ -2185,15 +2187,6 @@ const chartData = computed(() => {
     label: point.label,
     value: metric === 'revenue' ? point.revenue : metric === 'profit' ? point.profit : point.orders
   }))
-  
-  // Проверка точности: сумма всех точек должна совпадать с карточкой
-  const sum = data.reduce((acc, point) => acc + point.value, 0)
-  console.log(`[Chart] ✅ Точность данных (${metric}):`, {
-    'Точек графика': data.length,
-    'Сумма всех точек': sum,
-    'Пример точки': data[0],
-    'Мин/Макс': `${Math.min(...data.map(d => d.value))} / ${Math.max(...data.map(d => d.value))}`
-  })
   
   return data
 })
@@ -2208,9 +2201,6 @@ watch([overviewPeriod, selectedMetric], () => {
     }, 50) // Just trigger the animation
   }
   chartAnimationKey.value++
-  
-  // Логирование смены метрики для прозрачности
-  console.log(`[Chart] 🔄 Смена метрики на: ${selectedMetric.value}`)
 })
 
 // Mark as loaded after first chart data appears

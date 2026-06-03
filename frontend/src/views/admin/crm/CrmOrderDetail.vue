@@ -1223,14 +1223,11 @@ async function contactClient() {
     const data = await crmStore.generateOrderMessage(currentOrder.value.id)
     const { message, telegramUsername, telegramId } = data
     
-    if (telegramId) {
-      const encodedMessage = encodeURIComponent(message)
-      const tgUrl = `tg://openmessage?user_id=${telegramId}&text=${encodedMessage}`
-      window.open(tgUrl, '_blank')
-    } else if (telegramUsername) {
-      const encodedMessage = encodeURIComponent(message)
-      const telegramUrl = `https://t.me/${telegramUsername}?text=${encodedMessage}`
-      window.open(telegramUrl, '_blank')
+    const encoded = encodeURIComponent(message)
+    if (telegramUsername) {
+      window.open(`https://t.me/${telegramUsername}?text=${encoded}`, '_blank')
+    } else if (telegramId) {
+      window.open(`tg://openmessage?user_id=${telegramId}&text=${encoded}`, '_blank')
     } else {
       saveError.value = 'У клиента нет Telegram'
     }

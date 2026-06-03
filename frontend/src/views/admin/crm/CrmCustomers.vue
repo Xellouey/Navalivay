@@ -364,7 +364,7 @@
       <div class="w-full max-w-md rounded-xl bg-white p-6 shadow-xl">
         <h3 class="text-xl font-semibold text-gray-900 mb-2">Удалить запись?</h3>
         <p class="text-sm text-gray-600 mb-4">
-          Эта запись обратной связи будет удалена, и клиент снова появится 
+          Эта запись обратной связи будет удалена, и клиент снова появится
           в списке "Не заказывали более 45 дней".
         </p>
         <div class="mt-6 flex gap-3">
@@ -500,7 +500,7 @@ async function handleUnblock(blockId: string | number) {
     await crmStore.fetchCustomerBlocksList()
   } catch (err: any) {
     console.error('[crm-customers] unblock failed', err)
-    // eslint-disable-next-line no-alert
+
     window.alert(err?.message || 'Не удалось снять блок')
   } finally {
     removingBlockId.value = null

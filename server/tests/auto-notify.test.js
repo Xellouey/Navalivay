@@ -66,7 +66,7 @@ function resetDb() {
   });
 }
 
-function makeOrderAndCustomer({ telegramId = '111', verified = true, totalOrders = 0 } = {}) {
+function makeOrderAndCustomer({ telegramId = '111', verified = true, totalOrders = 1 } = {}) {
   const customerId = 'c_test';
   db.prepare(
     `INSERT INTO customers (id, telegram_id, telegram_username, first_name, total_orders)
@@ -74,6 +74,12 @@ function makeOrderAndCustomer({ telegramId = '111', verified = true, totalOrders
   ).run(customerId, telegramId, 'tester', 'Тест', totalOrders);
   if (verified) {
     db.prepare(`UPDATE customers SET bot_verified_at = DATETIME('now') WHERE id = ?`).run(customerId);
+  }
+  for (let i = 0; i < totalOrders; i += 1) {
+    db.prepare(
+      `INSERT INTO orders (id, order_number, customer_id, status, total_amount)
+       VALUES (?, ?, ?, ?, ?)`,
+    ).run(`o_hist_${i}`, 9000 + i, customerId, 'delivered', 50);
   }
   const orderId = 'o_test';
   db.prepare(

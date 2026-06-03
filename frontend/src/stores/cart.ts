@@ -204,7 +204,7 @@ export const useCartStore = defineStore('cart', () => {
       )
     } else {
       let title = product.title
-      let productTitle = product.title
+      const productTitle = product.title
       let priceRub = product.priceRub
       let image = product.images?.[0] || null
       let variantName: string | null = null

@@ -72,7 +72,7 @@
                       min="0"
                       class="w-full rounded-lg border border-gray-300 px-4 py-3 text-sm focus:border-gray-500 focus:outline-none focus:ring-2 focus:ring-gray-200"
                       placeholder="необязательно"
-                      @keydown.enter="submitSale"
+                      @keydown.enter.exact="submitSale"
                       @keydown.ctrl.enter="submitSale"
                     />
                   </div>
