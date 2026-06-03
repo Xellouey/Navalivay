@@ -28,7 +28,20 @@
       </button>
     </header>
 
-    <section class="wheel-stage">
+    <section v-if="isWheelLocked" class="wheel-locked">
+      <div class="wheel-locked__card">
+        <p class="wheel-locked__eyebrow">Рулетка скоро откроется</p>
+        <h2 class="wheel-locked__title">Сейчас идёт финальное тестирование</h2>
+        <p class="wheel-locked__text">
+          Мы постепенно открываем доступ к рулетке. Совсем скоро она станет доступна всем.
+        </p>
+        <button type="button" class="wheel-locked__cta" @click="goToHowTo">
+          Как это будет работать
+        </button>
+      </div>
+    </section>
+
+    <section v-else class="wheel-stage">
       <div class="wheel-stage__strip">
         <template v-if="showSkeleton">
           <div class="wheel-stage__strip-skeleton" aria-hidden="true">
@@ -99,7 +112,7 @@
       </p>
     </section>
 
-    <section class="wheel-main">
+    <section v-if="!isWheelLocked" class="wheel-main">
       <WheelLiveFeed
         v-if="wheelStore.feed.length >= 3"
         :items="wheelStore.feed"
@@ -332,9 +345,12 @@ const progressAriaLabel = computed(() => `Прогресс до следующе
 const showSkeleton = computed(
   () => wheelStore.lastFetchedAt === null && wheelStore.isLoading,
 )
+const isWheelLocked = computed(
+  () => !showSkeleton.value && !wheelStore.accessAllowed,
+)
 
 const isSpinDisabled = computed(
-  () => showSkeleton.value || !hasSpins.value || wheelStore.isSpinning || isAnimating.value,
+  () => showSkeleton.value || isWheelLocked.value || !hasSpins.value || wheelStore.isSpinning || isAnimating.value,
 )
 
 const spinsWord = computed(() => {
@@ -572,6 +588,56 @@ onMounted(async () => {
   display: flex;
   flex-direction: column;
   gap: 18px;
+}
+
+.wheel-locked {
+  margin: 8px 16px 16px;
+}
+
+.wheel-locked__card {
+  background: #ffffff;
+  border-radius: 24px;
+  padding: 24px 20px;
+  box-shadow: 0 18px 36px rgba(15, 23, 42, 0.06);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.wheel-locked__eyebrow {
+  margin: 0;
+  font-family: 'SF Pro Display', system-ui, sans-serif;
+  font-size: 13px;
+  color: #f50302;
+  font-weight: 600;
+}
+
+.wheel-locked__title {
+  margin: 0;
+  font-family: 'Montserrat', sans-serif;
+  font-size: 22px;
+  line-height: 1.2;
+  color: #1f2933;
+}
+
+.wheel-locked__text {
+  margin: 0;
+  font-family: 'SF Pro Display', system-ui, sans-serif;
+  font-size: 15px;
+  line-height: 1.4;
+  color: #5c6470;
+}
+
+.wheel-locked__cta {
+  margin-top: 4px;
+  height: 48px;
+  border: none;
+  border-radius: 24px;
+  background: linear-gradient(106.76deg, #f50302 -2.64%, #a90f0e 85.78%);
+  color: #ffffff;
+  font-family: 'Montserrat', sans-serif;
+  font-weight: 700;
+  font-size: 15px;
 }
 
 .wheel-stage__strip {

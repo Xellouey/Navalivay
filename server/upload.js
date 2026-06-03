@@ -9,6 +9,14 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const baseUploads = path.resolve(__dirname, '../uploads');
+const MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
+const ALLOWED_MIME_TYPES = new Set([
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+  'image/gif',
+]);
+const ALLOWED_EXTENSIONS = new Set(['.jpg', '.jpeg', '.png', '.webp', '.gif']);
 
 function ensureDir(p) {
   if (!fs.existsSync(p)) fs.mkdirSync(p, { recursive: true });
@@ -26,26 +34,49 @@ const storage = multer.diskStorage({
     cb(null, dest);
   },
   filename: (req, file, cb) => {
-    const ext = path.extname(file.originalname) || '';
+    const ext = path.extname(file.originalname).toLowerCase();
     const name = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}${ext}`;
     cb(null, name);
   }
 });
 
-const uploadMW = multer({ storage });
+function fileFilter(req, file, cb) {
+  const ext = path.extname(file.originalname).toLowerCase();
+  if (!ALLOWED_MIME_TYPES.has(file.mimetype) || !ALLOWED_EXTENSIONS.has(ext)) {
+    const error = new Error('invalid_file_type');
+    error.code = 'INVALID_FILE_TYPE';
+    return cb(error);
+  }
+  return cb(null, true);
+}
+
+const uploadMW = multer({
+  storage,
+  fileFilter,
+  limits: {
+    fileSize: MAX_UPLOAD_BYTES,
+    files: 10,
+  },
+});
 
 export const uploadRouter = express.Router();
 
 // Upload up to 10 files: field name 'files'
-uploadRouter.post('/api/admin/upload', authMiddleware, uploadMW.array('files', 10), (req, res) => {
-  try {
+uploadRouter.post('/api/admin/upload', authMiddleware, (req, res) => {
+  uploadMW.array('files', 10)(req, res, (error) => {
+    if (error) {
+      const code = error.code === 'LIMIT_FILE_SIZE'
+        ? 'file_too_large'
+        : error.code === 'INVALID_FILE_TYPE'
+          ? 'invalid_file_type'
+          : 'upload_failed';
+      return res.status(400).json({ error: code });
+    }
     const files = req.files || [];
     const urls = files.map(f => {
       const rel = path.relative(baseUploads, f.path).replace(/\\/g, '/');
       return '/uploads/' + rel;
     });
-    res.json({ ok: true, urls });
-  } catch (e) {
-    res.status(400).json({ error: 'upload_failed', details: String(e) });
-  }
+    return res.json({ ok: true, urls });
+  });
 });

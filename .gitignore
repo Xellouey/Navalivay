@@ -17,6 +17,9 @@ dist/
 .env.development.local
 .env.test.local
 .env.production.local
+server/.env
+server/.env.*
+!server/.env.example
 
 # Logs
 npm-debug.log*
@@ -62,6 +65,7 @@ uploads/
 # Userbot session — содержит токен Telegram-аккаунта менеджера, КРИТИЧЕСКИ
 # секретный. Никогда не коммитим. На сервере хранится с chmod 600.
 server/data/userbot.session
+server/data/admin.json
 # Временные файлы non-interactive login (SMS-код и 2FA-пароль). Скрипт их
 # удаляет после прочтения, но если процесс упал — могут остаться на диске.
 server/data/userbot.code
@@ -75,3 +79,5 @@ server/data/userbot.password
 # Local test files
 test-*.js
 migrate_existing_orders.*
+# Временные SQLite из server/tests (если node:test упал до cleanup)
+server/tests/.tmp-*

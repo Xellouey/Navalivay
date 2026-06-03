@@ -1,11 +1,13 @@
 import { db } from "../db.js";
 import { randomUUID } from "node:crypto";
 import { getUtcDateForTimeZoneLocalTime, toSqliteUtcString } from "../utils/business-time.js";
+import { normalizeTelegramUsername } from "../loyalty.js";
 
 const SPIN_ID_PREFIX = "ws";
 const PROMO_ID_PREFIX = "wpp";
 const POOL_ID_PREFIX = "wep";
 const PROMO_CODE_PREFIX = "WHEEL";
+const REQUIRED_WHEEL_ACCESS_USERNAMES = ["dmitriy_mityuk", "rk0ff"];
 
 const DEFAULT_SETTINGS = {
   spin_byn_retail: 40,
@@ -15,6 +17,7 @@ const DEFAULT_SETTINGS = {
   feed_size: 30,
   start_collecting_at: null,
   elite_rarities_json: ["valuable"],
+  wheel_access_usernames_json: REQUIRED_WHEEL_ACCESS_USERNAMES,
 };
 
 function generateId(prefix) {
@@ -72,6 +75,16 @@ function parseJson(value, fallback) {
     console.warn("[wheel] parseJson failed", error?.message || error);
     return fallback;
   }
+}
+
+function mergeRequiredWheelAccessUsernames(value) {
+  const current = Array.isArray(value) ? value : [];
+  return [...new Set(
+    [...current, ...REQUIRED_WHEEL_ACCESS_USERNAMES]
+      .map((entry) => normalizeTelegramUsername(entry))
+      .filter(Boolean)
+      .map((entry) => entry.toLowerCase()),
+  )];
 }
 
 function isMeaningfulSettingValue(value) {
@@ -162,6 +175,12 @@ export function getWheelSettings() {
       map.get("elite_rarities_json"),
       DEFAULT_SETTINGS.elite_rarities_json,
     ),
+    wheel_access_usernames: mergeRequiredWheelAccessUsernames(
+      parseJson(
+        map.get("wheel_access_usernames_json"),
+        DEFAULT_SETTINGS.wheel_access_usernames_json,
+      ),
+    ),
   };
 }
 
@@ -210,6 +229,13 @@ export function updateWheelSettings(partial) {
           Array.isArray(v) ? v.map((entry) => String(entry || "")).filter(Boolean) : [],
         ),
     ],
+    [
+      "wheel_access_usernames_json",
+      (v) =>
+        JSON.stringify(
+          mergeRequiredWheelAccessUsernames(v),
+        ),
+    ],
   ];
 
   const upsert = db.prepare(`
@@ -250,11 +276,118 @@ export function updateWheelSettings(partial) {
   return getWheelSettings();
 }
 
+export function validateRarityRulePayload(rarityCode, payload = {}) {
+  const errors = [];
+  const code = String(rarityCode || "").trim();
+  if (!code) errors.push("rarity_code_required");
+
+  const rarity = code
+    ? db.prepare("SELECT code FROM wheel_rarities WHERE code = ?").get(code)
+    : null;
+  if (code && !rarity) errors.push("rarity_unknown");
+
+  if (Object.prototype.hasOwnProperty.call(payload, "chance_percent")) {
+    const chance = Number(payload.chance_percent);
+    if (!Number.isFinite(chance) || chance < 0 || chance > 100) {
+      errors.push("chance_percent_invalid");
+    }
+    if (code === "valuable" && chance !== 0) {
+      errors.push("valuable_chance_must_be_zero");
+    }
+    if (code === "nothing" && chance !== 0) {
+      errors.push("nothing_chance_is_derived");
+    }
+    if (!["valuable", "nothing"].includes(code) && Number.isFinite(chance)) {
+      const row = db
+        .prepare(
+          `SELECT COALESCE(SUM(chance_percent), 0) AS total
+           FROM wheel_rarities
+           WHERE code NOT IN ('valuable', 'nothing') AND code != ?`,
+        )
+        .get(code);
+      if (safeNumber(row?.total, 0) + chance > 100) {
+        errors.push("chance_sum_exceeds_100");
+      }
+    }
+  }
+
+  if (Object.prototype.hasOwnProperty.call(payload, "valuable_pool_size")) {
+    const size = Number(payload.valuable_pool_size);
+    if (!Number.isFinite(size) || size < 1 || !Number.isInteger(size)) {
+      errors.push("valuable_pool_size_invalid");
+    }
+  }
+
+  if (Object.prototype.hasOwnProperty.call(payload, "valuable_threshold_byn")) {
+    const threshold = Number(payload.valuable_threshold_byn);
+    if (!Number.isFinite(threshold) || threshold < 1) {
+      errors.push("valuable_threshold_byn_invalid");
+    }
+  }
+
+  return { errors };
+}
+
+export function updateRarityRule(rarityCode, payload = {}) {
+  const code = String(rarityCode || "").trim();
+  const existing = db.prepare("SELECT * FROM wheel_rarities WHERE code = ?").get(code);
+  if (!existing) return null;
+
+  const nextChance = code === "valuable" || code === "nothing"
+    ? 0
+    : Math.max(0, Math.min(100, safeNumber(payload.chance_percent, existing.chance_percent)));
+  const nextPoolSize = code === "valuable"
+    ? Math.max(1, Math.floor(safeNumber(payload.valuable_pool_size, existing.valuable_pool_size || 5)))
+    : Number(existing.valuable_pool_size || 5);
+  const nextThreshold = code === "valuable"
+    ? Math.max(1, safeNumber(payload.valuable_threshold_byn, existing.valuable_threshold_byn || 300))
+    : Number(existing.valuable_threshold_byn || 300);
+
+  db.prepare(
+    `UPDATE wheel_rarities
+     SET chance_percent = ?,
+         valuable_pool_size = ?,
+         valuable_threshold_byn = ?
+     WHERE code = ?`,
+  ).run(nextChance, nextPoolSize, nextThreshold, code);
+
+  return db
+    .prepare(
+      `SELECT code, label, bg_color AS bgColor, text_color AS textColor,
+              sort_order AS sortOrder, is_elite AS isElite,
+              chance_percent AS chancePercent,
+              valuable_pool_size AS valuablePoolSize,
+              valuable_threshold_byn AS valuableThresholdByn
+       FROM wheel_rarities
+       WHERE code = ?`,
+    )
+    .get(code);
+}
+
+export function getWheelAccessState(telegramUsername, settings = getWheelSettings()) {
+  const allowlist = Array.isArray(settings.wheel_access_usernames)
+    ? settings.wheel_access_usernames
+        .map((entry) => normalizeTelegramUsername(entry))
+        .filter(Boolean)
+        .map((entry) => entry.toLowerCase())
+    : [];
+  const normalizedUsername = normalizeTelegramUsername(telegramUsername).toLowerCase();
+  const isLimited = allowlist.length > 0;
+  const isAllowed = !isLimited || (normalizedUsername && allowlist.includes(normalizedUsername));
+  return {
+    is_limited: isLimited,
+    is_allowed: Boolean(isAllowed),
+  };
+}
+
 export function listRarities() {
   return db
     .prepare(
       `SELECT code, label, bg_color AS bgColor, text_color AS textColor,
-              sort_order AS sortOrder, is_elite AS isElite
+              sort_order AS sortOrder, is_elite AS isElite,
+              chance_percent AS chancePercent,
+              valuable_pool_size AS valuablePoolSize,
+              valuable_threshold_byn AS valuableThresholdByn
        FROM wheel_rarities
        ORDER BY sort_order ASC`,
     )
@@ -275,13 +408,65 @@ function loadActivePrizesForCustomer({ isWholesale }) {
     .all();
 }
 
+function loadAllActivePrizes() {
+  return db
+    .prepare(
+      `SELECT *
+       FROM wheel_prizes
+       WHERE is_active = 1
+       ORDER BY sort_order ASC, created_at ASC`,
+    )
+    .all();
+}
+
+function getPromoTemplateAvailability(templateId) {
+  if (!templateId) return false;
+  const template = db
+    .prepare(
+      `SELECT id, active, wheel_owner_customer_id
+       FROM promo_codes
+       WHERE id = ?`,
+    )
+    .get(templateId);
+  if (!template) return false;
+  if (Number(template.active || 0) !== 1) return false;
+  if (template.wheel_owner_customer_id) return false;
+  return true;
+}
+
+function isPrizeExhausted(prize) {
+  return (
+    Number(prize.max_total || 0) > 0 &&
+    Number(prize.issued_count || 0) >= Number(prize.max_total || 0)
+  );
+}
+
+function isPrizeAvailableForContext(prize, { isWholesale }) {
+  if (!prize || !Number(prize.is_active || 0)) return false;
+  if (isWholesale ? Number(prize.is_for_wholesale || 0) !== 1 : Number(prize.is_for_retail || 0) !== 1) {
+    return false;
+  }
+  if (isPrizeExhausted(prize)) return false;
+  if (String(prize.rarity_code || "") === "nothing") return true;
+  return getPromoTemplateAvailability(prize.promo_template_id);
+}
+
+function groupPrizesByRarity(prizes, context) {
+  const map = new Map();
+  for (const prize of prizes) {
+    if (context && !isPrizeAvailableForContext(prize, context)) continue;
+    const key = String(prize.rarity_code || "");
+    if (!map.has(key)) map.set(key, []);
+    map.get(key).push(prize);
+  }
+  return map;
+}
+
 function effectiveWeight(prize) {
-  if (!prize.is_active) return 0;
+  if (!prize || !Number(prize.is_active || 0)) return 0;
   const weight = Number(prize.weight || 0);
   if (weight <= 0) return 0;
-  if (Number(prize.max_total) > 0 && Number(prize.issued_count || 0) >= Number(prize.max_total)) {
-    return 0;
-  }
+  if (isPrizeExhausted(prize)) return 0;
   return weight;
 }
 
@@ -299,6 +484,26 @@ function pickWeightedRandom(prizes, rng = Math.random) {
     }
   }
   return prizes[prizes.length - 1];
+}
+
+function pickUniformRandom(entries, rng = Math.random) {
+  if (!Array.isArray(entries) || !entries.length) return null;
+  const index = Math.min(entries.length - 1, Math.floor(rng() * entries.length));
+  return entries[index];
+}
+
+function pickWeightedEntry(entries, getWeight, rng = Math.random) {
+  const weights = entries.map((entry) => Math.max(0, Number(getWeight(entry) || 0)));
+  const total = weights.reduce((sum, w) => sum + w, 0);
+  if (total <= 0) return null;
+
+  const target = rng() * total;
+  let acc = 0;
+  for (let i = 0; i < entries.length; i += 1) {
+    acc += weights[i];
+    if (target <= acc) return entries[i];
+  }
+  return entries[entries.length - 1];
 }
 
 function getCustomerProfitSince(customerId, sinceIso) {
@@ -457,155 +662,187 @@ export function accrueWheelSpinsForOrder(orderId) {
   };
 }
 
-function getActiveEpicPrizes() {
-  return db
-    .prepare(
-      `SELECT * FROM wheel_prizes
-       WHERE is_active = 1
-         AND rarity_code IN (
-           SELECT code FROM wheel_rarities WHERE is_elite = 1
-         )
-         AND (max_total = 0 OR issued_count < max_total)`,
-    )
-    .all();
+function getRarityRecord(rarityCode) {
+  return db.prepare("SELECT * FROM wheel_rarities WHERE code = ?").get(rarityCode);
 }
 
-function getActivePoolForPrize(prizeId) {
+function getValuableRarityRule() {
+  return getRarityRecord("valuable");
+}
+
+function getActiveValuablePool() {
   return db
     .prepare(
-      `SELECT * FROM wheel_epic_pools
-       WHERE prize_id = ? AND is_active = 1
+      `SELECT *
+       FROM wheel_rarity_pools
+       WHERE rarity_code = 'valuable' AND is_active = 1
        ORDER BY opened_at DESC
        LIMIT 1`,
     )
-    .get(prizeId);
+    .get();
 }
 
-function ensureActiveEpicPool(prize) {
-  const existing = getActivePoolForPrize(prize.id);
+function ensureActiveValuablePool() {
+  const valuable = getValuableRarityRule();
+  if (!valuable) return null;
+  const existing = getActiveValuablePool();
   if (existing) return existing;
 
   const id = generateId(POOL_ID_PREFIX);
-  const poolSize = Math.max(1, Math.floor(safeNumber(prize.epic_pool_size, 5)));
-  const thresholdByn = Math.max(0, safeNumber(prize.epic_pool_threshold_byn, 300));
+  const poolSize = Math.max(1, Math.floor(safeNumber(valuable.valuable_pool_size, 5)));
+  const thresholdByn = Math.max(1, safeNumber(valuable.valuable_threshold_byn, 300));
   db.prepare(
-    `INSERT INTO wheel_epic_pools (
-      id, prize_id, pool_size, threshold_byn, qualified_customers_json, is_active
-    ) VALUES (?, ?, ?, ?, '[]', 1)`,
-  ).run(id, prize.id, poolSize, thresholdByn);
+    `INSERT INTO wheel_rarity_pools (
+      id, rarity_code, pool_size, threshold_byn, qualified_customers_json, is_active
+    ) VALUES (?, 'valuable', ?, ?, '[]', 1)`,
+  ).run(id, poolSize, thresholdByn);
   logWheelEvent("pool_created", {
     pool_id: id,
-    prize_id: prize.id,
+    rarity_code: "valuable",
     pool_size: poolSize,
     threshold_byn: thresholdByn,
     qualified_count: 0,
   });
-  return db.prepare("SELECT * FROM wheel_epic_pools WHERE id = ?").get(id);
+  return db.prepare("SELECT * FROM wheel_rarity_pools WHERE id = ?").get(id);
 }
 
-function getEpicReferenceSince(prize, settings) {
+function getValuableReferenceSince(settings) {
   const lastClosed = db
     .prepare(
-      `SELECT closed_at FROM wheel_epic_pools
-       WHERE prize_id = ? AND is_active = 0
+      `SELECT closed_at FROM wheel_rarity_pools
+       WHERE rarity_code = 'valuable' AND is_active = 0
        ORDER BY closed_at DESC
        LIMIT 1`,
     )
-    .get(prize.id);
+    .get();
   if (lastClosed?.closed_at) return lastClosed.closed_at;
-  // Both sides of comparison must be in SQLite "YYYY-MM-DD HH:MM:SS"
-  // shape. start_collecting_at comes through getWheelSettings()
-  // which already normalizes to that format. Fall back to epoch zero
-  // in the same format if no marker is set.
   return settings.start_collecting_at || "1970-01-01 00:00:00";
 }
 
-/**
- * For each active epic prize, recompute pool membership for the given
- * customer. Idempotent. Should be called whenever an order transitions to
- * delivered/completed.
- */
 export function registerCustomerProfitForEpicPools(customerId) {
   if (!customerId) return { updated: 0 };
   const settings = getWheelSettings();
-  const epicPrizes = getActiveEpicPrizes();
-  let updatedPools = 0;
+  const valuable = getValuableRarityRule();
+  if (!valuable) return { updated: 0 };
 
-  for (const prize of epicPrizes) {
-    const pool = ensureActiveEpicPool(prize);
-    const since = getEpicReferenceSince(prize, settings);
-    const profit = getCustomerProfitSince(customerId, since);
-    if (profit < safeNumber(pool.threshold_byn, 0)) continue;
+  const pool = ensureActiveValuablePool();
+  if (!pool) return { updated: 0 };
 
-    const list = parseJson(pool.qualified_customers_json, []);
-    if (Array.isArray(list) && list.includes(customerId)) continue;
-    const nextList = Array.isArray(list) ? [...list, customerId] : [customerId];
-    db.prepare(
-      `UPDATE wheel_epic_pools SET qualified_customers_json = ? WHERE id = ?`,
-    ).run(JSON.stringify(nextList), pool.id);
-    updatedPools += 1;
-  }
+  const since = getValuableReferenceSince(settings);
+  const profit = getCustomerProfitSince(customerId, since);
+  if (profit < safeNumber(pool.threshold_byn, 0)) return { updated: 0 };
 
-  return { updated: updatedPools };
+  const list = parseJson(pool.qualified_customers_json, []);
+  if (Array.isArray(list) && list.includes(customerId)) return { updated: 0 };
+  const nextList = Array.isArray(list) ? [...list, customerId] : [customerId];
+  db.prepare(
+    `UPDATE wheel_rarity_pools SET qualified_customers_json = ? WHERE id = ?`,
+  ).run(JSON.stringify(nextList), pool.id);
+  return { updated: 1 };
 }
 
-function findEpicPrizeReadyForCustomer(customerId, isWholesale) {
-  const epicPrizes = getActiveEpicPrizes().filter((prize) => {
-    if (isWholesale) return Number(prize.is_for_wholesale || 0) === 1;
-    return Number(prize.is_for_retail || 0) === 1;
+function findValuablePrizeReadyForCustomer(customerId, isWholesale) {
+  const pool = getActiveValuablePool();
+  if (!pool) return null;
+  const list = parseJson(pool.qualified_customers_json, []);
+  if (!Array.isArray(list) || !list.includes(customerId)) return null;
+  if (list.length < safeNumber(pool.pool_size, 0)) return null;
+
+  const valuablePrizes = loadAllActivePrizes().filter((prize) => {
+    if (String(prize.rarity_code || "") !== "valuable") return false;
+    return isPrizeAvailableForContext(prize, { isWholesale });
   });
-  for (const prize of epicPrizes) {
-    const pool = getActivePoolForPrize(prize.id);
-    if (!pool) continue;
-    const list = parseJson(pool.qualified_customers_json, []);
-    if (!Array.isArray(list)) continue;
-    if (list.length < safeNumber(pool.pool_size, 0)) continue;
-    if (!list.includes(customerId)) continue;
-    return { prize, pool };
+  if (!valuablePrizes.length) return null;
+
+  return { prize: pickUniformRandom(valuablePrizes) || valuablePrizes[0], pool };
+}
+
+function getNormalRarityCandidates({ isWholesale }) {
+  const rarities = listRarities();
+  const prizesByRarity = groupPrizesByRarity(loadAllActivePrizes(), { isWholesale });
+  return rarities
+    .filter((rarity) => !["valuable", "nothing"].includes(String(rarity.code || "")))
+    .map((rarity) => {
+      const prizes = prizesByRarity.get(rarity.code) || [];
+      const chancePercent = Math.max(0, safeNumber(rarity.chancePercent, 0));
+      return {
+        rarity,
+        prizes,
+        chancePercent,
+        isAvailable: prizes.length > 0 && chancePercent > 0,
+      };
+    });
+}
+
+function getNothingPrizes({ isWholesale }) {
+  return loadAllActivePrizes().filter((prize) => {
+    if (String(prize.rarity_code || "") !== "nothing") return false;
+    return isPrizeAvailableForContext(prize, { isWholesale });
+  });
+}
+
+function pickPrizeWithinRarity(prizes, rng = Math.random) {
+  if (!Array.isArray(prizes) || !prizes.length) return null;
+  return pickUniformRandom(prizes, rng) || prizes[0];
+}
+
+function pickRarityDrivenPrize({ isWholesale = false, rng = Math.random }) {
+  const candidates = getNormalRarityCandidates({ isWholesale }).filter((entry) => entry.isAvailable);
+  const totalChance = candidates.reduce((sum, entry) => sum + entry.chancePercent, 0);
+  const clampedChance = Math.min(100, totalChance);
+  const nothingChance = Math.max(0, 100 - clampedChance);
+
+  const weightedEntries = [
+    ...candidates.map((entry) => ({
+      kind: "rarity",
+      chancePercent: entry.chancePercent,
+      rarity: entry.rarity,
+      prizes: entry.prizes,
+    })),
+    {
+      kind: "nothing",
+      chancePercent: nothingChance,
+      prizes: getNothingPrizes({ isWholesale }),
+    },
+  ].filter((entry) => entry.chancePercent > 0);
+
+  const selected = pickWeightedEntry(weightedEntries, (entry) => entry.chancePercent, rng);
+  if (!selected) {
+    return { prize: null, nothingChance, activeChanceTotal: clampedChance };
   }
-  return null;
+  if (selected.kind === "nothing") {
+    return {
+      prize: pickPrizeWithinRarity(selected.prizes, rng),
+      nothingChance,
+      activeChanceTotal: clampedChance,
+    };
+  }
+
+  return {
+    prize: pickPrizeWithinRarity(selected.prizes, rng),
+    nothingChance,
+    activeChanceTotal: clampedChance,
+    selectedRarity: selected.rarity,
+  };
 }
 
-function isEliteRarity(rarityCode, settings) {
-  return settings.elite_rarities.includes(rarityCode);
-}
-
-function pickPityPrize(prizes, settings, rng = Math.random) {
-  // Primary attempt: stay within the spirit of the pity rule and pick a
-  // non-elite, non-"nothing" reward.
+function pickPityPrize(prizes, rng = Math.random) {
   const primary = prizes.filter(
     (prize) =>
-      prize.rarity_code !== "nothing" &&
-      !isEliteRarity(prize.rarity_code, settings) &&
-      effectiveWeight(prize) > 0,
+      !["nothing", "valuable"].includes(String(prize.rarity_code || "")),
   );
-  const primaryPick = pickWeightedRandom(primary, rng);
+  const primaryPick = pickUniformRandom(primary, rng);
   if (primaryPick) return { prize: primaryPick, fallback: null };
 
   // Secondary fallback (S7): no qualifying non-elite reward exists. Better to
   // give the player anything other than another "nothing" than to drop them
   // back to weighted-random where "nothing" might fire yet again.
   const secondary = prizes.filter(
-    (prize) =>
-      prize.rarity_code !== "nothing" && effectiveWeight(prize) > 0,
+    (prize) => prize.rarity_code !== "nothing",
   );
-  const secondaryPick = pickWeightedRandom(secondary, rng);
+  const secondaryPick = pickUniformRandom(secondary, rng);
   if (secondaryPick) {
     return { prize: secondaryPick, fallback: "non_elite_pool_empty" };
-  }
-
-  // Tertiary fallback: even elites are exhausted. Try ANY active prize with
-  // weight > 0 (epic, anything). Worst case: nothing exists at all and the
-  // caller falls back to the literal "nothing" prize. We surface that
-  // through the second tuple element so the caller can log it.
-  const tertiary = prizes.filter(
-    (prize) =>
-      prize.rarity_code !== "nothing" &&
-      Number(prize.weight || 0) > 0,
-  );
-  const tertiaryPick = pickWeightedRandom(tertiary, rng);
-  if (tertiaryPick) {
-    return { prize: tertiaryPick, fallback: "no_candidates" };
   }
 
   return { prize: null, fallback: "no_candidates" };
@@ -716,7 +953,9 @@ export function spinWheelForCustomer({
       throw error;
     }
 
-    const prizes = loadActivePrizesForCustomer({ isWholesale });
+    const prizes = loadActivePrizesForCustomer({ isWholesale }).filter((prize) =>
+      isPrizeAvailableForContext(prize, { isWholesale }),
+    );
     if (!prizes.length) {
       const error = new Error("no_prizes_configured");
       error.code = "no_prizes_configured";
@@ -729,19 +968,19 @@ export function spinWheelForCustomer({
     let pityFallbackReason = null;
     let carriedOverCount = 0;
 
-    const epicReady = findEpicPrizeReadyForCustomer(customerId, isWholesale);
-    if (epicReady) {
+    const valuableReady = findValuablePrizeReadyForCustomer(customerId, isWholesale);
+    if (valuableReady) {
       // Race-safety re-check (B6): findEpicPrizeReadyForCustomer reads the
       // pool outside any lock. By the time we get here another concurrent
       // spin could have already closed this pool. Verify is_active = 1
       // inside the tx and only commit the epic release if it's still open.
       const stillActive = db
         .prepare(
-          "SELECT id FROM wheel_epic_pools WHERE id = ? AND is_active = 1 LIMIT 1",
+          "SELECT id FROM wheel_rarity_pools WHERE id = ? AND is_active = 1 LIMIT 1",
         )
-        .get(epicReady.pool.id);
+        .get(valuableReady.pool.id);
       if (stillActive) {
-        chosenPrize = epicReady.prize;
+        chosenPrize = valuableReady.prize;
         isEpicRelease = true;
       }
     }
@@ -750,7 +989,7 @@ export function spinWheelForCustomer({
       !chosenPrize &&
       Number(balance.consecutive_nothing || 0) >= settings.pity_threshold
     ) {
-      const pityResult = pickPityPrize(prizes, settings, rng);
+      const pityResult = pickPityPrize(prizes, rng);
       if (pityResult.prize) {
         chosenPrize = pityResult.prize;
         isPityRelease = true;
@@ -761,7 +1000,8 @@ export function spinWheelForCustomer({
     }
 
     if (!chosenPrize) {
-      chosenPrize = pickWeightedRandom(prizes, rng);
+      const rarityPick = pickRarityDrivenPrize({ isWholesale, rng });
+      chosenPrize = rarityPick.prize;
     }
 
     if (!chosenPrize) {
@@ -814,14 +1054,14 @@ export function spinWheelForCustomer({
        WHERE id = ?`,
     ).run(chosenPrize.id);
 
-    if (isEpicRelease && epicReady?.pool) {
+    if (isEpicRelease && valuableReady?.pool) {
       db.prepare(
-        `UPDATE wheel_epic_pools
+        `UPDATE wheel_rarity_pools
          SET is_active = 0,
              released_to_customer_id = ?,
              closed_at = DATETIME('now')
          WHERE id = ?`,
-      ).run(customerId, epicReady.pool.id);
+      ).run(customerId, valuableReady.pool.id);
       // E5: a customer can be qualified in several active epic pools at
       // once (different prizes, different release thresholds). After
       // they win one, the other pools must drop them — otherwise the
@@ -832,15 +1072,15 @@ export function spinWheelForCustomer({
       // observe a half-cleaned state.
       const otherPools = db
         .prepare(
-          "SELECT id, qualified_customers_json FROM wheel_epic_pools WHERE is_active = 1 AND id != ?",
+          "SELECT id, qualified_customers_json FROM wheel_rarity_pools WHERE rarity_code = 'valuable' AND is_active = 1 AND id != ?",
         )
-        .all(epicReady.pool.id);
+        .all(valuableReady.pool.id);
       for (const otherPool of otherPools) {
         const list = parseJson(otherPool.qualified_customers_json, []);
         if (!Array.isArray(list) || !list.includes(customerId)) continue;
         const filtered = list.filter((id) => id !== customerId);
         db.prepare(
-          "UPDATE wheel_epic_pools SET qualified_customers_json = ? WHERE id = ?",
+          "UPDATE wheel_rarity_pools SET qualified_customers_json = ? WHERE id = ?",
         ).run(JSON.stringify(filtered), otherPool.id);
       }
 
@@ -871,7 +1111,7 @@ export function spinWheelForCustomer({
         // the next draw, and gacha pity counters carry across banners of
         // the same type. A player who paid into eligibility keeps that
         // eligibility until they actually win.
-        const oldQualified = parseJson(epicReady.pool.qualified_customers_json, []);
+        const oldQualified = parseJson(valuableReady.pool.qualified_customers_json, []);
         const carryOver = Array.isArray(oldQualified)
           ? oldQualified.filter((id) => id && id !== customerId)
           : [];
@@ -889,26 +1129,26 @@ export function spinWheelForCustomer({
           // explicitly chose to fix.
           const carryOverPoolSize = Math.max(1, carryOver.length);
           db.prepare(
-            `INSERT INTO wheel_epic_pools (
-              id, prize_id, pool_size, threshold_byn,
+            `INSERT INTO wheel_rarity_pools (
+              id, rarity_code, pool_size, threshold_byn,
               qualified_customers_json, is_active, opened_at
             ) VALUES (?, ?, ?, ?, ?, 1, DATETIME('now'))`,
           ).run(
             newPoolId,
-            chosenPrize.id,
+            "valuable",
             carryOverPoolSize,
-            Math.max(0, safeNumber(epicReady.pool.threshold_byn, 0)),
+            Math.max(0, safeNumber(valuableReady.pool.threshold_byn, 0)),
             JSON.stringify(carryOver),
           );
           carriedOverCount = carryOver.length;
           logWheelEvent("pool_created", {
             pool_id: newPoolId,
-            prize_id: chosenPrize.id,
+            rarity_code: "valuable",
             pool_size: carryOverPoolSize,
-            threshold_byn: Math.max(0, safeNumber(epicReady.pool.threshold_byn, 0)),
+            threshold_byn: Math.max(0, safeNumber(valuableReady.pool.threshold_byn, 0)),
             qualified_count: carryOver.length,
             reason: "carry_over",
-            previous_pool_id: epicReady.pool.id,
+            previous_pool_id: valuableReady.pool.id,
           });
         }
       }
@@ -930,9 +1170,9 @@ export function spinWheelForCustomer({
     // P3: structured event log emitted once per successful spin. Emit
     // AFTER all DB writes so a row in the log corresponds to a row in
     // wheel_spins (no orphan logs from rolled-back transactions).
-    if (isEpicRelease && epicReady?.pool) {
+    if (isEpicRelease && valuableReady?.pool) {
       logWheelEvent("pool_closed", {
-        pool_id: epicReady.pool.id,
+        pool_id: valuableReady.pool.id,
         prize_id: chosenPrize.id,
         winner_id: customerId,
         carryover_size: carriedOverCount,
@@ -941,7 +1181,7 @@ export function spinWheelForCustomer({
         customer_id: customerId,
         prize_id: chosenPrize.id,
         rarity_code: chosenPrize.rarity_code,
-        pool_id: epicReady.pool.id,
+        pool_id: valuableReady.pool.id,
         carried_over_count: carriedOverCount,
       });
     }
@@ -977,8 +1217,33 @@ export function spinWheelForCustomer({
   return tx();
 }
 
-export function getCustomerWheelState(customerId, { isWholesale = false } = {}) {
+export function getCustomerWheelState(customerId, { isWholesale = false, telegramUsername = "" } = {}) {
   const settings = getWheelSettings();
+  const access = getWheelAccessState(telegramUsername, settings);
+  if (!access.is_allowed) {
+    return {
+      balance: {
+        spins_available: 0,
+        accumulated_byn: 0,
+        threshold_byn: isWholesale ? settings.spin_byn_wholesale : settings.spin_byn_retail,
+        progress_percent: 0,
+        consecutive_nothing: 0,
+      },
+      prizes: [],
+      rarities: [],
+      feed: [],
+      my_active_prizes: [],
+      feed_consent: false,
+      feed_consent_required: false,
+      access,
+      settings: {
+        pity_threshold: settings.pity_threshold,
+        spin_byn_retail: settings.spin_byn_retail,
+        spin_byn_wholesale: settings.spin_byn_wholesale,
+        elite_rarities: settings.elite_rarities,
+      },
+    };
+  }
   const balance = customerId ? ensureCustomerBalance(customerId) : null;
   // Q6: feed_consent_required tells the frontend whether to show the
   // first-visit modal. We treat consent as "answered once" — anything
@@ -1011,9 +1276,36 @@ export function getCustomerWheelState(customerId, { isWholesale = false } = {}) 
     : settings.spin_byn_retail;
 
   const rarities = listRarities();
+  const availablePrizes = loadActivePrizesForCustomer({ isWholesale }).filter((prize) =>
+    isPrizeAvailableForContext(prize, { isWholesale }),
+  );
+  const prizesByRarity = groupPrizesByRarity(loadAllActivePrizes(), { isWholesale });
   const rarityByCode = new Map(rarities.map((rarity) => [rarity.code, rarity]));
 
-  const prizes = loadActivePrizesForCustomer({ isWholesale }).map((prize) => {
+  const normalChanceTotal = rarities
+    .filter((rarity) => !["nothing", "valuable"].includes(String(rarity.code || "")))
+    .filter((rarity) => (prizesByRarity.get(rarity.code) || []).length > 0)
+    .reduce((sum, rarity) => sum + Math.max(0, safeNumber(rarity.chancePercent, 0)), 0);
+
+  const rarityPayload = rarities.map((rarity) => {
+    const prizesForRarity = prizesByRarity.get(rarity.code) || [];
+    const chancePercent = ["nothing", "valuable"].includes(String(rarity.code || ""))
+      ? 0
+      : Math.max(0, safeNumber(rarity.chancePercent, 0));
+    return {
+      code: rarity.code,
+      label: rarity.label,
+      bgColor: rarity.bgColor,
+      textColor: rarity.textColor,
+      isElite: Boolean(rarity.isElite),
+      chance_percent:
+        rarity.code === "nothing" ? Math.max(0, 100 - Math.min(100, normalChanceTotal)) : chancePercent,
+      is_available: prizesForRarity.length > 0 || rarity.code === "nothing",
+      prize_count: prizesForRarity.length,
+    };
+  });
+
+  const prizes = availablePrizes.map((prize) => {
     const rarity = rarityByCode.get(prize.rarity_code) || null;
     return {
       id: prize.id,
@@ -1027,6 +1319,9 @@ export function getCustomerWheelState(customerId, { isWholesale = false } = {}) 
             bgColor: rarity.bgColor,
             textColor: rarity.textColor,
             isElite: Boolean(rarity.isElite),
+            chance_percent: rarity.code === "nothing"
+              ? Math.max(0, 100 - Math.min(100, normalChanceTotal))
+              : Math.max(0, safeNumber(rarity.chancePercent, 0)),
           }
         : null,
       weight: Number(prize.weight || 0),
@@ -1137,16 +1432,18 @@ export function getCustomerWheelState(customerId, { isWholesale = false } = {}) 
       consecutive_nothing: balance ? Number(balance.consecutive_nothing || 0) : 0,
     },
     prizes,
-    rarities,
+    rarities: rarityPayload,
     feed,
     my_active_prizes: myActivePrizes,
     feed_consent: feedConsent,
     feed_consent_required: feedConsentRequired,
+    access,
     settings: {
       pity_threshold: settings.pity_threshold,
       spin_byn_retail: settings.spin_byn_retail,
       spin_byn_wholesale: settings.spin_byn_wholesale,
       elite_rarities: settings.elite_rarities,
+      wheel_access_usernames: settings.wheel_access_usernames,
     },
   };
 }
@@ -1205,7 +1502,76 @@ export function listAdminPrizes() {
       is_active: Boolean(prize.is_active),
       is_for_retail: Boolean(prize.is_for_retail),
       is_for_wholesale: Boolean(prize.is_for_wholesale),
+      is_exhausted: isPrizeExhausted(prize),
+      template_available:
+        String(prize.rarity_code || "") === "nothing"
+          ? true
+          : getPromoTemplateAvailability(prize.promo_template_id),
     }));
+}
+
+export function listAdminRarityRules() {
+  const issuedByRarity = new Map(
+    db
+      .prepare(
+        `SELECT rarity_code, COUNT(*) AS issued_count
+         FROM wheel_spins
+         GROUP BY rarity_code`,
+      )
+      .all()
+      .map((row) => [row.rarity_code, Number(row.issued_count || 0)]),
+  );
+  const activePrizeCounts = new Map(
+    db
+      .prepare(
+        `SELECT rarity_code, COUNT(*) AS prize_count
+         FROM wheel_prizes
+         WHERE is_active = 1
+         GROUP BY rarity_code`,
+      )
+      .all()
+      .map((row) => [row.rarity_code, Number(row.prize_count || 0)]),
+  );
+  const issuablePrizeCounts = new Map(
+    db
+      .prepare(
+        `SELECT rarity_code, COUNT(*) AS prize_count
+         FROM wheel_prizes
+         WHERE is_active = 1
+           AND (max_total = 0 OR issued_count < max_total)
+         GROUP BY rarity_code`,
+      )
+      .all()
+      .map((row) => [row.rarity_code, Number(row.prize_count || 0)]),
+  );
+  const hotPool = getActiveValuablePool();
+  const hotQualified = Array.isArray(parseJson(hotPool?.qualified_customers_json, []))
+    ? parseJson(hotPool?.qualified_customers_json, [])
+    : [];
+
+  const rarities = listRarities();
+  const normalChanceTotal = rarities
+    .filter((rarity) => !["nothing", "valuable"].includes(String(rarity.code || "")))
+    .reduce((sum, rarity) => sum + Math.max(0, safeNumber(rarity.chancePercent, 0)), 0);
+
+  return rarities.map((rarity) => ({
+    ...rarity,
+    chancePercent:
+      rarity.code === "nothing" ? Math.max(0, 100 - Math.min(100, normalChanceTotal)) : Math.max(0, safeNumber(rarity.chancePercent, 0)),
+    chanceIsDerived: rarity.code === "nothing",
+    prizeCount: activePrizeCounts.get(rarity.code) || 0,
+    issuablePrizeCount: issuablePrizeCounts.get(rarity.code) || 0,
+    issuedCount: issuedByRarity.get(rarity.code) || 0,
+    isAvailable: rarity.code === "nothing" ? true : (issuablePrizeCounts.get(rarity.code) || 0) > 0,
+    valuablePool: rarity.code === "valuable"
+      ? {
+          poolSize: Math.max(1, safeNumber(rarity.valuablePoolSize, 5)),
+          thresholdByn: Math.max(1, safeNumber(rarity.valuableThresholdByn, 300)),
+          qualifiedCount: hotQualified.length,
+          isHot: hotPool ? hotQualified.length >= Math.max(1, safeNumber(hotPool.pool_size, 0)) : false,
+        }
+      : null,
+  }));
 }
 
 /**
@@ -1243,6 +1609,22 @@ export function validatePrizePayload(payload, { isUpdate = false, existing = nul
       .prepare("SELECT id FROM promo_codes WHERE id = ? LIMIT 1")
       .get(String(data.promo_template_id));
     if (!template) errors.push("promo_template_not_found");
+  }
+
+  const rarityCodeForPromoRule =
+    data.rarity_code !== undefined
+      ? String(data.rarity_code || "").trim()
+      : existing
+        ? String(existing.rarity_code || "").trim()
+        : "";
+  const promoTemplateIdForPromoRule =
+    data.promo_template_id !== undefined
+      ? data.promo_template_id
+      : existing
+        ? existing.promo_template_id
+        : null;
+  if (rarityCodeForPromoRule && rarityCodeForPromoRule !== "nothing" && !promoTemplateIdForPromoRule) {
+    errors.push("promo_template_required_for_prize");
   }
 
   // is_for_retail / is_for_wholesale: at least one must be truthy.
@@ -1345,6 +1727,19 @@ export function validateWheelSettingsPayload(payload) {
       data.elite_rarities !== undefined ? data.elite_rarities : data.elite_rarities_json;
     if (raw !== null && raw !== undefined && !Array.isArray(raw)) {
       errors.push("elite_rarities_must_be_array");
+    }
+  }
+
+  if (
+    Object.prototype.hasOwnProperty.call(data, "wheel_access_usernames") ||
+    Object.prototype.hasOwnProperty.call(data, "wheel_access_usernames_json")
+  ) {
+    const raw =
+      data.wheel_access_usernames !== undefined
+        ? data.wheel_access_usernames
+        : data.wheel_access_usernames_json;
+    if (raw !== null && raw !== undefined && !Array.isArray(raw)) {
+      errors.push("wheel_access_usernames_must_be_array");
     }
   }
 
@@ -1499,10 +1894,27 @@ export function deletePrize(id) {
   // membership. Closing the pool inside the same call ensures the
   // re-enable path always starts from a clean slate.
   const tx = db.transaction(() => {
+    const existing = db.prepare("SELECT * FROM wheel_prizes WHERE id = ?").get(id);
     db.prepare("UPDATE wheel_prizes SET is_active = 0 WHERE id = ?").run(id);
     db.prepare(
       "UPDATE wheel_epic_pools SET is_active = 0, closed_at = DATETIME('now') WHERE prize_id = ? AND is_active = 1",
     ).run(id);
+    if (String(existing?.rarity_code || "") === "valuable") {
+      const stillAvailable = loadAllActivePrizes().some((prize) =>
+        String(prize.rarity_code || "") === "valuable" &&
+        prize.id !== id &&
+        isPrizeAvailableForContext(prize, { isWholesale: false }),
+      ) || loadAllActivePrizes().some((prize) =>
+        String(prize.rarity_code || "") === "valuable" &&
+        prize.id !== id &&
+        isPrizeAvailableForContext(prize, { isWholesale: true }),
+      );
+      if (!stillAvailable) {
+        db.prepare(
+          "UPDATE wheel_rarity_pools SET is_active = 0, closed_at = DATETIME('now') WHERE rarity_code = 'valuable' AND is_active = 1",
+        ).run();
+      }
+    }
   });
   tx();
 }
@@ -1568,13 +1980,12 @@ export function getAdminDashboard() {
     )
     .all();
 
-  const epicPools = db
+  const rarityPools = db
     .prepare(
-      `SELECT ep.*, p.title AS prize_title
-       FROM wheel_epic_pools ep
-       JOIN wheel_prizes p ON p.id = ep.prize_id
-       WHERE ep.is_active = 1
-       ORDER BY ep.opened_at DESC`,
+      `SELECT *
+       FROM wheel_rarity_pools
+       WHERE is_active = 1
+       ORDER BY opened_at DESC`,
     )
     .all()
     .map((pool) => ({
@@ -1598,6 +2009,8 @@ export function getAdminDashboard() {
     )
     .all();
 
+  const rarityRules = listAdminRarityRules();
+
   return {
     totals: {
       total_spins: Number(totals?.total_spins || 0),
@@ -1606,7 +2019,8 @@ export function getAdminDashboard() {
       pity_releases: Number(totals?.pity_releases || 0),
     },
     rarity_breakdown: rarityBreakdown,
-    active_epic_pools: epicPools,
+    active_epic_pools: rarityPools,
     prizes_issued: prizesIssued,
+    rarity_rules: rarityRules,
   };
 }

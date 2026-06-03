@@ -15,11 +15,29 @@ process.env.NODE_ENV = "test";
 process.env.ALLOW_INSECURE_TELEGRAM_AUTH = "0";
 
 const { initDb, db } = await import("../db.js");
+const { seedDefaultWheelData } = await import("../migrations/add_wheel_prizes.js");
 const { wheelRouter, isWheelIdempotencyConflict } = await import("../routes/wheel.js");
-const { createPrize, updatePrize } = await import("../wheel/wheel-service.js");
+const { createPrize, updatePrize, updateWheelSettings, getWheelSettings } = await import("../wheel/wheel-service.js");
+const { issueToken } = await import("../auth.js");
 const { validatePromoCode } = await import("../promo-code-service.js");
 
+const DEFAULT_TEST_ALLOWLIST = [
+  "wheel_state_1",
+  "wheel_wh_b4",
+  "wheel_wh_real",
+  "wheel_my_prizes",
+  "wheel_no_consent",
+  "wheel_yes_consent",
+  "wheel_first_visit",
+  "wheel_idem",
+  "wheel_bad_idem",
+  "wheel_parallel_idem",
+  "wheel_no_prizes",
+  "wheel_idem_real",
+];
+
 initDb();
+updateWheelSettings({ wheel_access_usernames: DEFAULT_TEST_ALLOWLIST });
 
 const app = express();
 app.use(express.json());
@@ -30,6 +48,9 @@ const server = await new Promise((resolve) => {
 });
 const port = server.address().port;
 const baseUrl = `http://127.0.0.1:${port}`;
+const adminHeaders = {
+  Authorization: `Bearer ${issueToken("test-admin")}`,
+};
 
 async function requestJson(url, options = {}) {
   const response = await fetch(`${baseUrl}${url}`, options);
@@ -47,13 +68,29 @@ function ensureCustomer(id, telegramId, username, { consent = 1 } = {}) {
 }
 
 function insertPrize(prizeId, rarityCode, isForRetail, isForWholesale) {
+  const templateId = rarityCode === "nothing" ? null : `promo_${prizeId}`;
+  if (templateId) {
+    db.prepare(
+      `INSERT OR IGNORE INTO promo_codes (
+        id, code, description, discount_type, discount_value, min_order_amount,
+        max_uses, current_uses, active, has_gift, is_wheel_template, created_at
+      ) VALUES (?, ?, ?, 'fixed', 10, 0, 0, 0, 1, 0, 1, DATETIME('now'))`,
+    ).run(templateId, `CODE_${prizeId.toUpperCase()}`, templateId);
+  }
   db.prepare(
     `INSERT OR IGNORE INTO wheel_prizes (
       id, rarity_code, title, description, weight, max_total, issued_count,
-      is_for_retail, is_for_wholesale, promo_validity_days, epic_pool_size,
+      is_for_retail, is_for_wholesale, promo_template_id, promo_validity_days, epic_pool_size,
       epic_pool_threshold_byn, is_active, sort_order, created_at
-    ) VALUES (?, ?, ?, NULL, 1, 0, 0, ?, ?, 90, 5, 300, 1, 0, DATETIME('now'))`,
-  ).run(prizeId, rarityCode, `Prize ${rarityCode}`, isForRetail, isForWholesale);
+    ) VALUES (?, ?, ?, NULL, 1, 0, 0, ?, ?, ?, 90, 5, 300, 1, 0, DATETIME('now'))`,
+  ).run(prizeId, rarityCode, `Prize ${rarityCode}`, isForRetail, isForWholesale, templateId);
+  if (!["nothing", "valuable"].includes(rarityCode)) {
+    db.prepare(
+      `UPDATE wheel_rarities
+       SET chance_percent = CASE WHEN chance_percent <= 0 THEN 100 ELSE chance_percent END
+       WHERE code = ?`,
+    ).run(rarityCode);
+  }
 }
 
 function insertSpin(spinId, customerId, prizeId, rarityCode) {
@@ -161,6 +198,151 @@ async function testValidatedWholesaleHeadersUnlockWholesalePool() {
     ids.includes("p_wholesale_real"),
     "wholesale prize must be visible to a validated wholesale request",
   );
+}
+
+async function testWheelAccessAllowlistLocksStateForOutsiders() {
+  ensureCustomer("cust_locked_out", "777350", "wheel_locked_out");
+  updateWheelSettings({ wheel_access_usernames: ["wheel_tester_only"] });
+
+  const { response, data } = await requestJson("/api/wheel/state", {
+    method: "GET",
+    headers: telegramHeaders({ telegram_id: "777350", telegram_username: "wheel_locked_out" }),
+  });
+  assert.equal(response.status, 200);
+  assert.equal(data?.access?.is_allowed, false, "outsider must be denied");
+  assert.equal(data?.access?.is_limited, true, "limited rollout flag must be exposed");
+  assert.deepEqual(data?.prizes || [], [], "outsider must not receive prize pool");
+  assert.deepEqual(data?.feed || [], [], "outsider must not receive feed");
+  updateWheelSettings({ wheel_access_usernames: [] });
+}
+
+async function testWheelAccessAllowlistLetsTesterInAndBlocksSpinForOutsider() {
+  ensureCustomer("cust_locked_in", "777351", "wheel_tester_only");
+  ensureCustomer("cust_locked_spin", "777352", "wheel_spin_blocked");
+  updateWheelSettings({ wheel_access_usernames: ["wheel_tester_only"] });
+
+  const allowedState = await requestJson("/api/wheel/state", {
+    method: "GET",
+    headers: telegramHeaders({ telegram_id: "777351", telegram_username: "wheel_tester_only" }),
+  });
+  assert.equal(allowedState.response.status, 200);
+  assert.equal(allowedState.data?.access?.is_allowed, true, "whitelisted tester should be allowed");
+
+  const blockedSpin = await requestJson("/api/wheel/spin", {
+    method: "POST",
+    headers: {
+      ...telegramHeaders({ telegram_id: "777352", telegram_username: "wheel_spin_blocked" }),
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({}),
+  });
+  assert.equal(blockedSpin.response.status, 403);
+  assert.equal(blockedSpin.data?.error, "wheel_locked");
+  updateWheelSettings({ wheel_access_usernames: [] });
+}
+
+async function testWheelAccessAllowlistBlocksConsentAndMyPrizesForOutsider() {
+  ensureCustomer("cust_locked_actions", "777353", "wheel_locked_actions", { consent: 0 });
+  insertPrize("p_locked_actions", "common", 1, 0);
+  insertSpin("spin_locked_actions", "cust_locked_actions", "p_locked_actions", "common");
+  updateWheelSettings({ wheel_access_usernames: ["wheel_tester_only"] });
+
+  const blockedConsent = await requestJson("/api/wheel/feed-consent", {
+    method: "POST",
+    headers: telegramHeaders(
+      { telegram_id: "777353", telegram_username: "wheel_locked_actions" },
+      { "Content-Type": "application/json" },
+    ),
+    body: JSON.stringify({ consent: true }),
+  });
+  assert.equal(blockedConsent.response.status, 403);
+  assert.equal(blockedConsent.data?.error, "wheel_locked");
+
+  const customer = db
+    .prepare("SELECT wheel_feed_consent FROM customers WHERE id = ?")
+    .get("cust_locked_actions");
+  assert.equal(customer.wheel_feed_consent, 0, "blocked consent update must not mutate customer");
+
+  const blockedPrizes = await requestJson("/api/wheel/my-prizes", {
+    method: "GET",
+    headers: telegramHeaders({ telegram_id: "777353", telegram_username: "wheel_locked_actions" }),
+  });
+  assert.equal(blockedPrizes.response.status, 403);
+  assert.equal(blockedPrizes.data?.error, "wheel_locked");
+  updateWheelSettings({ wheel_access_usernames: [] });
+}
+
+function testWheelSeedRestoresRequiredAllowlistAfterRestart() {
+  updateWheelSettings({ wheel_access_usernames: [] });
+  seedDefaultWheelData();
+  const row = db
+    .prepare("SELECT value FROM wheel_settings WHERE key = 'wheel_access_usernames_json'")
+    .get();
+  const usernames = JSON.parse(String(row?.value || "[]"));
+  assert.deepEqual(
+    usernames,
+    ["dmitriy_mityuk", "rk0ff"],
+    "seed on restart must restore required wheel allowlist usernames",
+  );
+  updateWheelSettings({ wheel_access_usernames: [] });
+}
+
+function testWheelSettingsAlwaysExposeRequiredAllowlist() {
+  updateWheelSettings({ wheel_access_usernames: [] });
+  const settings = getWheelSettings();
+  assert.deepEqual(
+    settings.wheel_access_usernames,
+    ["dmitriy_mityuk", "rk0ff"],
+    "wheel settings response must include required usernames even if DB row was emptied",
+  );
+  updateWheelSettings({ wheel_access_usernames: DEFAULT_TEST_ALLOWLIST });
+}
+
+async function testMyPrizesStatusFiltersExcludeNothingAndSplitLifecycle() {
+  ensureCustomer("cust_my_prizes", "777354", "wheel_my_prizes", { consent: 1 });
+  insertPrize("p_my_common", "common", 1, 0);
+  insertPrize("p_my_nothing", "nothing", 1, 0);
+  insertSpin("spin_my_active", "cust_my_prizes", "p_my_common", "common");
+  insertSpin("spin_my_used", "cust_my_prizes", "p_my_common", "common");
+  insertSpin("spin_my_expired", "cust_my_prizes", "p_my_common", "common");
+  insertSpin("spin_my_nothing", "cust_my_prizes", "p_my_nothing", "nothing");
+  db.prepare(
+    `UPDATE wheel_spins
+     SET generated_promo_code = 'ACTIVE-CODE',
+         promo_valid_until = DATE('now', '+1 day')
+     WHERE id = 'spin_my_active'`,
+  ).run();
+  db.prepare(
+    `UPDATE wheel_spins
+     SET generated_promo_code = 'USED-CODE',
+         promo_valid_until = DATE('now', '+1 day'),
+         prize_used_at = DATETIME('now')
+     WHERE id = 'spin_my_used'`,
+  ).run();
+  db.prepare(
+    `UPDATE wheel_spins
+     SET generated_promo_code = 'EXPIRED-CODE',
+         promo_valid_until = DATE('now', '-1 day')
+     WHERE id = 'spin_my_expired'`,
+  ).run();
+
+  const headers = telegramHeaders({ telegram_id: "777354", telegram_username: "wheel_my_prizes" });
+  const all = await requestJson("/api/wheel/my-prizes?status=all", { method: "GET", headers });
+  assert.equal(all.response.status, 200);
+  assert.deepEqual(
+    (all.data.prizes || []).map((row) => row.spin_id).sort(),
+    ["spin_my_active", "spin_my_expired", "spin_my_used"].sort(),
+    "my-prizes must exclude nothing results from all status",
+  );
+
+  const active = await requestJson("/api/wheel/my-prizes?status=active", { method: "GET", headers });
+  assert.deepEqual((active.data.prizes || []).map((row) => row.spin_id), ["spin_my_active"]);
+
+  const used = await requestJson("/api/wheel/my-prizes?status=used", { method: "GET", headers });
+  assert.deepEqual((used.data.prizes || []).map((row) => row.spin_id), ["spin_my_used"]);
+
+  const expired = await requestJson("/api/wheel/my-prizes?status=expired", { method: "GET", headers });
+  assert.deepEqual((expired.data.prizes || []).map((row) => row.spin_id), ["spin_my_expired"]);
 }
 
 // C1-CR regression: when CRM creates a prize that points at a normal
@@ -315,6 +497,49 @@ async function testPartialUpdateRejectsBothPoolsDisabled() {
   }
 }
 
+async function testPrizeRequiresPromoTemplateUnlessNothing() {
+  const { validatePrizePayload } = await import("../wheel/wheel-service.js");
+
+  const createResult = validatePrizePayload({
+    rarity_code: "common",
+    title: "No promo template",
+    is_for_retail: true,
+    is_for_wholesale: false,
+  });
+  assert.ok(
+    createResult.errors.includes("promo_template_required_for_prize"),
+    "non-nothing prize without promo template must fail validation",
+  );
+
+  const nothingResult = validatePrizePayload({
+    rarity_code: "nothing",
+    title: "Nothing prize",
+    is_for_retail: true,
+    is_for_wholesale: false,
+  });
+  assert.ok(
+    !nothingResult.errors.includes("promo_template_required_for_prize"),
+    "nothing prize may omit promo template",
+  );
+
+  const existing = createPrize({
+    rarity_code: "common",
+    title: "Has promo template",
+    weight: 1,
+    is_for_retail: true,
+    is_for_wholesale: false,
+    promo_template_id: "promo_template_old",
+  });
+  const updateResult = validatePrizePayload(
+    { promo_template_id: null },
+    { isUpdate: true, existing },
+  );
+  assert.ok(
+    updateResult.errors.includes("promo_template_required_for_prize"),
+    "removing promo template from non-nothing prize must fail validation",
+  );
+}
+
 // Q6 regression: a customer with wheel_feed_consent = 0 must be excluded
 // from the public live feed even if they have winning spins on file.
 // PII protection: do not show first_name + photo without explicit
@@ -400,6 +625,7 @@ async function testFeedConsentRequiredFlagFlips() {
 async function testSpinIsIdempotentByKey() {
   ensureCustomer("cust_idem", "777447", "wheel_idem", { consent: 1 });
   // Seed a prize the spin can land on.
+  insertPrize("p_idem_nothing", "nothing", 1, 0);
   insertPrize("p_idem_common", "common", 1, 0);
   // Give the customer 2 spins so we'd notice a double-spend.
   db.prepare(
@@ -469,6 +695,108 @@ async function testSpinIsIdempotentByKey() {
     .prepare("SELECT spins_available FROM wheel_customer_balances WHERE customer_id = ?")
     .get("cust_idem");
   assert.equal(balanceFinal.spins_available, 0, "fresh key consumes a spin");
+}
+
+async function testSpinRejectsInvalidIdempotencyKeyWithoutSpending() {
+  ensureCustomer("cust_bad_idem", "777449", "wheel_bad_idem", { consent: 1 });
+  insertPrize("p_bad_idem_nothing", "nothing", 1, 0);
+  db.prepare(
+    `INSERT OR REPLACE INTO wheel_customer_balances (
+      customer_id, spins_available, accumulated_retail_byn,
+      accumulated_wholesale_byn, consecutive_nothing, last_updated_at
+    ) VALUES (?, 1, 0, 0, 0, DATETIME('now'))`,
+  ).run("cust_bad_idem");
+
+  const { response, data } = await requestJson("/api/wheel/spin", {
+    method: "POST",
+    headers: telegramHeaders(
+      { telegram_id: "777449", telegram_username: "wheel_bad_idem" },
+      { "Idempotency-Key": "short" },
+    ),
+    body: JSON.stringify({}),
+  });
+
+  assert.equal(response.status, 400);
+  assert.equal(data?.error, "invalid_idempotency_key");
+  const balance = db
+    .prepare("SELECT spins_available FROM wheel_customer_balances WHERE customer_id = ?")
+    .get("cust_bad_idem");
+  assert.equal(balance.spins_available, 1, "invalid key must not spend a spin");
+  const spins = db
+    .prepare("SELECT COUNT(*) AS count FROM wheel_spins WHERE customer_id = ?")
+    .get("cust_bad_idem");
+  assert.equal(spins.count, 0, "invalid key must not create a spin");
+}
+
+async function testParallelDifferentIdempotencyKeysDoNotOverspendOneSpin() {
+  ensureCustomer("cust_parallel_idem", "777450", "wheel_parallel_idem", { consent: 1 });
+  insertPrize("p_parallel_nothing", "nothing", 1, 0);
+  insertPrize("p_parallel_common", "common", 1, 0);
+  db.prepare(
+    `INSERT OR REPLACE INTO wheel_customer_balances (
+      customer_id, spins_available, accumulated_retail_byn,
+      accumulated_wholesale_byn, consecutive_nothing, last_updated_at
+    ) VALUES (?, 1, 0, 0, 0, DATETIME('now'))`,
+  ).run("cust_parallel_idem");
+
+  const baseAuth = { telegram_id: "777450", telegram_username: "wheel_parallel_idem" };
+  const [first, second] = await Promise.all([
+    requestJson("/api/wheel/spin", {
+      method: "POST",
+      headers: telegramHeaders(baseAuth, { "Idempotency-Key": "parallel-key-one-123456" }),
+      body: JSON.stringify({}),
+    }),
+    requestJson("/api/wheel/spin", {
+      method: "POST",
+      headers: telegramHeaders(baseAuth, { "Idempotency-Key": "parallel-key-two-123456" }),
+      body: JSON.stringify({}),
+    }),
+  ]);
+
+  const statuses = [first.response.status, second.response.status].sort();
+  assert.deepEqual(statuses, [200, 400], "one spin should succeed and one should fail");
+  const errors = [first.data?.error, second.data?.error].filter(Boolean);
+  assert.ok(errors.includes("not_enough_spins"), "second request must fail with not_enough_spins");
+
+  const balance = db
+    .prepare("SELECT spins_available FROM wheel_customer_balances WHERE customer_id = ?")
+    .get("cust_parallel_idem");
+  assert.equal(balance.spins_available, 0, "parallel requests must not overspend below zero");
+  const spins = db
+    .prepare("SELECT COUNT(*) AS count FROM wheel_spins WHERE customer_id = ?")
+    .get("cust_parallel_idem");
+  assert.equal(spins.count, 1, "only one spin row may be created");
+}
+
+async function testSpinNoPrizesConfiguredDoesNotSpendSpin() {
+  ensureCustomer("cust_no_prizes", "777451", "wheel_no_prizes", { consent: 1 });
+  db.prepare(
+    `INSERT OR REPLACE INTO wheel_customer_balances (
+      customer_id, spins_available, accumulated_retail_byn,
+      accumulated_wholesale_byn, consecutive_nothing, last_updated_at
+    ) VALUES (?, 1, 0, 0, 0, DATETIME('now'))`,
+  ).run("cust_no_prizes");
+  db.prepare("UPDATE wheel_prizes SET is_active = 0").run();
+
+  const { response, data } = await requestJson("/api/wheel/spin", {
+    method: "POST",
+    headers: telegramHeaders(
+      { telegram_id: "777451", telegram_username: "wheel_no_prizes" },
+      { "Idempotency-Key": "no-prizes-key-123456" },
+    ),
+    body: JSON.stringify({}),
+  });
+
+  assert.equal(response.status, 400);
+  assert.equal(data?.error, "no_prizes_configured");
+  const balance = db
+    .prepare("SELECT spins_available FROM wheel_customer_balances WHERE customer_id = ?")
+    .get("cust_no_prizes");
+  assert.equal(balance.spins_available, 1, "failed spin must not spend balance");
+  const spins = db
+    .prepare("SELECT COUNT(*) AS count FROM wheel_spins WHERE customer_id = ?")
+    .get("cust_no_prizes");
+  assert.equal(spins.count, 0, "failed spin must not create a row");
 }
 
 // Round 4: the catch-branch predicate `isWheelIdempotencyConflict`
@@ -593,24 +921,202 @@ async function testRealUniqueViolationOnIdempotencyKeyMatchesPredicate() {
   );
 }
 
+async function testRarityChanceSumOver100Rejected() {
+  const { validateRarityRulePayload, updateRarityRule } = await import("../wheel/wheel-service.js");
+  db.prepare(
+    "UPDATE wheel_rarities SET chance_percent = 0 WHERE code NOT IN ('valuable', 'nothing')",
+  ).run();
+
+  const invalidNegative = validateRarityRulePayload("common", { chance_percent: -1 });
+  assert.ok(
+    invalidNegative.errors.includes("chance_percent_invalid"),
+    "negative rarity chance must be rejected",
+  );
+
+  const invalidOver100Single = validateRarityRulePayload("common", { chance_percent: 101 });
+  assert.ok(
+    invalidOver100Single.errors.includes("chance_percent_invalid"),
+    "single rarity chance above 100 must be rejected",
+  );
+
+  const invalidValuableChance = validateRarityRulePayload("valuable", { chance_percent: 1 });
+  assert.ok(
+    invalidValuableChance.errors.includes("valuable_chance_must_be_zero"),
+    "valuable rarity chance is controlled by queue rules and must stay zero",
+  );
+
+  const invalidNothingChance = validateRarityRulePayload("nothing", { chance_percent: 1 });
+  assert.ok(
+    invalidNothingChance.errors.includes("nothing_chance_is_derived"),
+    "nothing chance must be derived rather than manually saved",
+  );
+
+  updateRarityRule("common", { chance_percent: 80 });
+  updateRarityRule("rare", { chance_percent: 20 });
+
+  const result = validateRarityRulePayload("rare", { chance_percent: 30 });
+  assert.ok(
+    result.errors.includes("chance_sum_exceeds_100"),
+    "normal rarity chances above 100% must be rejected",
+  );
+
+  const allowed = validateRarityRulePayload("rare", { chance_percent: 20 });
+  assert.ok(
+    !allowed.errors.includes("chance_sum_exceeds_100"),
+    "chance sum exactly 100% must be allowed",
+  );
+
+  const exactZero = validateRarityRulePayload("common", { chance_percent: 0 });
+  assert.deepEqual(exactZero.errors, [], "explicit zero chance must stay valid");
+
+  const selfReplacement = validateRarityRulePayload("common", { chance_percent: 80 });
+  assert.deepEqual(
+    selfReplacement.errors,
+    [],
+    "validator must exclude the current rarity from the sibling total",
+  );
+}
+
+async function testRarityValidatorRejectsAdversarialPoolPayloads() {
+  const { validateRarityRulePayload } = await import("../wheel/wheel-service.js");
+
+  for (const invalid of [0, -1, 1.5, "abc", null]) {
+    const result = validateRarityRulePayload("valuable", { valuable_pool_size: invalid });
+    assert.ok(
+      result.errors.includes("valuable_pool_size_invalid"),
+      `valuable_pool_size=${String(invalid)} must be rejected`,
+    );
+  }
+
+  for (const invalid of [0, -1, "abc", Number.NaN, Number.POSITIVE_INFINITY]) {
+    const result = validateRarityRulePayload("valuable", { valuable_threshold_byn: invalid });
+    assert.ok(
+      result.errors.includes("valuable_threshold_byn_invalid"),
+      `valuable_threshold_byn=${String(invalid)} must be rejected`,
+    );
+  }
+
+  const fractionalThreshold = validateRarityRulePayload("valuable", { valuable_threshold_byn: 1.25 });
+  assert.deepEqual(
+    fractionalThreshold.errors,
+    [],
+    "fractional BYN threshold must remain allowed",
+  );
+}
+
+async function testRarityRouteRejectsInvalidPayloadWithoutMutatingDb() {
+  db.prepare("UPDATE wheel_rarities SET chance_percent = 25 WHERE code = 'common'").run();
+
+  const before = db
+    .prepare("SELECT chance_percent FROM wheel_rarities WHERE code = 'common'")
+    .get();
+  const { response, data } = await requestJson("/api/admin/crm/wheel/rarities/common", {
+    method: "PUT",
+    headers: {
+      ...adminHeaders,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ chance_percent: 101 }),
+  });
+  assert.equal(response.status, 400);
+  assert.equal(data?.error, "validation_failed");
+  assert.ok(
+    Array.isArray(data?.details) && data.details.includes("chance_percent_invalid"),
+    "validation details must include chance_percent_invalid",
+  );
+
+  const after = db
+    .prepare("SELECT chance_percent FROM wheel_rarities WHERE code = 'common'")
+    .get();
+  assert.equal(after.chance_percent, before.chance_percent, "invalid request must not mutate rarity");
+}
+
+async function testRarityRouteSavesExplicitZeroChance() {
+  db.prepare("UPDATE wheel_rarities SET chance_percent = 25 WHERE code = 'common'").run();
+  db.prepare("UPDATE wheel_rarities SET chance_percent = 0 WHERE code = 'rare'").run();
+  db.prepare("UPDATE wheel_rarities SET chance_percent = 0 WHERE code = 'epic'").run();
+  db.prepare("UPDATE wheel_rarities SET chance_percent = 0 WHERE code = 'legendary'").run();
+
+  const { response, data } = await requestJson("/api/admin/crm/wheel/rarities/common", {
+    method: "PUT",
+    headers: {
+      ...adminHeaders,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ chance_percent: 0 }),
+  });
+  assert.equal(response.status, 200);
+  assert.equal(data?.chancePercent, 0, "route must persist an explicit zero chance");
+
+  const row = db
+    .prepare("SELECT chance_percent FROM wheel_rarities WHERE code = 'common'")
+    .get();
+  assert.equal(row.chance_percent, 0, "database must store zero chance");
+}
+
+async function testRarityRouteRejectsFractionalValuablePoolSize() {
+  const before = db
+    .prepare("SELECT valuable_pool_size FROM wheel_rarities WHERE code = 'valuable'")
+    .get();
+  const { response, data } = await requestJson("/api/admin/crm/wheel/rarities/valuable", {
+    method: "PUT",
+    headers: {
+      ...adminHeaders,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ chance_percent: 0, valuable_pool_size: 1.5, valuable_threshold_byn: 300 }),
+  });
+  assert.equal(response.status, 400);
+  assert.equal(data?.error, "validation_failed");
+  assert.ok(
+    Array.isArray(data?.details) && data.details.includes("valuable_pool_size_invalid"),
+    "fractional queue size must surface the correct validation detail",
+  );
+
+  const after = db
+    .prepare("SELECT valuable_pool_size FROM wheel_rarities WHERE code = 'valuable'")
+    .get();
+  assert.equal(
+    after.valuable_pool_size,
+    before.valuable_pool_size,
+    "invalid valuable queue size must not mutate DB",
+  );
+}
+
 async function main() {
   await testWheelStateWorksWithRealLiveFeed();
   await testForgedWholesaleHeadersDoNotUnlockWholesalePool();
   await testValidatedWholesaleHeadersUnlockWholesalePool();
+  await testWheelAccessAllowlistLocksStateForOutsiders();
+  await testWheelAccessAllowlistLetsTesterInAndBlocksSpinForOutsider();
+  await testWheelAccessAllowlistBlocksConsentAndMyPrizesForOutsider();
+  testWheelSeedRestoresRequiredAllowlistAfterRestart();
+  testWheelSettingsAlwaysExposeRequiredAllowlist();
+  await testMyPrizesStatusFiltersExcludeNothingAndSplitLifecycle();
   await testWheelTemplateRejectedAtCheckout();
   await testWheelTemplateFlagClearedWhenPrizeChangesTemplate();
   await testPartialUpdateRejectsBothPoolsDisabled();
+  await testPrizeRequiresPromoTemplateUnlessNothing();
   await testFeedExcludesCustomersWithoutConsent();
   await testFeedConsentRequiredFlagFlips();
   await testSpinIsIdempotentByKey();
+  await testSpinRejectsInvalidIdempotencyKeyWithoutSpending();
+  await testParallelDifferentIdempotencyKeysDoNotOverspendOneSpin();
+  await testSpinNoPrizesConfiguredDoesNotSpendSpin();
   await testIdempotencyConflictPredicateMatchesAllShapes();
   await testRealUniqueViolationOnIdempotencyKeyMatchesPredicate();
+  await testRarityChanceSumOver100Rejected();
+  await testRarityValidatorRejectsAdversarialPoolPayloads();
+  await testRarityRouteRejectsInvalidPayloadWithoutMutatingDb();
+  await testRarityRouteSavesExplicitZeroChance();
+  await testRarityRouteRejectsFractionalValuablePoolSize();
   console.log("[wheel-routes] OK");
 }
 
 try {
   await main();
 } finally {
+  updateWheelSettings({ wheel_access_usernames: DEFAULT_TEST_ALLOWLIST });
   await new Promise((resolve) => server.close(resolve));
   db.close();
   fs.rmSync(tempDir, { recursive: true, force: true });

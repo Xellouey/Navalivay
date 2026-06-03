@@ -10,17 +10,21 @@ import {
   createPrize,
   deletePrize,
   getAdminDashboard,
+  getWheelAccessState,
   getCustomerWheelState,
   getWheelSettings,
+  listAdminRarityRules,
   listAdminPrizes,
   listAdminSpins,
   listRarities,
   registerCustomerProfitForEpicPools,
   setFeedConsent,
   spinWheelForCustomer,
+  updateRarityRule,
   updatePrize,
   updateWheelSettings,
   validatePrizePayload,
+  validateRarityRulePayload,
   validateWheelSettingsPayload,
 } from "../wheel/wheel-service.js";
 
@@ -152,7 +156,10 @@ wheelRouter.get(
     try {
       const customer = findCustomerFromAuth(req);
       const isWholesale = isValidatedWholesaleRequest(req);
-      const state = getCustomerWheelState(customer?.id || null, { isWholesale });
+      const state = getCustomerWheelState(customer?.id || null, {
+        isWholesale,
+        telegramUsername: req.telegramAuth?.telegramUsername || "",
+      });
       // S2-N6: when the request authenticated only via the insecure
       // fallback (no verified Telegram identity), strip avatars/names
       // from the public feed before responding. The feed becomes a list
@@ -196,6 +203,13 @@ wheelRouter.post(
           .json({ error: "customer_not_found", message: "Клиент не найден" });
       }
       isWholesale = isValidatedWholesaleRequest(req);
+      const access = getWheelAccessState(req.telegramAuth?.telegramUsername || "");
+      if (!access.is_allowed) {
+        return res.status(403).json({
+          error: "wheel_locked",
+          message: "Рулетка пока доступна только участникам тестирования",
+        });
+      }
 
       // P1: idempotency. Mini App network is flaky and a retried POST
       // would otherwise consume a second spin. Header is optional —
@@ -394,6 +408,13 @@ wheelRouter.post(
           .status(404)
           .json({ error: "customer_not_found", message: "Клиент не найден" });
       }
+      const access = getWheelAccessState(req.telegramAuth?.telegramUsername || "");
+      if (!access.is_allowed) {
+        return res.status(403).json({
+          error: "wheel_locked",
+          message: "Рулетка пока доступна только участникам тестирования",
+        });
+      }
       const consent = Boolean(req.body?.consent);
       const result = setFeedConsent(customer.id, consent);
       if (!result) {
@@ -418,6 +439,13 @@ wheelRouter.get(
       const customer = findCustomerFromAuth(req);
       if (!customer?.id) {
         return res.json({ prizes: [] });
+      }
+      const access = getWheelAccessState(req.telegramAuth?.telegramUsername || "");
+      if (!access.is_allowed) {
+        return res.status(403).json({
+          error: "wheel_locked",
+          message: "Рулетка пока доступна только участникам тестирования",
+        });
       }
       const status = String(req.query?.status || "all");
       let where = "s.customer_id = ? AND s.rarity_code != 'nothing'";
@@ -510,7 +538,28 @@ wheelRouter.get(
   authMiddleware,
   (req, res) => {
     try {
-      res.json({ rarities: listRarities() });
+      res.json({ rarities: listAdminRarityRules() });
+    } catch (error) {
+      res.status(500).json({ error: "failed", message: error.message });
+    }
+  },
+);
+
+wheelRouter.put(
+  "/api/admin/crm/wheel/rarities/:code",
+  authMiddleware,
+  (req, res) => {
+    try {
+      const { errors } = validateRarityRulePayload(req.params.code, req.body || {});
+      if (errors.length) {
+        return res.status(400).json({ error: "validation_failed", details: errors });
+      }
+      const updated = updateRarityRule(req.params.code, req.body || {});
+      if (!updated) {
+        return res.status(404).json({ error: "not_found" });
+      }
+      logAdminAction(req, "update_rarity_rule", req.params.code, req.body || {});
+      res.json(updated);
     } catch (error) {
       res.status(500).json({ error: "failed", message: error.message });
     }

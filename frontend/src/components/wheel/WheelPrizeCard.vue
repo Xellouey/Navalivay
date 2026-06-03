@@ -40,7 +40,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import type { WheelPrize } from '@/stores/wheel'
 import defaultPrizeImage from '@/assets/wheel-default-prize.png'
 
@@ -53,6 +53,13 @@ const imgFailed = ref(false)
 function onImageError() {
   imgFailed.value = true
 }
+
+watch(
+  () => props.prize.image_url,
+  () => {
+    imgFailed.value = false
+  },
+)
 
 // CSS `border-color` does not accept gradient values, but `bg_color` from
 // the wheel_rarities table can now be a `linear-gradient(...)` string.

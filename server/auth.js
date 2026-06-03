@@ -9,11 +9,28 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const ADMIN_CONFIG = process.env.ADMIN_CONFIG || path.resolve(__dirname, './data/admin.json');
-const SESSION_SECRET = process.env.SESSION_SECRET || 'change_me_secret';
+const isProduction = process.env.NODE_ENV === 'production';
+const SESSION_SECRET = process.env.SESSION_SECRET || (isProduction ? '' : 'change_me_secret');
+
+function assertProductionAuthConfig() {
+  if (!isProduction) return;
+  if (!SESSION_SECRET || SESSION_SECRET === 'change_me_secret' || SESSION_SECRET.length < 32) {
+    throw new Error('SESSION_SECRET must be configured with a strong value in production');
+  }
+  const p = ADMIN_CONFIG.startsWith('.') ? path.resolve(__dirname, ADMIN_CONFIG) : ADMIN_CONFIG;
+  if (!fs.existsSync(p)) {
+    throw new Error('ADMIN_CONFIG must point to an existing admin config in production');
+  }
+}
+
+assertProductionAuthConfig();
 
 function readAdminConfig() {
   const p = ADMIN_CONFIG.startsWith('.') ? path.resolve(__dirname, ADMIN_CONFIG) : ADMIN_CONFIG;
   if (!fs.existsSync(p)) {
+    if (isProduction) {
+      throw new Error('ADMIN_CONFIG must point to an existing admin config in production');
+    }
     return { username: 'admin', passwordHash: 'PLAIN:admin', updatedAt: new Date().toISOString() };
   }
   return JSON.parse(fs.readFileSync(p, 'utf8'));
@@ -30,6 +47,7 @@ export async function verifyPassword(inputPassword) {
   const cfg = readAdminConfig();
   const ph = cfg.passwordHash || '';
   if (ph.startsWith('PLAIN:')) {
+    if (isProduction) return false;
     const plain = ph.slice('PLAIN:'.length);
     return inputPassword === plain;
   }

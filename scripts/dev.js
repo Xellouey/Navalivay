@@ -3,6 +3,7 @@ import { spawn } from 'child_process';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { networkInterfaces } from 'os';
+import { DEV_BACKEND_PORT, DEV_FRONTEND_PORT } from '../shared/runtime-ports.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -60,7 +61,7 @@ function addPrefix(data, prefix, color) {
 
 // Start frontend development server
 console.log('🎨 Starting frontend development server...');
-const frontend = spawnProcess('npm', ['run', 'dev', '--', '--host', '0.0.0.0', '--port', '5173'], {
+const frontend = spawnProcess('npm', ['run', 'dev', '--', '--host', '0.0.0.0', '--port', String(DEV_FRONTEND_PORT)], {
   cwd: join(projectRoot, 'frontend')
 });
 
@@ -81,7 +82,10 @@ console.log('⚙️  Starting backend server...');
 const serverCommand = botMode ? 'start:bot' : 'dev';
 const server = spawnProcess('npm', ['run', serverCommand], {
   cwd: join(projectRoot, 'server'),
-  env: { ...process.env, PORT: '3001' }
+  // Держим backend на 3001, потому что frontend/vite.config.ts проксирует
+  // /api и /uploads именно туда. Для скрытого входа в CashierLockScreen это
+  // критично: при несовпадении портов поле-обманка перестаёт пускать по паролю.
+  env: { ...process.env, PORT: String(DEV_BACKEND_PORT) }
 });
 
 server.stdout.on('data', (data) => {
@@ -158,13 +162,13 @@ server.on('exit', (code, signal) => {
 });
 
 console.log('✅ Development environment started!');
-console.log(`📱 Frontend: http://localhost:5173`);
-console.log(`🔧 Backend: http://localhost:3001`);
+console.log(`📱 Frontend: http://localhost:${DEV_FRONTEND_PORT}`);
+console.log(`🔧 Backend: http://localhost:${DEV_BACKEND_PORT}`);
 if (localIPs.length) {
   console.log('\n🌐 Доступ из локальной сети:');
   localIPs.forEach((ip) => {
-    console.log(`   • Frontend: http://${ip}:5173`);
-    console.log(`   • Backend:  http://${ip}:3001`);
+    console.log(`   • Frontend: http://${ip}:${DEV_FRONTEND_PORT}`);
+    console.log(`   • Backend:  http://${ip}:${DEV_BACKEND_PORT}`);
   });
   console.log('\n📱 Откройте один из адресов выше на телефоне, подключённом к той же сети.');
 } else {

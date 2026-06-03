@@ -69,11 +69,16 @@ export interface WheelState {
   my_active_prizes: WheelMyPrize[]
   feed_consent: boolean
   feed_consent_required: boolean
+  access: {
+    is_allowed: boolean
+    is_limited: boolean
+  }
   settings: {
     pity_threshold: number
     spin_byn_retail: number
     spin_byn_wholesale: number
     elite_rarities: string[]
+    wheel_access_usernames?: string[]
   }
 }
 
@@ -193,6 +198,8 @@ export const useWheelStore = defineStore('wheel', () => {
   const spinError = ref('')
   const feedConsent = ref(false)
   const feedConsentRequired = ref(false)
+  const accessAllowed = ref(true)
+  const accessLimited = ref(false)
   const isUpdatingConsent = ref(false)
   // P3-UX: timestamp последнего успешного /api/wheel/state. Пока он
   // свежий (см. WHEEL_STATE_CACHE_TTL_MS), повторный mount компонента
@@ -242,6 +249,8 @@ export const useWheelStore = defineStore('wheel', () => {
       isWholesale.value = data.is_wholesale
       feedConsent.value = Boolean(data.feed_consent)
       feedConsentRequired.value = Boolean(data.feed_consent_required)
+      accessAllowed.value = Boolean(data.access?.is_allowed ?? true)
+      accessLimited.value = Boolean(data.access?.is_limited ?? false)
       lastFetchedAt.value = Date.now()
       return data
     } catch (error: any) {
@@ -384,6 +393,8 @@ export const useWheelStore = defineStore('wheel', () => {
     spinError,
     feedConsent,
     feedConsentRequired,
+    accessAllowed,
+    accessLimited,
     isUpdatingConsent,
     lastFetchedAt,
     myPrizesLastFetchedAt,

@@ -11,7 +11,7 @@ process.env.BOT_TOKEN = "test-bot-token";
 process.env.NODE_ENV = "test";
 
 const { initDb, db } = await import("../db.js");
-const { accrueWheelSpinsForOrder, updateWheelSettings } = await import(
+const { accrueWheelSpinsForOrder, updateRarityRule, updateWheelSettings } = await import(
   "../wheel/wheel-service.js"
 );
 
@@ -28,6 +28,7 @@ function clearWheelData() {
   db.exec(`
     DELETE FROM wheel_spins;
     DELETE FROM wheel_epic_pools;
+    DELETE FROM wheel_rarity_pools;
     DELETE FROM wheel_customer_balances;
     DELETE FROM orders;
   `);
@@ -48,6 +49,24 @@ function makeDelivered(orderId, customerId, finalAmount, isWholesale = false) {
     finalAmount,
     Math.round(finalAmount * 0.3),
     isWholesale ? 1 : 0,
+  );
+}
+
+function makeOrderWithStatus(orderId, customerId, finalAmount, status) {
+  db.prepare(
+    `INSERT INTO orders (
+      id, order_number, customer_id, status, delivery_type,
+      total_amount, final_amount, profit, completed_at, created_at,
+      promo_code_text, is_wholesale
+    ) VALUES (?, ?, ?, ?, 'pickup', ?, ?, ?, DATETIME('now'), DATETIME('now'), NULL, 0)`,
+  ).run(
+    orderId,
+    orderId,
+    customerId,
+    status,
+    finalAmount,
+    finalAmount,
+    Math.round(finalAmount * 0.3),
   );
 }
 
@@ -220,6 +239,71 @@ async function testLedgerIdempotencyAcrossRecompute() {
   assert.equal(ledgerCount, 3, "ledger keeps exactly one row per order");
 }
 
+async function testNonDeliveredOrderDoesNotAccrueOrEnterValuableQueue() {
+  clearWheelData();
+  updateRarityRule("valuable", { valuable_pool_size: 2, valuable_threshold_byn: 100 });
+  const cid = "cust_pending_order";
+  ensureCustomer(cid);
+  makeOrderWithStatus("ord_pending", cid, 500, "completed");
+
+  const result = accrueWheelSpinsForOrder("ord_pending");
+  assert.equal(result.accrued, false);
+  assert.equal(result.reason, "status_not_final");
+
+  const balance = getBalance(cid);
+  assert.equal(balance, undefined, "non-delivered order must not create wheel balance");
+  const pool = db
+    .prepare("SELECT * FROM wheel_rarity_pools WHERE rarity_code = 'valuable' AND is_active = 1")
+    .get();
+  assert.equal(pool, undefined, "non-delivered order must not enter valuable queue");
+}
+
+async function testDeliveredOrderBelowValuableThresholdAccruesSpinButNotQueue() {
+  clearWheelData();
+  updateWheelSettings({ spin_byn_retail: 40, start_collecting_at: new Date(0).toISOString() });
+  updateRarityRule("valuable", { valuable_pool_size: 2, valuable_threshold_byn: 300 });
+  const cid = "cust_low_valuable_profit";
+  ensureCustomer(cid);
+  makeDelivered("ord_low_valuable_profit", cid, 80);
+
+  const result = accrueWheelSpinsForOrder("ord_low_valuable_profit");
+  assert.equal(result.accrued, true);
+  assert.equal(result.spins_added, 2);
+
+  const pool = db
+    .prepare("SELECT * FROM wheel_rarity_pools WHERE rarity_code = 'valuable' AND is_active = 1")
+    .get();
+  assert.ok(pool, "valuable pool can exist after accrual check");
+  assert.deepEqual(
+    JSON.parse(pool.qualified_customers_json),
+    [],
+    "customer below valuable threshold must not be queued",
+  );
+}
+
+async function testValuableQueueDoesNotDuplicateCustomerAcrossOrderReplays() {
+  clearWheelData();
+  updateWheelSettings({ spin_byn_retail: 40, start_collecting_at: new Date(0).toISOString() });
+  updateRarityRule("valuable", { valuable_pool_size: 3, valuable_threshold_byn: 100 });
+  const cid = "cust_queue_dedupe";
+  ensureCustomer(cid);
+  makeDelivered("ord_queue_dedupe", cid, 400);
+
+  accrueWheelSpinsForOrder("ord_queue_dedupe");
+  accrueWheelSpinsForOrder("ord_queue_dedupe");
+  accrueWheelSpinsForOrder("ord_queue_dedupe");
+
+  const pool = db
+    .prepare("SELECT * FROM wheel_rarity_pools WHERE rarity_code = 'valuable' AND is_active = 1")
+    .get();
+  assert.ok(pool);
+  assert.deepEqual(
+    JSON.parse(pool.qualified_customers_json),
+    [cid],
+    "same customer/order replay must appear in valuable queue once",
+  );
+}
+
 async function main() {
   updateWheelSettings({
     spin_byn_retail: 40,
@@ -238,6 +322,9 @@ async function main() {
   await testBeforeReleaseDoesNotAccrue();
   await testIsoSettingMatchesSqliteOrderTimestamp();
   await testLedgerIdempotencyAcrossRecompute();
+  await testNonDeliveredOrderDoesNotAccrueOrEnterValuableQueue();
+  await testDeliveredOrderBelowValuableThresholdAccruesSpinButNotQueue();
+  await testValuableQueueDoesNotDuplicateCustomerAcrossOrderReplays();
   console.log("[wheel-balance] OK");
 }
 

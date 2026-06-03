@@ -1,5 +1,7 @@
 import { db } from "../db.js";
 
+const REQUIRED_WHEEL_ACCESS_USERNAMES = ["dmitriy_mityuk", "rk0ff"];
+
 function tableExists(table) {
   return Boolean(
     db
@@ -23,6 +25,7 @@ const DEFAULT_RARITIES = [
     text_color: "#FFFFFF",
     sort_order: 0,
     is_elite: 0,
+    chance_percent: 0,
   },
   {
     code: "common",
@@ -31,6 +34,7 @@ const DEFAULT_RARITIES = [
     text_color: "#FFFFFF",
     sort_order: 10,
     is_elite: 0,
+    chance_percent: 30,
   },
   {
     code: "rare",
@@ -40,6 +44,7 @@ const DEFAULT_RARITIES = [
     text_color: "#FFFFFF",
     sort_order: 20,
     is_elite: 0,
+    chance_percent: 12,
   },
   {
     code: "mythic",
@@ -49,6 +54,7 @@ const DEFAULT_RARITIES = [
     text_color: "#FFFFFF",
     sort_order: 30,
     is_elite: 0,
+    chance_percent: 8,
   },
   {
     code: "legendary",
@@ -58,6 +64,7 @@ const DEFAULT_RARITIES = [
     text_color: "#FFFFFF",
     sort_order: 40,
     is_elite: 0,
+    chance_percent: 6,
   },
   {
     code: "epic",
@@ -66,6 +73,7 @@ const DEFAULT_RARITIES = [
     text_color: "#FFFFFF",
     sort_order: 50,
     is_elite: 0,
+    chance_percent: 4,
   },
   {
     code: "valuable",
@@ -74,6 +82,7 @@ const DEFAULT_RARITIES = [
     text_color: "#FFFFFF",
     sort_order: 60,
     is_elite: 1,
+    chance_percent: 0,
   },
 ];
 
@@ -84,7 +93,12 @@ const DEFAULT_SETTINGS = {
   default_promo_validity_days: "90",
   feed_size: "30",
   elite_rarities_json: JSON.stringify(["valuable"]),
+  wheel_access_usernames_json: JSON.stringify(REQUIRED_WHEEL_ACCESS_USERNAMES),
 };
+
+function normalizeTelegramUsername(value) {
+  return typeof value === "string" ? value.trim().replace(/^@+/, "").toLowerCase() : "";
+}
 
 export function migrateWheelPrizes() {
   try {
@@ -96,9 +110,31 @@ export function migrateWheelPrizes() {
           bg_color TEXT NOT NULL,
           text_color TEXT NOT NULL,
           sort_order INTEGER NOT NULL DEFAULT 0,
-          is_elite INTEGER NOT NULL DEFAULT 0
+          is_elite INTEGER NOT NULL DEFAULT 0,
+          chance_percent REAL NOT NULL DEFAULT 0,
+          valuable_pool_size INTEGER NOT NULL DEFAULT 5,
+          valuable_threshold_byn REAL NOT NULL DEFAULT 300
         );
       `);
+    }
+    const rarityColumns = db
+      .prepare("PRAGMA table_info(wheel_rarities)")
+      .all()
+      .map((column) => column.name);
+    if (!rarityColumns.includes("chance_percent")) {
+      db.exec(
+        "ALTER TABLE wheel_rarities ADD COLUMN chance_percent REAL NOT NULL DEFAULT 0",
+      );
+    }
+    if (!rarityColumns.includes("valuable_pool_size")) {
+      db.exec(
+        "ALTER TABLE wheel_rarities ADD COLUMN valuable_pool_size INTEGER NOT NULL DEFAULT 5",
+      );
+    }
+    if (!rarityColumns.includes("valuable_threshold_byn")) {
+      db.exec(
+        "ALTER TABLE wheel_rarities ADD COLUMN valuable_threshold_byn REAL NOT NULL DEFAULT 300",
+      );
     }
 
     if (!tableExists("wheel_prizes")) {
@@ -178,6 +214,23 @@ export function migrateWheelPrizes() {
           closed_at TEXT
         );
         CREATE INDEX idx_wheel_epic_pools_prize ON wheel_epic_pools(prize_id, is_active);
+      `);
+    }
+
+    if (!tableExists("wheel_rarity_pools")) {
+      db.exec(`
+        CREATE TABLE wheel_rarity_pools (
+          id TEXT PRIMARY KEY,
+          rarity_code TEXT NOT NULL REFERENCES wheel_rarities(code) ON DELETE CASCADE,
+          pool_size INTEGER NOT NULL,
+          threshold_byn REAL NOT NULL,
+          qualified_customers_json TEXT NOT NULL DEFAULT '[]',
+          is_active INTEGER NOT NULL DEFAULT 1,
+          released_to_customer_id TEXT REFERENCES customers(id) ON DELETE SET NULL,
+          opened_at TEXT NOT NULL DEFAULT (DATETIME('now')),
+          closed_at TEXT
+        );
+        CREATE INDEX idx_wheel_rarity_pools_rarity ON wheel_rarity_pools(rarity_code, is_active);
       `);
     }
 
@@ -299,8 +352,11 @@ export function migrateWheelPrizes() {
 export function seedDefaultWheelData() {
   try {
     const insertRarity = db.prepare(`
-      INSERT OR IGNORE INTO wheel_rarities (code, label, bg_color, text_color, sort_order, is_elite)
-      VALUES (?, ?, ?, ?, ?, ?)
+      INSERT OR IGNORE INTO wheel_rarities (
+        code, label, bg_color, text_color, sort_order, is_elite,
+        chance_percent, valuable_pool_size, valuable_threshold_byn
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     for (const rarity of DEFAULT_RARITIES) {
@@ -311,7 +367,41 @@ export function seedDefaultWheelData() {
         rarity.text_color,
         rarity.sort_order,
         rarity.is_elite,
+        rarity.chance_percent,
+        5,
+        300,
       );
+    }
+
+    // Backfill chance defaults for older installs that only had prize-level weights.
+    for (const rarity of DEFAULT_RARITIES) {
+      const row = db
+        .prepare(
+          `SELECT code, chance_percent
+           FROM wheel_rarities
+           WHERE code = ?`,
+        )
+        .get(rarity.code);
+      if (!row) continue;
+      const currentChance = Number(row.chance_percent || 0);
+      if (currentChance > 0 || rarity.code === "nothing" || rarity.code === "valuable") continue;
+      const aggregated = db
+        .prepare(
+          `SELECT COALESCE(SUM(weight), 0) AS total
+           FROM wheel_prizes
+           WHERE rarity_code = ?`,
+        )
+        .get(rarity.code);
+      const nextChance = Number(aggregated?.total || 0) > 0
+        ? Number(aggregated.total)
+        : Number(rarity.chance_percent || 0);
+      db.prepare(
+        `UPDATE wheel_rarities
+         SET chance_percent = ?,
+             valuable_pool_size = COALESCE(NULLIF(valuable_pool_size, 0), 5),
+             valuable_threshold_byn = COALESCE(NULLIF(valuable_threshold_byn, 0), 300)
+         WHERE code = ?`,
+      ).run(nextChance, rarity.code);
     }
 
     const insertSetting = db.prepare(`
@@ -321,6 +411,35 @@ export function seedDefaultWheelData() {
 
     for (const [key, value] of Object.entries(DEFAULT_SETTINGS)) {
       insertSetting.run(key, value);
+    }
+
+    const wheelAccessSetting = db
+      .prepare("SELECT value FROM wheel_settings WHERE key = 'wheel_access_usernames_json'")
+      .get();
+    const currentWheelAccess = (() => {
+      try {
+        const parsed = JSON.parse(String(wheelAccessSetting?.value || "[]"));
+        return Array.isArray(parsed) ? parsed : [];
+      } catch {
+        return [];
+      }
+    })();
+    const mergedWheelAccess = [
+      ...new Set(
+        [...currentWheelAccess, ...REQUIRED_WHEEL_ACCESS_USERNAMES]
+          .map((entry) => normalizeTelegramUsername(entry))
+          .filter(Boolean),
+      ),
+    ];
+    if (
+      JSON.stringify(currentWheelAccess.map((entry) => normalizeTelegramUsername(entry)).filter(Boolean)) !==
+      JSON.stringify(mergedWheelAccess)
+    ) {
+      db.prepare(
+        `INSERT INTO wheel_settings (key, value, updated_at)
+         VALUES ('wheel_access_usernames_json', ?, DATETIME('now'))
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = DATETIME('now')`,
+      ).run(JSON.stringify(mergedWheelAccess));
     }
 
     const startCollectingExists = db

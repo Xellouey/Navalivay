@@ -95,7 +95,7 @@ export const crmLinks: SidebarLink[] = [
   {
     id: 'crm-wheel',
     name: 'Рулетка призов',
-    description: 'Призы, спины, эпические пулы',
+    description: 'Призы, спины',
     icon: SparklesIcon,
     to: '/admin/crm/wheel'
   }
