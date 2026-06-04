@@ -65,6 +65,7 @@ function installFetchMock(
       code: "SAVE10",
       discount_type: "fixed",
       discount_value: 10,
+      max_uses: 7,
       duration_days: 90,
       active: 1,
       wheel_owner_customer_id: null,
@@ -246,6 +247,7 @@ describe("CrmWheel prize image flow", () => {
     expect(prizeWrites[0].method).toBe("POST");
     expect(prizeWrites[0].payload.image_url).toBe("/uploads/wheel-prizes/uploaded.png");
     expect(prizeWrites[0].payload.title).toBe("Скидка 15%");
+    expect(prizeWrites[0].payload).not.toHaveProperty("max_total");
     expect(prizeWrites[0].payload).not.toHaveProperty("promo_validity_days");
   });
 
@@ -613,7 +615,7 @@ describe("CrmWheel prize image flow", () => {
     expect(wrapper.text()).not.toContain("Частота выпадения");
   });
 
-  it("hides manager-only sorting and prize expiry fields in the prize modal", async () => {
+  it("hides duplicated prize sorting, limit, and expiry fields in the prize modal", async () => {
     installFetchMock([]);
     const wrapper = mount(CrmWheel);
     await flushPromises();
@@ -625,7 +627,9 @@ describe("CrmWheel prize image flow", () => {
     await flushPromises();
 
     expect(wrapper.text()).not.toContain("Позиция");
+    expect(wrapper.text()).not.toContain("Лимит выдачи");
     expect(wrapper.text()).not.toContain("Срок действия, дней");
+    expect(wrapper.text()).toContain("Лимит победителей берётся из выбранного промокода.");
     expect(wrapper.text()).toContain("Выберите промокод: срок действия берётся из его настроек.");
   });
 
@@ -708,6 +712,7 @@ describe("CrmWheel prize image flow", () => {
 
     const modalInputs = wrapper.findAll('input[type="text"]');
     await modalInputs[modalInputs.length - 1].setValue("wheel-quick");
+    await wrapper.find("#wheel-promo-quick-max-uses").setValue("3");
     const textareas = wrapper.findAll("textarea");
     await textareas[textareas.length - 2].setValue("Новый шаблон для клиента");
     const createTemplateConfirm = wrapper.findAll("button").filter((item) => item.text() === "Создать промокод").at(-1);
@@ -716,6 +721,9 @@ describe("CrmWheel prize image flow", () => {
     await flushPromises();
 
     expect(createPromoCodeMock).toHaveBeenCalledTimes(1);
+    expect(createPromoCodeMock).toHaveBeenCalledWith(
+      expect.objectContaining({ max_uses: 3 }),
+    );
     const promoSelect = wrapper.find("#wheel-prize-promo-template");
     expect((promoSelect.element as HTMLSelectElement).value).toBe("promo-quick");
     expect(wrapper.text()).toContain("Промокод создан.");

@@ -69,13 +69,13 @@ function clearWheelData() {
   `);
 }
 
-function insertPromoTemplate(id, code, { durationDays = null } = {}) {
+function insertPromoTemplate(id, code, { durationDays = null, maxUses = 0 } = {}) {
   db.prepare(
     `INSERT INTO promo_codes (
       id, code, description, discount_type, discount_value, min_order_amount,
       max_uses, current_uses, active, has_gift, duration_days, is_wheel_template, created_at
-    ) VALUES (?, ?, ?, 'fixed', 10, 0, 0, 0, 1, 0, ?, 1, DATETIME('now'))`,
-  ).run(id, code, code, durationDays);
+    ) VALUES (?, ?, ?, 'fixed', 10, 0, ?, 0, 1, 0, ?, 1, DATETIME('now'))`,
+  ).run(id, code, code, maxUses, durationDays);
 }
 
 function insertPrize(prize) {
@@ -86,6 +86,7 @@ function insertPrize(prize) {
   if (templateId) {
     insertPromoTemplate(templateId, `CODE_${String(prize.id).toUpperCase()}`, {
       durationDays: prize.template_duration_days ?? null,
+      maxUses: prize.template_max_uses ?? 0,
     });
   }
   db.prepare(
@@ -268,10 +269,12 @@ async function testPityTriggersAfterThresholdNothings() {
   assert.notEqual(result.prize.rarity_code, "nothing");
 }
 
-async function testMaxTotalExhaustionStopsPrize() {
+async function testPromoTemplateLimitStopsPrize() {
   seedBasicPool();
-  // Cap legendary at 1.
-  db.prepare("UPDATE wheel_prizes SET max_total = 1, weight = 100 WHERE id = 'p_legendary'").run();
+  // The total winner cap now lives on the promo template. The legacy
+  // wheel_prizes.max_total column must not be the manager-facing source.
+  db.prepare("UPDATE promo_codes SET max_uses = 1 WHERE id = 'promo_p_legendary'").run();
+  db.prepare("UPDATE wheel_prizes SET max_total = 0, weight = 100 WHERE id = 'p_legendary'").run();
   db.prepare("UPDATE wheel_prizes SET weight = 0 WHERE id != 'p_legendary'").run();
   updateRarityRule("common", { chance_percent: 0 });
   updateRarityRule("rare", { chance_percent: 0 });
@@ -288,6 +291,8 @@ async function testMaxTotalExhaustionStopsPrize() {
 
   const issued = db.prepare("SELECT issued_count FROM wheel_prizes WHERE id = 'p_legendary'").get();
   assert.equal(issued.issued_count, 1);
+  const active = db.prepare("SELECT is_active FROM wheel_prizes WHERE id = 'p_legendary'").get();
+  assert.equal(active.is_active, 0, "promo template max_uses should deactivate exhausted prize");
 
   // Re-enable common as fallback so engine has any non-zero option.
   db.prepare("UPDATE wheel_prizes SET weight = 1 WHERE id = 'p_common'").run();
@@ -296,6 +301,30 @@ async function testMaxTotalExhaustionStopsPrize() {
 
   const second = spinWheelForCustomer({ customerId, rng, auditEnabled: false });
   assert.notEqual(second.prize.rarity_code, "legendary");
+}
+
+async function testLegacyPrizeLimitDoesNotExhaustWhenTemplateIsUnlimited() {
+  clearWheelData();
+  insertPrize({ id: "p_legacy_limit_ignored", rarity_code: "common", title: "Legacy ignored", weight: 1, max_total: 1, template_max_uses: 0 });
+  updateRarityRule("common", { chance_percent: 100 });
+  updateRarityRule("rare", { chance_percent: 0 });
+  updateRarityRule("mythic", { chance_percent: 0 });
+  updateRarityRule("legendary", { chance_percent: 0 });
+  updateRarityRule("epic", { chance_percent: 0 });
+
+  const customerId = "cust-legacy-limit-ignored";
+  ensureCustomer(customerId);
+  setBalance(customerId, 2);
+
+  const rng = makeSequenceRng([0, 0, 0]);
+  const first = spinWheelForCustomer({ customerId, rng, auditEnabled: false });
+  const second = spinWheelForCustomer({ customerId, rng, auditEnabled: false });
+
+  assert.equal(first.prize.id, "p_legacy_limit_ignored");
+  assert.equal(second.prize.id, "p_legacy_limit_ignored");
+  const prize = db.prepare("SELECT issued_count, is_active FROM wheel_prizes WHERE id = 'p_legacy_limit_ignored'").get();
+  assert.equal(prize.issued_count, 2);
+  assert.equal(prize.is_active, 1, "legacy max_total must not exhaust an unlimited promo template");
 }
 
 async function testPrizeSelectionWithinRarityIgnoresPrizeWeights() {
@@ -404,7 +433,7 @@ async function testUnavailableNormalRaritiesBecomeNothingChance() {
   clearWheelData();
   insertPrize({ id: "p_nothing_all_unavailable", rarity_code: "nothing", title: "Ничего", weight: 1 });
   insertPrize({ id: "p_common_owned_template", rarity_code: "common", title: "Owned template", weight: 1 });
-  insertPrize({ id: "p_rare_exhausted", rarity_code: "rare", title: "Exhausted rare", weight: 1, max_total: 1 });
+  insertPrize({ id: "p_rare_exhausted", rarity_code: "rare", title: "Exhausted rare", weight: 1, template_max_uses: 1 });
   db.prepare("UPDATE promo_codes SET wheel_owner_customer_id = 'someone_else' WHERE id = 'promo_p_common_owned_template'").run();
   db.prepare("UPDATE wheel_prizes SET issued_count = 1 WHERE id = 'p_rare_exhausted'").run();
   updateRarityRule("common", { chance_percent: 60 });
@@ -430,7 +459,7 @@ async function testUnavailableNormalRaritiesBecomeNothingChance() {
 async function testUnavailablePrizeInAvailableRarityNeverDrops() {
   clearWheelData();
   insertPrize({ id: "p_common_available", rarity_code: "common", title: "Available", weight: 1 });
-  insertPrize({ id: "p_common_exhausted", rarity_code: "common", title: "Exhausted", weight: 1, max_total: 1 });
+  insertPrize({ id: "p_common_exhausted", rarity_code: "common", title: "Exhausted", weight: 1, template_max_uses: 1 });
   db.prepare("UPDATE wheel_prizes SET issued_count = 1 WHERE id = 'p_common_exhausted'").run();
   updateRarityRule("common", { chance_percent: 100 });
   updateRarityRule("rare", { chance_percent: 0 });
@@ -635,7 +664,8 @@ async function main() {
   await testBestPracticeSingleAvailableCommonDistribution();
   await testProductionBaselineDistribution();
   await testPityTriggersAfterThresholdNothings();
-  await testMaxTotalExhaustionStopsPrize();
+  await testPromoTemplateLimitStopsPrize();
+  await testLegacyPrizeLimitDoesNotExhaustWhenTemplateIsUnlimited();
   await testPrizeSelectionWithinRarityIgnoresPrizeWeights();
   await testRaritySelectionUsesConfiguredChancePercentNotPrizeWeights();
   await testRarityChanceBoundariesDoNotSkipFirstOrLastRarity();

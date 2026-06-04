@@ -443,11 +443,21 @@ function getPromoTemplateAvailability(templateId) {
   return true;
 }
 
+function getPrizeIssueLimit(prize) {
+  if (!prize) return 0;
+  if (String(prize.rarity_code || "") === "nothing") {
+    return Number(prize.max_total || 0);
+  }
+  if (!prize.promo_template_id) return 0;
+  const template = db
+    .prepare("SELECT max_uses FROM promo_codes WHERE id = ?")
+    .get(prize.promo_template_id);
+  return Math.max(0, Math.floor(safeNumber(template?.max_uses, 0)));
+}
+
 function isPrizeExhausted(prize) {
-  return (
-    Number(prize.max_total || 0) > 0 &&
-    Number(prize.issued_count || 0) >= Number(prize.max_total || 0)
-  );
+  const limit = getPrizeIssueLimit(prize);
+  return limit > 0 && Number(prize.issued_count || 0) >= limit;
 }
 
 function isPrizeAvailableForContext(prize, { isWholesale }) {
@@ -1281,6 +1291,14 @@ export function spinWheelForCustomer({
        SET issued_count = issued_count + 1
        WHERE id = ?`,
     ).run(chosenPrize.id);
+    const postIssuePrize = db
+      .prepare("SELECT * FROM wheel_prizes WHERE id = ?")
+      .get(chosenPrize.id);
+    if (isPrizeExhausted(postIssuePrize)) {
+      db.prepare("UPDATE wheel_prizes SET is_active = 0 WHERE id = ?").run(
+        chosenPrize.id,
+      );
+    }
 
     if (auditEnabled) {
       insertSpinAudit({
@@ -1336,17 +1354,16 @@ export function spinWheelForCustomer({
       const refreshedPrize = db
         .prepare("SELECT * FROM wheel_prizes WHERE id = ?")
         .get(chosenPrize.id);
-      const prizeMaxTotal = Number(refreshedPrize.max_total || 0);
-      const prizeIssuedCount = Number(refreshedPrize.issued_count || 0);
-      const prizeExhausted =
-        prizeMaxTotal > 0 && prizeIssuedCount >= prizeMaxTotal;
+      const prizeExhausted = isPrizeExhausted(refreshedPrize);
 
       if (prizeExhausted) {
         db.prepare("UPDATE wheel_prizes SET is_active = 0 WHERE id = ?").run(
           chosenPrize.id,
         );
       } else if (refreshedPrize.is_active) {
-        // Q4: carry-over for epic prizes with max_total > 1 (or 0 = unlimited).
+        // Q4: carry-over for valuable prizes while the promo template still
+        // has issue capacity. The manager owns the total winner limit on
+        // the promo template (`max_uses`), not on the wheel prize row.
         // The pool we just closed contained N qualified customers, exactly
         // one of whom won. The remaining N-1 already crossed the profit
         // threshold and would otherwise have to re-qualify under a fresh
@@ -1575,11 +1592,9 @@ export function getCustomerWheelState(customerId, { isWholesale = false, telegra
         : null,
       weight: Number(prize.weight || 0),
       effective_weight: effectiveWeight(prize),
-      max_total: Number(prize.max_total || 0),
+      max_total: getPrizeIssueLimit(prize),
       issued_count: Number(prize.issued_count || 0),
-      is_exhausted:
-        Number(prize.max_total || 0) > 0 &&
-        Number(prize.issued_count || 0) >= Number(prize.max_total || 0),
+      is_exhausted: isPrizeExhausted(prize),
       sort_order: Number(prize.sort_order || 0),
     };
   });
@@ -1747,6 +1762,7 @@ export function listAdminPrizes() {
     .all()
     .map((prize) => ({
       ...prize,
+      max_total: getPrizeIssueLimit(prize),
       rarity: rarityByCode.get(prize.rarity_code) || null,
       is_active: Boolean(prize.is_active),
       is_for_retail: Boolean(prize.is_for_retail),
@@ -1784,11 +1800,16 @@ export function listAdminRarityRules() {
   const issuablePrizeCounts = new Map(
     db
       .prepare(
-        `SELECT rarity_code, COUNT(*) AS prize_count
-         FROM wheel_prizes
-         WHERE is_active = 1
-           AND (max_total = 0 OR issued_count < max_total)
-         GROUP BY rarity_code`,
+        `SELECT p.rarity_code, COUNT(*) AS prize_count
+         FROM wheel_prizes p
+         LEFT JOIN promo_codes pc ON pc.id = p.promo_template_id
+         WHERE p.is_active = 1
+           AND (
+             (p.rarity_code = 'nothing' AND (p.max_total = 0 OR p.issued_count < p.max_total))
+             OR COALESCE(pc.max_uses, 0) = 0
+             OR p.issued_count < pc.max_uses
+           )
+         GROUP BY p.rarity_code`,
       )
       .all()
       .map((row) => [row.rarity_code, Number(row.prize_count || 0)]),
@@ -2326,9 +2347,14 @@ export function getAdminDashboard() {
   // "Активен"/"Все". For the dashboard we keep only live rows.
   const prizesIssued = db
     .prepare(
-      `SELECT p.id, p.title, p.rarity_code, p.issued_count, p.max_total,
+      `SELECT p.id, p.title, p.rarity_code, p.issued_count,
+              CASE
+                WHEN p.rarity_code = 'nothing' THEN p.max_total
+                ELSE COALESCE(pc.max_uses, 0)
+              END AS max_total,
               p.is_for_retail, p.is_for_wholesale, p.is_active
        FROM wheel_prizes p
+       LEFT JOIN promo_codes pc ON pc.id = p.promo_template_id
        WHERE p.is_active = 1
        ORDER BY p.sort_order ASC, p.created_at ASC`,
     )

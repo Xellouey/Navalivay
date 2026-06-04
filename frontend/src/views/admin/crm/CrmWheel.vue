@@ -673,18 +673,10 @@
 
                   <div class="rounded-2xl border border-slate-200/70 bg-white p-4">
                     <p class="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-500">Выдача</p>
-                    <div class="grid grid-cols-1 gap-3">
-                      <label class="block">
-                        <span class="mb-1.5 block text-sm font-medium text-slate-700">Лимит выдачи</span>
-                        <input
-                          v-model.number="prizeForm.max_total"
-                          type="number"
-                          min="0"
-                          class="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
-                        />
-                        <span class="mt-1 block text-xs text-slate-500">0 = без лимита</span>
-                      </label>
-                    </div>
+                    <p class="text-sm text-slate-600">
+                      Лимит победителей берётся из выбранного промокода.
+                      В промокоде 0 = без лимита.
+                    </p>
                   </div>
 
                 </div>
@@ -927,6 +919,19 @@
                   />
                 </div>
                 <div>
+                  <label for="wheel-promo-quick-max-uses" class="mb-1.5 block text-sm font-medium text-slate-700">Лимит победителей</label>
+                  <input
+                    id="wheel-promo-quick-max-uses"
+                    v-model.number="promoQuickForm.max_uses"
+                    type="number"
+                    min="0"
+                    class="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
+                  />
+                  <p class="mt-1 text-xs text-slate-500">
+                    0 = без лимита. Этот лимит остановит выдачу приза.
+                  </p>
+                </div>
+                <div>
                   <label for="wheel-promo-quick-duration" class="mb-1.5 block text-sm font-medium text-slate-700">Срок действия, дней</label>
                   <input
                     id="wheel-promo-quick-duration"
@@ -1104,6 +1109,8 @@ interface PromoTemplate {
   code: string
   discount_type: string
   discount_value: number
+  max_uses?: number
+  current_uses?: number
   duration_days?: number | null
   valid_from_date?: string | null
   active?: number | boolean
@@ -1376,7 +1383,8 @@ function prizePromoText(prize: WheelPrize): string {
 
 function prizeIssueText(prize: WheelPrize): string {
   const issued = Number(prize.issued_count || 0)
-  const limit = Number(prize.max_total || 0)
+  const template = promoTemplates.value.find((promo) => promo.id === prize.promo_template_id)
+  const limit = Number(template?.max_uses ?? prize.max_total ?? 0)
   if (limit <= 0) return `${issued}, без лимита`
   return `${issued} из ${limit}`
 }
@@ -1692,6 +1700,10 @@ function closeQuickPromoModal() {
 async function createQuickPromoTemplate() {
   promoQuickError.value = ''
   try {
+    if (!Number.isFinite(Number(promoQuickForm.max_uses)) || Number(promoQuickForm.max_uses) < 0) {
+      promoQuickError.value = 'Лимит победителей не может быть отрицательным.'
+      return
+    }
     const promo = await crmStore.createPromoCode({
       code: promoQuickForm.code.trim().toUpperCase(),
       customer_description: promoQuickForm.customer_description.trim(),
@@ -1799,9 +1811,6 @@ function validatePrizeForm(): string[] {
   if (!Number.isFinite(prizeForm.weight) || prizeForm.weight < 0) {
     errors.push('Частота выпадения не может быть отрицательной.')
   }
-  if (!Number.isFinite(prizeForm.max_total) || prizeForm.max_total < 0) {
-    errors.push('Лимит выдачи не может быть отрицательным.')
-  }
   if (prizeForm.rarity_code === 'valuable') {
     if (!Number.isFinite(prizeForm.epic_pool_size) || prizeForm.epic_pool_size < 1) {
       errors.push('Количество участников до выдачи должно быть от 1.')
@@ -1851,7 +1860,6 @@ async function savePrize() {
       description: prizeForm.description,
       image_url: imageUrl,
       weight: prizeForm.weight,
-      max_total: prizeForm.max_total,
       promo_template_id: prizeForm.promo_template_id,
       epic_pool_size: prizeForm.epic_pool_size,
       epic_pool_threshold_byn: prizeForm.epic_pool_threshold_byn,
