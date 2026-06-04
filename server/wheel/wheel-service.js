@@ -918,19 +918,31 @@ function getNormalRarityCandidates({ isWholesale }) {
     });
 }
 
-function getNothingPrizes({ isWholesale }) {
-  return loadAllActivePrizes().filter((prize) => {
-    if (String(prize.rarity_code || "") !== "nothing") return false;
-    return isPrizeAvailableForContext(prize, { isWholesale });
-  });
-}
-
 function pickPrizeWithinRarity(prizes, rng = Math.random, audit = null) {
   if (!Array.isArray(prizes) || !prizes.length) return null;
   if (audit) {
     audit.candidate_prize_ids = prizes.map((prize) => prize.id);
   }
   return pickUniformRandom(prizes, rng, audit) || prizes[0];
+}
+
+function getTechnicalNothingPrize({ isWholesale = false } = {}) {
+  const existing = loadAllActivePrizes().find((prize) => {
+    if (String(prize.rarity_code || "") !== "nothing") return false;
+    return isPrizeAvailableForContext(prize, { isWholesale });
+  });
+  if (existing) return existing;
+
+  const id = generateId("wp");
+  db.prepare(
+    `INSERT INTO wheel_prizes (
+      id, rarity_code, title, description, image_url, weight, max_total,
+      issued_count, is_for_retail, is_for_wholesale, promo_template_id,
+      promo_validity_days, epic_pool_size, epic_pool_threshold_byn,
+      is_active, sort_order, created_at
+    ) VALUES (?, 'nothing', 'Без выигрыша', NULL, NULL, 0, 0, 0, 1, 1, NULL, 90, 5, 300, 1, -1000, DATETIME('now'))`,
+  ).run(id);
+  return db.prepare("SELECT * FROM wheel_prizes WHERE id = ?").get(id);
 }
 
 /**
@@ -957,7 +969,7 @@ function pickRarityDrivenPrize({ isWholesale = false, rng = Math.random, audit =
     {
       kind: "nothing",
       chancePercent: nothingChance,
-      prizes: getNothingPrizes({ isWholesale }),
+      prizes: [],
     },
   ].filter((entry) => entry.chancePercent > 0);
 
@@ -997,7 +1009,7 @@ function pickRarityDrivenPrize({ isWholesale = false, rng = Math.random, audit =
   if (selected.kind === "nothing") {
     if (audit) audit.rng.prize_roll = {};
     return {
-      prize: pickPrizeWithinRarity(selected.prizes, rng, audit?.rng?.prize_roll || null),
+      prize: null,
       nothingChance,
       activeChanceTotal: clampedChance,
     };
@@ -1291,10 +1303,13 @@ export function spinWheelForCustomer({
       throw error;
     }
 
-    const prizes = loadActivePrizesForCustomer({ isWholesale }).filter((prize) =>
+    const configuredPrizes = loadActivePrizesForCustomer({ isWholesale }).filter(
+      (prize) => String(prize.rarity_code || "") !== "nothing",
+    );
+    const prizes = configuredPrizes.filter((prize) =>
       isPrizeAvailableForContext(prize, { isWholesale }),
     );
-    if (!prizes.length) {
+    if (!configuredPrizes.length) {
       const error = new Error("no_prizes_configured");
       error.code = "no_prizes_configured";
       throw error;
@@ -1346,26 +1361,27 @@ export function spinWheelForCustomer({
       decisionType = "rarity_roll";
     }
 
+    let isNothing = false;
     if (!chosenPrize) {
-      const fallback = prizes.find((prize) => prize.rarity_code === "nothing");
-      if (!fallback) {
+      isNothing = true;
+      chosenPrize = getTechnicalNothingPrize({ isWholesale });
+      if (!chosenPrize) {
         const error = new Error("no_prizes_available");
         error.code = "no_prizes_available";
         throw error;
       }
-      chosenPrize = fallback;
       decisionType = "fallback_nothing";
     }
 
     if (pityFallbackReason) {
       logWheelEvent("pity_fallback", {
         customer_id: customerId,
-        prize_id: chosenPrize.id,
+        prize_id: chosenPrize?.id || null,
         fallback_reason: pityFallbackReason,
       });
     }
 
-    const promo = generatePromoForPrize(chosenPrize, settings, customerId);
+    const promo = isNothing ? null : generatePromoForPrize(chosenPrize, settings, customerId);
     const seedRoll = rng();
     const seed = Math.floor(seedRoll * 0x7fffffff);
     if (audit) {
@@ -1385,7 +1401,7 @@ export function spinWheelForCustomer({
       spinId,
       customerId,
       chosenPrize.id,
-      chosenPrize.rarity_code,
+      isNothing ? "nothing" : chosenPrize.rarity_code,
       isWholesale ? 1 : 0,
       promo?.promoId || null,
       promo?.code || null,
@@ -1396,18 +1412,20 @@ export function spinWheelForCustomer({
       idempotencyKey || null,
     );
 
-    db.prepare(
-      `UPDATE wheel_prizes
-       SET issued_count = issued_count + 1
-       WHERE id = ?`,
-    ).run(chosenPrize.id);
-    const postIssuePrize = db
-      .prepare("SELECT * FROM wheel_prizes WHERE id = ?")
-      .get(chosenPrize.id);
-    if (isPrizeExhausted(postIssuePrize)) {
-      db.prepare("UPDATE wheel_prizes SET is_active = 0 WHERE id = ?").run(
-        chosenPrize.id,
-      );
+    if (!isNothing) {
+      db.prepare(
+        `UPDATE wheel_prizes
+         SET issued_count = issued_count + 1
+         WHERE id = ?`,
+      ).run(chosenPrize.id);
+      const postIssuePrize = db
+        .prepare("SELECT * FROM wheel_prizes WHERE id = ?")
+        .get(chosenPrize.id);
+      if (isPrizeExhausted(postIssuePrize)) {
+        db.prepare("UPDATE wheel_prizes SET is_active = 0 WHERE id = ?").run(
+          chosenPrize.id,
+        );
+      }
     }
 
     if (auditEnabled) {
@@ -1421,8 +1439,8 @@ export function spinWheelForCustomer({
         isEpicRelease,
         audit,
         outcome: {
-          prize_id: chosenPrize.id,
-          rarity_code: chosenPrize.rarity_code,
+          prize_id: isNothing ? null : chosenPrize.id,
+          rarity_code: isNothing ? "nothing" : chosenPrize.rarity_code,
           decision_type: decisionType,
           promo_generated: Boolean(promo?.promoId),
           pity_fallback_reason: pityFallbackReason || null,
@@ -1530,7 +1548,6 @@ export function spinWheelForCustomer({
       }
     }
 
-    const isNothing = chosenPrize.rarity_code === "nothing";
     const nextConsecutiveNothing = isNothing
       ? Number(balance.consecutive_nothing || 0) + 1
       : 0;
@@ -1549,14 +1566,14 @@ export function spinWheelForCustomer({
     if (isEpicRelease && valuableReady?.pool) {
       logWheelEvent("pool_closed", {
         pool_id: valuableReady.pool.id,
-        prize_id: chosenPrize.id,
+        prize_id: chosenPrize?.id || null,
         winner_id: customerId,
         carryover_size: carriedOverCount,
       });
       logWheelEvent("epic_release", {
         customer_id: customerId,
-        prize_id: chosenPrize.id,
-        rarity_code: chosenPrize.rarity_code,
+        prize_id: isNothing ? null : chosenPrize.id,
+        rarity_code: isNothing ? "nothing" : chosenPrize.rarity_code,
         pool_id: valuableReady.pool.id,
         carried_over_count: carriedOverCount,
       });
@@ -1564,16 +1581,16 @@ export function spinWheelForCustomer({
     if (isPityRelease) {
       logWheelEvent("pity_release", {
         customer_id: customerId,
-        prize_id: chosenPrize.id,
-        rarity_code: chosenPrize.rarity_code,
+        prize_id: isNothing ? null : chosenPrize.id,
+        rarity_code: isNothing ? "nothing" : chosenPrize.rarity_code,
         fallback_reason: pityFallbackReason || null,
       });
     }
     logWheelEvent("spin", {
       customer_id: customerId,
       spin_id: spinId,
-      prize_id: chosenPrize.id,
-      rarity_code: chosenPrize.rarity_code,
+      prize_id: isNothing ? null : chosenPrize.id,
+      rarity_code: isNothing ? "nothing" : chosenPrize.rarity_code,
       is_epic: isEpicRelease,
       is_pity: isPityRelease,
       is_wholesale: Boolean(isWholesale),
@@ -1582,11 +1599,19 @@ export function spinWheelForCustomer({
 
     return {
       spinId,
-      prize: {
-        ...chosenPrize,
-        title: prizeDisplayTitle(chosenPrize),
-        description: prizeDisplayDescription(chosenPrize),
-      },
+      prize: !isNothing
+        ? {
+            ...chosenPrize,
+            title: prizeDisplayTitle(chosenPrize),
+            description: prizeDisplayDescription(chosenPrize),
+          }
+        : {
+            id: null,
+            rarity_code: "nothing",
+            title: "Без выигрыша",
+            description: null,
+            image_url: null,
+          },
       seed,
       promo,
       isEpicRelease,
@@ -1657,9 +1682,13 @@ export function getCustomerWheelState(customerId, { isWholesale = false, telegra
 
   const rarities = listRarities();
   const availablePrizes = loadActivePrizesForCustomer({ isWholesale }).filter((prize) =>
+    String(prize.rarity_code || "") !== "nothing" &&
     isPrizeAvailableForContext(prize, { isWholesale }),
   );
-  const prizesByRarity = groupPrizesByRarity(loadAllActivePrizes(), { isWholesale });
+  const prizesByRarity = groupPrizesByRarity(
+    loadAllActivePrizes().filter((prize) => String(prize.rarity_code || "") !== "nothing"),
+    { isWholesale },
+  );
   const rarityByCode = new Map(rarities.map((rarity) => [rarity.code, rarity]));
 
   const normalChanceTotal = rarities
@@ -1719,7 +1748,7 @@ export function getCustomerWheelState(customerId, { isWholesale = false, telegra
               COALESCE(NULLIF(pc.customer_description, ''), NULLIF(pc.description, ''), p.title, pc.code, 'Приз') AS prize_title,
               c.first_name, c.last_name, c.photo_url AS customer_photo
        FROM wheel_spins s
-       JOIN wheel_prizes p ON p.id = s.prize_id
+       LEFT JOIN wheel_prizes p ON p.id = s.prize_id
        LEFT JOIN promo_codes pc ON pc.id = p.promo_template_id
        LEFT JOIN customers c ON c.id = s.customer_id
        WHERE s.rarity_code != 'nothing'
@@ -1779,7 +1808,7 @@ export function getCustomerWheelState(customerId, { isWholesale = false, telegra
                   COALESCE(NULLIF(pc.customer_description, ''), NULLIF(pc.description, ''), p.title, pc.code, 'Приз') AS prize_title,
                   NULL AS prize_description
            FROM wheel_spins s
-           JOIN wheel_prizes p ON p.id = s.prize_id
+           LEFT JOIN wheel_prizes p ON p.id = s.prize_id
            LEFT JOIN promo_codes pc ON pc.id = p.promo_template_id
            WHERE s.customer_id = ?
              AND s.rarity_code != 'nothing'
@@ -1881,6 +1910,7 @@ export function listAdminPrizes() {
               pc.manager_description AS promo_manager_description
        FROM wheel_prizes p
        LEFT JOIN promo_codes pc ON pc.id = p.promo_template_id
+       WHERE p.rarity_code != 'nothing'
        ORDER BY p.sort_order ASC, p.created_at ASC`,
     )
     .all()
@@ -1918,6 +1948,7 @@ export function listAdminRarityRules() {
         `SELECT rarity_code, COUNT(*) AS prize_count
          FROM wheel_prizes
          WHERE is_active = 1
+           AND rarity_code != 'nothing'
          GROUP BY rarity_code`,
       )
       .all()
@@ -1930,9 +1961,9 @@ export function listAdminRarityRules() {
          FROM wheel_prizes p
          LEFT JOIN promo_codes pc ON pc.id = p.promo_template_id
          WHERE p.is_active = 1
+           AND p.rarity_code != 'nothing'
            AND (
-             (p.rarity_code = 'nothing' AND (p.max_total = 0 OR p.issued_count < p.max_total))
-             OR COALESCE(pc.max_uses, 0) = 0
+             COALESCE(pc.max_uses, 0) = 0
              OR p.issued_count < pc.max_uses
            )
          GROUP BY p.rarity_code`,
@@ -2327,10 +2358,20 @@ export function listAdminSpins({ limit = 50, offset = 0, customerId, rarity } = 
 
   const rows = db
     .prepare(
-      `SELECT s.*, p.title AS prize_title, p.rarity_code,
+      `SELECT s.id, s.customer_id, s.prize_id, s.rarity_code, s.is_wholesale,
+              CASE WHEN s.rarity_code = 'nothing' THEN NULL ELSE s.generated_promo_code_id END AS generated_promo_code_id,
+              CASE WHEN s.rarity_code = 'nothing' THEN NULL ELSE s.generated_promo_code END AS generated_promo_code,
+              CASE WHEN s.rarity_code = 'nothing' THEN NULL ELSE s.promo_valid_until END AS promo_valid_until,
+              s.is_epic_release, s.is_pity_release, s.seed_for_animation,
+              s.prize_used_at, s.spun_at, s.idempotency_key,
+              CASE
+                WHEN s.rarity_code = 'nothing' THEN 'Без выигрыша'
+                ELSE COALESCE(NULLIF(pc.customer_description, ''), NULLIF(pc.description, ''), p.title, pc.code, 'Приз')
+              END AS prize_title,
               c.first_name, c.last_name, c.telegram_username
        FROM wheel_spins s
-       JOIN wheel_prizes p ON p.id = s.prize_id
+       LEFT JOIN wheel_prizes p ON p.id = s.prize_id
+       LEFT JOIN promo_codes pc ON pc.id = p.promo_template_id
        LEFT JOIN customers c ON c.id = s.customer_id
        ${whereSql}
        ORDER BY s.spun_at DESC
@@ -2342,7 +2383,7 @@ export function listAdminSpins({ limit = 50, offset = 0, customerId, rarity } = 
     .prepare(
       `SELECT COUNT(*) AS count
        FROM wheel_spins s
-       JOIN wheel_prizes p ON p.id = s.prize_id
+       LEFT JOIN wheel_prizes p ON p.id = s.prize_id
        ${whereSql}`,
     )
     .get(...params);
@@ -2390,7 +2431,10 @@ export function listAdminSpinAudit({ limit = 100, offset = 0, from = null, to = 
   const rows = db
     .prepare(
       `SELECT a.*, s.spun_at,
-              COALESCE(NULLIF(pc.customer_description, ''), NULLIF(pc.description, ''), p.title, pc.code, 'Приз') AS prize_title,
+              CASE
+                WHEN s.rarity_code = 'nothing' THEN 'Без выигрыша'
+                ELSE COALESCE(NULLIF(pc.customer_description, ''), NULLIF(pc.description, ''), p.title, pc.code, 'Приз')
+              END AS prize_title,
               c.telegram_username
        FROM wheel_spin_audit a
        JOIN wheel_spins s ON s.id = a.spin_id
@@ -2481,6 +2525,7 @@ export function getAdminDashboard() {
        FROM wheel_prizes p
        LEFT JOIN promo_codes pc ON pc.id = p.promo_template_id
        WHERE p.is_active = 1
+         AND p.rarity_code != 'nothing'
        ORDER BY p.sort_order ASC, p.created_at ASC`,
     )
     .all();

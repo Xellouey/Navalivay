@@ -241,10 +241,12 @@ wheelRouter.post(
       if (idempotencyKey) {
         const existing = db
           .prepare(
-            `SELECT s.*, p.title AS prize_title, p.description AS prize_description,
-                    p.image_url AS prize_image_url
+            `SELECT s.*,
+                    CASE WHEN s.rarity_code = 'nothing' THEN 'Без выигрыша' ELSE p.title END AS prize_title,
+                    CASE WHEN s.rarity_code = 'nothing' THEN NULL ELSE p.description END AS prize_description,
+                    CASE WHEN s.rarity_code = 'nothing' THEN NULL ELSE p.image_url END AS prize_image_url
              FROM wheel_spins s
-             JOIN wheel_prizes p ON p.id = s.prize_id
+             LEFT JOIN wheel_prizes p ON p.id = s.prize_id
              WHERE s.customer_id = ? AND s.idempotency_key = ?`,
           )
           .get(customer.id, idempotencyKey);
@@ -265,8 +267,8 @@ wheelRouter.post(
             },
             is_epic_release: Boolean(existing.is_epic_release),
             is_pity_release: Boolean(existing.is_pity_release),
-            promo_code: existing.generated_promo_code || null,
-            promo_valid_until: existing.promo_valid_until || null,
+            promo_code: existing.rarity_code === "nothing" ? null : existing.generated_promo_code || null,
+            promo_valid_until: existing.rarity_code === "nothing" ? null : existing.promo_valid_until || null,
             animation_seed: Number(existing.seed_for_animation || 0),
             spins_left: Number(balanceRow?.spins_available || 0),
             accumulated_byn: isWholesale
@@ -333,11 +335,14 @@ wheelRouter.post(
           const replay = db
             .prepare(
               `SELECT s.*,
-                      COALESCE(NULLIF(pc.customer_description, ''), NULLIF(pc.description, ''), p.title, pc.code, 'Приз') AS prize_title,
+                      CASE
+                        WHEN s.rarity_code = 'nothing' THEN 'Без выигрыша'
+                        ELSE COALESCE(NULLIF(pc.customer_description, ''), NULLIF(pc.description, ''), p.title, pc.code, 'Приз')
+                      END AS prize_title,
                       NULL AS prize_description,
-                      p.image_url AS prize_image_url
+                      CASE WHEN s.rarity_code = 'nothing' THEN NULL ELSE p.image_url END AS prize_image_url
                FROM wheel_spins s
-               JOIN wheel_prizes p ON p.id = s.prize_id
+               LEFT JOIN wheel_prizes p ON p.id = s.prize_id
                LEFT JOIN promo_codes pc ON pc.id = p.promo_template_id
                WHERE s.customer_id = ? AND s.idempotency_key = ?`,
             )
@@ -359,8 +364,8 @@ wheelRouter.post(
               },
               is_epic_release: Boolean(replay.is_epic_release),
               is_pity_release: Boolean(replay.is_pity_release),
-              promo_code: replay.generated_promo_code || null,
-              promo_valid_until: replay.promo_valid_until || null,
+              promo_code: replay.rarity_code === "nothing" ? null : replay.generated_promo_code || null,
+              promo_valid_until: replay.rarity_code === "nothing" ? null : replay.promo_valid_until || null,
               animation_seed: Number(replay.seed_for_animation || 0),
               spins_left: Number(balanceRow?.spins_available || 0),
               accumulated_byn: isWholesale

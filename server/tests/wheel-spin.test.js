@@ -15,6 +15,7 @@ const {
   spinWheelForCustomer,
   getAdminDashboard,
   listAdminSpinAudit,
+  listAdminSpins,
   getWheelSettings,
   updateRarityRule,
   updateWheelSettings,
@@ -551,11 +552,9 @@ async function testUnavailableNormalRaritiesBecomeNothingChance() {
     customerId,
     rng: makeSequenceRng([0.2, 0, 0]),
   });
-  assert.equal(
-    result.prize.id,
-    "p_nothing_all_unavailable",
-    "unavailable normal rarities must silently stop dropping and become nothing fallback",
-  );
+  assert.equal(result.prize.rarity_code, "nothing");
+  assert.equal(result.prize.id, null);
+  assert.equal(result.prize.title, "Без выигрыша");
 }
 
 async function testUnavailablePrizeInAvailableRarityNeverDrops() {
@@ -579,7 +578,7 @@ async function testUnavailablePrizeInAvailableRarityNeverDrops() {
   }
 }
 
-async function testNoDropAvailableWithoutNothingDoesNotSpendSpin() {
+async function testNoDropAvailableFallsBackToNothing() {
   clearWheelData();
   insertPrize({ id: "p_common_zero_chance", rarity_code: "common", title: "Zero chance", weight: 1 });
   updateRarityRule("common", { chance_percent: 0 });
@@ -591,18 +590,18 @@ async function testNoDropAvailableWithoutNothingDoesNotSpendSpin() {
   ensureCustomer(customerId);
   setBalance(customerId, 1);
 
-  assert.throws(
-    () => spinWheelForCustomer({ customerId, rng: makeSequenceRng([0, 0, 0]) }),
-    { code: "no_prizes_available" },
-  );
+  const result = spinWheelForCustomer({ customerId, rng: makeSequenceRng([0, 0, 0]) });
+  assert.equal(result.prize.rarity_code, "nothing");
+  assert.equal(result.prize.id, null);
+  assert.equal(result.prize.title, "Без выигрыша");
   const balance = db
     .prepare("SELECT spins_available FROM wheel_customer_balances WHERE customer_id = ?")
     .get(customerId);
   const spinCount = db
     .prepare("SELECT COUNT(*) AS count FROM wheel_spins WHERE customer_id = ?")
     .get(customerId);
-  assert.equal(balance.spins_available, 1, "failed spin must not spend balance");
-  assert.equal(spinCount.count, 0, "failed spin must not write wheel_spins row");
+  assert.equal(balance.spins_available, 0, "nothing spin spends one balance");
+  assert.equal(spinCount.count, 1, "nothing spin must write wheel_spins row");
 }
 
 async function testDashboardTotalsMatchRecordedSpins() {
@@ -633,6 +632,28 @@ async function testDashboardTotalsMatchRecordedSpins() {
     dashboard.rarity_breakdown.reduce((sum, row) => sum + Number(row.count || 0), 0),
     dashboard.totals.total_spins,
   );
+}
+
+async function testAdminSpinHistoryHidesNothingPseudoPrize() {
+  clearWheelData();
+  insertPrize({ id: "p_nothing_history", rarity_code: "nothing", title: "Вейпшоп", weight: 1 });
+  const customerId = "cust-history-nothing";
+  ensureCustomer(customerId, "777777");
+  db.prepare("UPDATE customers SET first_name = 'Дмитрий', telegram_username = 'dmitriy_mityuk' WHERE id = ?")
+    .run(customerId);
+  db.prepare(
+    `INSERT INTO wheel_spins (
+      id, customer_id, prize_id, rarity_code, is_wholesale,
+      generated_promo_code, is_epic_release, is_pity_release,
+      seed_for_animation, spun_at
+    ) VALUES ('spin_history_nothing', ?, 'p_nothing_history', 'nothing', 0, 'WHEEL-BAD', 0, 0, 1, DATETIME('now'))`,
+  ).run(customerId);
+
+  const history = listAdminSpins({ limit: 10 });
+  const row = history.rows.find((item) => item.id === "spin_history_nothing");
+  assert.ok(row);
+  assert.equal(row.prize_title, "Без выигрыша");
+  assert.equal(row.generated_promo_code, null);
 }
 
 async function testNotEnoughSpins() {
@@ -777,8 +798,9 @@ async function main() {
   await testUnavailableRarityFallsBackToNothingWithoutError();
   await testUnavailableNormalRaritiesBecomeNothingChance();
   await testUnavailablePrizeInAvailableRarityNeverDrops();
-  await testNoDropAvailableWithoutNothingDoesNotSpendSpin();
+  await testNoDropAvailableFallsBackToNothing();
   await testDashboardTotalsMatchRecordedSpins();
+  await testAdminSpinHistoryHidesNothingPseudoPrize();
   await testNotEnoughSpins();
   await testSpinAuditCapturesEffectiveChanceAndRng();
   await testGeneratedPromoUsesTemplateDurationInsteadOfPrizeLegacyDuration();
