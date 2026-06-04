@@ -951,34 +951,83 @@ function pickRarityDrivenPrize({ isWholesale = false, rng = Math.random, audit =
   };
 }
 
-function pickPityPrize(prizes, rng = Math.random, audit = null) {
-  const primary = prizes.filter(
-    (prize) =>
-      !["nothing", "valuable"].includes(String(prize.rarity_code || "")),
+function pickPityPrize(prizes, { isWholesale = false, rng = Math.random, audit = null } = {}) {
+  const candidates = getNormalRarityCandidates({ isWholesale })
+    .filter((entry) => entry.prizes.length > 0);
+  const configuredChance = candidates.reduce(
+    (sum, entry) => sum + Math.max(0, Number(entry.chancePercent || 0)),
+    0,
   );
+  const nothingChance = Math.max(0, 100 - Math.min(100, configuredChance));
+  const targetRarity =
+    candidates.find((entry) => String(entry.rarity.code || "") === "common") ||
+    candidates
+      .slice()
+      .sort(
+        (a, b) =>
+          Number(a.rarity.sortOrder ?? a.rarity.sort_order ?? 0) -
+          Number(b.rarity.sortOrder ?? b.rarity.sort_order ?? 0),
+      )[0] ||
+    null;
+  const reassignmentReason =
+    targetRarity?.rarity.code === "common"
+      ? "nothing_chance_reassigned_to_common"
+      : "nothing_chance_reassigned_to_first_available";
+  const weightedEntries = candidates
+    .map((entry) => ({
+      kind: "pity",
+      rarity: entry.rarity,
+      prizes: entry.prizes,
+      chancePercent:
+        Math.max(0, Number(entry.chancePercent || 0)) +
+        (targetRarity?.rarity.code === entry.rarity.code ? nothingChance : 0),
+      reason:
+        targetRarity?.rarity.code === entry.rarity.code && nothingChance > 0
+          ? reassignmentReason
+          : "configured_chance",
+    }))
+    .filter((entry) => entry.chancePercent > 0);
+
   if (audit) {
     audit.configured_chances = listRarities().map((rarity) => ({
       rarity_code: rarity.code,
       label: rarity.label,
       chance_percent: Number(rarity.chancePercent || 0),
     }));
-    audit.effective_chances = [{
-      kind: "pity",
-      rarity_code: null,
-      chance_percent: null,
-      reason: "consecutive_nothing_threshold",
-      prize_ids: primary.map((prize) => prize.id),
-    }];
-    audit.availability = [{
-      rarity_code: "pity_primary",
-      is_available: primary.length > 0,
-      available_prize_count: primary.length,
-      available_prize_ids: primary.map((prize) => prize.id),
-    }];
-    audit.rng.pity_prize_roll = {};
+    audit.effective_chances = weightedEntries.map((entry) => ({
+      kind: entry.kind,
+      rarity_code: entry.rarity.code,
+      chance_percent: entry.chancePercent,
+      reason: entry.reason,
+      prize_ids: entry.prizes.map((prize) => prize.id),
+    }));
+    audit.availability = candidates.map((entry) => ({
+      rarity_code: entry.rarity.code,
+      configured_chance_percent: Number(entry.chancePercent || 0),
+      available_prize_count: entry.prizes.length,
+      available_prize_ids: entry.prizes.map((prize) => prize.id),
+      is_available: entry.prizes.length > 0,
+    }));
+    audit.nothing_chance = nothingChance;
+    audit.pity_reassigned_to_rarity = targetRarity?.rarity.code || null;
+    audit.rng.pity_rarity_roll = {};
   }
-  const primaryPick = pickUniformRandom(primary, rng, audit?.rng?.pity_prize_roll || null);
-  if (primaryPick) return { prize: primaryPick, fallback: null };
+
+  const selected = pickWeightedEntry(
+    weightedEntries,
+    (entry) => entry.chancePercent,
+    rng,
+    audit?.rng?.pity_rarity_roll || null,
+  );
+  if (selected) {
+    if (audit) audit.rng.pity_prize_roll = {};
+    const prize = pickPrizeWithinRarity(
+      selected.prizes,
+      rng,
+      audit?.rng?.pity_prize_roll || null,
+    );
+    if (prize) return { prize, fallback: null };
+  }
 
   // Secondary fallback (S7): no qualifying non-elite reward exists. Better to
   // give the player anything other than another "nothing" than to drop them
@@ -1219,7 +1268,7 @@ export function spinWheelForCustomer({
       !chosenPrize &&
       Number(balance.consecutive_nothing || 0) >= settings.pity_threshold
     ) {
-      const pityResult = pickPityPrize(prizes, rng, audit);
+      const pityResult = pickPityPrize(prizes, { isWholesale, rng, audit });
       if (pityResult.prize) {
         chosenPrize = pityResult.prize;
         isPityRelease = true;

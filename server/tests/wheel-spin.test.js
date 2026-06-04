@@ -269,6 +269,108 @@ async function testPityTriggersAfterThresholdNothings() {
   assert.notEqual(result.prize.rarity_code, "nothing");
 }
 
+async function testPityReassignsNothingChanceToCommon() {
+  clearWheelData();
+  insertPrize({ id: "p_nothing_pity_weighted", rarity_code: "nothing", title: "Ничего", weight: 1, sort_order: 0 });
+  insertPrize({ id: "p_common_pity_weighted", rarity_code: "common", title: "Обычный", weight: 1, sort_order: 1 });
+  insertPrize({ id: "p_rare_pity_weighted", rarity_code: "rare", title: "Редкий", weight: 1, sort_order: 2 });
+  insertPrize({ id: "p_mythic_pity_weighted", rarity_code: "mythic", title: "Мифический", weight: 1, sort_order: 3 });
+  insertPrize({ id: "p_legendary_pity_weighted", rarity_code: "legendary", title: "Легендарный", weight: 1, sort_order: 4 });
+  insertPrize({ id: "p_epic_pity_weighted", rarity_code: "epic", title: "Эпический", weight: 1, sort_order: 5 });
+  updateRarityRule("common", { chance_percent: 30 });
+  updateRarityRule("rare", { chance_percent: 12 });
+  updateRarityRule("mythic", { chance_percent: 8 });
+  updateRarityRule("legendary", { chance_percent: 6 });
+  updateRarityRule("epic", { chance_percent: 4 });
+
+  const customerId = "cust-pity-weighted";
+  ensureCustomer(customerId);
+  const rng = makeRng(123);
+  const counts = {};
+  const settings = getWheelSettings();
+  for (let i = 0; i < 10000; i += 1) {
+    setBalance(customerId, 1, settings.pity_threshold);
+    const result = spinWheelForCustomer({ customerId, rng, auditEnabled: false });
+    counts[result.prize.rarity_code] = (counts[result.prize.rarity_code] || 0) + 1;
+  }
+
+  const expectedShares = {
+    common: 0.7,
+    rare: 0.12,
+    mythic: 0.08,
+    legendary: 0.06,
+    epic: 0.04,
+  };
+  for (const [code, expected] of Object.entries(expectedShares)) {
+    const actual = (counts[code] || 0) / 10000;
+    assert.ok(
+      Math.abs(actual - expected) < 0.05,
+      `pity rarity ${code} share ${actual.toFixed(3)} too far from expected ${expected}`,
+    );
+  }
+  assert.equal(counts.nothing || 0, 0, "pity must never drop nothing");
+}
+
+async function testPityReassignsNothingChanceToFirstAvailableWhenCommonUnavailable() {
+  clearWheelData();
+  insertPrize({ id: "p_nothing_pity_fallback", rarity_code: "nothing", title: "Ничего", weight: 1, sort_order: 0 });
+  insertPrize({ id: "p_common_pity_unavailable", rarity_code: "common", title: "Обычный недоступен", weight: 1, sort_order: 1 });
+  insertPrize({ id: "p_rare_pity_fallback", rarity_code: "rare", title: "Редкий fallback", weight: 1, sort_order: 2 });
+  db.prepare("UPDATE promo_codes SET active = 0 WHERE id = 'promo_p_common_pity_unavailable'").run();
+  updateRarityRule("common", { chance_percent: 30 });
+  updateRarityRule("rare", { chance_percent: 0 });
+  updateRarityRule("mythic", { chance_percent: 0 });
+  updateRarityRule("legendary", { chance_percent: 0 });
+  updateRarityRule("epic", { chance_percent: 0 });
+
+  const customerId = "cust-pity-common-unavailable";
+  ensureCustomer(customerId);
+  setBalance(customerId, 1, getWheelSettings().pity_threshold);
+  const result = spinWheelForCustomer({
+    customerId,
+    rng: makeSequenceRng([0.99, 0, 0]),
+  });
+
+  assert.equal(result.isPityRelease, true);
+  assert.equal(result.prize.id, "p_rare_pity_fallback");
+
+  const audit = listAdminSpinAudit({ limit: 1 });
+  assert.equal(audit.rows[0].decision_type, "pity_release");
+  assert.ok(
+    audit.rows[0].effective_chances.some(
+      (entry) =>
+        entry.rarity_code === "rare" &&
+        entry.chance_percent === 100 &&
+        entry.reason === "nothing_chance_reassigned_to_first_available",
+    ),
+    "pity audit must show reassigned nothing chance to first available normal rarity",
+  );
+}
+
+async function testPityDoesNotUseValuableWhenNormalPrizeExists() {
+  clearWheelData();
+  insertPrize({ id: "p_nothing_pity_no_valuable", rarity_code: "nothing", title: "Ничего", weight: 1, sort_order: 0 });
+  insertPrize({ id: "p_common_pity_no_valuable", rarity_code: "common", title: "Обычный", weight: 1, sort_order: 1 });
+  insertPrize({ id: "p_valuable_pity_no_valuable", rarity_code: "valuable", title: "Ценный", weight: 1, sort_order: 2 });
+  updateRarityRule("common", { chance_percent: 0 });
+  updateRarityRule("rare", { chance_percent: 0 });
+  updateRarityRule("mythic", { chance_percent: 0 });
+  updateRarityRule("legendary", { chance_percent: 0 });
+  updateRarityRule("epic", { chance_percent: 0 });
+
+  const customerId = "cust-pity-no-valuable";
+  ensureCustomer(customerId);
+  setBalance(customerId, 1, getWheelSettings().pity_threshold);
+  const result = spinWheelForCustomer({
+    customerId,
+    rng: makeSequenceRng([0.99, 0, 0]),
+  });
+
+  assert.equal(result.isPityRelease, true);
+  assert.equal(result.prize.id, "p_common_pity_no_valuable");
+  assert.notEqual(result.prize.rarity_code, "valuable");
+}
+
 async function testPromoTemplateLimitStopsPrize() {
   seedBasicPool();
   // The total winner cap now lives on the promo template. The legacy
@@ -664,6 +766,9 @@ async function main() {
   await testBestPracticeSingleAvailableCommonDistribution();
   await testProductionBaselineDistribution();
   await testPityTriggersAfterThresholdNothings();
+  await testPityReassignsNothingChanceToCommon();
+  await testPityReassignsNothingChanceToFirstAvailableWhenCommonUnavailable();
+  await testPityDoesNotUseValuableWhenNormalPrizeExists();
   await testPromoTemplateLimitStopsPrize();
   await testLegacyPrizeLimitDoesNotExhaustWhenTemplateIsUnlimited();
   await testPrizeSelectionWithinRarityIgnoresPrizeWeights();
