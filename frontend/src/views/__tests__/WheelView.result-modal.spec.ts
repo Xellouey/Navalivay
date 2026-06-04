@@ -159,13 +159,14 @@ describe("WheelView result modal", () => {
 
     const modalText = document.body.textContent || "";
 
-    expect(modalText).toContain("Не повезло");
     expect(modalText).toContain("В этот раз без приза");
-    expect(modalText).toContain("Ничего не выиграли");
-    expect(modalText).toContain("Не расстраивайся, в следующий раз обязательно повезёт.");
+    expect(modalText).toContain("Попробуешь ещё?");
     expect(modalText).toContain("Понятно");
     expect(document.body.querySelector(".wheel-result-body__sad-face")).not.toBeNull();
 
+    expect(modalText).not.toContain("Не повезло");
+    expect(modalText).not.toContain("Ничего не выиграли");
+    expect(modalText).not.toContain("Не расстраивайся");
     expect(modalText).not.toContain("Поздравляем");
     expect(modalText).not.toContain("Тебе выпало");
     expect(modalText).not.toContain("Забрать");

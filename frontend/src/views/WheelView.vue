@@ -209,7 +209,7 @@
         >
           {{ rarityLabel(lastResult.prize.rarity_code) }}
         </div>
-        <p class="wheel-result-body__kicker">{{ resultKicker }}</p>
+        <p v-if="resultKicker" class="wheel-result-body__kicker">{{ resultKicker }}</p>
         <h3 class="wheel-result-body__title">
           {{ resultTitle }}
         </h3>
@@ -373,27 +373,27 @@ const spinsWord = computed(() => {
 })
 
 const resultKicker = computed(() => {
-  if (isNothingResult.value) return 'В этот раз без приза'
+  if (isNothingResult.value) return ''
   if (lastResult.value?.is_epic_release) return 'Эпическая выдача'
   if (lastResult.value?.is_pity_release) return 'Гарантированный приз'
   return 'Тебе выпало'
 })
 
 const modalTitle = computed(() => {
-  if (isNothingResult.value) return 'Не повезло'
+  if (isNothingResult.value) return 'В этот раз без приза'
   if (lastResult.value?.is_epic_release) return 'Эпический приз'
   if (lastResult.value?.is_pity_release) return 'Гарантированный приз'
   return 'Поздравляем'
 })
 
 const resultTitle = computed(() => {
-  if (isNothingResult.value) return 'Ничего не выиграли'
+  if (isNothingResult.value) return 'Попробуешь ещё?'
   return lastResult.value?.prize?.title || '—'
 })
 
 const resultDescription = computed(() => {
   if (isNothingResult.value) {
-    return 'Не расстраивайся, в следующий раз обязательно повезёт.'
+    return ''
   }
   return lastResult.value?.prize?.description || ''
 })
@@ -869,7 +869,7 @@ onMounted(async () => {
 }
 
 .wheel-result-body--nothing {
-  gap: 10px;
+  gap: 12px;
 }
 
 .wheel-result-body__sad-face {
@@ -877,28 +877,47 @@ onMounted(async () => {
   width: 56px;
   height: 56px;
   border-radius: 50%;
-  background: linear-gradient(180deg, #f3f5f8 0%, #dfe4ea 100%);
-  box-shadow: inset 0 -2px 8px rgba(31, 41, 51, 0.08);
+  background: linear-gradient(180deg, #fff1b8 0%, #ffd56a 100%);
+  box-shadow: inset 0 -2px 8px rgba(166, 103, 0, 0.12), 0 8px 18px rgba(255, 171, 0, 0.18);
   display: grid;
   grid-template-columns: 1fr 1fr;
   place-items: center;
   padding: 16px 13px 21px;
 }
 
+.wheel-result-body__sad-face::before,
+.wheel-result-body__sad-face::after {
+  content: "";
+  position: absolute;
+  top: 31px;
+  width: 7px;
+  height: 4px;
+  border-radius: 50%;
+  background: rgba(245, 3, 2, 0.16);
+}
+
+.wheel-result-body__sad-face::before {
+  left: 13px;
+}
+
+.wheel-result-body__sad-face::after {
+  right: 13px;
+}
+
 .wheel-result-body__sad-eye {
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: #5c6470;
+  background: #7a4c00;
 }
 
 .wheel-result-body__sad-mouth {
   position: absolute;
   left: 50%;
-  bottom: 13px;
-  width: 20px;
-  height: 10px;
-  border-top: 2px solid #5c6470;
+  bottom: 15px;
+  width: 18px;
+  height: 7px;
+  border-top: 2px solid #7a4c00;
   border-radius: 50% 50% 0 0;
   transform: translateX(-50%);
 }
