@@ -265,7 +265,7 @@
 
     <!-- Cart Button - Figma Redesign -->
     <Transition name="cart-slide">
-      <div v-if="totalCartItems > 0 && !wholesaleStore.isWholesale" class="cart-wrapper">
+      <div v-if="totalCartItems > 0" class="cart-wrapper">
         <button class="cart-button" @click="goToCheckout">
           <svg
             width="17"
