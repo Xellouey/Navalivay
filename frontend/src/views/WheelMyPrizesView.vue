@@ -48,12 +48,14 @@
       >
         <div
           class="wheel-prize-row__image"
-          :style="{ background: rarityBackground(prize) }"
+          :class="{ 'wheel-prize-row__image--photo': isPrizeImageVisible(prize) }"
+          :style="prizeImageFrameStyle(prize)"
         >
           <img
-            v-if="prize.prize_image_url"
-            :src="prize.prize_image_url"
+            v-if="isPrizeImageVisible(prize)"
+            :src="prize.prize_image_url || ''"
             :alt="prize.prize_title"
+            @error="onPrizeImageError(prize)"
           />
           <span
             v-else
@@ -128,6 +130,7 @@ const router = useRouter()
 const wheelStore = useWheelStore()
 const activeTab = ref<WheelPrizeFilter>('active')
 const showCopyToast = ref(false)
+const failedPrizeImages = ref<Set<string>>(new Set())
 let toastTimer: ReturnType<typeof setTimeout> | null = null
 
 const tabs: Array<{ key: WheelPrizeFilter; label: string }> = [
@@ -238,18 +241,32 @@ async function copyCode(code: string) {
   }, 1800)
 }
 
-function rarityBackground(prize: WheelMyPrize): string {
-  // Same tint intensity as WheelPrizeCard on the spinning strip:
-  // soft 10% → 20% gradient. Keeps the visual language consistent
-  // between "Мои призы" and the wheel itself.
-  const tint = extractFirstHex(prize.rarity_bg) || '#E2E5EA'
-  return `linear-gradient(135deg, ${tint}1A, ${tint}33)`
-}
-
 function extractFirstHex(value: string | undefined | null): string {
   if (!value) return ''
   const m = value.match(/#([0-9a-fA-F]{3}){1,2}/)
   return m ? m[0] : value
+}
+
+function prizeImageFrameStyle(prize: WheelMyPrize): Record<string, string> {
+  const tint = extractFirstHex(prize.rarity_bg) || '#E2E5EA'
+  return {
+    borderColor: tint,
+    background: '#FFFFFF',
+  }
+}
+
+function prizeImageKey(prize: WheelMyPrize): string {
+  return `${prize.spin_id}:${prize.prize_image_url || ''}`
+}
+
+function isPrizeImageVisible(prize: WheelMyPrize): boolean {
+  return Boolean(prize.prize_image_url) && !failedPrizeImages.value.has(prizeImageKey(prize))
+}
+
+function onPrizeImageError(prize: WheelMyPrize) {
+  const next = new Set(failedPrizeImages.value)
+  next.add(prizeImageKey(prize))
+  failedPrizeImages.value = next
 }
 
 // S2-7 sibling: monogram never renders empty even if title is missing.
@@ -450,10 +467,14 @@ onMounted(async () => {
 }
 
 .wheel-prize-row__image {
-  flex: 0 0 72px;
-  width: 72px;
-  height: 72px;
-  border-radius: 18px;
+  position: relative;
+  flex: 0 0 76px;
+  width: 76px;
+  height: 76px;
+  overflow: hidden;
+  border: 2px solid #e2e5ea;
+  border-radius: 19px;
+  background: #ffffff;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -461,17 +482,23 @@ onMounted(async () => {
   font-weight: 700;
   font-size: 32px;
   color: rgba(15, 23, 42, 0.45);
+  box-shadow: 0 12px 18px rgba(170, 178, 189, 0.12);
+}
+
+.wheel-prize-row__image--photo {
+  align-items: stretch;
+  justify-content: stretch;
 }
 
 .wheel-prize-row__image img {
-  max-width: 86%;
-  max-height: 86%;
-  object-fit: contain;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .wheel-prize-row__icon-default {
-  width: 78%;
-  height: 78%;
+  width: 90%;
+  height: 90%;
   background-color: var(--my-prize-tint, #9aa0a6);
   -webkit-mask-image: url('@/assets/wheel-default-prize.png');
   mask-image: url('@/assets/wheel-default-prize.png');
