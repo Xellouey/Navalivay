@@ -132,7 +132,7 @@ const defaultIconStyle = computed(() => {
 .wheel-prize-card__img {
   width: 100%;
   height: 100%;
-  object-fit: contain;
+  object-fit: cover;
   filter: drop-shadow(0 10px 14px rgba(15, 23, 42, 0.1));
 }
 

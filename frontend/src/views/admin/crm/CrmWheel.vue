@@ -747,7 +747,7 @@
                             v-if="prizeImagePreview"
                             :src="prizeImagePreview"
                             :alt="selectedPromoDisplayText || 'Превью приза'"
-                            class="h-full w-full object-contain drop-shadow-[0_10px_14px_rgba(15,23,42,0.10)]"
+                            class="h-full w-full object-cover drop-shadow-[0_10px_14px_rgba(15,23,42,0.10)]"
                           />
                           <div
                             v-else
