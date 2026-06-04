@@ -18,6 +18,7 @@ const { issueToken } = await import("../auth.js");
 const { publicRouter } = await import("../routes/public.js");
 const { crmOperationsRouter } = await import("../routes/crm-operations.js");
 const { promoRouter } = await import("../routes/promo.js");
+const { validatePromoCode } = await import("../promo-code-service.js");
 
 initDb();
 
@@ -157,6 +158,95 @@ function getPromoUsageForOrder(orderId) {
   return db
     .prepare("SELECT * FROM promo_usage WHERE order_id = ? ORDER BY rowid ASC")
     .all(orderId);
+}
+
+async function testGiftPromoCanHaveZeroDiscount() {
+  const plainZero = await requestJson("/api/admin/crm/promo-codes", {
+    method: "POST",
+    headers: adminHeaders(),
+    body: JSON.stringify({
+      code: "ZEROPLAIN",
+      discount_type: "fixed",
+      discount_value: 0,
+      has_gift: "0",
+      max_uses: 1,
+      active: 1,
+    }),
+  });
+  assert.equal(plainZero.response.status, 400);
+  assert.equal(plainZero.data.error, "invalid_discount");
+
+  const giftZero = await requestJson("/api/admin/crm/promo-codes", {
+    method: "POST",
+    headers: adminHeaders(),
+    body: JSON.stringify({
+      code: "GIFTZERO",
+      description: "Gift without monetary discount",
+      customer_description: "Подарок к заказу",
+      manager_description: "Выдать подарок",
+      discount_type: "fixed",
+      discount_value: 0,
+      has_gift: 1,
+      max_uses: 1,
+      active: 1,
+    }),
+  });
+  assert.equal(giftZero.response.status, 200, JSON.stringify(giftZero.data));
+  assert.equal(giftZero.data.discount_value, 0);
+  assert.equal(giftZero.data.has_gift, 1);
+
+  const validated = validatePromoCode("GIFTZERO", 15);
+  assert.equal(validated.valid, true);
+  assert.equal(validated.calculated_discount, 0);
+  assert.equal(validated.has_gift, 1);
+
+  const publicValidated = await requestJson("/api/promo/validate", {
+    method: "POST",
+    headers: jsonHeaders(),
+    body: JSON.stringify({ code: "GIFTZERO", order_amount: 15 }),
+  });
+  assert.equal(publicValidated.response.status, 200);
+  assert.equal(publicValidated.data.valid, true);
+  assert.equal(publicValidated.data.calculated_discount, 0);
+  assert.equal(publicValidated.data.has_gift, 1);
+
+  const giftPatch = await requestJson(`/api/admin/crm/promo-codes/${giftZero.data.id}`, {
+    method: "PATCH",
+    headers: adminHeaders(),
+    body: JSON.stringify({
+      discount_value: 0,
+      has_gift: 1,
+      manager_description: "Still a gift",
+    }),
+  });
+  assert.equal(giftPatch.response.status, 200, JSON.stringify(giftPatch.data));
+  assert.equal(giftPatch.data.discount_value, 0);
+  assert.equal(giftPatch.data.has_gift, 1);
+
+  const ordinary = await requestJson("/api/admin/crm/promo-codes", {
+    method: "POST",
+    headers: adminHeaders(),
+    body: JSON.stringify({
+      code: "ORDINARY5",
+      discount_type: "fixed",
+      discount_value: 5,
+      has_gift: 0,
+      max_uses: 1,
+      active: 1,
+    }),
+  });
+  assert.equal(ordinary.response.status, 200, JSON.stringify(ordinary.data));
+
+  const ordinaryZeroPatch = await requestJson(`/api/admin/crm/promo-codes/${ordinary.data.id}`, {
+    method: "PATCH",
+    headers: adminHeaders(),
+    body: JSON.stringify({
+      discount_value: 0,
+      has_gift: 0,
+    }),
+  });
+  assert.equal(ordinaryZeroPatch.response.status, 400);
+  assert.equal(ordinaryZeroPatch.data.error, "invalid_discount");
 }
 
 async function testPromoReservationCanBeReusedBySameOrder() {
@@ -406,6 +496,7 @@ async function testIssueAndPaymentRollbackSyncPromoUsage() {
 async function main() {
   seedProduct();
 
+  await testGiftPromoCanHaveZeroDiscount();
   await testPromoReservationCanBeReusedBySameOrder();
   await testPromoSwitchAndRemovalOnSameOrder();
   await testPromoConsumedAndReturnedToReservedByAdmin();

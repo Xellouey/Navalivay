@@ -894,10 +894,24 @@
                     id="wheel-promo-quick-discount-value"
                     v-model.number="promoQuickForm.discount_value"
                     type="number"
-                    min="1"
+                    min="0"
                     step="0.01"
                     class="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
                   />
+                  <p class="mt-1 text-xs text-slate-500">
+                    0 можно оставить только для промокода с подарком.
+                  </p>
+                </div>
+                <div class="col-span-2">
+                  <label class="inline-flex items-center gap-2 text-sm text-slate-700">
+                    <input
+                      id="wheel-promo-quick-has-gift"
+                      v-model="promoQuickForm.has_gift"
+                      type="checkbox"
+                      class="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                    />
+                    Есть подарок к заказу, скидка может быть 0
+                  </label>
                 </div>
                 <div>
                   <label for="wheel-promo-quick-min-order" class="mb-1.5 block text-sm font-medium text-slate-700">Минимальная сумма заказа</label>
@@ -1218,6 +1232,7 @@ const promoQuickForm = reactive({
   manager_description: '',
   discount_type: 'fixed',
   discount_value: 10,
+  has_gift: false,
   min_order_amount: 0,
   max_uses: 0,
   duration_days: 90,
@@ -1679,6 +1694,7 @@ function openQuickPromoModal() {
     manager_description: prizeForm.description || '',
     discount_type: 'fixed',
     discount_value: 10,
+    has_gift: false,
     min_order_amount: 0,
     max_uses: 0,
     duration_days: inheritedDuration,
@@ -1700,12 +1716,22 @@ async function createQuickPromoTemplate() {
       promoQuickError.value = 'Лимит победителей не может быть отрицательным.'
       return
     }
+    const discountValue = Number(promoQuickForm.discount_value)
+    if (!Number.isFinite(discountValue) || discountValue < 0) {
+      promoQuickError.value = 'Значение скидки не может быть отрицательным.'
+      return
+    }
+    if (!promoQuickForm.has_gift && discountValue <= 0) {
+      promoQuickError.value = 'Скидка должна быть больше 0, если промокод без подарка.'
+      return
+    }
     const promo = await crmStore.createPromoCode({
       code: promoQuickForm.code.trim().toUpperCase(),
       customer_description: promoQuickForm.customer_description.trim(),
       manager_description: promoQuickForm.manager_description.trim() || null,
       discount_type: promoQuickForm.discount_type as 'fixed' | 'percent',
-      discount_value: Number(promoQuickForm.discount_value),
+      discount_value: discountValue,
+      has_gift: promoQuickForm.has_gift ? 1 : 0,
       min_order_amount: Number(promoQuickForm.min_order_amount) || 0,
       max_uses: Number(promoQuickForm.max_uses) || 0,
       duration_days: Number(promoQuickForm.duration_days) || 90,

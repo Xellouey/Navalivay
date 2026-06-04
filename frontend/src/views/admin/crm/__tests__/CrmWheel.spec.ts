@@ -725,6 +725,7 @@ describe("CrmWheel prize image flow", () => {
         code: payload.code,
         discount_type: payload.discount_type,
         discount_value: payload.discount_value,
+        has_gift: payload.has_gift,
         active: 1,
         wheel_owner_customer_id: null,
       };
@@ -748,6 +749,8 @@ describe("CrmWheel prize image flow", () => {
 
     const modalInputs = wrapper.findAll('input[type="text"]');
     await modalInputs[modalInputs.length - 1].setValue("wheel-quick");
+    await wrapper.find("#wheel-promo-quick-discount-value").setValue("0");
+    await wrapper.find("#wheel-promo-quick-has-gift").setValue(true);
     await wrapper.find("#wheel-promo-quick-max-uses").setValue("3");
     const textareas = wrapper.findAll("textarea");
     await textareas[textareas.length - 2].setValue("Новый шаблон для клиента");
@@ -758,7 +761,7 @@ describe("CrmWheel prize image flow", () => {
 
     expect(createPromoCodeMock).toHaveBeenCalledTimes(1);
     expect(createPromoCodeMock).toHaveBeenCalledWith(
-      expect.objectContaining({ max_uses: 3 }),
+      expect.objectContaining({ discount_value: 0, has_gift: 1, max_uses: 3 }),
     );
     const promoSelect = wrapper.find("#wheel-prize-promo-template");
     expect((promoSelect.element as HTMLSelectElement).value).toBe("promo-quick");

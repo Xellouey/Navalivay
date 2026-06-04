@@ -49,13 +49,13 @@ function clearWheelData() {
   `);
 }
 
-function insertPromoTemplate(id, code) {
+function insertPromoTemplate(id, code, maxUses = 0) {
   db.prepare(
     `INSERT INTO promo_codes (
       id, code, description, discount_type, discount_value, min_order_amount,
       max_uses, current_uses, active, has_gift, is_wheel_template, created_at
-    ) VALUES (?, ?, ?, 'fixed', 10, 0, 0, 0, 1, 0, 1, DATETIME('now'))`,
-  ).run(id, code, code);
+    ) VALUES (?, ?, ?, 'fixed', 10, 0, ?, 0, 1, 0, 1, DATETIME('now'))`,
+  ).run(id, code, code, maxUses);
 }
 
 function insertPrize(prize) {
@@ -64,7 +64,11 @@ function insertPrize(prize) {
       ? null
       : (prize.promo_template_id || `promo_${prize.id}`);
   if (templateId) {
-    insertPromoTemplate(templateId, `CODE_${String(prize.id).toUpperCase()}`);
+    insertPromoTemplate(
+      templateId,
+      `CODE_${String(prize.id).toUpperCase()}`,
+      prize.promo_max_uses ?? prize.max_total ?? 0,
+    );
   }
   db.prepare(
     `INSERT INTO wheel_prizes (

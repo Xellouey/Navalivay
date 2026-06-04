@@ -249,12 +249,15 @@
                   <input
                     v-model.number="form.discount_value"
                     type="number"
-                    min="0.01"
+                    min="0"
                     step="0.01"
                     :max="form.discount_type === 'percent' ? 100 : undefined"
                     class="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
                     required
                   />
+                  <p class="mt-1 text-xs text-slate-500">
+                    0 можно оставить только для промокода с подарком.
+                  </p>
                 </div>
               </div>
 
@@ -311,7 +314,7 @@
                 </label>
                 <label class="inline-flex items-center gap-2 text-sm text-slate-700">
                   <input v-model="form.has_gift" type="checkbox" class="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
-                  Есть подарок к заказу
+                  Есть подарок к заказу, скидка может быть 0
                 </label>
               </div>
               <p v-if="effectiveUntilHint" class="text-sm text-emerald-600">
@@ -530,6 +533,16 @@ async function handleSubmit() {
         formError.value = 'Укажите срок действия в днях'
         return
       }
+    }
+
+    const discountValue = Number(form.value.discount_value)
+    if (!Number.isFinite(discountValue) || discountValue < 0) {
+      formError.value = 'Значение скидки не может быть отрицательным'
+      return
+    }
+    if (!form.value.has_gift && discountValue <= 0) {
+      formError.value = 'Скидка должна быть больше 0, если промокод без подарка'
+      return
     }
 
     const data = {

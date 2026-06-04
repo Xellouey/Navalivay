@@ -192,15 +192,21 @@ promoRouter.post('/api/admin/crm/promo-codes', authMiddleware, (req, res) => {
       return res.status(400).json({ error: 'code_required', message: 'Код промокода обязателен' });
     }
 
-    if (discount_value === undefined || discount_value === null || Number(discount_value) <= 0) {
-      return res.status(400).json({ error: 'invalid_discount', message: 'Значение скидки должно быть больше 0' });
+    const normalizedHasGift = has_gift === true || has_gift === 1 || has_gift === '1' ? 1 : 0;
+    const numericDiscountValue = Number(discount_value);
+    if (discount_value === undefined || discount_value === null || !Number.isFinite(numericDiscountValue) || numericDiscountValue < 0) {
+      return res.status(400).json({ error: 'invalid_discount', message: 'Значение скидки не может быть отрицательным' });
+    }
+
+    if (!normalizedHasGift && numericDiscountValue <= 0) {
+      return res.status(400).json({ error: 'invalid_discount', message: 'Скидка должна быть больше 0, если промокод без подарка' });
     }
 
     if (!['fixed', 'percent'].includes(discount_type)) {
       return res.status(400).json({ error: 'invalid_discount_type', message: 'Тип скидки: fixed или percent' });
     }
 
-    if (discount_type === 'percent' && Number(discount_value) > 100) {
+    if (discount_type === 'percent' && numericDiscountValue > 100) {
       return res.status(400).json({ error: 'invalid_percent', message: 'Процент скидки не может быть больше 100' });
     }
 
@@ -236,9 +242,9 @@ promoRouter.post('/api/admin/crm/promo-codes', authMiddleware, (req, res) => {
       description || null,
       customer_description || description || null,
       manager_description || null,
-      has_gift ? 1 : 0,
+      normalizedHasGift,
       discount_type,
-      Number(discount_value),
+      numericDiscountValue,
       Number(min_order_amount) || 0,
       Number(max_uses) || 0,
       valid_from || null,
@@ -307,22 +313,28 @@ promoRouter.patch('/api/admin/crm/promo-codes/:id', authMiddleware, (req, res) =
     if (description !== undefined) updates.description = description || null;
     if (customer_description !== undefined) updates.customer_description = customer_description || null;
     if (manager_description !== undefined) updates.manager_description = manager_description || null;
-    if (has_gift !== undefined) updates.has_gift = has_gift ? 1 : 0;
+    if (has_gift !== undefined) {
+      updates.has_gift = has_gift === true || has_gift === 1 || has_gift === '1' ? 1 : 0;
+    }
     if (discount_type !== undefined) {
       if (!['fixed', 'percent'].includes(discount_type)) {
         return res.status(400).json({ error: 'invalid_discount_type' });
       }
       updates.discount_type = discount_type;
     }
+    const nextHasGift = has_gift !== undefined ? updates.has_gift : Number(existing.has_gift || 0);
+    const nextDiscountType = discount_type !== undefined ? discount_type : existing.discount_type;
+    const nextDiscountValue = discount_value !== undefined ? Number(discount_value) : Number(existing.discount_value);
+    if (!Number.isFinite(nextDiscountValue) || nextDiscountValue < 0) {
+      return res.status(400).json({ error: 'invalid_discount', message: 'Значение скидки не может быть отрицательным' });
+    }
+    if (!nextHasGift && nextDiscountValue <= 0) {
+      return res.status(400).json({ error: 'invalid_discount', message: 'Скидка должна быть больше 0, если промокод без подарка' });
+    }
+    if (nextDiscountType === 'percent' && nextDiscountValue > 100) {
+      return res.status(400).json({ error: 'invalid_percent', message: 'Процент скидки не может быть больше 100' });
+    }
     if (discount_value !== undefined) {
-      const nextDiscountType = (discount_type !== undefined ? discount_type : existing.discount_type);
-      const nextDiscountValue = Number(discount_value);
-      if (!Number.isFinite(nextDiscountValue) || nextDiscountValue <= 0) {
-        return res.status(400).json({ error: 'invalid_discount', message: 'Значение скидки должно быть больше 0' });
-      }
-      if (nextDiscountType === 'percent' && nextDiscountValue > 100) {
-        return res.status(400).json({ error: 'invalid_percent', message: 'Процент скидки не может быть больше 100' });
-      }
       updates.discount_value = nextDiscountValue;
     }
     if (min_order_amount !== undefined) updates.min_order_amount = Number(min_order_amount) || 0;
