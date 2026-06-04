@@ -6,9 +6,14 @@ import express from "express";
 
 const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "navalivay-crm-products-search-"));
 const tempDbPath = path.join(tempDir, "test.db");
+const tempUploadsDir = path.join(tempDir, "uploads");
 
 process.env.DATABASE_FILE = tempDbPath;
 process.env.BOT_TOKEN = "";
+process.env.UPLOADS_DIR = tempUploadsDir;
+
+const tinyPng =
+  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=";
 
 const { initDb, db } = await import("../db.js");
 const { issueToken } = await import("../auth.js");
@@ -59,7 +64,7 @@ db.prepare(`
 db.prepare(`
   INSERT INTO category_groups (id, categoryId, slug, name, [order], hide_empty, cover_image)
   VALUES ('group_catswill', 'cat_liquid', 'catswill', 'CATSWILL', 1, 0, ?)
-`).run(`data:image/png;base64,${"a".repeat(2048)}`);
+`).run(tinyPng);
 
 db.prepare(`
   INSERT INTO products (
@@ -75,7 +80,9 @@ try {
   const broad = await requestJson("/api/admin/crm/products/search?search=catswil%20zene&limit=10");
   assert.ok(broad.length > 0);
   assert.ok(broad.some((product) => product.id === "prod_green"));
-  assert.ok(broad.some((product) => String(product.image || "").startsWith("data:image")));
+  assert.ok(broad.some((product) => String(product.image || "").startsWith("/uploads/thumbnails/search/")));
+  assert.ok(!JSON.stringify(broad).includes("data:image"));
+  assert.ok(Buffer.byteLength(JSON.stringify(broad)) < 150_000);
 
   const cyrillic = await requestJson("/api/admin/crm/products/search?search=%D0%B7%D0%B5%D0%BB%D0%B5%D0%BD&limit=10");
   assert.equal(cyrillic[0].id, "prod_green");

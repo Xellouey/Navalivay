@@ -55,6 +55,7 @@ import { migrateCrmPerformanceIndexes } from './migrations/add_crm_performance_i
 import { migrateOrderNumberSearch } from './migrations/add_order_number_search.js';
 import { migrateWheelPrizes, seedDefaultWheelData } from './migrations/add_wheel_prizes.js';
 import { migrateProductSearchIndex } from './migrations/add_product_search_index.js';
+import { migrateImageThumbnailCache } from './migrations/add_image_thumbnail_cache.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -209,6 +210,7 @@ export function initDb() {
   migrateOrderNumberSearch();
   migrateWheelPrizes();
   migrateProductSearchIndex();
+  migrateImageThumbnailCache();
 
   seedIfEmpty();
   seedDefaultLoyaltyData();

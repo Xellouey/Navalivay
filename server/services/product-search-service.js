@@ -1,4 +1,5 @@
 import { db } from '../db.js';
+import { resolveFirstImageThumbnail } from './image-thumbnail-service.js';
 
 const RU_TO_LAT = {
   а: 'a', б: 'b', в: 'v', г: 'g', д: 'd', е: 'e', ё: 'e', ж: 'zh', з: 'z',
@@ -305,10 +306,14 @@ function fetchProductDetails(indexRows) {
   return byItemId;
 }
 
-function toCrmSearchDto(indexRow, detail) {
+async function toCrmSearchDto(indexRow, detail) {
   const isVariant = Number(indexRow.is_variant) === 1;
   if (isVariant) {
-    const imageUrl = detail?.first_image || null;
+    const imageUrl = await resolveFirstImageThumbnail([
+      { source: detail?.first_image, meta: { sourceType: 'product', sourceId: detail.product_id, sourceField: 'product_images.url' } },
+      { source: detail?.group_image, meta: { sourceType: 'group', sourceId: detail.groupId, sourceField: 'category_groups.cover_image' } },
+      { source: detail?.category_image, meta: { sourceType: 'category', sourceId: detail.categoryId, sourceField: 'categories.cover_image' } },
+    ]);
     return {
       id: detail.id,
       product_id: detail.product_id,
@@ -328,11 +333,16 @@ function toCrmSearchDto(indexRow, detail) {
       has_variants: 0,
       is_variant: true,
       imageUrl,
-      image: imageUrl || detail.group_image || detail.category_image || null,
+      thumbnailUrl: imageUrl,
+      image: imageUrl,
     };
   }
 
-  const imageUrl = detail?.first_image || null;
+  const imageUrl = await resolveFirstImageThumbnail([
+    { source: detail?.first_image, meta: { sourceType: 'product', sourceId: detail.id, sourceField: 'product_images.url' } },
+    { source: detail?.group_image, meta: { sourceType: 'group', sourceId: detail.groupId, sourceField: 'category_groups.cover_image' } },
+    { source: detail?.category_image, meta: { sourceType: 'category', sourceId: detail.categoryId, sourceField: 'categories.cover_image' } },
+  ]);
   return {
     id: detail.id,
     title: detail.title,
@@ -349,11 +359,12 @@ function toCrmSearchDto(indexRow, detail) {
     has_variants: detail.has_variants,
     is_variant: false,
     imageUrl,
-    image: imageUrl || detail.group_image || detail.category_image || null,
+    thumbnailUrl: imageUrl,
+    image: imageUrl,
   };
 }
 
-export function searchProductsForCrm(options = {}) {
+export async function searchProductsForCrm(options = {}) {
   const rows = findIndexRows({
     search: options.search,
     limit: options.limit,
@@ -362,11 +373,11 @@ export function searchProductsForCrm(options = {}) {
     includeVariants: true,
   });
   const details = fetchProductDetails(rows);
-  return rows
-    .map((row) => {
+  return (await Promise.all(rows
+    .map(async (row) => {
       const detail = details.get(row.item_id);
-      return detail ? toCrmSearchDto(row, detail) : null;
-    })
+      return detail ? await toCrmSearchDto(row, detail) : null;
+    })))
     .filter(Boolean);
 }
 

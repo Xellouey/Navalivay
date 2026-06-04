@@ -5,9 +5,14 @@ import path from "node:path";
 
 const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "navalivay-product-search-service-"));
 const tempDbPath = path.join(tempDir, "test.db");
+const tempUploadsDir = path.join(tempDir, "uploads");
 
 process.env.DATABASE_FILE = tempDbPath;
 process.env.BOT_TOKEN = "";
+process.env.UPLOADS_DIR = tempUploadsDir;
+
+const tinyPng =
+  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=";
 
 const { initDb, db } = await import("../db.js");
 const {
@@ -28,6 +33,13 @@ db.exec(`
 `);
 
 function seedBaseCatalog() {
+  const productUploadDir = path.join(tempUploadsDir, "products", "prod_file");
+  fs.mkdirSync(productUploadDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(productUploadDir, "tiny.png"),
+    Buffer.from(tinyPng.split(",")[1], "base64"),
+  );
+
   db.prepare(`
     INSERT INTO categories (id, slug, name, [order], hide_empty, display_mode)
     VALUES
@@ -40,7 +52,7 @@ function seedBaseCatalog() {
     VALUES
       ('group_catswill', 'cat_hookah', 'catswill', 'CATSWILL', 1, 0, ?),
       ('group_lit', 'cat_hookah', 'lit-energy', 'Lit Energy', 2, 0, NULL)
-  `).run(`data:image/png;base64,${"a".repeat(2048)}`);
+  `).run(tinyPng);
 
   db.prepare(`
     INSERT INTO products (
@@ -50,8 +62,14 @@ function seedBaseCatalog() {
       ('prod_green', 'cat_hookah', 'group_catswill', 'Зеленое яблоко', 10, '', 4, 1, 0, 0, DATETIME('now')),
       ('prod_peach', 'cat_hookah', NULL, 'Персик нектарин', 10, '', 0, 1, 0, 0, DATETIME('now')),
       ('prod_lit', 'cat_hookah', 'group_lit', 'Манго лед', 10, '', 1, 1, 0, 0, DATETIME('now')),
+      ('prod_file', 'cat_hookah', NULL, 'Файловая картинка', 10, '', 1, 1, 0, 0, DATETIME('now')),
       ('prod_variant', 'cat_hookah', 'group_catswill', 'Сменный картридж', 10, '', 1, 1, 0, 1, DATETIME('now')),
       ('prod_other_peach', 'cat_other', NULL, 'Персик чужой', 10, '', 1, 1, 0, 0, DATETIME('now'))
+  `).run();
+
+  db.prepare(`
+    INSERT INTO product_images (productId, url, position)
+    VALUES ('prod_file', '/uploads/products/prod_file/tiny.png', 0)
   `).run();
 
   db.prepare(`
@@ -64,9 +82,15 @@ try {
   seedBaseCatalog();
   syncProductSearchIndex();
 
-  const broad = searchProductsForCrm({ search: "catswil zene", limit: 10 });
+  const broad = await searchProductsForCrm({ search: "catswil zene", limit: 10 });
   assert.ok(broad.some((product) => product.id === "prod_green"));
-  assert.ok(broad.some((product) => String(product.image || "").startsWith("data:image")));
+  assert.ok(broad.some((product) => String(product.image || "").startsWith("/uploads/thumbnails/search/")));
+  assert.ok(!JSON.stringify(broad).includes("data:image"));
+
+  const cachedBefore = db.prepare("SELECT COUNT(*) AS count FROM image_thumbnail_cache").get().count;
+  await searchProductsForCrm({ search: "catswil zene", limit: 10 });
+  const cachedAfter = db.prepare("SELECT COUNT(*) AS count FROM image_thumbnail_cache").get().count;
+  assert.equal(cachedAfter, cachedBefore);
 
   const cyrillic = searchProductsForAdmin({
     search: "персик",
@@ -78,9 +102,21 @@ try {
   const group = searchProductsForAdmin({ search: "  Lit   Energy ", limit: 10 });
   assert.deepEqual(group.products.map((product) => product.id), ["prod_lit"]);
 
-  const variants = searchProductsForCrm({ search: "мята", limit: 10 });
+  const variants = await searchProductsForCrm({ search: "мята", limit: 10 });
   assert.equal(variants[0].id, "var_mint");
   assert.equal(variants[0].is_variant, true);
+
+  const fileImage = await searchProductsForCrm({ search: "файловая", limit: 10 });
+  assert.equal(fileImage[0].id, "prod_file");
+  assert.ok(fileImage[0].image.startsWith("/uploads/thumbnails/search/"));
+  assert.ok(fs.existsSync(path.join(tempUploadsDir, fileImage[0].image.replace("/uploads/", ""))));
+
+  db.prepare("UPDATE category_groups SET cover_image = ? WHERE id = 'group_catswill'")
+    .run("data:image/png;base64,not-a-valid-image");
+  db.prepare("DELETE FROM image_thumbnail_cache").run();
+  const brokenImageResults = await searchProductsForCrm({ search: "catswil zene", limit: 10 });
+  assert.ok(brokenImageResults.some((product) => product.id === "prod_green"));
+  assert.ok(!JSON.stringify(brokenImageResults).includes("not-a-valid-image"));
 
   db.prepare("UPDATE products SET groupId = NULL WHERE groupId = 'group_lit'").run();
   db.prepare("DELETE FROM category_groups WHERE id = 'group_lit'").run();
