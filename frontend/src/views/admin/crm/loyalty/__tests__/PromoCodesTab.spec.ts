@@ -16,7 +16,7 @@ vi.mock("@/stores/crm", () => ({
   }),
 }));
 
-describe("PromoCodesTab zero-discount gift validation", () => {
+describe("PromoCodesTab zero-discount gift handling", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     fetchPromoCodesMock.mockResolvedValue(undefined);
@@ -24,7 +24,7 @@ describe("PromoCodesTab zero-discount gift validation", () => {
     updatePromoCodeMock.mockResolvedValue(undefined);
   });
 
-  it("rejects zero discount when the promo has no gift", async () => {
+  it("submits zero discount as a gift promo without a separate checkbox", async () => {
     const wrapper = mount(PromoCodesTab);
     await flushPromises();
 
@@ -36,28 +36,33 @@ describe("PromoCodesTab zero-discount gift validation", () => {
     await wrapper.find("form").trigger("submit.prevent");
     await flushPromises();
 
-    expect(createPromoCodeMock).not.toHaveBeenCalled();
-    expect(wrapper.text()).toContain("Скидка должна быть больше 0, если промокод без подарка");
+    expect(wrapper.text()).not.toContain("Есть подарок к заказу");
+    expect(createPromoCodeMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        code: "ZERO",
+        discount_value: 0,
+        has_gift: 1,
+      }),
+    );
   });
 
-  it("submits zero discount when gift is enabled", async () => {
+  it("submits positive discount as a regular promo", async () => {
     const wrapper = mount(PromoCodesTab);
     await flushPromises();
 
     await wrapper.findAll("button").find((item) => item.text().includes("Создать"))!.trigger("click");
     await flushPromises();
 
-    await wrapper.find('input[type="text"]').setValue("GIFTZERO");
-    await wrapper.find('input[type="number"]').setValue("0");
-    await wrapper.findAll('input[type="checkbox"]')[1].setValue(true);
+    await wrapper.find('input[type="text"]').setValue("SAVE10");
+    await wrapper.find('input[type="number"]').setValue("10");
     await wrapper.find("form").trigger("submit.prevent");
     await flushPromises();
 
     expect(createPromoCodeMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        code: "GIFTZERO",
-        discount_value: 0,
-        has_gift: 1,
+        code: "SAVE10",
+        discount_value: 10,
+        has_gift: 0,
       }),
     );
   });

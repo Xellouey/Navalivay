@@ -646,7 +646,7 @@
                         >
                           <option :value="null">Без промокода</option>
                           <option v-for="promo in availablePromoTemplates" :key="promo.id" :value="promo.id">
-                            {{ promo.code }} ({{ promo.discount_type === 'fixed' ? `${promo.discount_value} BYN` : `${promo.discount_value}%` }})
+                            {{ promo.code }} ({{ promo.has_gift && Number(promo.discount_value) <= 0 ? 'Подарок' : promo.discount_type === 'fixed' ? `${promo.discount_value} BYN` : `${promo.discount_value}%` }})
                           </option>
                         </select>
                       </label>
@@ -842,130 +842,131 @@
         >
           <div
             v-if="promoQuickModalOpen"
-            class="w-full max-w-lg rounded-2xl border border-slate-200/40 bg-white p-6 shadow-2xl"
+            class="flex max-h-[90vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-slate-200/40 bg-white shadow-2xl"
             role="dialog"
             aria-modal="true"
             aria-labelledby="wheel-promo-quick-title"
             @keydown.esc="closeQuickPromoModal"
           >
-            <h3 id="wheel-promo-quick-title" class="mb-5 text-lg font-bold text-slate-900">Создать промокод для приза</h3>
-            <div class="space-y-4">
-              <div v-if="promoQuickError" class="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+            <div class="border-b border-slate-100 px-5 py-3">
+              <h3 id="wheel-promo-quick-title" class="text-lg font-bold text-slate-900">Создать промокод для приза</h3>
+              <p class="mt-0.5 text-xs text-slate-500">Заполните текст приза, скидку и правила выдачи.</p>
+            </div>
+
+            <div class="min-h-0 flex-1 overflow-y-auto bg-slate-50/60 px-5 py-4">
+              <div v-if="promoQuickError" class="mb-4 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
                 {{ promoQuickError }}
               </div>
-              <div>
-                <label for="wheel-promo-quick-code" class="mb-1.5 block text-sm font-medium text-slate-700">Промокод</label>
-                <div class="flex gap-2">
-                  <input
-                    id="wheel-promo-quick-code"
-                    v-model="promoQuickForm.code"
-                    type="text"
-                    class="flex-1 rounded-lg border border-gray-300 px-4 py-2.5 text-sm uppercase focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
-                  />
-                  <button
-                    type="button"
-                    class="rounded-xl border border-slate-200/40 bg-gradient-to-br from-slate-50/90 to-gray-50/60 px-3 py-2.5 text-sm font-medium text-slate-600 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-slate-300/50 hover:shadow-md"
-                    @click="generatePromoTemplateCode"
-                  >
-                    Сгенерировать
-                  </button>
-                </div>
-              </div>
-              <div>
-                <label for="wheel-promo-quick-customer-description" class="mb-1.5 block text-sm font-medium text-slate-700">Описание для клиента</label>
-                <textarea
-                  id="wheel-promo-quick-customer-description"
-                  v-model="promoQuickForm.customer_description"
-                  rows="2"
-                  class="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
-                ></textarea>
-              </div>
-              <div>
-                <label for="wheel-promo-quick-manager-description" class="mb-1.5 block text-sm font-medium text-slate-700">Описание для менеджера</label>
-                <textarea
-                  id="wheel-promo-quick-manager-description"
-                  v-model="promoQuickForm.manager_description"
-                  rows="2"
-                  class="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
-                ></textarea>
-              </div>
-              <div class="grid grid-cols-2 gap-4">
-                <div>
-                  <label for="wheel-promo-quick-discount-type" class="mb-1.5 block text-sm font-medium text-slate-700">Тип скидки</label>
-                  <select
-                    id="wheel-promo-quick-discount-type"
-                    v-model="promoQuickForm.discount_type"
-                    class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
-                  >
-                    <option value="fixed">Фиксированная (BYN)</option>
-                    <option value="percent">Процент (%)</option>
-                  </select>
-                </div>
-                <div>
-                  <label for="wheel-promo-quick-discount-value" class="mb-1.5 block text-sm font-medium text-slate-700">Размер скидки</label>
-                  <input
-                    id="wheel-promo-quick-discount-value"
-                    v-model.number="promoQuickForm.discount_value"
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    class="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
-                  />
-                  <p class="mt-1 text-xs text-slate-500">
-                    0 можно оставить только для промокода с подарком.
-                  </p>
-                </div>
-                <div class="col-span-2">
-                  <label class="inline-flex items-center gap-2 text-sm text-slate-700">
-                    <input
-                      id="wheel-promo-quick-has-gift"
-                      v-model="promoQuickForm.has_gift"
-                      type="checkbox"
-                      class="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                    />
-                    Есть подарок к заказу, скидка может быть 0
-                  </label>
-                </div>
-                <div>
-                  <label for="wheel-promo-quick-min-order" class="mb-1.5 block text-sm font-medium text-slate-700">Минимальная сумма заказа</label>
-                  <input
-                    id="wheel-promo-quick-min-order"
-                    v-model.number="promoQuickForm.min_order_amount"
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    class="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
-                  />
-                </div>
-                <div>
-                  <label for="wheel-promo-quick-max-uses" class="mb-1.5 block text-sm font-medium text-slate-700">Лимит победителей</label>
-                  <input
-                    id="wheel-promo-quick-max-uses"
-                    v-model.number="promoQuickForm.max_uses"
-                    type="number"
-                    min="0"
-                    class="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
-                  />
-                  <p class="mt-1 text-xs text-slate-500">
-                    0 = без лимита. Этот лимит остановит выдачу приза.
-                  </p>
-                </div>
-                <div>
-                  <label for="wheel-promo-quick-duration" class="mb-1.5 block text-sm font-medium text-slate-700">Срок действия, дней</label>
-                  <input
-                    id="wheel-promo-quick-duration"
-                    v-model.number="promoQuickForm.duration_days"
-                    type="number"
-                    min="1"
-                    class="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
-                  />
-                  <p class="mt-1 text-xs text-slate-500">
-                    {{ quickPromoValidityHint }}
-                  </p>
-                </div>
+
+              <div class="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(280px,0.9fr)]">
+                <section class="rounded-2xl border border-slate-200/70 bg-white p-4 shadow-sm">
+                  <p class="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-500">Текст приза</p>
+                  <div class="space-y-3">
+                    <div>
+                      <label for="wheel-promo-quick-code" class="mb-1.5 block text-sm font-medium text-slate-700">Промокод</label>
+                      <div class="flex gap-2">
+                        <input
+                          id="wheel-promo-quick-code"
+                          v-model="promoQuickForm.code"
+                          type="text"
+                          class="min-w-0 flex-1 rounded-lg border border-gray-300 px-4 py-2.5 text-sm uppercase focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
+                        />
+                        <button
+                          type="button"
+                          class="rounded-xl border border-slate-200/40 bg-gradient-to-br from-slate-50/90 to-gray-50/60 px-3 py-2.5 text-sm font-medium text-slate-600 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-slate-300/50 hover:shadow-md"
+                          @click="generatePromoTemplateCode"
+                        >
+                          Сгенерировать
+                        </button>
+                      </div>
+                    </div>
+                    <div>
+                      <label for="wheel-promo-quick-customer-description" class="mb-1.5 block text-sm font-medium text-slate-700">Описание для клиента</label>
+                      <textarea
+                        id="wheel-promo-quick-customer-description"
+                        v-model="promoQuickForm.customer_description"
+                        rows="4"
+                        class="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
+                      ></textarea>
+                    </div>
+                    <div>
+                      <label for="wheel-promo-quick-manager-description" class="mb-1.5 block text-sm font-medium text-slate-700">Описание для менеджера</label>
+                      <textarea
+                        id="wheel-promo-quick-manager-description"
+                        v-model="promoQuickForm.manager_description"
+                        rows="3"
+                        class="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
+                      ></textarea>
+                    </div>
+                  </div>
+                </section>
+
+                <section class="rounded-2xl border border-slate-200/70 bg-white p-4 shadow-sm">
+                  <p class="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-500">Правила промокода</p>
+                  <div class="grid grid-cols-2 gap-3">
+                    <div>
+                      <label for="wheel-promo-quick-discount-type" class="mb-1.5 block text-sm font-medium text-slate-700">Тип скидки</label>
+                      <select
+                        id="wheel-promo-quick-discount-type"
+                        v-model="promoQuickForm.discount_type"
+                        class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
+                      >
+                        <option value="fixed">Фиксированная (BYN)</option>
+                        <option value="percent">Процент (%)</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label for="wheel-promo-quick-discount-value" class="mb-1.5 block text-sm font-medium text-slate-700">Размер скидки</label>
+                      <input
+                        id="wheel-promo-quick-discount-value"
+                        v-model.number="promoQuickForm.discount_value"
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        class="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
+                      />
+                      <p class="mt-1 text-xs text-slate-500">0 = подарочный промокод</p>
+                    </div>
+                    <div>
+                      <label for="wheel-promo-quick-min-order" class="mb-1.5 block text-sm font-medium text-slate-700">Мин. сумма</label>
+                      <input
+                        id="wheel-promo-quick-min-order"
+                        v-model.number="promoQuickForm.min_order_amount"
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        class="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
+                      />
+                    </div>
+                    <div>
+                      <label for="wheel-promo-quick-max-uses" class="mb-1.5 block text-sm font-medium text-slate-700">Лимит победителей</label>
+                      <input
+                        id="wheel-promo-quick-max-uses"
+                        v-model.number="promoQuickForm.max_uses"
+                        type="number"
+                        min="0"
+                        class="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
+                      />
+                      <p class="mt-1 text-xs text-slate-500">0 = без лимита</p>
+                    </div>
+                    <div class="col-span-2">
+                      <label for="wheel-promo-quick-duration" class="mb-1.5 block text-sm font-medium text-slate-700">Срок действия, дней</label>
+                      <input
+                        id="wheel-promo-quick-duration"
+                        v-model.number="promoQuickForm.duration_days"
+                        type="number"
+                        min="1"
+                        class="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
+                      />
+                      <p class="mt-1 text-xs text-slate-500">
+                        {{ quickPromoValidityHint }}
+                      </p>
+                    </div>
+                  </div>
+                </section>
               </div>
             </div>
-            <div class="mt-6 flex justify-end gap-2">
+            <div class="flex justify-end gap-2 border-t border-slate-100 bg-white px-5 py-3">
               <button
                 type="button"
                 class="rounded-xl border border-slate-200/40 bg-gradient-to-br from-slate-50/90 to-gray-50/60 px-4 py-2.5 text-sm font-medium text-slate-600 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-slate-300/50 hover:shadow-md"
@@ -1131,6 +1132,7 @@ interface PromoTemplate {
   manager_description?: string | null
   discount_type: string
   discount_value: number
+  has_gift?: number | boolean
   max_uses?: number
   current_uses?: number
   duration_days?: number | null
@@ -1802,17 +1804,13 @@ async function createQuickPromoTemplate() {
       promoQuickError.value = 'Значение скидки не может быть отрицательным.'
       return
     }
-    if (!promoQuickForm.has_gift && discountValue <= 0) {
-      promoQuickError.value = 'Скидка должна быть больше 0, если промокод без подарка.'
-      return
-    }
     const promo = await crmStore.createPromoCode({
       code: promoQuickForm.code.trim().toUpperCase(),
       customer_description: promoQuickForm.customer_description.trim(),
       manager_description: promoQuickForm.manager_description.trim() || null,
       discount_type: promoQuickForm.discount_type as 'fixed' | 'percent',
       discount_value: discountValue,
-      has_gift: promoQuickForm.has_gift ? 1 : 0,
+      has_gift: discountValue <= 0 ? 1 : 0,
       min_order_amount: Number(promoQuickForm.min_order_amount) || 0,
       max_uses: Number(promoQuickForm.max_uses) || 0,
       duration_days: Number(promoQuickForm.duration_days) || 90,

@@ -831,7 +831,6 @@ describe("CrmWheel prize image flow", () => {
     const modalInputs = wrapper.findAll('input[type="text"]');
     await modalInputs[modalInputs.length - 1].setValue("wheel-quick");
     await wrapper.find("#wheel-promo-quick-discount-value").setValue("0");
-    await wrapper.find("#wheel-promo-quick-has-gift").setValue(true);
     await wrapper.find("#wheel-promo-quick-max-uses").setValue("3");
     const textareas = wrapper.findAll("textarea");
     await textareas[textareas.length - 2].setValue("Новый шаблон для клиента");

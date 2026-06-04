@@ -91,7 +91,8 @@
                 {{ promo.customer_description || promo.description || '-' }}
               </td>
               <td class="px-4 py-3.5 text-sm text-right font-semibold text-slate-800">
-                <template v-if="promo.discount_type === 'fixed'">{{ promo.discount_value }} BYN</template>
+                <template v-if="promo.has_gift && Number(promo.discount_value) <= 0">Подарок</template>
+                <template v-else-if="promo.discount_type === 'fixed'">{{ promo.discount_value }} BYN</template>
                 <template v-else>{{ promo.discount_value }}%</template>
               </td>
               <td class="px-4 py-3.5 text-center">
@@ -255,9 +256,7 @@
                     class="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
                     required
                   />
-                  <p class="mt-1 text-xs text-slate-500">
-                    0 можно оставить только для промокода с подарком.
-                  </p>
+                  <p class="mt-1 text-xs text-slate-500">0 = подарочный промокод</p>
                 </div>
               </div>
 
@@ -311,10 +310,6 @@
                 <label class="inline-flex items-center gap-2 text-sm text-slate-700">
                   <input v-model="form.is_perpetual" type="checkbox" class="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
                   Бессрочно
-                </label>
-                <label class="inline-flex items-center gap-2 text-sm text-slate-700">
-                  <input v-model="form.has_gift" type="checkbox" class="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
-                  Есть подарок к заказу, скидка может быть 0
                 </label>
               </div>
               <p v-if="effectiveUntilHint" class="text-sm text-emerald-600">
@@ -540,10 +535,6 @@ async function handleSubmit() {
       formError.value = 'Значение скидки не может быть отрицательным'
       return
     }
-    if (!form.value.has_gift && discountValue <= 0) {
-      formError.value = 'Скидка должна быть больше 0, если промокод без подарка'
-      return
-    }
 
     const data = {
       ...form.value,
@@ -553,7 +544,7 @@ async function handleSubmit() {
       valid_from: useNewValidity ? null : (form.value.valid_from || null),
       valid_until: useNewValidity ? null : (form.value.valid_until || null),
       active: form.value.active ? 1 : 0,
-      has_gift: form.value.has_gift ? 1 : 0,
+      has_gift: discountValue <= 0 ? 1 : 0,
     }
 
     if (editingPromo.value) {
