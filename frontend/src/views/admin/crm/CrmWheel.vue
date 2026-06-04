@@ -118,33 +118,81 @@
         </div>
 
         <div class="rounded-2xl border border-slate-200/60 bg-white p-4 shadow-sm">
-          <h3 class="text-sm font-semibold text-slate-800">Выданные призы</h3>
-          <table class="mt-3 w-full text-sm">
-            <caption class="sr-only">Статистика выданных призов рулетки</caption>
-            <thead class="text-xs uppercase tracking-wider text-slate-500">
-              <tr>
-                <th scope="col" class="text-left py-2">Приз</th>
-                <th scope="col" class="text-left py-2">Редкость</th>
-                <th scope="col" class="text-right py-2">Выдано</th>
-                <th scope="col" class="text-right py-2">Лимит</th>
-              </tr>
-            </thead>
-            <tbody class="divide-y divide-slate-100">
-              <tr v-if="!(dashboard.prizes_issued || []).length">
-                <td colspan="4" class="py-8 text-center text-sm text-slate-500">
-                  Призы ещё не выдавались. Здесь появится статистика после первых прокруток.
-                </td>
-              </tr>
-              <tr v-for="prize in dashboard.prizes_issued || []" :key="prize.id">
-                <td class="py-2 font-medium text-slate-800">{{ prize.title }}</td>
-                <td class="py-2 text-slate-600">{{ rarityLabel(prize.rarity_code) }}</td>
-                <td class="py-2 text-right text-slate-700">{{ prize.issued_count }}</td>
-                <td class="py-2 text-right text-slate-500">
-                  {{ prize.max_total === 0 ? 'Без лимита' : prize.max_total }}
-                </td>
-              </tr>
-            </tbody>
-          </table>
+          <div class="flex flex-wrap items-start justify-between gap-2">
+            <div>
+              <h3 class="text-sm font-semibold text-slate-800">Выданные призы</h3>
+              <p class="mt-1 text-xs text-slate-500">
+                Быстро видно, что выпадает, кому доступно и где нужен контроль.
+              </p>
+            </div>
+          </div>
+          <div class="mt-3 overflow-x-auto">
+            <table class="w-full min-w-[760px] text-sm">
+              <caption class="sr-only">Выданные призы рулетки</caption>
+              <thead class="text-xs uppercase tracking-wider text-slate-500">
+                <tr>
+                  <th scope="col" class="px-3 py-2 text-left">Приз</th>
+                  <th scope="col" class="px-3 py-2 text-left">Редкость</th>
+                  <th scope="col" class="px-3 py-2 text-left">Выдано / осталось</th>
+                  <th scope="col" class="px-3 py-2 text-left">Кому</th>
+                  <th scope="col" class="px-3 py-2 text-left">Статус</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-slate-100">
+                <tr v-if="!(dashboard.prizes_issued || []).length">
+                  <td colspan="5" class="px-3 py-8 text-center text-sm text-slate-500">
+                    Выданных призов пока нет. После первой выдачи здесь появится приз, редкость и остаток по лимиту.
+                  </td>
+                </tr>
+                <tr
+                  v-for="prize in dashboard.prizes_issued || []"
+                  :key="prize.id"
+                  class="align-top transition-colors duration-150 hover:bg-slate-50/70"
+                >
+                  <td class="px-3 py-3">
+                    <p class="max-w-[280px] font-semibold leading-5 text-slate-900">
+                      {{ prize.title }}
+                    </p>
+                  </td>
+                  <td class="px-3 py-3">
+                    <span
+                      class="inline-flex rounded-full px-2.5 py-1 text-xs font-semibold"
+                      :class="issuedPrizeRarityClass(prize.rarity_code)"
+                    >
+                      {{ rarityLabel(prize.rarity_code) }}
+                    </span>
+                  </td>
+                  <td class="px-3 py-3 tabular-nums">
+                    <p class="font-medium text-slate-800">
+                      {{ issuedPrizeIssueText(prize) }}
+                    </p>
+                    <p
+                      class="mt-1 text-xs"
+                      :class="issuedPrizeRemainingClass(prize)"
+                    >
+                      {{ issuedPrizeRemainingText(prize) }}
+                    </p>
+                  </td>
+                  <td class="px-3 py-3">
+                    <span
+                      class="inline-flex rounded-full px-2.5 py-1 text-xs font-medium"
+                      :class="issuedPrizeAudienceClass(prize)"
+                    >
+                      {{ issuedPrizeAudienceText(prize) }}
+                    </span>
+                  </td>
+                  <td class="px-3 py-3">
+                    <span
+                      class="inline-flex rounded-full px-2.5 py-1 text-xs font-semibold"
+                      :class="issuedPrizeStatusClass(prize)"
+                    >
+                      {{ issuedPrizeStatusText(prize) }}
+                    </span>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
         </div>
       </section>
 
@@ -1142,6 +1190,17 @@ interface PromoTemplate {
   wheel_owner_customer_id?: string | null
 }
 
+interface DashboardPrize {
+  id: string
+  title: string
+  rarity_code: string
+  issued_count: number
+  max_total: number
+  is_for_retail?: boolean | number
+  is_for_wholesale?: boolean | number
+  is_active?: boolean | number
+}
+
 interface DashboardData {
   totals?: {
     total_spins: number
@@ -1157,13 +1216,7 @@ interface DashboardData {
     threshold_byn: number
     qualified_customers: string[]
   }>
-  prizes_issued?: Array<{
-    id: string
-    title: string
-    rarity_code: string
-    issued_count: number
-    max_total: number
-  }>
+  prizes_issued?: DashboardPrize[]
   rarity_rules?: WheelRarity[]
 }
 
@@ -1457,6 +1510,80 @@ function prizeAudienceText(prize: WheelPrize): string {
   if (retail) return 'Розница'
   if (wholesale) return 'Опт'
   return 'Не выбран'
+}
+
+function issuedPrizeLimit(prize: DashboardPrize): number {
+  return Number(prize.max_total || 0)
+}
+
+function issuedPrizeIssueText(prize: DashboardPrize): string {
+  const issued = Number(prize.issued_count || 0)
+  const limit = issuedPrizeLimit(prize)
+  if (limit <= 0) return `Выдано ${issued}`
+  return `Выдано ${issued} из ${limit}`
+}
+
+function issuedPrizeRemainingText(prize: DashboardPrize): string {
+  const issued = Number(prize.issued_count || 0)
+  const limit = issuedPrizeLimit(prize)
+  if (limit <= 0) return 'Без лимита'
+  const remaining = Math.max(0, limit - issued)
+  if (remaining <= 0) return 'Лимит закончился'
+  return `Осталось ${remaining}`
+}
+
+function issuedPrizeRemainingClass(prize: DashboardPrize): string {
+  const limit = issuedPrizeLimit(prize)
+  if (limit <= 0) return 'text-slate-500'
+  return Number(prize.issued_count || 0) >= limit ? 'font-medium text-rose-600' : 'text-slate-500'
+}
+
+function issuedPrizeAudienceText(prize: DashboardPrize): string {
+  const retail = Boolean(prize.is_for_retail)
+  const wholesale = Boolean(prize.is_for_wholesale)
+  if (retail && wholesale) return 'Розница и опт'
+  if (retail) return 'Розница'
+  if (wholesale) return 'Опт'
+  return 'Не выбран сегмент'
+}
+
+function issuedPrizeAudienceClass(prize: DashboardPrize): string {
+  if (!prize.is_for_retail && !prize.is_for_wholesale) return 'bg-rose-50 text-rose-700'
+  return 'bg-slate-100 text-slate-700'
+}
+
+function issuedPrizeStatusText(prize: DashboardPrize): string {
+  if (!prize.is_active) return 'Выключен'
+  if (!prize.is_for_retail && !prize.is_for_wholesale) return 'Проверьте доступ'
+  const limit = issuedPrizeLimit(prize)
+  const issued = Number(prize.issued_count || 0)
+  if (limit > 0 && issued >= limit) return 'Лимит закончился'
+  if (issued <= 0) return 'Ещё не выпадал'
+  if (limit <= 0) return 'Выдаётся без лимита'
+  return 'Выдаётся'
+}
+
+function issuedPrizeStatusClass(prize: DashboardPrize): string {
+  if (!prize.is_active) return 'bg-slate-100 text-slate-600'
+  if (!prize.is_for_retail && !prize.is_for_wholesale) return 'bg-rose-100 text-rose-700'
+  const limit = issuedPrizeLimit(prize)
+  const issued = Number(prize.issued_count || 0)
+  if (limit > 0 && issued >= limit) return 'bg-amber-100 text-amber-800'
+  if (issued <= 0) return 'bg-slate-100 text-slate-600'
+  return 'bg-emerald-100 text-emerald-700'
+}
+
+function issuedPrizeRarityClass(code: string): string {
+  const classes: Record<string, string> = {
+    common: 'bg-slate-100 text-slate-700',
+    rare: 'bg-blue-100 text-blue-700',
+    epic: 'bg-violet-100 text-violet-700',
+    legendary: 'bg-amber-100 text-amber-800',
+    mythic: 'bg-fuchsia-100 text-fuchsia-700',
+    valuable: 'bg-orange-100 text-orange-800',
+    nothing: 'bg-slate-100 text-slate-600',
+  }
+  return classes[code] || 'bg-slate-100 text-slate-700'
 }
 
 function prizeStatusText(prize: WheelPrize): string {
