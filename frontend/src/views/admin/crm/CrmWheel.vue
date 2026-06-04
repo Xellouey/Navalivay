@@ -678,6 +678,7 @@
                           v-model="prizeForm.rarity_code"
                           required
                           class="w-full rounded-xl border border-gray-300 bg-white px-3 py-2.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
+                          :style="prizeRaritySelectStyle"
                         >
                           <option v-for="rarity in configurablePrizeRarities" :key="rarity.code" :value="rarity.code">
                             {{ rarityLabel(rarity.code) }}
@@ -1347,12 +1348,21 @@ function extractFirstHex(value: string | undefined | null): string {
 
 const prizeImagePreviewCardStyle = computed(() => ({
   borderColor: extractFirstHex(selectedPrizeRarity.value?.bgColor),
+  borderStyle: 'solid',
 }))
 
 const prizeImagePreviewBadgeStyle = computed(() => ({
   background: selectedPrizeRarity.value?.bgColor || '#64748B',
   color: selectedPrizeRarity.value?.textColor || '#FFFFFF',
 }))
+
+const prizeRaritySelectStyle = computed(() => {
+  const color = extractFirstHex(selectedPrizeRarity.value?.bgColor)
+  return {
+    borderColor: color,
+    boxShadow: `0 0 0 1px ${color}22`,
+  }
+})
 
 const quickPromoValidityHint = computed(() =>
   promoValidityHint(promoQuickForm.duration_days, {
