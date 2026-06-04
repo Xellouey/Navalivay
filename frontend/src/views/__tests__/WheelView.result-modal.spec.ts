@@ -177,13 +177,21 @@ describe("WheelView result modal", () => {
     expect(modalText).not.toContain("Промокод");
     expect(modalText).not.toContain("BAD-NOTHING-CODE");
     expect(modalText).not.toContain("Действует до");
-    expect(document.body.querySelector(".wheel-result-body__rarity-band")).toBeNull();
+    expect(document.body.querySelector(".wheel-result-body__prize-card")).toBeNull();
 
     wrapper.unmount();
   });
 
-  it("keeps the winning dialog unchanged for real prizes", async () => {
-    const wrapper = await mountAndSpin(spinResult());
+  it("shows a prize card with rarity color and image for real prizes", async () => {
+    const wrapper = await mountAndSpin(spinResult({
+      prize: {
+        id: "prize-1",
+        title: "Скидка 10%",
+        description: "Промокод на скидку",
+        image_url: "/uploads/wheel-prizes/prize.png",
+        rarity_code: "common",
+      },
+    }));
     const modalText = document.body.textContent || "";
 
     expect(modalText).toContain("Поздравляем");
@@ -193,8 +201,23 @@ describe("WheelView result modal", () => {
     expect(modalText).toContain("Промокод");
     expect(modalText).toContain("SAVE10");
     expect(modalText).toContain("Забрать");
-    expect(document.body.querySelector(".wheel-result-body__rarity-band")).not.toBeNull();
+    expect(document.body.querySelector(".wheel-result-body__prize-card")).not.toBeNull();
+    expect(document.body.querySelector(".wheel-result-body__prize-img")?.getAttribute("src")).toBe(
+      "/uploads/wheel-prizes/prize.png",
+    );
+    expect(document.body.querySelector(".wheel-result-body__rarity-text")?.textContent).toContain("Обычный");
     expect(document.body.querySelector(".wheel-result-body__sad-face")).toBeNull();
+
+    wrapper.unmount();
+  });
+
+  it("does not mention guaranteed prize for pity releases", async () => {
+    const wrapper = await mountAndSpin(spinResult({ is_pity_release: true }));
+    const modalText = document.body.textContent || "";
+
+    expect(modalText).toContain("Поздравляем");
+    expect(modalText).toContain("Тебе выпало");
+    expect(modalText).not.toContain("Гарантированный приз");
 
     wrapper.unmount();
   });

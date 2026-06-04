@@ -202,10 +202,29 @@
         </div>
         <div
           v-if="lastResult.prize.rarity_code && !isNothingResult"
-          class="wheel-result-body__rarity-band"
-          :style="{ background: rarityColor(lastResult.prize.rarity_code) }"
+          class="wheel-result-body__prize-card"
+          :style="{ borderColor: rarityBorderColor(lastResult.prize.rarity_code) }"
         >
-          {{ rarityLabel(lastResult.prize.rarity_code) }}
+          <img
+            v-if="lastResult.prize.image_url && !resultImageFailed"
+            :src="lastResult.prize.image_url"
+            :alt="lastResult.prize.title"
+            class="wheel-result-body__prize-img"
+            @error="resultImageFailed = true"
+          />
+          <div
+            v-else
+            class="wheel-result-body__prize-fallback"
+            :style="resultPrizeFallbackStyle"
+            role="img"
+            :aria-label="lastResult.prize.title"
+          ></div>
+          <span
+            class="wheel-result-body__rarity-text"
+            :style="{ color: rarityBorderColor(lastResult.prize.rarity_code) }"
+          >
+            {{ rarityLabel(lastResult.prize.rarity_code) }}
+          </span>
         </div>
         <p v-if="resultKicker" class="wheel-result-body__kicker">{{ resultKicker }}</p>
         <h3 class="wheel-result-body__title">
@@ -268,6 +287,7 @@ import WheelConsentModal from '@/components/wheel/WheelConsentModal.vue'
 import CustomerModalShell from '@/components/CustomerModalShell.vue'
 import ToastNotification from '@/components/ToastNotification.vue'
 import { useWheelStore, WHEEL_STATE_CACHE_TTL_MS, type WheelPrize, type WheelSpinResult } from '@/stores/wheel'
+import defaultPrizeImage from '@/assets/wheel-default-prize.png'
 
 const wheelStore = useWheelStore()
 const router = useRouter()
@@ -277,6 +297,7 @@ const lastResult = ref<WheelSpinResult | null>(null)
 const toastMessage = ref('')
 const toastKey = ref(0)
 const showCopyToast = ref(false)
+const resultImageFailed = ref(false)
 let copyToastTimer: ReturnType<typeof setTimeout> | null = null
 
 async function copyResultPromo() {
@@ -373,14 +394,12 @@ const spinsWord = computed(() => {
 const resultKicker = computed(() => {
   if (isNothingResult.value) return ''
   if (lastResult.value?.is_epic_release) return 'Эпическая выдача'
-  if (lastResult.value?.is_pity_release) return 'Гарантированный приз'
   return 'Тебе выпало'
 })
 
 const modalTitle = computed(() => {
   if (isNothingResult.value) return ''
   if (lastResult.value?.is_epic_release) return 'Эпический приз'
-  if (lastResult.value?.is_pity_release) return 'Гарантированный приз'
   return 'Поздравляем'
 })
 
@@ -399,10 +418,24 @@ const resultDescription = computed(() => {
 const showResultPromo = computed(() => Boolean(lastResult.value?.promo_code) && !isNothingResult.value)
 const resultValidUntil = computed(() => (isNothingResult.value ? '' : lastResult.value?.promo_valid_until || ''))
 const resultCtaLabel = computed(() => (isNothingResult.value ? 'Понятно' : 'Забрать'))
+const resultPrizeFallbackStyle = computed(() => ({
+  backgroundColor: rarityBorderColor(lastResult.value?.prize?.rarity_code || ''),
+  '--wheel-default-prize-image': `url('${defaultPrizeImage}')`,
+}))
+
+function extractFirstHex(value: string | undefined | null): string {
+  if (!value) return '#E2E5EA'
+  const match = value.match(/#([0-9a-fA-F]{3}){1,2}\b/)
+  return match ? match[0] : value
+}
 
 function rarityColor(code: string): string {
   const rarity = wheelStore.rarities.find((r) => r.code === code)
   return rarity?.bgColor || '#1F2933'
+}
+
+function rarityBorderColor(code: string): string {
+  return extractFirstHex(rarityColor(code))
 }
 
 function rarityLabel(code: string): string {
@@ -452,6 +485,7 @@ async function spin() {
     try {
       result = await wheelStore.spin()
       lastResult.value = result
+      resultImageFailed.value = false
     } catch (error) {
       console.error('[wheel] spin error', error)
       showToast(spinErrorMessage(error))
@@ -876,26 +910,64 @@ onMounted(async () => {
   filter: drop-shadow(0 8px 16px rgba(31, 41, 51, 0.14));
 }
 
-.wheel-result-body__rarity-band {
-  display: inline-flex;
-  align-items: center;
-  height: 24px;
-  padding: 0 14px;
-  border-radius: 999px;
-  font-family: 'Montserrat', sans-serif;
-  font-weight: 700;
-  font-size: 11px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: #ffffff;
-  margin-bottom: 4px;
-}
-
 .wheel-result-body__kicker {
   margin: 0;
   font-family: 'SF Pro Display', system-ui, sans-serif;
   font-size: 13px;
   color: #5c6470;
+}
+
+.wheel-result-body__prize-card {
+  width: 112px;
+  min-height: 130px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 7px;
+  padding: 7px 7px 9px;
+  border: 2.5px solid #e2e5ea;
+  border-radius: 22px;
+  background: #ffffff;
+  box-shadow: 0 18px 30px rgba(31, 41, 51, 0.1);
+  margin-bottom: 2px;
+}
+
+.wheel-result-body__prize-img {
+  width: 94px;
+  height: 94px;
+  display: block;
+  border-radius: 16px;
+  object-fit: cover;
+  background: #f5f7fa;
+}
+
+.wheel-result-body__prize-fallback {
+  width: 94px;
+  height: 94px;
+  border-radius: 16px;
+  background-color: #9aa0a6;
+  -webkit-mask-image: var(--wheel-default-prize-image);
+  mask-image: var(--wheel-default-prize-image);
+  -webkit-mask-size: 72%;
+  mask-size: 72%;
+  -webkit-mask-position: center;
+  mask-position: center;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+}
+
+.wheel-result-body__rarity-text {
+  max-width: 100%;
+  font-family: 'Montserrat', sans-serif;
+  font-weight: 700;
+  font-size: 10px;
+  line-height: 1.15;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .wheel-result-body__title {
