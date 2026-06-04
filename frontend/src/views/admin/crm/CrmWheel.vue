@@ -737,20 +737,34 @@
                   <section class="rounded-2xl border border-slate-200/70 bg-white p-4 shadow-sm">
                     <p class="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-500">Фото приза</p>
                     <div class="grid gap-3">
-                      <div class="flex h-52 w-full items-center justify-center overflow-hidden rounded-2xl border border-dashed border-slate-300 bg-slate-50">
-                        <img
-                          v-if="prizeImagePreview"
-                          :src="prizeImagePreview"
-                          :alt="selectedPromoDisplayText || 'Превью приза'"
-                          class="h-full w-full object-contain"
-                        />
+                      <div
+                        class="relative mx-auto aspect-square w-full max-w-[220px] rounded-[24px] border-[2.5px] bg-white shadow-[0_24px_32px_rgba(170,178,189,0.12)]"
+                        :style="prizeImagePreviewCardStyle"
+                      >
+                        <div class="absolute inset-[5%] flex items-center justify-center">
+                          <img
+                            v-if="prizeImagePreview"
+                            :src="prizeImagePreview"
+                            :alt="selectedPromoDisplayText || 'Превью приза'"
+                            class="h-full w-full object-contain drop-shadow-[0_10px_14px_rgba(15,23,42,0.10)]"
+                          />
+                          <div
+                            v-else
+                            class="flex h-full w-full items-center justify-center rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-5 text-center text-sm text-slate-500"
+                          >
+                            Фото не добавлено
+                          </div>
+                        </div>
                         <div
-                          v-else
-                          class="px-5 text-center text-sm text-slate-500"
+                          class="absolute bottom-[-9px] left-1/2 z-10 inline-flex min-h-[18px] min-w-[86px] -translate-x-1/2 items-center justify-center whitespace-nowrap rounded-md px-2.5 py-1 text-center text-[8px] font-medium uppercase leading-[10px] tracking-[0.02em]"
+                          :style="prizeImagePreviewBadgeStyle"
                         >
-                          Фото не добавлено
+                          {{ rarityLabel(prizeForm.rarity_code) }}
                         </div>
                       </div>
+                      <p class="text-center text-xs text-slate-500">
+                        Так карточка будет выглядеть в рулетке.
+                      </p>
                       <input
                         ref="prizeImageInputRef"
                         type="file"
@@ -1322,6 +1336,23 @@ const selectedPromoDisplayText = computed(() => {
   if (!template) return ''
   return String(template.customer_description || template.description || template.code || '').trim()
 })
+
+const selectedPrizeRarity = computed(() => rarityByCode.value.get(prizeForm.rarity_code) || null)
+
+function extractFirstHex(value: string | undefined | null): string {
+  if (!value) return '#E2E5EA'
+  const match = value.match(/#([0-9a-fA-F]{3}){1,2}\b/)
+  return match ? match[0] : value
+}
+
+const prizeImagePreviewCardStyle = computed(() => ({
+  borderColor: extractFirstHex(selectedPrizeRarity.value?.bgColor),
+}))
+
+const prizeImagePreviewBadgeStyle = computed(() => ({
+  background: selectedPrizeRarity.value?.bgColor || '#64748B',
+  color: selectedPrizeRarity.value?.textColor || '#FFFFFF',
+}))
 
 const quickPromoValidityHint = computed(() =>
   promoValidityHint(promoQuickForm.duration_days, {
