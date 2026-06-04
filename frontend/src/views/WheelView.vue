@@ -378,7 +378,7 @@ const resultKicker = computed(() => {
 })
 
 const modalTitle = computed(() => {
-  if (isNothingResult.value) return 'Не повезло'
+  if (isNothingResult.value) return ''
   if (lastResult.value?.is_epic_release) return 'Эпический приз'
   if (lastResult.value?.is_pity_release) return 'Гарантированный приз'
   return 'Поздравляем'
