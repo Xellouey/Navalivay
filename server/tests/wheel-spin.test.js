@@ -69,13 +69,13 @@ function clearWheelData() {
   `);
 }
 
-function insertPromoTemplate(id, code) {
+function insertPromoTemplate(id, code, { durationDays = null } = {}) {
   db.prepare(
     `INSERT INTO promo_codes (
       id, code, description, discount_type, discount_value, min_order_amount,
-      max_uses, current_uses, active, has_gift, is_wheel_template, created_at
-    ) VALUES (?, ?, ?, 'fixed', 10, 0, 0, 0, 1, 0, 1, DATETIME('now'))`,
-  ).run(id, code, code);
+      max_uses, current_uses, active, has_gift, duration_days, is_wheel_template, created_at
+    ) VALUES (?, ?, ?, 'fixed', 10, 0, 0, 0, 1, 0, ?, 1, DATETIME('now'))`,
+  ).run(id, code, code, durationDays);
 }
 
 function insertPrize(prize) {
@@ -84,14 +84,16 @@ function insertPrize(prize) {
       ? null
       : (prize.promo_template_id || `promo_${prize.id}`);
   if (templateId) {
-    insertPromoTemplate(templateId, `CODE_${String(prize.id).toUpperCase()}`);
+    insertPromoTemplate(templateId, `CODE_${String(prize.id).toUpperCase()}`, {
+      durationDays: prize.template_duration_days ?? null,
+    });
   }
   db.prepare(
     `INSERT INTO wheel_prizes (
       id, rarity_code, title, description, weight, max_total, issued_count,
       is_for_retail, is_for_wholesale, promo_template_id, promo_validity_days, epic_pool_size,
       epic_pool_threshold_byn, is_active, sort_order
-    ) VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, 90, 5, 300, 1, ?)`,
+    ) VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, 5, 300, 1, ?)`,
   ).run(
     prize.id,
     prize.rarity_code,
@@ -102,6 +104,7 @@ function insertPrize(prize) {
     prize.is_for_retail ?? 1,
     prize.is_for_wholesale ?? 0,
     templateId,
+    prize.promo_validity_days ?? 90,
     prize.sort_order ?? 0,
   );
 }
@@ -552,6 +555,71 @@ async function testSpinAuditCapturesEffectiveChanceAndRng() {
   updateWheelSettings({ pity_threshold: 3 });
 }
 
+async function testGeneratedPromoUsesTemplateDurationInsteadOfPrizeLegacyDuration() {
+  clearWheelData();
+  insertPrize({ id: "p_template_duration", rarity_code: "common", title: "Template duration", weight: 1, template_duration_days: 14, promo_validity_days: 90 });
+  updateRarityRule("common", { chance_percent: 100 });
+  updateRarityRule("rare", { chance_percent: 0 });
+  updateRarityRule("mythic", { chance_percent: 0 });
+  updateRarityRule("legendary", { chance_percent: 0 });
+  updateRarityRule("epic", { chance_percent: 0 });
+
+  const customerId = "cust-template-duration";
+  ensureCustomer(customerId);
+  setBalance(customerId, 1);
+
+  const result = spinWheelForCustomer({
+    customerId,
+    rng: makeSequenceRng([0, 0, 0]),
+    auditEnabled: false,
+  });
+  const promo = db
+    .prepare("SELECT duration_days, valid_from_date, valid_until, max_uses FROM promo_codes WHERE id = ?")
+    .get(result.promo.promoId);
+
+  assert.equal(promo.duration_days, 14, "generated wheel promo must inherit template duration");
+  assert.equal(promo.max_uses, 1, "winner promo stays one-time even if prize/template limits differ");
+  const expectedUntilDate = new Date(`${promo.valid_from_date}T00:00:00Z`);
+  expectedUntilDate.setUTCDate(expectedUntilDate.getUTCDate() + 13);
+  assert.ok(
+    String(promo.valid_until).startsWith(expectedUntilDate.toISOString().slice(0, 10)),
+    "valid_until must be computed from template duration, not deprecated prize duration",
+  );
+}
+
+async function testGeneratedPromoFallsBackWhenTemplateDurationIsMissing() {
+  clearWheelData();
+  updateWheelSettings({ default_promo_validity_days: 21 });
+  insertPrize({ id: "p_missing_template_duration", rarity_code: "common", title: "Missing template duration", weight: 1, promo_validity_days: 0 });
+  updateRarityRule("common", { chance_percent: 100 });
+  updateRarityRule("rare", { chance_percent: 0 });
+  updateRarityRule("mythic", { chance_percent: 0 });
+  updateRarityRule("legendary", { chance_percent: 0 });
+  updateRarityRule("epic", { chance_percent: 0 });
+
+  const customerId = "cust-template-duration-fallback";
+  ensureCustomer(customerId);
+  setBalance(customerId, 1);
+
+  const result = spinWheelForCustomer({
+    customerId,
+    rng: makeSequenceRng([0, 0, 0]),
+    auditEnabled: false,
+  });
+  const promo = db
+    .prepare("SELECT duration_days, valid_from_date, valid_until FROM promo_codes WHERE id = ?")
+    .get(result.promo.promoId);
+
+  assert.equal(promo.duration_days, 21, "missing template and legacy prize duration should use wheel default");
+  const expectedUntilDate = new Date(`${promo.valid_from_date}T00:00:00Z`);
+  expectedUntilDate.setUTCDate(expectedUntilDate.getUTCDate() + 20);
+  assert.ok(
+    String(promo.valid_until).startsWith(expectedUntilDate.toISOString().slice(0, 10)),
+    "fallback valid_until must stay aligned with saved duration_days",
+  );
+  updateWheelSettings({ default_promo_validity_days: 90 });
+}
+
 async function main() {
   // Make sure default settings reflect base test assumptions.
   updateWheelSettings({
@@ -578,6 +646,8 @@ async function main() {
   await testDashboardTotalsMatchRecordedSpins();
   await testNotEnoughSpins();
   await testSpinAuditCapturesEffectiveChanceAndRng();
+  await testGeneratedPromoUsesTemplateDurationInsteadOfPrizeLegacyDuration();
+  await testGeneratedPromoFallsBackWhenTemplateDurationIsMissing();
 
   console.log("[wheel-spin] OK");
 }

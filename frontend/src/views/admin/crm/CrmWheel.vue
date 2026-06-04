@@ -666,11 +666,14 @@
                         Создать промокод
                       </button>
                     </div>
+                    <p class="mt-2 text-xs text-slate-500">
+                      {{ selectedPromoValidityHint }}
+                    </p>
                   </div>
 
                   <div class="rounded-2xl border border-slate-200/70 bg-white p-4">
                     <p class="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-500">Выдача</p>
-                    <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <div class="grid grid-cols-1 gap-3">
                       <label class="block">
                         <span class="mb-1.5 block text-sm font-medium text-slate-700">Лимит выдачи</span>
                         <input
@@ -680,16 +683,6 @@
                           class="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
                         />
                         <span class="mt-1 block text-xs text-slate-500">0 = без лимита</span>
-                      </label>
-                      <label class="block">
-                        <span class="mb-1.5 block text-sm font-medium text-slate-700">Срок действия, дней</span>
-                        <input
-                          v-model.number="prizeForm.promo_validity_days"
-                          type="number"
-                          min="1"
-                          required
-                          class="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
-                        />
                       </label>
                     </div>
                   </div>
@@ -757,14 +750,6 @@
                             {{ rarityLabel(rarity.code) }}
                           </option>
                         </select>
-                      </label>
-                      <label class="block">
-                        <span class="mb-1.5 block text-sm font-medium text-slate-700">Позиция</span>
-                        <input
-                          v-model.number="prizeForm.sort_order"
-                          type="number"
-                          class="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
-                        />
                       </label>
                     </div>
                   </div>
@@ -950,6 +935,9 @@
                     min="1"
                     class="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
                   />
+                  <p class="mt-1 text-xs text-slate-500">
+                    {{ quickPromoValidityHint }}
+                  </p>
                 </div>
               </div>
             </div>
@@ -1116,6 +1104,8 @@ interface PromoTemplate {
   code: string
   discount_type: string
   discount_value: number
+  duration_days?: number | null
+  valid_from_date?: string | null
   active?: number | boolean
   is_wheel_template?: number | boolean
   wheel_owner_customer_id?: string | null
@@ -1302,6 +1292,25 @@ const availablePromoTemplates = computed(() => {
   })
 })
 
+const selectedPromoTemplate = computed(() =>
+  promoTemplates.value.find((promo) => promo.id === prizeForm.promo_template_id) || null,
+)
+
+const selectedPromoValidityHint = computed(() => {
+  const template = selectedPromoTemplate.value
+  if (!template) return 'Выберите промокод: срок действия берётся из его настроек.'
+  const templateDays = Number(template.duration_days || 0)
+  return promoValidityHint(templateDays > 0 ? templateDays : settingsForm.default_promo_validity_days, {
+    emptyText: 'У промокода нет срока. Для выданного кода будет использован срок по умолчанию.',
+  })
+})
+
+const quickPromoValidityHint = computed(() =>
+  promoValidityHint(promoQuickForm.duration_days, {
+    emptyText: 'Укажите срок, чтобы менеджер видел дату окончания.',
+  }),
+)
+
 const selectedRarity = computed(
   () => rarities.value.find((rarity) => rarity.code === selectedRarityCode.value) || rarities.value[0] || null,
 )
@@ -1394,6 +1403,29 @@ function prizeStatusClass(prize: WheelPrize): string {
     return 'bg-amber-100 text-amber-800'
   }
   return 'bg-emerald-100 text-emerald-700'
+}
+
+function promoValidityHint(
+  rawDays: number | null | undefined,
+  { emptyText }: { emptyText: string },
+): string {
+  const days = Number(rawDays || 0)
+  if (!Number.isFinite(days) || days <= 0) return emptyText
+  const endDate = new Date()
+  endDate.setHours(0, 0, 0, 0)
+  endDate.setDate(endDate.getDate() + Math.floor(days) - 1)
+  const formatted = endDate.toLocaleDateString('ru-RU', {
+    day: '2-digit',
+    month: 'long',
+    year: 'numeric',
+  })
+  return `Срок промокода: ${Math.floor(days)} дн., если выиграют сегодня — до ${formatted} включительно.`
+}
+
+function promoTemplateDurationDays(template: PromoTemplate | null | undefined): number {
+  const days = Number(template?.duration_days || 0)
+  if (Number.isFinite(days) && days > 0) return Math.floor(days)
+  return Number(settingsForm.default_promo_validity_days || 90)
 }
 
 function formatDateTime(value: string): string {
@@ -1635,6 +1667,7 @@ function generatePromoTemplateCode() {
 }
 
 function openQuickPromoModal() {
+  const inheritedDuration = promoTemplateDurationDays(selectedPromoTemplate.value)
   promoQuickError.value = ''
   Object.assign(promoQuickForm, {
     code: '',
@@ -1644,7 +1677,7 @@ function openQuickPromoModal() {
     discount_value: 10,
     min_order_amount: 0,
     max_uses: 0,
-    duration_days: prizeForm.promo_validity_days || 90,
+    duration_days: inheritedDuration,
     active: true,
   })
   generatePromoTemplateCode()
@@ -1769,9 +1802,6 @@ function validatePrizeForm(): string[] {
   if (!Number.isFinite(prizeForm.max_total) || prizeForm.max_total < 0) {
     errors.push('Лимит выдачи не может быть отрицательным.')
   }
-  if (!Number.isFinite(prizeForm.promo_validity_days) || prizeForm.promo_validity_days < 1) {
-    errors.push('Срок промокода должен быть от 1 дня.')
-  }
   if (prizeForm.rarity_code === 'valuable') {
     if (!Number.isFinite(prizeForm.epic_pool_size) || prizeForm.epic_pool_size < 1) {
       errors.push('Количество участников до выдачи должно быть от 1.')
@@ -1823,7 +1853,6 @@ async function savePrize() {
       weight: prizeForm.weight,
       max_total: prizeForm.max_total,
       promo_template_id: prizeForm.promo_template_id,
-      promo_validity_days: prizeForm.promo_validity_days,
       epic_pool_size: prizeForm.epic_pool_size,
       epic_pool_threshold_byn: prizeForm.epic_pool_threshold_byn,
       is_for_retail: prizeForm.is_for_retail,

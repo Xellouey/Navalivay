@@ -65,6 +65,7 @@ function installFetchMock(
       code: "SAVE10",
       discount_type: "fixed",
       discount_value: 10,
+      duration_days: 90,
       active: 1,
       wheel_owner_customer_id: null,
     },
@@ -245,6 +246,7 @@ describe("CrmWheel prize image flow", () => {
     expect(prizeWrites[0].method).toBe("POST");
     expect(prizeWrites[0].payload.image_url).toBe("/uploads/wheel-prizes/uploaded.png");
     expect(prizeWrites[0].payload.title).toBe("Скидка 15%");
+    expect(prizeWrites[0].payload).not.toHaveProperty("promo_validity_days");
   });
 
   it("lets the manager clear an existing image without triggering a re-upload", async () => {
@@ -609,6 +611,60 @@ describe("CrmWheel prize image flow", () => {
 
     expect(wrapper.text()).not.toContain("Как часто выпадать среди этой редкости");
     expect(wrapper.text()).not.toContain("Частота выпадения");
+  });
+
+  it("hides manager-only sorting and prize expiry fields in the prize modal", async () => {
+    installFetchMock([]);
+    const wrapper = mount(CrmWheel);
+    await flushPromises();
+    await openPrizesTab(wrapper);
+
+    const createButton = wrapper.findAll("button").find((item) => item.text().includes("Добавить приз"));
+    expect(createButton).toBeTruthy();
+    await createButton!.trigger("click");
+    await flushPromises();
+
+    expect(wrapper.text()).not.toContain("Позиция");
+    expect(wrapper.text()).not.toContain("Срок действия, дней");
+    expect(wrapper.text()).toContain("Выберите промокод: срок действия берётся из его настроек.");
+  });
+
+  it("shows the effective end date from the selected promo template duration", async () => {
+    installFetchMock(
+      [],
+      [
+        {
+          id: "promo-90",
+          code: "SAVE90",
+          discount_type: "fixed",
+          discount_value: 10,
+          duration_days: 90,
+          active: 1,
+          wheel_owner_customer_id: null,
+        },
+      ],
+    );
+    const wrapper = mount(CrmWheel);
+    await flushPromises();
+    await openPrizesTab(wrapper);
+
+    const createButton = wrapper.findAll("button").find((item) => item.text().includes("Добавить приз"));
+    expect(createButton).toBeTruthy();
+    await createButton!.trigger("click");
+    await flushPromises();
+    await wrapper.find("#wheel-prize-promo-template").setValue("promo-90");
+
+    const expectedEnd = new Date();
+    expectedEnd.setHours(0, 0, 0, 0);
+    expectedEnd.setDate(expectedEnd.getDate() + 89);
+    const formattedEnd = expectedEnd.toLocaleDateString("ru-RU", {
+      day: "2-digit",
+      month: "long",
+      year: "numeric",
+    });
+
+    expect(wrapper.text()).toContain("Срок промокода: 90 дн.");
+    expect(wrapper.text()).toContain(`до ${formattedEnd} включительно`);
   });
 
   it("creates a promo template from the wheel modal and auto-selects it", async () => {

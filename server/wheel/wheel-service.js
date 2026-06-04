@@ -1005,11 +1005,22 @@ function generatePromoForPrize(prize, settings, ownerCustomerId = null) {
   if (!template) return null;
 
   const promoId = generateId(PROMO_ID_PREFIX);
-  const validityDays =
-    Math.max(
-      1,
-      Math.floor(safeNumber(prize.promo_validity_days, settings.default_promo_validity_days)),
-    );
+  // Wheel prizes do not own customer-facing expiry anymore: the linked
+  // promo template is the source of truth, so managers configure the term
+  // once in CRM promo settings. `wheel_prizes.promo_validity_days` remains
+  // as a legacy fallback for older rows that predate template-driven terms.
+  const templateValidityDays = safeNumber(template.duration_days, 0);
+  const legacyPrizeValidityDays = safeNumber(prize.promo_validity_days, 0);
+  const validityDays = Math.max(
+    1,
+    Math.floor(
+      templateValidityDays > 0
+        ? templateValidityDays
+        : legacyPrizeValidityDays > 0
+          ? legacyPrizeValidityDays
+          : safeNumber(settings.default_promo_validity_days, 90),
+    ),
+  );
   const validFromDate = new Date().toISOString().slice(0, 10);
   // S4: precompute valid_until so admin "Просроченные" filter works for
   // generated wheel promos. validFromDate + (validityDays - 1) gives the
