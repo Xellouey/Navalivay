@@ -334,10 +334,20 @@ function toCrmSearchDto(indexRow, detail) {
 
   const imageUrl = detail?.first_image || null;
   return {
-    ...detail,
+    id: detail.id,
+    title: detail.title,
+    description: detail.description,
+    priceRub: detail.priceRub,
+    cost_price: detail.cost_price,
+    stock: detail.stock,
+    min_stock: detail.min_stock,
+    categoryId: detail.categoryId,
     category_name: detail.category_name,
+    groupId: detail.groupId,
     group_name: detail.group_name,
     groupSlug: detail.group_slug,
+    has_variants: detail.has_variants,
+    is_variant: false,
     imageUrl,
     image: imageUrl || detail.group_image || detail.category_image || null,
   };
@@ -377,12 +387,20 @@ export function searchProductsForAdmin(options = {}) {
     .map((row) => details.get(row.item_id))
     .filter(Boolean)
     .map((row) => ({
-      ...row,
+      id: row.id,
+      categoryId: row.categoryId,
+      groupId: row.groupId,
+      title: row.title,
+      priceRub: row.priceRub,
+      description: row.description,
+      strength: row.strength,
+      stock: row.stock,
+      createdAt: row.createdAt,
       categoryName: row.category_name,
-      categoryImage: row.category_image,
+      categoryImage: null,
       groupName: row.group_name,
       groupSlug: row.group_slug,
-      groupImage: row.group_image,
+      groupImage: null,
       costPrice: row.cost_price,
       minStock: row.min_stock,
       useCategoryImage: row.use_category_image,
