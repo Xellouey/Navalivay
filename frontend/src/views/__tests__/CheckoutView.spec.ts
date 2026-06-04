@@ -506,6 +506,10 @@ describe("CheckoutView order flows", () => {
 
     await flushPromises();
     expect(wrapper.text()).toContain("Редактирование заказа");
+    expect(wrapper.text()).toContain("Вы меняете оформленный заказ");
+    expect(wrapper.text()).toContain("После сохранения мы обновим состав заказа.");
+    expect(wrapper.text()).not.toContain("Заказ №101");
+    expect(wrapper.text()).not.toContain("№101");
 
     await wrapper.find(".submit-button").trigger("click");
     await flushPromises();

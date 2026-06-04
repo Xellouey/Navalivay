@@ -165,10 +165,10 @@
         <div v-if="isEditingOrder" class="editing-order-card">
           <p class="editing-order-kicker">Редактирование заказа</p>
           <p class="editing-order-title">
-            Заказ №{{ editingOrderDetails?.order_number || cartStore.editingOrderId }}
+            Вы меняете оформленный заказ
           </p>
           <p class="editing-order-text">
-            После сохранения заказ снова попадет в новые, а менеджер увидит, что состав изменился.
+            После сохранения мы обновим состав заказа.
           </p>
         </div>
 

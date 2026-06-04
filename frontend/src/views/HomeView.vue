@@ -37,7 +37,7 @@
         <button class="active-order-banner" @click="router.push('/my-order')">
           <div class="active-order-copy">
             <span class="active-order-kicker">Активный заказ</span>
-            <strong class="active-order-title">Заказ №{{ activeOrder.order_number }} уже оформлен</strong>
+            <strong class="active-order-title">Заказ уже оформлен</strong>
             <span class="active-order-text">
               {{
                 activeOrder.status === "in_progress"
