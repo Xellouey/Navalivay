@@ -192,9 +192,18 @@
       reserve-tab-bar
       @close="closeResult"
     >
-      <div v-if="lastResult?.prize" class="wheel-result-body">
+      <div
+        v-if="lastResult?.prize"
+        class="wheel-result-body"
+        :class="{ 'wheel-result-body--nothing': isNothingResult }"
+      >
+        <div v-if="isNothingResult" class="wheel-result-body__sad-face" aria-hidden="true">
+          <span class="wheel-result-body__sad-eye"></span>
+          <span class="wheel-result-body__sad-eye"></span>
+          <span class="wheel-result-body__sad-mouth"></span>
+        </div>
         <div
-          v-if="lastResult.prize.rarity_code"
+          v-if="lastResult.prize.rarity_code && !isNothingResult"
           class="wheel-result-body__rarity-band"
           :style="{ background: rarityColor(lastResult.prize.rarity_code) }"
         >
@@ -202,12 +211,12 @@
         </div>
         <p class="wheel-result-body__kicker">{{ resultKicker }}</p>
         <h3 class="wheel-result-body__title">
-          {{ lastResult.prize.title || '—' }}
+          {{ resultTitle }}
         </h3>
-        <p v-if="lastResult.prize.description" class="wheel-result-body__desc">
-          {{ lastResult.prize.description }}
+        <p v-if="resultDescription" class="wheel-result-body__desc">
+          {{ resultDescription }}
         </p>
-        <div v-if="lastResult.promo_code" class="wheel-result-body__promo">
+        <div v-if="showResultPromo" class="wheel-result-body__promo">
           <span class="wheel-result-body__promo-label">Промокод</span>
           <button
             type="button"
@@ -217,14 +226,14 @@
             {{ lastResult.promo_code }}
           </button>
         </div>
-        <p v-if="lastResult.promo_valid_until" class="wheel-result-body__valid">
-          Действует до {{ formatDate(lastResult.promo_valid_until) }}
+        <p v-if="resultValidUntil" class="wheel-result-body__valid">
+          Действует до {{ formatDate(resultValidUntil) }}
         </p>
       </div>
 
       <template #footer>
         <button type="button" class="wheel-result-cta" @click="closeResult">
-          Забрать
+          {{ resultCtaLabel }}
         </button>
       </template>
     </CustomerModalShell>
@@ -336,6 +345,7 @@ const progressLabel = computed(() => {
 })
 
 const progressAriaLabel = computed(() => `Прогресс до следующего спина: ${progressPercent.value}%`)
+const isNothingResult = computed(() => lastResult.value?.prize?.rarity_code === 'nothing')
 
 // S16 + P3-UX: skeleton показываем только пока ни одного успешного
 // /api/wheel/state ещё не было. Как только store закэшировал хотя бы
@@ -363,16 +373,34 @@ const spinsWord = computed(() => {
 })
 
 const resultKicker = computed(() => {
+  if (isNothingResult.value) return 'В этот раз без приза'
   if (lastResult.value?.is_epic_release) return 'Эпическая выдача'
   if (lastResult.value?.is_pity_release) return 'Гарантированный приз'
   return 'Тебе выпало'
 })
 
 const modalTitle = computed(() => {
+  if (isNothingResult.value) return 'Не повезло'
   if (lastResult.value?.is_epic_release) return 'Эпический приз'
   if (lastResult.value?.is_pity_release) return 'Гарантированный приз'
   return 'Поздравляем'
 })
+
+const resultTitle = computed(() => {
+  if (isNothingResult.value) return 'Ничего не выиграли'
+  return lastResult.value?.prize?.title || '—'
+})
+
+const resultDescription = computed(() => {
+  if (isNothingResult.value) {
+    return 'Не расстраивайся, в следующий раз обязательно повезёт.'
+  }
+  return lastResult.value?.prize?.description || ''
+})
+
+const showResultPromo = computed(() => Boolean(lastResult.value?.promo_code) && !isNothingResult.value)
+const resultValidUntil = computed(() => (isNothingResult.value ? '' : lastResult.value?.promo_valid_until || ''))
+const resultCtaLabel = computed(() => (isNothingResult.value ? 'Понятно' : 'Забрать'))
 
 function rarityColor(code: string): string {
   const rarity = wheelStore.rarities.find((r) => r.code === code)
@@ -838,6 +866,41 @@ onMounted(async () => {
   text-align: center;
   gap: 8px;
   padding-top: 4px;
+}
+
+.wheel-result-body--nothing {
+  gap: 10px;
+}
+
+.wheel-result-body__sad-face {
+  position: relative;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: linear-gradient(180deg, #f3f5f8 0%, #dfe4ea 100%);
+  box-shadow: inset 0 -2px 8px rgba(31, 41, 51, 0.08);
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  place-items: center;
+  padding: 16px 13px 21px;
+}
+
+.wheel-result-body__sad-eye {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #5c6470;
+}
+
+.wheel-result-body__sad-mouth {
+  position: absolute;
+  left: 50%;
+  bottom: 13px;
+  width: 20px;
+  height: 10px;
+  border-top: 2px solid #5c6470;
+  border-radius: 50% 50% 0 0;
+  transform: translateX(-50%);
 }
 
 .wheel-result-body__rarity-band {
