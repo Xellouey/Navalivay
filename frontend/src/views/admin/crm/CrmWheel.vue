@@ -588,25 +588,33 @@
         >
           <form
             v-if="prizeModalOpen"
-            class="flex max-h-[90vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-slate-200/40 bg-white shadow-2xl"
+            class="flex max-h-[90vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-slate-200/40 bg-white shadow-2xl"
             role="dialog"
             aria-modal="true"
             aria-labelledby="wheel-prize-modal-title"
             @keydown.esc="closeModal"
             @submit.prevent="savePrize"
           >
-            <div class="flex items-center justify-between border-b border-slate-100 px-6 py-4">
+            <div class="flex items-start justify-between gap-4 border-b border-slate-100 px-6 py-4">
               <div>
                 <h3 id="wheel-prize-modal-title" class="text-lg font-bold text-slate-900">
                   {{ prizeForm.id ? 'Редактировать приз' : 'Новый приз' }}
                 </h3>
                 <p class="mt-0.5 text-xs text-slate-500">
-                  Заполните приз, промокод и условия выдачи.
+                  Выберите промокод, фото и условия показа в рулетке.
                 </p>
               </div>
+              <button
+                type="button"
+                class="rounded-full p-2 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700"
+                aria-label="Закрыть окно"
+                @click="closeModal"
+              >
+                <span aria-hidden="true">×</span>
+              </button>
             </div>
 
-            <div class="min-h-0 flex-1 overflow-y-auto px-6 py-4">
+            <div class="min-h-0 flex-1 overflow-y-auto bg-slate-50/60 px-6 py-5">
               <div
                 v-if="prizeFormErrors.length"
                 class="mb-4 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-800"
@@ -618,45 +626,105 @@
                 </ul>
               </div>
 
-              <div class="grid gap-5 lg:grid-cols-[minmax(0,1.35fr)_minmax(280px,0.85fr)]">
-                <div class="space-y-3">
-                  <div class="rounded-2xl border border-slate-200/70 bg-white p-4">
-                    <p class="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-500">Содержимое приза</p>
-                    <label for="wheel-prize-promo-template" class="mb-1.5 block text-sm font-medium text-slate-700">Промокод</label>
-                    <div class="flex gap-2">
-                      <select
-                        id="wheel-prize-promo-template"
-                        v-model="prizeForm.promo_template_id"
-                        class="min-w-0 flex-1 rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
-                      >
-                        <option :value="null">Без промокода</option>
-                        <option v-for="promo in availablePromoTemplates" :key="promo.id" :value="promo.id">
-                          {{ promo.code }} ({{ promo.discount_type === 'fixed' ? `${promo.discount_value} BYN` : `${promo.discount_value}%` }})
-                        </option>
-                      </select>
+              <div class="grid gap-5 lg:grid-cols-[minmax(0,1fr)_320px]">
+                <div class="space-y-4">
+                  <section class="rounded-2xl border border-slate-200/70 bg-white p-5 shadow-sm">
+                    <div class="mb-4 flex items-start justify-between gap-3">
+                      <div>
+                        <p class="text-xs font-semibold uppercase tracking-wider text-slate-500">Содержимое приза</p>
+                        <p class="mt-1 text-sm text-slate-500">Текст для клиента берётся из выбранного промокода.</p>
+                      </div>
+                    </div>
+
+                    <div class="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-end">
+                      <label for="wheel-prize-promo-template" class="block">
+                        <span class="mb-1.5 block text-sm font-medium text-slate-700">Промокод</span>
+                        <select
+                          id="wheel-prize-promo-template"
+                          v-model="prizeForm.promo_template_id"
+                          class="w-full rounded-xl border border-gray-300 bg-white px-3 py-2.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
+                        >
+                          <option :value="null">Без промокода</option>
+                          <option v-for="promo in availablePromoTemplates" :key="promo.id" :value="promo.id">
+                            {{ promo.code }} ({{ promo.discount_type === 'fixed' ? `${promo.discount_value} BYN` : `${promo.discount_value}%` }})
+                          </option>
+                        </select>
+                      </label>
                       <button
                         type="button"
-                        class="whitespace-nowrap rounded-xl border border-slate-200/70 bg-slate-50 px-3 py-2.5 text-sm font-medium text-slate-700 shadow-sm transition-colors duration-150 hover:border-slate-300 hover:bg-white"
+                        class="rounded-xl border border-blue-200 bg-blue-50 px-4 py-2.5 text-sm font-semibold text-blue-700 shadow-sm transition-colors duration-150 hover:border-blue-300 hover:bg-blue-100"
                         @click="openQuickPromoModal"
                       >
                         Создать промокод
                       </button>
                     </div>
-                    <p class="mt-2 text-xs text-slate-500">
-                      {{ selectedPromoValidityHint }}
-                    </p>
-                    <p v-if="selectedPromoDisplayText" class="mt-2 rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600">
-                      Клиент увидит: {{ selectedPromoDisplayText }}
-                    </p>
-                  </div>
 
+                    <div class="mt-3 grid gap-2">
+                      <p class="rounded-xl bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                        {{ selectedPromoValidityHint }}
+                      </p>
+                      <p v-if="selectedPromoDisplayText" class="rounded-xl border border-emerald-100 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
+                        <span class="font-semibold">Клиент увидит:</span> {{ selectedPromoDisplayText }}
+                      </p>
+                    </div>
+                  </section>
+
+                  <section class="rounded-2xl border border-slate-200/70 bg-white p-5 shadow-sm">
+                    <p class="mb-4 text-xs font-semibold uppercase tracking-wider text-slate-500">Редкость и выдача</p>
+                    <div class="grid gap-4 md:grid-cols-2">
+                      <label class="block">
+                        <span class="mb-1.5 block text-sm font-medium text-slate-700">Редкость</span>
+                        <select
+                          v-model="prizeForm.rarity_code"
+                          required
+                          class="w-full rounded-xl border border-gray-300 bg-white px-3 py-2.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
+                        >
+                          <option v-for="rarity in configurablePrizeRarities" :key="rarity.code" :value="rarity.code">
+                            {{ rarityLabel(rarity.code) }}
+                          </option>
+                        </select>
+                      </label>
+
+                      <div class="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-xs text-slate-600">
+                        <p class="font-semibold text-slate-700">Как работает редкость</p>
+                        <p class="mt-1">Шанс выпадения задаётся в настройках редкостей, а здесь выбирается группа приза.</p>
+                      </div>
+                    </div>
+
+                    <div v-if="prizeForm.rarity_code === 'valuable'" class="mt-4 rounded-2xl border border-amber-200 bg-amber-50/70 p-4">
+                      <p class="mb-3 text-xs font-semibold uppercase tracking-wider text-amber-800">Ценный приз</p>
+                      <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                        <label class="block">
+                          <span class="mb-1.5 block text-sm font-medium text-slate-700">Участников до ценного приза</span>
+                          <input
+                            v-model.number="prizeForm.epic_pool_size"
+                            type="number"
+                            min="1"
+                            required
+                            class="w-full rounded-xl border border-gray-300 px-4 py-2.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
+                          />
+                        </label>
+                        <label class="block">
+                          <span class="mb-1.5 block text-sm font-medium text-slate-700">Сумма покупок от, BYN</span>
+                          <input
+                            v-model.number="prizeForm.epic_pool_threshold_byn"
+                            type="number"
+                            min="1"
+                            step="0.01"
+                            required
+                            class="w-full rounded-xl border border-gray-300 px-4 py-2.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
+                          />
+                        </label>
+                      </div>
+                    </div>
+                  </section>
                 </div>
 
-                <div class="space-y-3">
-                  <div class="rounded-2xl border border-slate-200/70 bg-white p-4">
-                    <p class="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-500">Фото</p>
-                    <div class="flex gap-3">
-                      <div class="flex h-28 w-28 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-dashed border-slate-300 bg-slate-50">
+                <aside class="space-y-4">
+                  <section class="rounded-2xl border border-slate-200/70 bg-white p-5 shadow-sm">
+                    <p class="mb-4 text-xs font-semibold uppercase tracking-wider text-slate-500">Фото приза</p>
+                    <div class="grid gap-3">
+                      <div class="flex aspect-square w-full items-center justify-center overflow-hidden rounded-2xl border border-dashed border-slate-300 bg-slate-50">
                         <img
                           v-if="prizeImagePreview"
                           :src="prizeImagePreview"
@@ -665,119 +733,72 @@
                         />
                         <div
                           v-else
-                          class="px-3 text-center text-xs text-slate-500"
+                          class="px-5 text-center text-sm text-slate-500"
                         >
                           Фото не добавлено
                         </div>
                       </div>
-                      <div class="flex min-w-0 flex-1 flex-col justify-center gap-2">
-                        <input
-                          ref="prizeImageInputRef"
-                          type="file"
-                          accept="image/*"
-                          class="hidden"
-                          @change="handlePrizeImageSelected"
-                        />
-                        <button
-                          type="button"
-                          class="rounded-xl border border-slate-200/70 bg-slate-50 px-3 py-2.5 text-sm font-medium text-slate-700 shadow-sm transition-colors duration-150 hover:border-slate-300 hover:bg-white"
-                          :disabled="isPrizeSaving"
-                          @click="triggerPrizeImagePicker"
-                        >
-                          {{ prizeImagePreview ? 'Заменить фото' : 'Добавить фото' }}
-                        </button>
-                        <button
-                          v-if="prizeImagePreview"
-                          type="button"
-                          class="rounded-xl border border-rose-200 bg-white px-3 py-2.5 text-sm font-medium text-rose-600 shadow-sm transition-colors duration-150 hover:border-rose-300 hover:bg-rose-50"
-                          :disabled="isPrizeSaving"
-                          @click="clearPrizeImage"
-                        >
-                          Удалить фото
-                        </button>
-                      </div>
+                      <input
+                        ref="prizeImageInputRef"
+                        type="file"
+                        accept="image/*"
+                        class="hidden"
+                        @change="handlePrizeImageSelected"
+                      />
+                      <button
+                        type="button"
+                        class="w-full rounded-xl border border-slate-200/70 bg-slate-50 px-3 py-2.5 text-sm font-medium text-slate-700 shadow-sm transition-colors duration-150 hover:border-slate-300 hover:bg-white"
+                        :disabled="isPrizeSaving"
+                        @click="triggerPrizeImagePicker"
+                      >
+                        {{ prizeImagePreview ? 'Заменить фото' : 'Добавить фото' }}
+                      </button>
+                      <button
+                        v-if="prizeImagePreview"
+                        type="button"
+                        class="w-full rounded-xl border border-rose-200 bg-white px-3 py-2.5 text-sm font-medium text-rose-600 shadow-sm transition-colors duration-150 hover:border-rose-300 hover:bg-rose-50"
+                        :disabled="isPrizeSaving"
+                        @click="clearPrizeImage"
+                      >
+                        Удалить фото
+                      </button>
                     </div>
-                  </div>
+                  </section>
 
-                  <div class="rounded-2xl border border-slate-200/70 bg-white p-4">
-                    <p class="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-500">Настройки</p>
-                    <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-1">
-                      <label class="block">
-                        <span class="mb-1.5 block text-sm font-medium text-slate-700">Редкость</span>
-                        <select
-                          v-model="prizeForm.rarity_code"
-                          required
-                          class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
-                        >
-                          <option v-for="rarity in configurablePrizeRarities" :key="rarity.code" :value="rarity.code">
-                            {{ rarityLabel(rarity.code) }}
-                          </option>
-                        </select>
-                      </label>
-                    </div>
-                  </div>
-
-                  <div class="rounded-2xl border border-slate-200/70 bg-white p-4">
-                    <p class="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-500">Доступность</p>
+                  <section class="rounded-2xl border border-slate-200/70 bg-white p-5 shadow-sm">
+                    <p class="mb-4 text-xs font-semibold uppercase tracking-wider text-slate-500">Показ и активность</p>
                     <div class="grid gap-2">
-                      <label class="inline-flex items-center gap-2 text-sm text-slate-700">
-                        <input v-model="prizeForm.is_for_retail" type="checkbox" />
-                        Для розницы
+                      <label class="flex items-center justify-between gap-3 rounded-xl border border-slate-200 px-3 py-2.5 text-sm text-slate-700">
+                        <span>Для розницы</span>
+                        <input v-model="prizeForm.is_for_retail" type="checkbox" class="h-4 w-4" />
                       </label>
-                      <label class="inline-flex items-center gap-2 text-sm text-slate-700">
-                        <input v-model="prizeForm.is_for_wholesale" type="checkbox" />
-                        Для опта
+                      <label class="flex items-center justify-between gap-3 rounded-xl border border-slate-200 px-3 py-2.5 text-sm text-slate-700">
+                        <span>Для опта</span>
+                        <input v-model="prizeForm.is_for_wholesale" type="checkbox" class="h-4 w-4" />
                       </label>
-                      <label class="inline-flex items-center gap-2 text-sm text-slate-700">
-                        <input v-model="prizeForm.is_active" type="checkbox" />
-                        Приз активен
-                      </label>
-                    </div>
-                  </div>
-
-                  <div v-if="prizeForm.rarity_code === 'valuable'" class="rounded-2xl border border-amber-200 bg-amber-50/50 p-4">
-                    <p class="mb-3 text-xs font-semibold uppercase tracking-wider text-amber-800">Ценный приз</p>
-                    <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-1">
-                      <label class="block">
-                        <span class="mb-1.5 block text-sm font-medium text-slate-700">Участников до выдачи</span>
-                        <input
-                          v-model.number="prizeForm.epic_pool_size"
-                          type="number"
-                          min="1"
-                          required
-                          class="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
-                        />
-                      </label>
-                      <label class="block">
-                        <span class="mb-1.5 block text-sm font-medium text-slate-700">Покупок от, BYN</span>
-                        <input
-                          v-model.number="prizeForm.epic_pool_threshold_byn"
-                          type="number"
-                          min="1"
-                          step="0.01"
-                          required
-                          class="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
-                        />
+                      <label class="flex items-center justify-between gap-3 rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-medium text-slate-800">
+                        <span>Выдавать приз</span>
+                        <input v-model="prizeForm.is_active" type="checkbox" class="h-4 w-4" />
                       </label>
                     </div>
-                  </div>
-                </div>
+                  </section>
+                </aside>
               </div>
             </div>
-            <div class="flex gap-3 border-t border-slate-100 bg-white px-6 py-4">
-              <button
-                type="submit"
-                class="min-w-0 flex-[2] rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 px-4 py-2.5 text-sm font-semibold text-white shadow-md transition-colors duration-150 hover:from-blue-700 hover:to-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
-                :disabled="isPrizeSaving"
-              >
-                {{ isPrizeSaving ? 'Сохранение...' : 'Сохранить приз' }}
-              </button>
+            <div class="flex flex-col-reverse gap-3 border-t border-slate-100 bg-white px-6 py-4 sm:flex-row sm:justify-end">
               <button
                 type="button"
-                class="flex-1 rounded-xl border border-slate-200/70 bg-slate-50 px-4 py-2.5 text-sm font-medium text-slate-700 shadow-sm transition-colors duration-150 hover:border-slate-300 hover:bg-white"
+                class="rounded-xl border border-slate-200/70 bg-white px-5 py-2.5 text-sm font-medium text-slate-700 shadow-sm transition-colors duration-150 hover:border-slate-300 hover:bg-slate-50"
                 @click="closeModal"
               >
                 Не сохранять
+              </button>
+              <button
+                type="submit"
+                class="rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 px-6 py-2.5 text-sm font-semibold text-white shadow-md transition-colors duration-150 hover:from-blue-700 hover:to-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
+                :disabled="isPrizeSaving"
+              >
+                {{ isPrizeSaving ? 'Сохранение...' : 'Сохранить приз' }}
               </button>
             </div>
           </form>
