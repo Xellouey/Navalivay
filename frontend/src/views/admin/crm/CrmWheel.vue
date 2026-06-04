@@ -742,7 +742,10 @@
                         class="relative mx-auto aspect-square w-full max-w-[220px] rounded-[24px] border-[2.5px] bg-white shadow-[0_24px_32px_rgba(170,178,189,0.12)]"
                         :style="prizeImagePreviewCardStyle"
                       >
-                        <div class="absolute inset-[5%] flex items-center justify-center">
+                        <div
+                          class="absolute flex items-center justify-center"
+                          :class="prizeImagePreview ? 'inset-0 overflow-hidden rounded-[21px]' : 'inset-[5%]'"
+                        >
                           <img
                             v-if="prizeImagePreview"
                             :src="prizeImagePreview"

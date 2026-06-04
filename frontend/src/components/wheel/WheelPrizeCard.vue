@@ -9,6 +9,7 @@
   >
     <div
       class="wheel-prize-card__image"
+      :class="{ 'wheel-prize-card__image--photo': prize.image_url && !imgFailed }"
       :style="{ background: imageBackground }"
     >
       <img
@@ -127,6 +128,16 @@ const defaultIconStyle = computed(() => {
   align-items: center;
   justify-content: center;
   margin: auto;
+}
+
+.wheel-prize-card__image--photo {
+  position: absolute;
+  inset: 0;
+  width: auto;
+  height: auto;
+  overflow: hidden;
+  border-radius: 21px;
+  margin: 0;
 }
 
 .wheel-prize-card__img {
