@@ -671,14 +671,6 @@
                     </p>
                   </div>
 
-                  <div class="rounded-2xl border border-slate-200/70 bg-white p-4">
-                    <p class="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-500">Выдача</p>
-                    <p class="text-sm text-slate-600">
-                      Лимит победителей берётся из выбранного промокода.
-                      В промокоде 0 = без лимита.
-                    </p>
-                  </div>
-
                 </div>
 
                 <div class="space-y-3">

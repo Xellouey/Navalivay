@@ -628,8 +628,9 @@ describe("CrmWheel prize image flow", () => {
 
     expect(wrapper.text()).not.toContain("Позиция");
     expect(wrapper.text()).not.toContain("Лимит выдачи");
+    expect(wrapper.text()).not.toContain("Выдача");
     expect(wrapper.text()).not.toContain("Срок действия, дней");
-    expect(wrapper.text()).toContain("Лимит победителей берётся из выбранного промокода.");
+    expect(wrapper.text()).not.toContain("Лимит победителей берётся из выбранного промокода.");
     expect(wrapper.text()).toContain("Выберите промокод: срок действия берётся из его настроек.");
   });
 
