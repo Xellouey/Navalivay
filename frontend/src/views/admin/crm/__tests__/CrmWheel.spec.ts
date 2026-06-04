@@ -57,6 +57,48 @@ function buildPrize(overrides: Record<string, unknown> = {}) {
   };
 }
 
+function buildDefaultRarities(prizes: Array<Record<string, unknown>>) {
+  const countBy = (code: string) => prizes.filter((item) => item.rarity_code === code).length;
+  const rows = [
+    { code: "common", label: "Обычный", chancePercent: 25, bgColor: "#27A3FF", textColor: "#FFFFFF" },
+    { code: "rare", label: "Редкий", chancePercent: 12, bgColor: "#644CFF", textColor: "#FFFFFF" },
+    { code: "mythic", label: "Мифический", chancePercent: 8, bgColor: "#A603F2", textColor: "#FFFFFF" },
+    { code: "legendary", label: "Легендарный", chancePercent: 6, bgColor: "#F502A4", textColor: "#FFFFFF" },
+    { code: "epic", label: "Эпический", chancePercent: 4, bgColor: "#F50302", textColor: "#FFFFFF" },
+    { code: "valuable", label: "Ценный", chancePercent: 0, bgColor: "#FFAB00", textColor: "#FFFFFF" },
+    { code: "nothing", label: "Ничего", chancePercent: 45, bgColor: "#8D8D8D", textColor: "#FFFFFF", chanceIsDerived: true },
+  ];
+  return rows.map((rarity) => {
+    const prizeCount = countBy(rarity.code);
+    const issuablePrizeCount = prizes.filter((item) =>
+      item.rarity_code === rarity.code &&
+      item.is_active !== false &&
+      item.is_active !== 0 &&
+      item.template_available !== false &&
+      item.is_exhausted !== true
+    ).length;
+    return {
+      ...rarity,
+      prizeCount,
+      issuablePrizeCount,
+      issuedCount: prizes
+        .filter((item) => item.rarity_code === rarity.code)
+        .reduce((sum, item) => sum + Number(item.issued_count || 0), 0),
+      isAvailable: rarity.code === "nothing" ? true : issuablePrizeCount > 0,
+      ...(rarity.code === "valuable"
+        ? {
+            valuablePool: {
+              poolSize: 5,
+              thresholdByn: 300,
+              qualifiedCount: 0,
+              isHot: false,
+            },
+          }
+        : {}),
+    };
+  });
+}
+
 function installFetchMock(
   prizes: Array<Record<string, unknown>> = [buildPrize()],
   promos: Array<Record<string, unknown>> = [
@@ -74,6 +116,7 @@ function installFetchMock(
   raritiesOverride: Array<Record<string, unknown>> | null = null,
   rarityPutHandler?: (url: string, init?: RequestInit) => unknown,
 ) {
+  let currentPrizes = prizes.map((item) => ({ ...item }));
   const prizeWrites: Array<{ method: string; payload: Record<string, unknown> }> = [];
   const rarityWrites: Array<{ url: string; payload: Record<string, unknown> }> = [];
 
@@ -83,48 +126,7 @@ function installFetchMock(
 
     if (url.endsWith("/api/admin/crm/wheel/rarities")) {
       return createJsonResponse({
-        rarities: raritiesOverride || [
-          {
-            code: "common",
-            label: "Обычный",
-            bgColor: "#27A3FF",
-            textColor: "#FFFFFF",
-            chancePercent: 25,
-            prizeCount: prizes.filter((item) => item.rarity_code === "common").length,
-            issuablePrizeCount: prizes.filter((item) => item.rarity_code === "common").length,
-            issuedCount: 0,
-            isAvailable: true,
-          },
-          {
-            code: "nothing",
-            label: "Ничего",
-            bgColor: "#8D8D8D",
-            textColor: "#FFFFFF",
-            chancePercent: 75,
-            chanceIsDerived: true,
-            prizeCount: prizes.filter((item) => item.rarity_code === "nothing").length,
-            issuablePrizeCount: prizes.filter((item) => item.rarity_code === "nothing").length,
-            issuedCount: 0,
-            isAvailable: true,
-          },
-          {
-            code: "valuable",
-            label: "Ценный",
-            bgColor: "#FFAB00",
-            textColor: "#FFFFFF",
-            chancePercent: 0,
-            prizeCount: prizes.filter((item) => item.rarity_code === "valuable").length,
-            issuablePrizeCount: prizes.filter((item) => item.rarity_code === "valuable").length,
-            issuedCount: 0,
-            isAvailable: true,
-            valuablePool: {
-              poolSize: 5,
-              thresholdByn: 300,
-              qualifiedCount: 0,
-              isHot: false,
-            },
-          },
-        ],
+        rarities: raritiesOverride || buildDefaultRarities(currentPrizes),
       });
     }
 
@@ -139,16 +141,39 @@ function installFetchMock(
     }
 
     if (url.endsWith("/api/admin/crm/wheel/prizes") && method === "GET") {
-      return createJsonResponse({ prizes });
+      return createJsonResponse({ prizes: currentPrizes });
     }
 
     if (url.endsWith("/api/admin/crm/wheel/prizes") && method === "POST") {
-      prizeWrites.push({ method, payload: JSON.parse(String(init?.body || "{}")) });
+      const payload = JSON.parse(String(init?.body || "{}"));
+      prizeWrites.push({ method, payload });
+      currentPrizes = [
+        ...currentPrizes,
+        buildPrize({
+          id: `created-${currentPrizes.length + 1}`,
+          issued_count: 0,
+          template_available: true,
+          ...payload,
+        }),
+      ];
       return createJsonResponse({ ok: true });
     }
 
     if (url.includes("/api/admin/crm/wheel/prizes/") && method === "PUT") {
-      prizeWrites.push({ method, payload: JSON.parse(String(init?.body || "{}")) });
+      const payload = JSON.parse(String(init?.body || "{}"));
+      prizeWrites.push({ method, payload });
+      const prizeId = url.split("/").at(-1);
+      currentPrizes = currentPrizes.map((prize) =>
+        prize.id === prizeId
+          ? { ...prize, ...payload, template_available: payload.template_available ?? prize.template_available }
+          : prize,
+      );
+      return createJsonResponse({ ok: true });
+    }
+
+    if (url.includes("/api/admin/crm/wheel/prizes/") && method === "DELETE") {
+      const prizeId = url.split("/").at(-1);
+      currentPrizes = currentPrizes.filter((prize) => prize.id !== prizeId);
       return createJsonResponse({ ok: true });
     }
 
@@ -355,6 +380,62 @@ describe("CrmWheel prize image flow", () => {
     expect(promoSelect.text()).not.toContain("WHEEL-ONCE");
     expect(promoSelect.text()).not.toContain("OLD10");
     expect(promoSelect.text()).toContain("ACTIVE10");
+  });
+
+  it("updates rarity badge dynamically after creating the first prize in an empty rarity", async () => {
+    const wrapper = await mountWheel([]);
+    await openPrizesTab(wrapper);
+
+    expect(wrapper.text()).toContain("Нет призов");
+    expect(wrapper.text()).toContain("Всего призов: 0");
+
+    const createButton = wrapper.findAll("button").find((item) => item.text().includes("Добавить приз"));
+    expect(createButton).toBeTruthy();
+    await createButton!.trigger("click");
+    await flushPromises();
+
+    await wrapper.find('input[type="text"]').setValue("Новый обычный приз");
+    await wrapper.find("#wheel-prize-promo-template").setValue("promo-1");
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+
+    expect(wrapper.text()).toContain("Готово к выдаче");
+    expect(wrapper.text()).toContain("Всего призов: 1");
+  });
+
+  it("updates rarity badge dynamically after deleting the last prize in a rarity", async () => {
+    const wrapper = await mountWheel([buildPrize()]);
+    await openPrizesTab(wrapper);
+
+    expect(wrapper.text()).toContain("Готово к выдаче");
+    expect(wrapper.text()).toContain("Всего призов: 1");
+
+    const disableButton = wrapper.findAll("button").find((item) => item.text().includes("Выключить"));
+    expect(disableButton).toBeTruthy();
+    await disableButton!.trigger("click");
+    await flushPromises();
+
+    const confirmButton = wrapper.findAll("button").find((item) => item.text().includes("Отключить приз"));
+    expect(confirmButton).toBeTruthy();
+    await confirmButton!.trigger("click");
+    await flushPromises();
+
+    expect(wrapper.text()).toContain("Нет призов");
+    expect(wrapper.text()).toContain("Всего призов: 0");
+  });
+
+  it("shows unavailable badge when rarity has prizes but none are issuable", async () => {
+    const wrapper = await mountWheel([
+      buildPrize({
+        id: "prize-unavailable",
+        template_available: false,
+      }),
+    ]);
+    await openPrizesTab(wrapper);
+
+    expect(wrapper.text()).toContain("Есть, но недоступны");
+    expect(wrapper.text()).toContain("Всего призов: 1");
+    expect(wrapper.text()).toContain("Выдано: 0");
   });
 
   it("saves rarity-level wheel rules", async () => {

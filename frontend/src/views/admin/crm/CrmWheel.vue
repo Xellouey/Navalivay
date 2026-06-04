@@ -175,9 +175,9 @@
               </div>
               <span
                 class="inline-flex rounded-full px-2.5 py-1 text-[11px] font-semibold"
-                :class="(rarity.isAvailable ?? rarity.is_available) ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'"
+                :class="rarityBadgeClass(rarity)"
               >
-                {{ (rarity.isAvailable ?? rarity.is_available) ? 'Готово к выдаче' : 'Нет доступных призов' }}
+                {{ rarityBadgeText(rarity) }}
               </span>
             </div>
             <div class="mt-3 flex items-center justify-between text-xs text-slate-500">
@@ -1424,6 +1424,30 @@ function prizeStatusClass(prize: WheelPrize): string {
   return 'bg-emerald-100 text-emerald-700'
 }
 
+function rarityPrizeCount(rarity: WheelRarity): number {
+  return Number(rarity.prizeCount ?? rarity.prize_count ?? 0)
+}
+
+function rarityIssuablePrizeCount(rarity: WheelRarity): number {
+  return Number(rarity.issuablePrizeCount ?? rarity.issuable_prize_count ?? 0)
+}
+
+function rarityBadgeText(rarity: WheelRarity): string {
+  const total = rarityPrizeCount(rarity)
+  const issuable = rarityIssuablePrizeCount(rarity)
+  if (total <= 0) return 'Нет призов'
+  if (issuable <= 0) return 'Есть, но недоступны'
+  return 'Готово к выдаче'
+}
+
+function rarityBadgeClass(rarity: WheelRarity): string {
+  const total = rarityPrizeCount(rarity)
+  const issuable = rarityIssuablePrizeCount(rarity)
+  if (total <= 0) return 'bg-slate-100 text-slate-600'
+  if (issuable <= 0) return 'bg-amber-100 text-amber-800'
+  return 'bg-emerald-100 text-emerald-700'
+}
+
 function promoValidityHint(
   rawDays: number | null | undefined,
   { emptyText }: { emptyText: string },
@@ -1625,6 +1649,15 @@ async function loadSpins() {
   spins.value = await fetchJson<SpinsResponse>(url)
 }
 
+async function refreshWheelStatusData() {
+  await Promise.all([
+    loadRarities(),
+    loadPrizes(),
+    loadDashboard(),
+    activeTab.value === 'spins' ? loadSpins() : Promise.resolve(),
+  ])
+}
+
 async function saveRarityRule(rarity: WheelRarity) {
   if (!rarity?.code || rarity.code === 'nothing') return
   const nextChance =
@@ -1670,7 +1703,7 @@ async function saveRarityRule(rarity: WheelRarity) {
         valuable_threshold_byn: nextThreshold,
       }),
     })
-    await Promise.all([loadRarities(), loadDashboard()])
+    await refreshWheelStatusData()
     showToast('success', `Редкость «${rarityLabel(rarity.code)}» сохранена.`)
   } catch (error: unknown) {
     console.error('[crm-wheel] save rarity rule failed', error)
@@ -1911,7 +1944,7 @@ async function savePrize() {
       })
     }
     closeModal()
-    await loadPrizes()
+    await refreshWheelStatusData()
     showToast('success', prizeForm.id ? 'Приз обновлён.' : 'Приз создан.')
   } catch (error: unknown) {
     console.error('[crm-wheel] save prize failed', error)
@@ -1935,7 +1968,7 @@ async function deletePrizeConfirmed() {
     await fetchJson(`/api/admin/crm/wheel/prizes/${prize.id}`, {
       method: 'DELETE',
     })
-    await loadPrizes()
+    await refreshWheelStatusData()
     showToast('success', `Приз «${prize.title}» отключён.`)
   } catch (error: unknown) {
     console.error('[crm-wheel] delete prize failed', error)
