@@ -198,9 +198,7 @@
         :class="{ 'wheel-result-body--nothing': isNothingResult }"
       >
         <div v-if="isNothingResult" class="wheel-result-body__sad-face" aria-hidden="true">
-          <span class="wheel-result-body__sad-eye"></span>
-          <span class="wheel-result-body__sad-eye"></span>
-          <span class="wheel-result-body__sad-mouth"></span>
+          🗿
         </div>
         <div
           v-if="lastResult.prize.rarity_code && !isNothingResult"
@@ -380,14 +378,14 @@ const resultKicker = computed(() => {
 })
 
 const modalTitle = computed(() => {
-  if (isNothingResult.value) return 'В этот раз без приза'
+  if (isNothingResult.value) return 'Не повезло'
   if (lastResult.value?.is_epic_release) return 'Эпический приз'
   if (lastResult.value?.is_pity_release) return 'Гарантированный приз'
   return 'Поздравляем'
 })
 
 const resultTitle = computed(() => {
-  if (isNothingResult.value) return 'Попробуешь ещё?'
+  if (isNothingResult.value) return 'В следующий раз повезёт'
   return lastResult.value?.prize?.title || '—'
 })
 
@@ -869,57 +867,13 @@ onMounted(async () => {
 }
 
 .wheel-result-body--nothing {
-  gap: 12px;
+  gap: 10px;
 }
 
 .wheel-result-body__sad-face {
-  position: relative;
-  width: 56px;
-  height: 56px;
-  border-radius: 50%;
-  background: linear-gradient(180deg, #fff1b8 0%, #ffd56a 100%);
-  box-shadow: inset 0 -2px 8px rgba(166, 103, 0, 0.12), 0 8px 18px rgba(255, 171, 0, 0.18);
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  place-items: center;
-  padding: 16px 13px 21px;
-}
-
-.wheel-result-body__sad-face::before,
-.wheel-result-body__sad-face::after {
-  content: "";
-  position: absolute;
-  top: 31px;
-  width: 7px;
-  height: 4px;
-  border-radius: 50%;
-  background: rgba(245, 3, 2, 0.16);
-}
-
-.wheel-result-body__sad-face::before {
-  left: 13px;
-}
-
-.wheel-result-body__sad-face::after {
-  right: 13px;
-}
-
-.wheel-result-body__sad-eye {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: #7a4c00;
-}
-
-.wheel-result-body__sad-mouth {
-  position: absolute;
-  left: 50%;
-  bottom: 15px;
-  width: 18px;
-  height: 7px;
-  border-top: 2px solid #7a4c00;
-  border-radius: 50% 50% 0 0;
-  transform: translateX(-50%);
+  font-size: 54px;
+  line-height: 1;
+  filter: drop-shadow(0 8px 16px rgba(31, 41, 51, 0.14));
 }
 
 .wheel-result-body__rarity-band {
