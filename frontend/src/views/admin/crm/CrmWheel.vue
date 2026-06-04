@@ -730,7 +730,7 @@
                           required
                           class="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
                         >
-                          <option v-for="rarity in rarities" :key="rarity.code" :value="rarity.code">
+                          <option v-for="rarity in configurablePrizeRarities" :key="rarity.code" :value="rarity.code">
                             {{ rarityLabel(rarity.code) }}
                           </option>
                         </select>
@@ -1314,6 +1314,10 @@ const selectedRarity = computed(
   () => rarities.value.find((rarity) => rarity.code === selectedRarityCode.value) || rarities.value[0] || null,
 )
 
+const configurablePrizeRarities = computed(() =>
+  rarities.value.filter((rarity) => rarity.code !== 'nothing'),
+)
+
 const filteredPrizes = computed(() =>
   prizes.value.filter((prize) => prize.rarity_code === selectedRarityCode.value),
 )
@@ -1718,12 +1722,16 @@ async function createQuickPromoTemplate() {
 }
 
 function openCreateModal() {
+  const defaultRarityCode =
+    selectedRarityCode.value !== 'nothing'
+      ? selectedRarityCode.value
+      : configurablePrizeRarities.value[0]?.code || 'common'
   Object.assign(prizeForm, {
     id: null,
     title: '',
     description: '',
     image_url: '',
-    rarity_code: selectedRarityCode.value || rarities.value[0]?.code || 'common',
+    rarity_code: defaultRarityCode,
     promo_template_id: null,
     weight: 1,
     max_total: 0,
@@ -1742,6 +1750,10 @@ function openCreateModal() {
 }
 
 function openEditModal(prize: WheelPrize) {
+  if (prize.rarity_code === 'nothing') {
+    showToast('info', 'Редкость «Ничего» системная и не редактируется.')
+    return
+  }
   selectedRarityCode.value = prize.rarity_code
   Object.assign(prizeForm, {
     id: prize.id,

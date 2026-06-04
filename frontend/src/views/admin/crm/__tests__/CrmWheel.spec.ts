@@ -634,6 +634,41 @@ describe("CrmWheel prize image flow", () => {
     expect(wrapper.text()).toContain("Выберите промокод: срок действия берётся из его настроек.");
   });
 
+  it("does not allow managers to choose the system nothing rarity in the prize modal", async () => {
+    installFetchMock([]);
+    const wrapper = mount(CrmWheel);
+    await flushPromises();
+    await openPrizesTab(wrapper);
+
+    const createButton = wrapper.findAll("button").find((item) => item.text().includes("Добавить приз"));
+    expect(createButton).toBeTruthy();
+    await createButton!.trigger("click");
+    await flushPromises();
+
+    const raritySelect = wrapper.findAll("select").find((item) =>
+      item.text().includes("Обычный") && item.text().includes("Ценный"),
+    );
+    expect(raritySelect).toBeTruthy();
+    expect(raritySelect!.text()).not.toContain("Ничего");
+  });
+
+  it("does not open editing for system nothing prizes", async () => {
+    const nothingPrize = buildPrize({
+      id: "nothing-prize",
+      rarity_code: "nothing",
+      title: "Ничего",
+      promo_template_id: null,
+    });
+    installFetchMock([nothingPrize]);
+    const wrapper = mount(CrmWheel);
+    await flushPromises();
+    (wrapper.vm as unknown as { openEditModal: (prize: unknown) => void }).openEditModal(nothingPrize);
+    await flushPromises();
+
+    expect(wrapper.find("form").exists()).toBe(false);
+    expect(wrapper.text()).toContain("Редкость «Ничего» системная и не редактируется.");
+  });
+
   it("shows the effective end date from the selected promo template duration", async () => {
     installFetchMock(
       [],
