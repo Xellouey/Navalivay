@@ -166,6 +166,7 @@ export const useAdminStore = defineStore('admin', () => {
     total: 0,
     totalPages: 1
   })
+  let latestProductsRequestId = 0
 
   // Computed
   const isLoggedIn = computed(() => isAuthenticated.value && !!token.value)
@@ -1154,6 +1155,7 @@ async function createCategory(category: { name: string; hideEmpty?: boolean; cov
     search?: string
     group?: string
   } = {}) {
+    const requestId = ++latestProductsRequestId
     try {
       isLoading.value = true
       error.value = null
@@ -1169,13 +1171,21 @@ async function createCategory(category: { name: string; hideEmpty?: boolean; cov
         headers: getAuthHeaders()
       })
 
+      if (requestId !== latestProductsRequestId) {
+        return
+      }
       products.value = response.products.map(normalizeProductData)
       productsPagination.value = response.pagination
     } catch (err: any) {
+      if (requestId !== latestProductsRequestId) {
+        return
+      }
       handleApiError(err)
       throw err
     } finally {
-      isLoading.value = false
+      if (requestId === latestProductsRequestId) {
+        isLoading.value = false
+      }
     }
   }
 

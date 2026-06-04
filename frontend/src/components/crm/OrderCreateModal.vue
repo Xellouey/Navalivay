@@ -362,7 +362,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useCrmStore, type CrmProductSummary, type Customer, type Order } from '@/stores/crm'
 import AdminModal from '@/components/AdminModal.vue'
@@ -386,6 +386,7 @@ const productSearch = ref('')
 const productSuggestions = ref<CrmProductSummary[]>([])
 const isSearching = ref(false)
 const searchToken = ref(0)
+let searchDebounce: ReturnType<typeof setTimeout> | null = null
 
 const isSubmitting = ref(false)
 const submitError = ref('')
@@ -472,36 +473,51 @@ watch(
 
 watch(productSearch, (value) => {
   const query = value.trim()
+  if (searchDebounce) {
+    clearTimeout(searchDebounce)
+    searchDebounce = null
+  }
   if (!query || query.length < 2) {
     invalidateProductSearch()
     productSuggestions.value = []
     return
   }
 
+  searchDebounce = setTimeout(() => {
+    void loadProductSuggestions(query)
+  }, 250)
+})
+
+async function loadProductSuggestions(query: string) {
   const currentToken = ++searchToken.value
   isSearching.value = true
 
-  crmStore
-    .searchCrmProducts({ search: query, limit: 100 })
-    .then((results) => {
-      if (currentToken !== searchToken.value) return
-      productSuggestions.value = results
-    })
-    .catch(() => {
-      if (currentToken !== searchToken.value) return
-      productSuggestions.value = []
-    })
-    .finally(() => {
-      if (currentToken === searchToken.value) {
-        isSearching.value = false
-      }
-    })
-})
+  try {
+    const results = await crmStore.searchCrmProducts({ search: query, limit: 100 })
+    if (currentToken !== searchToken.value) return
+    productSuggestions.value = results
+  } catch {
+    if (currentToken !== searchToken.value) return
+    productSuggestions.value = []
+  } finally {
+    if (currentToken === searchToken.value) {
+      isSearching.value = false
+    }
+  }
+}
 
 function invalidateProductSearch() {
+  if (searchDebounce) {
+    clearTimeout(searchDebounce)
+    searchDebounce = null
+  }
   searchToken.value += 1
   isSearching.value = false
 }
+
+onBeforeUnmount(() => {
+  invalidateProductSearch()
+})
 
 function resetForm() {
   form.customerId = ''

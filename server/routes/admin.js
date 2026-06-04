@@ -19,6 +19,7 @@ import {
   saveGroupWholesalePrices,
 } from '../wholesale-service.js';
 import { syncGroupParking, syncParkingFromFlattened } from '../utils/group-parking.js';
+import { searchProductsForAdmin, syncProductSearchIndex } from '../services/product-search-service.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -58,6 +59,14 @@ function pushVariantImage(map, productId, variantId, url) {
     list.push(url);
   } else {
     byProduct.set(variantId, [url]);
+  }
+}
+
+function refreshProductSearchIndex(context) {
+  try {
+    syncProductSearchIndex();
+  } catch (error) {
+    console.error(`[admin] product search index refresh failed after ${context}:`, error);
   }
 }
 
@@ -604,6 +613,7 @@ adminRouter.post('/api/admin/products', authMiddleware, (req, res) => {
     if (product.groupId) {
       try { syncGroupParking(product.groupId); } catch (e) { console.error('[admin] syncGroupParking on create failed:', e); }
     }
+    refreshProductSearchIndex('product create');
 
     const responseProduct = { ...product, links: productLinks };
     if (product.hasVariants) {
@@ -800,6 +810,7 @@ adminRouter.patch('/api/admin/products/:id', authMiddleware, async (req, res) =>
       console.error('[admin] parking sync wrapper failed:', e);
     }
 
+    refreshProductSearchIndex('product update');
     res.json({ ok: true });
   } catch (error) {
     console.error('[admin] Error processing variants:', error);
@@ -814,6 +825,7 @@ adminRouter.delete('/api/admin/products/:id', authMiddleware, (req, res) => {
   if (prod?.groupId) {
     try { syncGroupParking(prod.groupId); } catch (e) { console.error('[admin] syncGroupParking on delete failed:', e); }
   }
+  refreshProductSearchIndex('product delete');
   res.json({ ok: true });
 });
 
@@ -838,44 +850,45 @@ adminRouter.get('/api/admin/products', authMiddleware, (req, res) => {
   const search = req.query.search
   const group = req.query.group
 
+  const trimmedSearch = typeof search === 'string' ? search.trim() : ''
   let where = ''
   const params = []
   if (category) { where += (where ? ' AND ' : 'WHERE ') + 'p.categoryId = ?'; params.push(String(category)) }
   if (group) { where += (where ? ' AND ' : 'WHERE ') + 'p.groupId = ?'; params.push(String(group)) }
-  if (search && typeof search === 'string') {
-    // SQLite's LOWER() не работает с кириллицей, поэтому ищем по всем вариантам регистра
-    // Также ищем по названию группы (линейки) для удобства поиска
-    const trimmed = search.trim();
-    const words = Array.from(
-      new Set(
-        trimmed
-          .split(/\s+/)
-          .map(word => word.trim().toLowerCase())
-          .filter(word => word.length > 0)
-      )
-    );
 
-    if (words.length > 0) {
-      const wordConditions = words.map(word => {
-        const lowerPat = `%${word}%`;
-        const upperPat = `%${word.toUpperCase()}%`;
-        const titlePat = `%${word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()}%`;
-        params.push(lowerPat, upperPat, titlePat, lowerPat, upperPat, titlePat, lowerPat, upperPat, titlePat);
-        return '(p.title LIKE ? OR p.title LIKE ? OR p.title LIKE ? OR p.description LIKE ? OR p.description LIKE ? OR p.description LIKE ? OR g.name LIKE ? OR g.name LIKE ? OR g.name LIKE ?)';
-      });
+  let total
+  let rows
+  if (trimmedSearch) {
+    const result = searchProductsForAdmin({
+      search: trimmedSearch,
+      page,
+      limit,
+      categoryId: category ? String(category) : undefined,
+      groupId: group ? String(group) : undefined,
+    })
+    total = result.pagination.total
+    rows = result.products
+  } else {
+    total = (params.length
+      ? db.prepare(`
+          SELECT COUNT(*) as total
+          FROM products p
+          LEFT JOIN categories c ON p.categoryId = c.id
+          LEFT JOIN category_groups g ON p.groupId = g.id
+          ${where}
+        `).get(...params)
+      : db.prepare(`
+          SELECT COUNT(*) as total
+          FROM products p
+          LEFT JOIN categories c ON p.categoryId = c.id
+          LEFT JOIN category_groups g ON p.groupId = g.id
+          ${where}
+        `).get()
+    ).total
 
-      where += (where ? ' AND ' : 'WHERE ') + `(${wordConditions.join(' AND ')})`;
-    }
-  }
-
-  const total = (params.length
-    ? db.prepare(`SELECT COUNT(*) as total FROM products p LEFT JOIN category_groups g ON p.groupId = g.id ${where}`).get(...params)
-    : db.prepare(`SELECT COUNT(*) as total FROM products p LEFT JOIN category_groups g ON p.groupId = g.id ${where}`).get()
-  ).total
-
-  const offset = (page - 1) * limit
-  const rows = (params.length
-    ? db.prepare(`
+    const offset = (page - 1) * limit
+    rows = (params.length
+      ? db.prepare(`
         SELECT 
           p.id, 
           p.categoryId, 
@@ -902,7 +915,7 @@ adminRouter.get('/api/admin/products', authMiddleware, (req, res) => {
         ORDER BY p.createdAt DESC
         LIMIT ? OFFSET ?
       `).all(...params, limit, offset)
-    : db.prepare(`
+      : db.prepare(`
         SELECT 
           p.id, 
           p.categoryId, 
@@ -929,7 +942,8 @@ adminRouter.get('/api/admin/products', authMiddleware, (req, res) => {
         ORDER BY p.createdAt DESC
         LIMIT ? OFFSET ?
       `).all(limit, offset)
-  )
+    )
+  }
 
   const productIds = rows.map(r => r.id);
   const linksByProduct = new Map();
@@ -1424,6 +1438,7 @@ adminRouter.put('/api/admin/categories/:id', authMiddleware, async (req, res) =>
       .run(next.name, next.slug, next.order, next.hide_empty, next.cover_image, next.display_mode, id);
     console.log('[admin] Update result:', updateResult);
     console.log('[admin] Update completed successfully');
+    refreshProductSearchIndex('category update');
     res.json({ id, ...next });
   } catch (e) {
     console.error('[admin] Category update error:', e);
@@ -1475,6 +1490,7 @@ adminRouter.patch('/api/admin/categories/reorder', authMiddleware, (req, res) =>
 adminRouter.delete('/api/admin/categories/:id', authMiddleware, (req, res) => {
   const id = req.params.id;
   db.prepare('DELETE FROM categories WHERE id = ?').run(id);
+  refreshProductSearchIndex('category delete');
   res.json({ ok: true });
 });
 
@@ -2022,6 +2038,7 @@ adminRouter.put('/api/admin/category-groups/:id', authMiddleware, async (req, re
     LEFT JOIN products p ON p.groupId = gt.id
   `).get(id);
 
+  refreshProductSearchIndex('category group update');
   return res.json(enrichAdminCategoryGroup({
     ...updated,
     productCount: Number(updated.productCount ?? 0),
@@ -2097,6 +2114,7 @@ adminRouter.delete('/api/admin/category-groups/:id', authMiddleware, (req, res) 
   });
   tx(id);
 
+  refreshProductSearchIndex('category group delete');
   res.json({ ok: true });
 });
 

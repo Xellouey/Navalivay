@@ -33,7 +33,7 @@
               type="text"
               placeholder="Поиск по названию..."
               class="w-full rounded-2xl border border-white/60 bg-white/85 px-4 py-3 pl-12 text-sm font-medium text-gray-900 shadow-inner transition focus:border-rose-200 focus:outline-none focus:ring-2 focus:ring-rose-200/70"
-              @input="onFiltersChanged"
+              @input="onSearchInput"
             />
           </div>
           <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-3">
@@ -1000,7 +1000,7 @@
                 type="text"
                 placeholder="Поиск по названию..."
                 class="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-gray-900 focus:border-transparent focus:ring-2 focus:ring-brand-primary"
-                @input="onFiltersChanged"
+                @input="onSearchInput"
               />
             </div>
 
@@ -1325,6 +1325,7 @@ const displayedColumnWidths = computed(() => {
   return [...columnWidths.value, ...Array.from({ length: COLUMN_COUNT - columnWidths.value.length }, () => undefined)]
 })
 let measureRaf: number | null = null
+let searchDebounceTimer: ReturnType<typeof setTimeout> | null = null
 
 const groupFilterOptions = computed(() => {
   const currentCategory = category.value
@@ -1559,6 +1560,10 @@ onUnmounted(() => {
     cancelAnimationFrame(measureRaf)
     measureRaf = null
   }
+  if (searchDebounceTimer !== null) {
+    clearTimeout(searchDebounceTimer)
+    searchDebounceTimer = null
+  }
 })
 
 watch(() => props.pagination, (pg) => {
@@ -1590,7 +1595,21 @@ function onFiltersChanged() {
   emit('changePage', 1)
 }
 
+function onSearchInput() {
+  if (searchDebounceTimer !== null) {
+    clearTimeout(searchDebounceTimer)
+  }
+  searchDebounceTimer = setTimeout(() => {
+    searchDebounceTimer = null
+    onFiltersChanged()
+  }, 300)
+}
+
 function onCategoryFilterChange() {
+  if (searchDebounceTimer !== null) {
+    clearTimeout(searchDebounceTimer)
+    searchDebounceTimer = null
+  }
   group.value = ''
   onFiltersChanged()
 }
