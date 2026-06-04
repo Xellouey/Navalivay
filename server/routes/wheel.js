@@ -332,10 +332,13 @@ wheelRouter.post(
         if (customerIdForReplay) {
           const replay = db
             .prepare(
-              `SELECT s.*, p.title AS prize_title, p.description AS prize_description,
+              `SELECT s.*,
+                      COALESCE(NULLIF(pc.customer_description, ''), NULLIF(pc.description, ''), p.title, pc.code, 'Приз') AS prize_title,
+                      NULL AS prize_description,
                       p.image_url AS prize_image_url
                FROM wheel_spins s
                JOIN wheel_prizes p ON p.id = s.prize_id
+               LEFT JOIN promo_codes pc ON pc.id = p.promo_template_id
                WHERE s.customer_id = ? AND s.idempotency_key = ?`,
             )
             .get(customerIdForReplay, idempotencyKey);

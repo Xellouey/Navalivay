@@ -17,7 +17,7 @@ process.env.ALLOW_INSECURE_TELEGRAM_AUTH = "0";
 const { initDb, db } = await import("../db.js");
 const { seedDefaultWheelData } = await import("../migrations/add_wheel_prizes.js");
 const { wheelRouter, isWheelIdempotencyConflict } = await import("../routes/wheel.js");
-const { createPrize, updatePrize, updateWheelSettings, getWheelSettings } = await import("../wheel/wheel-service.js");
+const { createPrize, updatePrize, updateWheelSettings, getWheelSettings, listAdminPrizes } = await import("../wheel/wheel-service.js");
 const { issueToken } = await import("../auth.js");
 const { validatePromoCode } = await import("../promo-code-service.js");
 
@@ -33,6 +33,7 @@ const DEFAULT_TEST_ALLOWLIST = [
   "wheel_bad_idem",
   "wheel_parallel_idem",
   "wheel_no_prizes",
+  "wheel_promo_text",
   "wheel_idem_real",
   "wheel_audit_route",
 ];
@@ -523,6 +524,40 @@ async function testPrizeRequiresPromoTemplateUnlessNothing() {
     "nothing prize may omit promo template",
   );
 
+  db.prepare(
+    `INSERT INTO promo_codes (
+      id, code, description, customer_description, manager_description,
+      discount_type, discount_value, min_order_amount, max_uses, current_uses,
+      active, has_gift, is_wheel_template, created_at
+    ) VALUES (
+      'promo_text_source', 'TEXTSRC', 'Legacy promo description',
+      'Подарок из промокода', 'Положить подарок',
+      'fixed', 0, 0, 0, 0, 1, 1, 0, DATETIME('now')
+    )`,
+  ).run();
+
+  const noTitleResult = validatePrizePayload({
+    rarity_code: "common",
+    is_for_retail: true,
+    is_for_wholesale: false,
+    promo_template_id: "promo_text_source",
+  });
+  assert.ok(
+    !noTitleResult.errors.includes("title_required"),
+    "wheel prize title is no longer required when promo template owns customer text",
+  );
+
+  const textSourcePrize = createPrize({
+    rarity_code: "common",
+    weight: 1,
+    is_for_retail: true,
+    is_for_wholesale: false,
+    promo_template_id: "promo_text_source",
+  });
+  const listedPrize = listAdminPrizes().find((prize) => prize.id === textSourcePrize.id);
+  assert.equal(listedPrize.title, "Подарок из промокода");
+  assert.equal(listedPrize.description, null);
+
   const existing = createPrize({
     rarity_code: "common",
     title: "Has promo template",
@@ -617,6 +652,39 @@ async function testFeedConsentRequiredFlagFlips() {
   assert.equal(after.response.status, 200);
   assert.equal(after.data.feed_consent_required, false);
   assert.equal(after.data.feed_consent, false);
+}
+
+async function testSpinResponseUsesPromoTextAsPrizeText() {
+  db.prepare("UPDATE wheel_prizes SET is_active = 0").run();
+  db.prepare("UPDATE wheel_rarities SET chance_percent = 0 WHERE code NOT IN ('nothing', 'valuable')").run();
+  ensureCustomer("cust_promo_text", "777453", "wheel_promo_text", { consent: 1 });
+  insertPrize("p_promo_text", "common", 1, 0);
+  db.prepare("UPDATE wheel_rarities SET chance_percent = 100 WHERE code = 'common'").run();
+  db.prepare(
+    `UPDATE promo_codes
+     SET customer_description = 'Клиентский подарок из промокода',
+         description = 'Legacy promo text'
+     WHERE id = 'promo_p_promo_text'`,
+  ).run();
+  db.prepare(
+    `INSERT OR REPLACE INTO wheel_customer_balances (
+      customer_id, spins_available, accumulated_retail_byn,
+      accumulated_wholesale_byn, consecutive_nothing, last_updated_at
+    ) VALUES (?, 1, 0, 0, 0, DATETIME('now'))`,
+  ).run("cust_promo_text");
+
+  const { response, data } = await requestJson("/api/wheel/spin", {
+    method: "POST",
+    headers: telegramHeaders({
+      telegram_id: "777453",
+      telegram_username: "wheel_promo_text",
+    }),
+    body: JSON.stringify({}),
+  });
+
+  assert.equal(response.status, 200, JSON.stringify(data));
+  assert.equal(data.prize.title, "Клиентский подарок из промокода");
+  assert.equal(data.prize.description, null);
 }
 
 // P1 regression: a second POST /api/wheel/spin with the same
@@ -1133,6 +1201,7 @@ async function main() {
   await testPrizeRequiresPromoTemplateUnlessNothing();
   await testFeedExcludesCustomersWithoutConsent();
   await testFeedConsentRequiredFlagFlips();
+  await testSpinResponseUsesPromoTextAsPrizeText();
   await testSpinIsIdempotentByKey();
   await testSpinRejectsInvalidIdempotencyKeyWithoutSpending();
   await testParallelDifferentIdempotencyKeysDoNotOverspendOneSpin();

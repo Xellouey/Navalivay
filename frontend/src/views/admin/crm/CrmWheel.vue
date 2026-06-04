@@ -621,31 +621,7 @@
               <div class="grid gap-5 lg:grid-cols-[minmax(0,1.35fr)_minmax(280px,0.85fr)]">
                 <div class="space-y-3">
                   <div class="rounded-2xl border border-slate-200/70 bg-white p-4">
-                    <p class="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-500">Основное</p>
-                    <div class="space-y-3">
-                      <label class="block">
-                        <span class="mb-1.5 block text-sm font-medium text-slate-700">Название</span>
-                        <input
-                          v-model="prizeForm.title"
-                          type="text"
-                          required
-                          minlength="1"
-                          class="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
-                        />
-                      </label>
-                      <label class="block">
-                        <span class="mb-1.5 block text-sm font-medium text-slate-700">Описание для клиента</span>
-                        <textarea
-                          v-model="prizeForm.description"
-                          rows="2"
-                          class="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
-                        ></textarea>
-                      </label>
-                    </div>
-                  </div>
-
-                  <div class="rounded-2xl border border-slate-200/70 bg-white p-4">
-                    <p class="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-500">Промокод</p>
+                    <p class="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-500">Содержимое приза</p>
                     <label for="wheel-prize-promo-template" class="mb-1.5 block text-sm font-medium text-slate-700">Промокод</label>
                     <div class="flex gap-2">
                       <select
@@ -669,6 +645,9 @@
                     <p class="mt-2 text-xs text-slate-500">
                       {{ selectedPromoValidityHint }}
                     </p>
+                    <p v-if="selectedPromoDisplayText" class="mt-2 rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                      Клиент увидит: {{ selectedPromoDisplayText }}
+                    </p>
                   </div>
 
                 </div>
@@ -681,7 +660,7 @@
                         <img
                           v-if="prizeImagePreview"
                           :src="prizeImagePreview"
-                          :alt="prizeForm.title || 'Превью приза'"
+                          :alt="selectedPromoDisplayText || 'Превью приза'"
                           class="h-full w-full object-contain"
                         />
                         <div
@@ -1113,6 +1092,9 @@ interface WheelPrize {
 interface PromoTemplate {
   id: string
   code: string
+  description?: string | null
+  customer_description?: string | null
+  manager_description?: string | null
   discount_type: string
   discount_value: number
   max_uses?: number
@@ -1317,6 +1299,12 @@ const selectedPromoValidityHint = computed(() => {
   return promoValidityHint(templateDays > 0 ? templateDays : settingsForm.default_promo_validity_days, {
     emptyText: 'У промокода нет срока. Для выданного кода будет использован срок по умолчанию.',
   })
+})
+
+const selectedPromoDisplayText = computed(() => {
+  const template = selectedPromoTemplate.value
+  if (!template) return ''
+  return String(template.customer_description || template.description || template.code || '').trim()
 })
 
 const quickPromoValidityHint = computed(() =>
@@ -1723,8 +1711,8 @@ function openQuickPromoModal() {
   promoQuickError.value = ''
   Object.assign(promoQuickForm, {
     code: '',
-    customer_description: prizeForm.title || '',
-    manager_description: prizeForm.description || '',
+    customer_description: '',
+    manager_description: '',
     discount_type: 'fixed',
     discount_value: 10,
     has_gift: false,
@@ -1869,7 +1857,6 @@ function handlePrizeImageSelected(event: Event) {
 
 function validatePrizeForm(): string[] {
   const errors: string[] = []
-  if (!prizeForm.title.trim()) errors.push('Укажите название приза.')
   if (!prizeForm.rarity_code) errors.push('Выберите редкость.')
   if (!Number.isFinite(prizeForm.weight) || prizeForm.weight < 0) {
     errors.push('Частота выпадения не может быть отрицательной.')
@@ -1919,8 +1906,6 @@ async function savePrize() {
 
     const payload = {
       rarity_code: prizeForm.rarity_code,
-      title: prizeForm.title.trim(),
-      description: prizeForm.description,
       image_url: imageUrl,
       weight: prizeForm.weight,
       promo_template_id: prizeForm.promo_template_id,

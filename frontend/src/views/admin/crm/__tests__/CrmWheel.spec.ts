@@ -251,7 +251,6 @@ describe("CrmWheel prize image flow", () => {
     await createButton!.trigger("click");
     await flushPromises();
 
-    await wrapper.find('input[type="text"]').setValue("Скидка 15%");
     await wrapper.find("#wheel-prize-promo-template").setValue("promo-1");
 
     const fileInput = wrapper.find('input[type="file"]');
@@ -271,7 +270,8 @@ describe("CrmWheel prize image flow", () => {
     expect(prizeWrites).toHaveLength(1);
     expect(prizeWrites[0].method).toBe("POST");
     expect(prizeWrites[0].payload.image_url).toBe("/uploads/wheel-prizes/uploaded.png");
-    expect(prizeWrites[0].payload.title).toBe("Скидка 15%");
+    expect(prizeWrites[0].payload).not.toHaveProperty("title");
+    expect(prizeWrites[0].payload).not.toHaveProperty("description");
     expect(prizeWrites[0].payload).not.toHaveProperty("max_total");
     expect(prizeWrites[0].payload).not.toHaveProperty("promo_validity_days");
   });
@@ -316,7 +316,6 @@ describe("CrmWheel prize image flow", () => {
     await createButton!.trigger("click");
     await flushPromises();
 
-    await wrapper.find('input[type="text"]').setValue("Скидка 20%");
     await wrapper.find("#wheel-prize-promo-template").setValue("promo-1");
 
     const fileInput = wrapper.find('input[type="file"]');
@@ -394,7 +393,6 @@ describe("CrmWheel prize image flow", () => {
     await createButton!.trigger("click");
     await flushPromises();
 
-    await wrapper.find('input[type="text"]').setValue("Новый обычный приз");
     await wrapper.find("#wheel-prize-promo-template").setValue("promo-1");
     await wrapper.find("form").trigger("submit.prevent");
     await flushPromises();
@@ -707,6 +705,8 @@ describe("CrmWheel prize image flow", () => {
     await createButton!.trigger("click");
     await flushPromises();
 
+    expect(wrapper.text()).not.toContain("Название");
+    expect(wrapper.text()).not.toContain("Описание для клиента");
     expect(wrapper.text()).not.toContain("Позиция");
     expect(wrapper.text()).not.toContain("Лимит выдачи");
     expect(wrapper.text()).not.toContain("Выдача");

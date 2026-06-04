@@ -408,11 +408,16 @@ function loadActivePrizesForCustomer({ isWholesale }) {
 
   return db
     .prepare(
-      `SELECT *
-       FROM wheel_prizes
-       WHERE is_active = 1
-         AND ${flagColumn} = 1
-       ORDER BY sort_order ASC, created_at ASC`,
+      `SELECT p.*,
+              pc.code AS promo_code,
+              pc.description AS promo_description,
+              pc.customer_description AS promo_customer_description,
+              pc.manager_description AS promo_manager_description
+       FROM wheel_prizes p
+       LEFT JOIN promo_codes pc ON pc.id = p.promo_template_id
+       WHERE p.is_active = 1
+         AND p.${flagColumn} = 1
+       ORDER BY p.sort_order ASC, p.created_at ASC`,
     )
     .all();
 }
@@ -420,12 +425,68 @@ function loadActivePrizesForCustomer({ isWholesale }) {
 function loadAllActivePrizes() {
   return db
     .prepare(
-      `SELECT *
-       FROM wheel_prizes
-       WHERE is_active = 1
-       ORDER BY sort_order ASC, created_at ASC`,
+      `SELECT p.*,
+              pc.code AS promo_code,
+              pc.description AS promo_description,
+              pc.customer_description AS promo_customer_description,
+              pc.manager_description AS promo_manager_description
+       FROM wheel_prizes p
+       LEFT JOIN promo_codes pc ON pc.id = p.promo_template_id
+       WHERE p.is_active = 1
+       ORDER BY p.sort_order ASC, p.created_at ASC`,
     )
     .all();
+}
+
+function prizeDisplayTitle(prize) {
+  if (!prize) return "";
+  if (String(prize.rarity_code || "") === "nothing") {
+    return String(prize.title || "").trim() || "Ничего";
+  }
+  return (
+    String(prize.promo_customer_description || "").trim() ||
+    String(prize.promo_description || "").trim() ||
+    String(prize.title || "").trim() ||
+    String(prize.promo_code || "").trim() ||
+    "Приз"
+  );
+}
+
+function prizeDisplayDescription(prize) {
+  if (!prize) return null;
+  if (String(prize.rarity_code || "") === "nothing") {
+    return String(prize.description || "").trim() || null;
+  }
+  const legacyDescription = String(prize.description || "").trim();
+  const title = prizeDisplayTitle(prize).trim();
+  if (!legacyDescription || legacyDescription.toLowerCase() === title.toLowerCase()) {
+    return null;
+  }
+  return legacyDescription;
+}
+
+function resolvePrizeStorageText(payload = {}, existing = null) {
+  const templateId = payload.promo_template_id ?? existing?.promo_template_id ?? null;
+  if (!templateId) {
+    return {
+      title: String(payload.title ?? existing?.title ?? "").trim() || "Ничего",
+      description: payload.description ?? existing?.description ?? null,
+    };
+  }
+  const template = db
+    .prepare(
+      `SELECT code, description, customer_description
+       FROM promo_codes
+       WHERE id = ?`,
+    )
+    .get(templateId);
+  const title =
+    String(template?.customer_description || "").trim() ||
+    String(template?.description || "").trim() ||
+    String(payload.title ?? existing?.title ?? "").trim() ||
+    String(template?.code || "").trim() ||
+    "Приз";
+  return { title, description: null };
 }
 
 function getPromoTemplateAvailability(templateId) {
@@ -1521,7 +1582,11 @@ export function spinWheelForCustomer({
 
     return {
       spinId,
-      prize: chosenPrize,
+      prize: {
+        ...chosenPrize,
+        title: prizeDisplayTitle(chosenPrize),
+        description: prizeDisplayDescription(chosenPrize),
+      },
       seed,
       promo,
       isEpicRelease,
@@ -1624,8 +1689,8 @@ export function getCustomerWheelState(customerId, { isWholesale = false, telegra
     const rarity = rarityByCode.get(prize.rarity_code) || null;
     return {
       id: prize.id,
-      title: prize.title,
-      description: prize.description,
+      title: prizeDisplayTitle(prize),
+      description: prizeDisplayDescription(prize),
       image_url: prize.image_url,
       rarity: rarity
         ? {
@@ -1651,10 +1716,11 @@ export function getCustomerWheelState(customerId, { isWholesale = false, telegra
   const feed = db
     .prepare(
       `SELECT s.id, s.spun_at, s.rarity_code, s.is_wholesale,
-              p.title AS prize_title,
+              COALESCE(NULLIF(pc.customer_description, ''), NULLIF(pc.description, ''), p.title, pc.code, 'Приз') AS prize_title,
               c.first_name, c.last_name, c.photo_url AS customer_photo
        FROM wheel_spins s
        JOIN wheel_prizes p ON p.id = s.prize_id
+       LEFT JOIN promo_codes pc ON pc.id = p.promo_template_id
        LEFT JOIN customers c ON c.id = s.customer_id
        WHERE s.rarity_code != 'nothing'
          AND s.customer_id IS NOT NULL
@@ -1710,9 +1776,11 @@ export function getCustomerWheelState(customerId, { isWholesale = false, telegra
         .prepare(
           `SELECT s.id, s.spun_at, s.rarity_code, s.generated_promo_code AS promo_code,
                   s.promo_valid_until, s.prize_used_at, s.is_wholesale,
-                  p.title AS prize_title, p.description AS prize_description
+                  COALESCE(NULLIF(pc.customer_description, ''), NULLIF(pc.description, ''), p.title, pc.code, 'Приз') AS prize_title,
+                  NULL AS prize_description
            FROM wheel_spins s
            JOIN wheel_prizes p ON p.id = s.prize_id
+           LEFT JOIN promo_codes pc ON pc.id = p.promo_template_id
            WHERE s.customer_id = ?
              AND s.rarity_code != 'nothing'
            ORDER BY s.spun_at DESC
@@ -1806,11 +1874,20 @@ export function listAdminPrizes() {
   const rarityByCode = new Map(rarities.map((rarity) => [rarity.code, rarity]));
   return db
     .prepare(
-      `SELECT * FROM wheel_prizes ORDER BY sort_order ASC, created_at ASC`,
+      `SELECT p.*,
+              pc.code AS promo_code,
+              pc.description AS promo_description,
+              pc.customer_description AS promo_customer_description,
+              pc.manager_description AS promo_manager_description
+       FROM wheel_prizes p
+       LEFT JOIN promo_codes pc ON pc.id = p.promo_template_id
+       ORDER BY p.sort_order ASC, p.created_at ASC`,
     )
     .all()
     .map((prize) => ({
       ...prize,
+      title: prizeDisplayTitle(prize),
+      description: prizeDisplayDescription(prize),
       max_total: getPrizeIssueLimit(prize),
       rarity: rarityByCode.get(prize.rarity_code) || null,
       is_active: Boolean(prize.is_active),
@@ -2004,14 +2081,6 @@ export function validatePrizePayload(payload, { isUpdate = false, existing = nul
     }
   }
 
-  if (!isUpdate) {
-    if (!String(data.title || "").trim()) {
-      errors.push("title_required");
-    }
-  } else if (data.title !== undefined && !String(data.title || "").trim()) {
-    errors.push("title_required");
-  }
-
   return { errors };
 }
 
@@ -2082,6 +2151,7 @@ export function validateWheelSettingsPayload(payload) {
 
 export function createPrize(payload) {
   const id = generateId("wp");
+  const storageText = resolvePrizeStorageText(payload);
   const tx = db.transaction(() => {
     db.prepare(
       `INSERT INTO wheel_prizes (
@@ -2093,8 +2163,8 @@ export function createPrize(payload) {
     ).run(
       id,
       String(payload.rarity_code || "common"),
-      String(payload.title || "").trim() || "Без названия",
-      payload.description ? String(payload.description) : null,
+      storageText.title,
+      storageText.description ? String(storageText.description) : null,
       payload.image_url ? String(payload.image_url) : null,
       Math.max(0, safeNumber(payload.weight, 1)),
       Math.max(0, Math.floor(safeNumber(payload.max_total, 0))),
@@ -2131,6 +2201,7 @@ export function updatePrize(id, payload) {
   const merged = { ...existing, ...payload };
   const previousTemplateId = existing.promo_template_id || null;
   const nextTemplateId = merged.promo_template_id || null;
+  const storageText = resolvePrizeStorageText(merged, existing);
 
   const tx = db.transaction(() => {
     db.prepare(
@@ -2152,8 +2223,8 @@ export function updatePrize(id, payload) {
        WHERE id = ?`,
     ).run(
       String(merged.rarity_code || "common"),
-      String(merged.title || "").trim() || "Без названия",
-      merged.description ? String(merged.description) : null,
+      storageText.title,
+      storageText.description ? String(storageText.description) : null,
       merged.image_url ? String(merged.image_url) : null,
       Math.max(0, safeNumber(merged.weight, 1)),
       Math.max(0, Math.floor(safeNumber(merged.max_total, 0))),
@@ -2318,10 +2389,13 @@ export function listAdminSpinAudit({ limit = 100, offset = 0, from = null, to = 
 
   const rows = db
     .prepare(
-      `SELECT a.*, s.spun_at, p.title AS prize_title, c.telegram_username
+      `SELECT a.*, s.spun_at,
+              COALESCE(NULLIF(pc.customer_description, ''), NULLIF(pc.description, ''), p.title, pc.code, 'Приз') AS prize_title,
+              c.telegram_username
        FROM wheel_spin_audit a
        JOIN wheel_spins s ON s.id = a.spin_id
        LEFT JOIN wheel_prizes p ON p.id = a.selected_prize_id
+       LEFT JOIN promo_codes pc ON pc.id = p.promo_template_id
        LEFT JOIN customers c ON c.id = a.customer_id
        ${whereSql}
        ORDER BY a.created_at DESC
@@ -2396,7 +2470,9 @@ export function getAdminDashboard() {
   // "Активен"/"Все". For the dashboard we keep only live rows.
   const prizesIssued = db
     .prepare(
-      `SELECT p.id, p.title, p.rarity_code, p.issued_count,
+      `SELECT p.id,
+              COALESCE(NULLIF(pc.customer_description, ''), NULLIF(pc.description, ''), p.title, pc.code, 'Приз') AS title,
+              p.rarity_code, p.issued_count,
               CASE
                 WHEN p.rarity_code = 'nothing' THEN p.max_total
                 ELSE COALESCE(pc.max_uses, 0)
