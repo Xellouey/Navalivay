@@ -648,6 +648,15 @@ wheelRouter.delete(
       logAdminAction(req, "delete_prize", req.params.id, null);
       res.json({ ok: true });
     } catch (error) {
+      if (Number(error?.status || 0) === 404) {
+        return res.status(404).json({ error: error.code || "not_found" });
+      }
+      if (Number(error?.status || 0) === 409) {
+        return res.status(409).json({
+          error: error.code || "conflict",
+          message: error.message,
+        });
+      }
       res.status(500).json({ error: "failed", message: error.message });
     }
   },

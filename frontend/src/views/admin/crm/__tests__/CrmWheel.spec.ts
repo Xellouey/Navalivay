@@ -46,6 +46,7 @@ function buildPrize(overrides: Record<string, unknown> = {}) {
     epic_pool_threshold_byn: 300,
     is_active: true,
     template_available: true,
+    can_delete: true,
     sort_order: 10,
     rarity: {
       code: "common",
@@ -731,6 +732,51 @@ describe("CrmWheel prize image flow", () => {
     );
     expect(raritySelect).toBeTruthy();
     expect(raritySelect!.text()).not.toContain("Ничего");
+  });
+
+  it("shows enable and delete actions for inactive prizes", async () => {
+    installFetchMock([
+      buildPrize({
+        id: "inactive-prize",
+        is_active: false,
+        can_delete: true,
+      }),
+    ]);
+    const wrapper = mount(CrmWheel);
+    await flushPromises();
+    await openPrizesTab(wrapper);
+
+    expect(wrapper.findAll("button").some((item) => item.text() === "Включить")).toBe(true);
+    expect(wrapper.findAll("button").some((item) => item.text() === "Удалить")).toBe(true);
+  });
+
+  it("toggles an inactive prize back on from the table", async () => {
+    const { prizeWrites } = installFetchMock([
+      buildPrize({
+        id: "inactive-prize",
+        is_active: false,
+        can_delete: true,
+      }),
+    ]);
+    const wrapper = mount(CrmWheel);
+    await flushPromises();
+    await openPrizesTab(wrapper);
+
+    const enableButton = wrapper.findAll("button").find((item) => item.text() === "Включить");
+    expect(enableButton).toBeTruthy();
+    await enableButton!.trigger("click");
+    await flushPromises();
+
+    const confirmButton = wrapper.findAll("button").find((item) => item.text() === "Включить приз");
+    expect(confirmButton).toBeTruthy();
+    await confirmButton!.trigger("click");
+    await flushPromises();
+
+    expect(prizeWrites).toContainEqual({
+      method: "PUT",
+      payload: { is_active: true },
+    });
+    expect(wrapper.text()).toContain("включён");
   });
 
   it("does not open editing for system nothing prizes", async () => {

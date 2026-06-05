@@ -341,13 +341,26 @@
                       Изменить
                     </button>
                     <button
-                      v-if="prize.is_active"
                       type="button"
-                      class="min-h-9 rounded-lg border border-rose-100 bg-rose-50 px-3 py-1.5 text-xs font-semibold text-rose-700 transition-colors duration-150 hover:border-rose-200 hover:bg-rose-100 focus:outline-none focus:ring-2 focus:ring-rose-200"
-                      :aria-label="`Выключить приз ${prize.title}`"
+                      class="min-h-9 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors duration-150 focus:outline-none focus:ring-2"
+                      :class="
+                        prize.is_active
+                          ? 'border border-rose-100 bg-rose-50 text-rose-700 hover:border-rose-200 hover:bg-rose-100 focus:ring-rose-200'
+                          : 'border border-emerald-100 bg-emerald-50 text-emerald-700 hover:border-emerald-200 hover:bg-emerald-100 focus:ring-emerald-200'
+                      "
+                      :aria-label="`${prize.is_active ? 'Выключить' : 'Включить'} приз ${prize.title}`"
+                      @click="requestTogglePrize(prize)"
+                    >
+                      {{ prize.is_active ? 'Выключить' : 'Включить' }}
+                    </button>
+                    <button
+                      v-if="canDeletePrize(prize)"
+                      type="button"
+                      class="min-h-9 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition-colors duration-150 hover:border-slate-300 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-slate-200"
+                      :aria-label="`Удалить приз ${prize.title}`"
                       @click="requestDeletePrize(prize)"
                     >
-                      Выключить
+                      Удалить
                     </button>
                   </div>
                 </td>
@@ -1037,6 +1050,51 @@
 
     <Transition name="modal-fade">
       <div
+        v-if="confirmTogglePrize"
+        class="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4"
+        @click.self="confirmTogglePrize = null"
+      >
+        <div
+          class="w-full max-w-sm rounded-2xl bg-white shadow-2xl p-5"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="wheel-toggle-prize-title"
+          @keydown.esc="confirmTogglePrize = null"
+        >
+          <h3 id="wheel-toggle-prize-title" class="text-base font-semibold text-slate-900 mb-2">
+            {{ confirmTogglePrize?.is_active ? 'Отключить приз?' : 'Включить приз?' }}
+          </h3>
+          <p class="text-sm text-slate-600 mb-4">
+            <template v-if="confirmTogglePrize?.is_active">
+              Приз «{{ confirmTogglePrize.title }}» перестанет выпадать.
+            </template>
+            <template v-else>
+              Приз «{{ confirmTogglePrize?.title }}» снова будет участвовать в рулетке.
+            </template>
+          </p>
+          <div class="flex justify-end gap-2">
+            <button
+              type="button"
+              class="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 text-sm"
+              @click="confirmTogglePrize = null"
+            >
+              Отмена
+            </button>
+            <button
+              type="button"
+              class="px-4 py-2 rounded-xl text-white text-sm font-semibold"
+              :class="confirmTogglePrize?.is_active ? 'bg-rose-600' : 'bg-emerald-600'"
+              @click="togglePrizeConfirmed"
+            >
+              {{ confirmTogglePrize?.is_active ? 'Отключить приз' : 'Включить приз' }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </Transition>
+
+    <Transition name="modal-fade">
+      <div
         v-if="confirmDeletePrize"
         class="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4"
         @click.self="confirmDeletePrize = null"
@@ -1045,15 +1103,14 @@
           class="w-full max-w-sm rounded-2xl bg-white shadow-2xl p-5"
           role="dialog"
           aria-modal="true"
-          aria-labelledby="wheel-disable-prize-title"
+          aria-labelledby="wheel-delete-prize-title"
           @keydown.esc="confirmDeletePrize = null"
         >
-          <h3 id="wheel-disable-prize-title" class="text-base font-semibold text-slate-900 mb-2">
-            Отключить приз?
+          <h3 id="wheel-delete-prize-title" class="text-base font-semibold text-slate-900 mb-2">
+            Удалить приз?
           </h3>
           <p class="text-sm text-slate-600 mb-4">
-            Приз «{{ confirmDeletePrize.title }}» перестанет выпадать.
-            Включить его можно в редактировании.
+            Приз «{{ confirmDeletePrize.title }}» будет удалён из списка без возможности восстановления.
           </p>
           <div class="flex justify-end gap-2">
             <button
@@ -1061,14 +1118,14 @@
               class="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 text-sm"
               @click="confirmDeletePrize = null"
             >
-              Не отключать
+              Не удалять
             </button>
             <button
               type="button"
               class="px-4 py-2 rounded-xl bg-rose-600 text-white text-sm font-semibold"
               @click="deletePrizeConfirmed"
             >
-              Отключить приз
+              Удалить приз
             </button>
           </div>
         </div>
@@ -1170,6 +1227,7 @@ interface WheelPrize {
   rarity?: WheelRarity | null
   template_available?: boolean
   is_exhausted?: boolean
+  can_delete?: boolean
 }
 
 interface PromoTemplate {
@@ -1275,6 +1333,7 @@ function dismissToast() {
 
 const prizeFormErrors = ref<string[]>([])
 const confirmDeletePrize = ref<WheelPrize | null>(null)
+const confirmTogglePrize = ref<WheelPrize | null>(null)
 
 const rarities = ref<WheelRarity[]>([])
 const prizes = ref<WheelPrize[]>([])
@@ -1599,6 +1658,10 @@ function prizeStatusClass(prize: WheelPrize): string {
     return 'bg-amber-100 text-amber-800'
   }
   return 'bg-emerald-100 text-emerald-700'
+}
+
+function canDeletePrize(prize: WheelPrize): boolean {
+  return Boolean(prize.can_delete)
 }
 
 function rarityPrizeCount(rarity: WheelRarity): number {
@@ -2127,6 +2190,32 @@ async function savePrize() {
   }
 }
 
+function requestTogglePrize(prize: WheelPrize) {
+  confirmTogglePrize.value = prize
+}
+
+async function togglePrizeConfirmed() {
+  const prize = confirmTogglePrize.value
+  if (!prize) return
+  const nextActive = !Boolean(prize.is_active)
+  try {
+    await fetchJson(`/api/admin/crm/wheel/prizes/${prize.id}`, {
+      method: 'PUT',
+      body: JSON.stringify({ is_active: nextActive }),
+    })
+    await refreshWheelStatusData()
+    showToast('success', `Приз «${prize.title}» ${nextActive ? 'включён' : 'выключен'}.`)
+  } catch (error: unknown) {
+    console.error('[crm-wheel] toggle prize failed', error)
+    const message =
+      (error as { message?: string })?.message ||
+      `Не получилось ${nextActive ? 'включить' : 'выключить'} приз.`
+    showToast('error', message)
+  } finally {
+    confirmTogglePrize.value = null
+  }
+}
+
 function requestDeletePrize(prize: WheelPrize) {
   confirmDeletePrize.value = prize
 }
@@ -2139,12 +2228,12 @@ async function deletePrizeConfirmed() {
       method: 'DELETE',
     })
     await refreshWheelStatusData()
-    showToast('success', `Приз «${prize.title}» отключён.`)
+    showToast('success', `Приз «${prize.title}» удалён.`)
   } catch (error: unknown) {
     console.error('[crm-wheel] delete prize failed', error)
     const message =
       (error as { message?: string })?.message ||
-      'Не получилось отключить приз.'
+      'Не получилось удалить приз.'
     showToast('error', message)
   } finally {
     confirmDeletePrize.value = null

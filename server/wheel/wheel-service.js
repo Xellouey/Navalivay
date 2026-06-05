@@ -1907,7 +1907,13 @@ export function listAdminPrizes() {
               pc.code AS promo_code,
               pc.description AS promo_description,
               pc.customer_description AS promo_customer_description,
-              pc.manager_description AS promo_manager_description
+              pc.manager_description AS promo_manager_description,
+              EXISTS(
+                SELECT 1
+                FROM wheel_spins s
+                WHERE s.prize_id = p.id
+                LIMIT 1
+              ) AS has_spin_history
        FROM wheel_prizes p
        LEFT JOIN promo_codes pc ON pc.id = p.promo_template_id
        WHERE p.rarity_code != 'nothing'
@@ -1924,6 +1930,7 @@ export function listAdminPrizes() {
       is_for_retail: Boolean(prize.is_for_retail),
       is_for_wholesale: Boolean(prize.is_for_wholesale),
       is_exhausted: isPrizeExhausted(prize),
+      can_delete: !Boolean(prize.has_spin_history),
       template_available:
         String(prize.rarity_code || "") === "nothing"
           ? true
@@ -2307,19 +2314,24 @@ function isPromoStillUsedAsTemplate(promoId, excludePrizeId = null) {
 }
 
 export function deletePrize(id) {
-  // S24: soft-delete must also retire the active epic pool for that
-  // prize. Otherwise the pool keeps qualified_customers_json but the
-  // prize itself can't be released (is_active=0 pulls it out of
-  // weighted/epic pickers), and the next time the manager re-enables
-  // the prize an old, stale pool springs back into life with stale
-  // membership. Closing the pool inside the same call ensures the
-  // re-enable path always starts from a clean slate.
+  const existing = db.prepare("SELECT * FROM wheel_prizes WHERE id = ?").get(id);
+  if (!existing) {
+    const error = new Error("prize_not_found");
+    error.code = "prize_not_found";
+    error.status = 404;
+    throw error;
+  }
+  const hasSpinHistory = Boolean(
+    db.prepare("SELECT 1 FROM wheel_spins WHERE prize_id = ? LIMIT 1").get(id),
+  );
+  if (hasSpinHistory) {
+    const error = new Error("Приз уже участвовал в розыгрышах. Его можно только выключить.");
+    error.code = "prize_has_history";
+    error.status = 409;
+    throw error;
+  }
+
   const tx = db.transaction(() => {
-    const existing = db.prepare("SELECT * FROM wheel_prizes WHERE id = ?").get(id);
-    db.prepare("UPDATE wheel_prizes SET is_active = 0 WHERE id = ?").run(id);
-    db.prepare(
-      "UPDATE wheel_epic_pools SET is_active = 0, closed_at = DATETIME('now') WHERE prize_id = ? AND is_active = 1",
-    ).run(id);
     if (String(existing?.rarity_code || "") === "valuable") {
       const stillAvailable = loadAllActivePrizes().some((prize) =>
         String(prize.rarity_code || "") === "valuable" &&
@@ -2335,6 +2347,15 @@ export function deletePrize(id) {
           "UPDATE wheel_rarity_pools SET is_active = 0, closed_at = DATETIME('now') WHERE rarity_code = 'valuable' AND is_active = 1",
         ).run();
       }
+    }
+    db.prepare("DELETE FROM wheel_prizes WHERE id = ?").run(id);
+    if (
+      existing.promo_template_id &&
+      !isPromoStillUsedAsTemplate(existing.promo_template_id, id)
+    ) {
+      db.prepare(
+        "UPDATE promo_codes SET is_wheel_template = 0 WHERE id = ?",
+      ).run(existing.promo_template_id);
     }
   });
   tx();

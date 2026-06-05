@@ -499,6 +499,60 @@ async function testPartialUpdateRejectsBothPoolsDisabled() {
   }
 }
 
+async function testUnusedPrizeCanBeDeletedFromAdmin() {
+  db.prepare(
+    `INSERT OR IGNORE INTO promo_codes (
+      id, code, description, discount_type, discount_value, min_order_amount,
+      max_uses, current_uses, active, has_gift, is_wheel_template, created_at
+    ) VALUES (?, ?, ?, 'fixed', 10, 0, 0, 0, 1, 0, 0, DATETIME('now'))`,
+  ).run("promo_delete_me", "PROMO-DELETE-ME", "promo_delete_me");
+  const prize = createPrize({
+    rarity_code: "common",
+    title: "Delete me",
+    weight: 1,
+    is_for_retail: true,
+    promo_template_id: "promo_delete_me",
+  });
+
+  const beforeDelete = listAdminPrizes().find((item) => item.id === prize.id);
+  assert.equal(beforeDelete?.can_delete, true, "unused prize should be deletable in admin list");
+
+  const { response, data } = await requestJson(`/api/admin/crm/wheel/prizes/${prize.id}`, {
+    method: "DELETE",
+    headers: adminHeaders,
+  });
+  assert.equal(response.status, 200, `expected 200 got ${response.status}: ${JSON.stringify(data)}`);
+  assert.equal(
+    db.prepare("SELECT id FROM wheel_prizes WHERE id = ?").get(prize.id),
+    undefined,
+    "unused prize should be removed from wheel_prizes",
+  );
+}
+
+async function testUsedPrizeDeleteFallsBackToDisableOnly() {
+  ensureCustomer("cust_delete_guard", "777391", "wheel_delete_guard");
+  insertPrize("p_delete_guard", "common", 1, 0);
+  insertSpin("spin_delete_guard", "cust_delete_guard", "p_delete_guard", "common");
+
+  const listed = listAdminPrizes().find((item) => item.id === "p_delete_guard");
+  assert.equal(listed?.can_delete, false, "issued prize should not be deletable in admin list");
+
+  const { response, data } = await requestJson("/api/admin/crm/wheel/prizes/p_delete_guard", {
+    method: "DELETE",
+    headers: adminHeaders,
+  });
+  assert.equal(response.status, 409, `expected 409 got ${response.status}: ${JSON.stringify(data)}`);
+  assert.equal(data?.error, "prize_has_history");
+  assert.ok(
+    String(data?.message || "").includes("только выключить"),
+    "conflict message should explain that only disable is allowed",
+  );
+  assert.ok(
+    db.prepare("SELECT id FROM wheel_prizes WHERE id = ?").get("p_delete_guard"),
+    "issued prize must stay in wheel_prizes after rejected delete",
+  );
+}
+
 async function testPrizeRequiresPromoTemplateUnlessNothing() {
   const { validatePrizePayload } = await import("../wheel/wheel-service.js");
 
@@ -1198,6 +1252,8 @@ async function main() {
   await testWheelTemplateRejectedAtCheckout();
   await testWheelTemplateFlagClearedWhenPrizeChangesTemplate();
   await testPartialUpdateRejectsBothPoolsDisabled();
+  await testUnusedPrizeCanBeDeletedFromAdmin();
+  await testUsedPrizeDeleteFallsBackToDisableOnly();
   await testPrizeRequiresPromoTemplateUnlessNothing();
   await testFeedExcludesCustomersWithoutConsent();
   await testFeedConsentRequiredFlagFlips();
