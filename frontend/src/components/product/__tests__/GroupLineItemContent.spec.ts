@@ -103,9 +103,11 @@ describe("GroupLineItemContent", () => {
 
     const priceTexts = wrapper
       .findAll(".group-product-price")
-      .map((node) => node.text());
+      .map((node) => node.text().replace(/\s+/g, " ").trim());
 
     expect(priceTexts).toContain("140 BYN");
     expect(priceTexts).not.toContain("50 BYN");
+    expect(wrapper.find(".group-price-amount").text()).toBe("140");
+    expect(wrapper.find(".group-price-currency").text()).toBe("BYN");
   });
 });

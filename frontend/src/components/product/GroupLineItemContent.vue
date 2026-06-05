@@ -28,7 +28,11 @@
           <div class="group-variant-info">
             <!-- Название варианта - всегда черным текстом -->
             <span class="group-variant-title">{{ variant.name }}</span>
-            <span v-if="shouldShowVariantPrice(variant)" class="group-variant-price">{{ formatPrice(variant.priceRub) }} BYN</span>
+            <span v-if="shouldShowVariantPrice(variant)" class="group-variant-price">
+              <span class="group-price-amount">{{ formatPrice(variant.priceRub) }}</span>
+              {{ ' ' }}
+              <span class="group-price-currency">BYN</span>
+            </span>
             <!-- 
               Кнопка "Как выглядит цвет" показывается ВСЕГДА когда есть изображение товара варианта
               Независимо от режима отображения (цвет или картинка)
@@ -114,7 +118,11 @@
       >
         <div class="group-product-info">
           <span class="group-product-title">{{ product.title }}</span>
-          <span v-if="shouldShowProductPrice(product)" class="group-product-price">{{ formatPrice(product.priceRub) }} BYN</span>
+          <span v-if="shouldShowProductPrice(product)" class="group-product-price">
+            <span class="group-price-amount">{{ formatPrice(product.priceRub) }}</span>
+            {{ ' ' }}
+            <span class="group-price-currency">BYN</span>
+          </span>
         </div>
         <div class="group-product-actions">
           <template v-if="getQuantity(product.id) > 0">
@@ -556,6 +564,14 @@ function decrementVariantQuantity(
   font-weight: 700;
   font-size: 16px;
   line-height: 20px;
+  color: #191919;
+}
+
+.group-price-amount {
+  color: #f50302;
+}
+
+.group-price-currency {
   color: #191919;
 }
 
