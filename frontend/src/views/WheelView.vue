@@ -190,6 +190,7 @@
       :open="showResult"
       :title="modalTitle"
       reserve-tab-bar
+      compact
       @close="closeResult"
     >
       <div
@@ -931,8 +932,8 @@ onMounted(async () => {
   flex-direction: column;
   align-items: center;
   text-align: center;
-  gap: 8px;
-  padding-top: 4px;
+  gap: 6px;
+  padding-top: 0;
 }
 
 .wheel-result-body--nothing {
@@ -948,39 +949,40 @@ onMounted(async () => {
 .wheel-result-body__kicker {
   margin: 0;
   font-family: 'SF Pro Display', system-ui, sans-serif;
-  font-size: 13px;
+  font-size: 12px;
+  line-height: 15px;
   color: #5c6470;
 }
 
 .wheel-result-body__prize-card {
-  width: 112px;
-  min-height: 130px;
+  width: 88px;
+  min-height: 104px;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: flex-start;
-  gap: 7px;
-  padding: 7px 7px 9px;
-  border: 2.5px solid #e2e5ea;
-  border-radius: 22px;
+  gap: 5px;
+  padding: 5px 5px 7px;
+  border: 2px solid #e2e5ea;
+  border-radius: 18px;
   background: #ffffff;
-  box-shadow: 0 18px 30px rgba(31, 41, 51, 0.1);
-  margin-bottom: 2px;
+  box-shadow: 0 12px 24px rgba(31, 41, 51, 0.08);
+  margin-bottom: 0;
 }
 
 .wheel-result-body__prize-img {
-  width: 94px;
-  height: 94px;
+  width: 74px;
+  height: 74px;
   display: block;
-  border-radius: 16px;
+  border-radius: 13px;
   object-fit: cover;
   background: #f5f7fa;
 }
 
 .wheel-result-body__prize-fallback {
-  width: 94px;
-  height: 94px;
-  border-radius: 16px;
+  width: 74px;
+  height: 74px;
+  border-radius: 13px;
   background-color: #9aa0a6;
   -webkit-mask-image: var(--wheel-default-prize-image);
   mask-image: var(--wheel-default-prize-image);
@@ -996,7 +998,7 @@ onMounted(async () => {
   max-width: 100%;
   font-family: 'Montserrat', sans-serif;
   font-weight: 700;
-  font-size: 10px;
+  font-size: 9px;
   line-height: 1.15;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -1007,34 +1009,49 @@ onMounted(async () => {
 
 .wheel-result-body__title {
   margin: 0;
+  max-width: 100%;
   font-family: 'Montserrat', sans-serif;
   font-weight: 700;
-  font-size: 22px;
+  font-size: 20px;
+  line-height: 24px;
   color: #1f2933;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 .wheel-result-body__desc {
   margin: 0;
+  max-width: 100%;
   font-family: 'SF Pro Display', system-ui, sans-serif;
-  font-size: 14px;
+  font-size: 13px;
+  line-height: 16px;
   color: #5c6470;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 .wheel-result-body__promo {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 4px;
-  margin-top: 8px;
+  gap: 3px;
+  margin-top: 4px;
   background: rgba(245, 3, 2, 0.08);
-  padding: 12px 16px;
-  border-radius: 16px;
+  padding: 9px 14px;
+  border-radius: 15px;
   width: 100%;
 }
 
 .wheel-result-body__promo-label {
   font-family: 'SF Pro Display', system-ui, sans-serif;
-  font-size: 12px;
+  font-size: 11px;
+  line-height: 13px;
   color: #5c6470;
   text-transform: uppercase;
   letter-spacing: 0.06em;
@@ -1043,7 +1060,8 @@ onMounted(async () => {
 .wheel-result-body__promo-code {
   font-family: 'Montserrat', sans-serif;
   font-weight: 700;
-  font-size: 18px;
+  font-size: 17px;
+  line-height: 22px;
   color: #f50302;
   letter-spacing: 0.05em;
   background: transparent;
@@ -1051,20 +1069,25 @@ onMounted(async () => {
   padding: 0;
   cursor: pointer;
   font-variant-numeric: tabular-nums;
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .wheel-result-body__valid {
   margin: 0;
   font-family: 'SF Pro Display', system-ui, sans-serif;
-  font-size: 12px;
+  font-size: 11px;
+  line-height: 14px;
   color: #9aa0a6;
 }
 
 .wheel-result-cta {
   width: 100%;
-  height: 48px;
+  height: 44px;
   border: none;
-  border-radius: 24px;
+  border-radius: 22px;
   background: linear-gradient(106.76deg, #f50302 -2.64%, #a90f0e 85.78%);
   color: #ffffff;
   font-family: 'Montserrat', sans-serif;

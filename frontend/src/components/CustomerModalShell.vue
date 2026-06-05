@@ -13,6 +13,7 @@
         <section
           ref="cardRef"
           class="customer-modal-card"
+          :class="{ 'customer-modal-card--compact': compact }"
           :style="{ '--customer-modal-max-width': maxWidth }"
           @keydown="onKeydown"
         >
@@ -58,12 +59,14 @@ interface Props {
   closeLabel?: string;
   maxWidth?: string;
   reserveTabBar?: boolean;
+  compact?: boolean;
 }
 
 const props = withDefaults(defineProps<Props>(), {
   closeLabel: "Закрыть окно",
   maxWidth: "361px",
   reserveTabBar: false,
+  compact: false,
 });
 
 const emit = defineEmits<{
@@ -262,6 +265,30 @@ onBeforeUnmount(() => {
 
 .customer-modal-footer {
   margin-top: 28px;
+}
+
+.customer-modal-card--compact {
+  padding: 12px;
+}
+
+.customer-modal-card--compact .customer-modal-title {
+  margin-top: 4px;
+  font-size: 18px;
+  line-height: 22px;
+}
+
+.customer-modal-card--compact .customer-modal-close {
+  width: 36px;
+  height: 36px;
+}
+
+.customer-modal-card--compact .customer-modal-body {
+  margin-top: 4px;
+  overflow-y: visible;
+}
+
+.customer-modal-card--compact .customer-modal-footer {
+  margin-top: 16px;
 }
 
 .customer-modal-enter-active,
