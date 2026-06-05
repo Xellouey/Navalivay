@@ -2,15 +2,15 @@
   <div class="space-y-5">
     <!-- Toolbar -->
     <div class="flex flex-wrap items-center gap-3">
-      <div class="inline-flex rounded-xl border border-slate-200/70 bg-slate-50 p-1">
+      <div class="inline-flex items-center gap-0.5 rounded-[10px] border border-slate-200 bg-slate-50 p-[3px]">
         <button
           v-for="option in sourceOptions"
           :key="option.value"
           type="button"
-          class="rounded-lg px-3 py-1.5 text-sm font-semibold transition-all"
+          class="h-[34px] rounded-lg border px-3.5 text-sm font-medium leading-5 transition-all duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/20"
           :class="sourceFilter === option.value
-            ? 'bg-white text-slate-900 shadow-sm'
-            : 'text-slate-500 hover:text-slate-800'"
+            ? 'border-blue-200 bg-white text-blue-600 shadow-sm'
+            : 'border-transparent bg-transparent text-slate-600 hover:bg-slate-100 hover:text-slate-900'"
           @click="setSourceFilter(option.value)"
         >
           {{ option.label }}

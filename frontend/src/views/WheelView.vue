@@ -514,7 +514,7 @@ async function spin() {
       await wheelStore.fetchState({ silent: true, force: true }).catch((error) => {
         console.warn('[wheel] pre-spin state refresh failed (non-fatal)', error)
       })
-      if (!hasSpins.value) {
+      if (wheelStore.balance.spins_available <= 0) {
         showToast(spinErrorMessage({ code: 'not_enough_spins' }))
         return
       }

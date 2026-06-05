@@ -91,6 +91,74 @@ describe("WheelStrip", () => {
 
     await vi.advanceTimersByTimeAsync(5080);
     await spinPromise;
+    await flushPromises();
+
+    const landed = wrapper.find(".wheel-strip__card--landed");
+    expect(landed.exists()).toBe(true);
+    expect(landed.text()).toContain("Приз результата");
+    expect(landed.text()).not.toContain("Новый приз из фона");
     vi.useRealTimers();
+  });
+
+  it("accepts prop updates again after the spin finishes", async () => {
+    const initialPrize = buildPrize("initial-prize", "Стартовый приз");
+    const resultPrize = buildPrize("result-prize", "Приз результата");
+    const nextPrize = buildPrize("next-prize", "Следующий свежий приз");
+
+    const wrapper = mount(WheelStrip, {
+      props: {
+        prizes: [initialPrize],
+      },
+      global: {
+        stubs: {
+          WheelPrizeCard: {
+            props: ["prize"],
+            template: "<article>{{ prize.title }}</article>",
+          },
+        },
+      },
+    });
+
+    await wrapper.vm.runSpin({
+      prizeId: resultPrize.id,
+      seed: 321,
+      durationMs: 0,
+      prizes: [initialPrize, resultPrize],
+    });
+    await wrapper.setProps({ prizes: [nextPrize] });
+    await flushPromises();
+
+    expect(wrapper.text()).toContain("Следующий свежий приз");
+    expect(wrapper.text()).not.toContain("Приз результата");
+  });
+
+  it("throws for a missing explicit result prize and resets the running guard", async () => {
+    const initialPrize = buildPrize("initial-prize", "Стартовый приз");
+    const nextPrize = buildPrize("next-prize", "Следующий приз");
+
+    const wrapper = mount(WheelStrip, {
+      props: {
+        prizes: [initialPrize],
+      },
+      global: {
+        stubs: {
+          WheelPrizeCard: {
+            props: ["prize"],
+            template: "<article>{{ prize.title }}</article>",
+          },
+        },
+      },
+    });
+
+    await expect(wrapper.vm.runSpin({
+      prizeId: "missing-prize",
+      seed: 111,
+      durationMs: 0,
+      prizes: [initialPrize],
+    })).rejects.toThrow("spin_prize_missing_from_animation_pool");
+
+    await wrapper.setProps({ prizes: [nextPrize] });
+    await flushPromises();
+    expect(wrapper.text()).toContain("Следующий приз");
   });
 });
