@@ -7,6 +7,7 @@ const routerMock = vi.hoisted(() => ({
   back: vi.fn(),
   push: vi.fn(),
 }));
+const runSpinMock = vi.hoisted(() => vi.fn(async () => undefined));
 
 const wheelStoreMock = vi.hoisted(() => ({
   balance: {
@@ -43,6 +44,13 @@ const wheelStoreMock = vi.hoisted(() => ({
       code: "nothing",
       label: "Ничего",
       bgColor: "#8D8D8D",
+      textColor: "#FFFFFF",
+      isElite: false,
+    },
+    {
+      code: "mythic",
+      label: "Мифический",
+      bgColor: "#A603F2",
       textColor: "#FFFFFF",
       isElite: false,
     },
@@ -102,7 +110,7 @@ async function mountAndSpin(result: ReturnType<typeof spinResult>) {
       },
     },
     setup(_props, { expose }) {
-      expose({ runSpin: vi.fn(async () => undefined) });
+      expose({ runSpin: runSpinMock });
       return () => h("div", { class: "wheel-strip-stub" });
     },
   });
@@ -138,6 +146,21 @@ describe("WheelView result modal", () => {
     wheelStoreMock.hasSpins = true;
     wheelStoreMock.isSpinning = false;
     wheelStoreMock.lastFetchedAt = Date.now();
+    wheelStoreMock.sortedPrizes = [
+      {
+        id: "prize-visible",
+        title: "Скидка 10%",
+        description: "Промокод на скидку",
+        image_url: null,
+        rarity: null,
+        weight: 1,
+        effective_weight: 1,
+        max_total: 0,
+        issued_count: 0,
+        is_exhausted: false,
+        sort_order: 1,
+      },
+    ];
   });
 
   afterEach(() => {
@@ -207,6 +230,35 @@ describe("WheelView result modal", () => {
     );
     expect(document.body.querySelector(".wheel-result-body__rarity-text")?.textContent).toContain("Обычный");
     expect(document.body.querySelector(".wheel-result-body__sad-face")).toBeNull();
+
+    wrapper.unmount();
+  });
+
+  it("passes the authoritative backend prize to the strip when the local pool is stale", async () => {
+    const wrapper = await mountAndSpin(spinResult({
+      prize: {
+        id: "fresh-mythic-prize",
+        title: "Свежий мифический приз",
+        description: null,
+        image_url: "/uploads/wheel-prizes/fresh.png",
+        rarity_code: "mythic",
+      },
+      promo_code: null,
+      promo_valid_until: null,
+    }));
+
+    const runOptions = runSpinMock.mock.calls[0]?.[0];
+    expect(runOptions.prizeId).toBe("fresh-mythic-prize");
+    expect(runOptions.prizes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "fresh-mythic-prize",
+          title: "Свежий мифический приз",
+          image_url: "/uploads/wheel-prizes/fresh.png",
+          rarity: expect.objectContaining({ code: "mythic" }),
+        }),
+      ]),
+    );
 
     wrapper.unmount();
   });

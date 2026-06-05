@@ -46,6 +46,7 @@ const trackTransition = ref('none')
 const currentOffset = ref(0)
 const landedIndex = ref(-1)
 const displayPrizes = ref<WheelPrize[]>([])
+const isRunning = ref(false)
 const pendingTimers = new Set<ReturnType<typeof setTimeout>>()
 
 function trackTimer(timer: ReturnType<typeof setTimeout>) {
@@ -70,6 +71,7 @@ function buildBaseStrip(prizes: WheelPrize[]): WheelPrize[] {
 watch(
   () => props.prizes,
   (next) => {
+    if (isRunning.value) return
     // S12: also rebuild when the prize pool changes after the first
     // load (e.g. CRM toggled a prize on/off, manager added new prize).
     // Previously the strip locked on the first non-empty array forever.
@@ -92,10 +94,10 @@ function offsetForIndex(index: number): number {
   return viewportCenter - cardCenter
 }
 
-function snapToRest() {
-  if (!props.prizes.length) return
+function snapToRest(prizes: WheelPrize[] = props.prizes) {
+  if (!prizes.length) return
   trackTransition.value = 'none'
-  const idx = props.prizes.length * 1 + REST_OFFSET_INDEX
+  const idx = prizes.length * 1 + REST_OFFSET_INDEX
   currentOffset.value = offsetForIndex(idx)
 }
 
@@ -114,21 +116,21 @@ interface SpinAnimationOptions {
   prizeId: string
   seed: number
   durationMs?: number
+  prizes?: WheelPrize[]
 }
 
 async function runSpin(options: SpinAnimationOptions) {
-  if (!props.prizes.length) return
+  const spinPrizes = options.prizes?.length ? [...options.prizes] : [...props.prizes]
+  if (!spinPrizes.length) return
+  isRunning.value = true
   const rng = mulberry32(options.seed)
-  const baseLength = props.prizes.length
+  const baseLength = spinPrizes.length
+  displayPrizes.value = buildBaseStrip(spinPrizes)
 
-  // S12: if the awarded prize is somehow missing from the local pool
-  // (CRM hid the prize between fetchState and spin, or a stale cache),
-  // we still need to land the strip on _something_ visible. Splice the
-  // result into the display pool as a synthetic landing card so the
-  // animation can play and the user sees the win.
-  let targetIndexInPool = props.prizes.findIndex((prize) => prize.id === options.prizeId)
+  const targetIndexInPool = spinPrizes.findIndex((prize) => prize.id === options.prizeId)
   if (targetIndexInPool === -1) {
-    targetIndexInPool = 0
+    isRunning.value = false
+    throw new Error('spin_prize_missing_from_animation_pool')
   }
 
   const targetSegment = REPEAT - 2
@@ -139,29 +141,33 @@ async function runSpin(options: SpinAnimationOptions) {
 
   trackTransition.value = 'none'
   currentOffset.value = offsetForIndex(REST_OFFSET_INDEX)
-  await new Promise((resolve) => requestAnimationFrame(resolve))
-  await new Promise((resolve) => requestAnimationFrame(resolve))
+  try {
+    await new Promise((resolve) => requestAnimationFrame(resolve))
+    await new Promise((resolve) => requestAnimationFrame(resolve))
 
-  // S15: respect prefers-reduced-motion. The original cinematic spin is
-  // fine for most users but actively unpleasant for people with
-  // vestibular sensitivity.
-  // CSGO-style suspense: near-linear travel with a sharp stop in the
-  // last few hundred ms. The previous easeOut curve felt artificially
-  // drawn out because the slowdown started ~30% from the end; this
-  // curve keeps the strip flying at constant speed and snaps it to
-  // rest only at the very end.
-  const reducedMotion = prefersReducedMotion()
-  const duration = options.durationMs ?? (reducedMotion ? 800 : 5500)
-  const easing = reducedMotion ? 'ease-out' : 'cubic-bezier(0.05, 0.05, 0.15, 1)'
-  trackTransition.value = `transform ${duration}ms ${easing}`
-  currentOffset.value = targetOffset
-  landedIndex.value = -1
+    // S15: respect prefers-reduced-motion. The original cinematic spin is
+    // fine for most users but actively unpleasant for people with
+    // vestibular sensitivity.
+    // CSGO-style suspense: near-linear travel with a sharp stop in the
+    // last few hundred ms. The previous easeOut curve felt artificially
+    // drawn out because the slowdown started ~30% from the end; this
+    // curve keeps the strip flying at constant speed and snaps it to
+    // rest only at the very end.
+    const reducedMotion = prefersReducedMotion()
+    const duration = options.durationMs ?? (reducedMotion ? 800 : 5500)
+    const easing = reducedMotion ? 'ease-out' : 'cubic-bezier(0.05, 0.05, 0.15, 1)'
+    trackTransition.value = `transform ${duration}ms ${easing}`
+    currentOffset.value = targetOffset
+    landedIndex.value = -1
 
-  await new Promise<void>((resolve) =>
-    trackTimer(setTimeout(resolve, duration + 80)),
-  )
-  landedIndex.value = targetIndex
-  emit('animationDone', { prizeId: options.prizeId })
+    await new Promise<void>((resolve) =>
+      trackTimer(setTimeout(resolve, duration + 80)),
+    )
+    landedIndex.value = targetIndex
+    emit('animationDone', { prizeId: options.prizeId })
+  } finally {
+    isRunning.value = false
+  }
 }
 
 function reset() {

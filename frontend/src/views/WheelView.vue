@@ -443,6 +443,33 @@ function rarityLabel(code: string): string {
   return rarity?.label || code
 }
 
+function wheelPrizeFromSpinResult(result: WheelSpinResult, existing?: WheelPrize): WheelPrize {
+  const rarity = wheelStore.rarities.find((item) => item.code === result.prize.rarity_code) || null
+  return {
+    id: result.prize.id,
+    title: result.prize.title,
+    description: result.prize.description,
+    image_url: result.prize.image_url,
+    rarity,
+    weight: existing?.weight ?? 1,
+    effective_weight: existing?.effective_weight ?? 1,
+    max_total: existing?.max_total ?? 0,
+    issued_count: existing?.issued_count ?? 0,
+    is_exhausted: existing?.is_exhausted ?? false,
+    sort_order: existing?.sort_order ?? strippedPrizes.value.length,
+  }
+}
+
+function animationPrizesForResult(result: WheelSpinResult): WheelPrize[] {
+  const snapshot = strippedPrizes.value.map((prize) => ({ ...prize }))
+  const index = snapshot.findIndex((prize) => prize.id === result.prize.id)
+  if (index === -1) {
+    return [...snapshot, wheelPrizeFromSpinResult(result)]
+  }
+  snapshot[index] = wheelPrizeFromSpinResult(result, snapshot[index])
+  return snapshot
+}
+
 function formatDate(iso: string): string {
   if (!iso) return ''
   const date = new Date(iso.length === 10 ? `${iso}T12:00:00Z` : iso)
@@ -483,6 +510,13 @@ async function spin() {
   let result: WheelSpinResult | null = null
   try {
     try {
+      await wheelStore.fetchState({ silent: true, force: true }).catch((error) => {
+        console.warn('[wheel] pre-spin state refresh failed (non-fatal)', error)
+      })
+      if (!hasSpins.value) {
+        showToast(spinErrorMessage({ code: 'not_enough_spins' }))
+        return
+      }
       result = await wheelStore.spin()
       lastResult.value = result
       resultImageFailed.value = false
@@ -500,6 +534,7 @@ async function spin() {
       await stripRef.value?.runSpin({
         prizeId: result.prize.id,
         seed: result.animation_seed,
+        prizes: animationPrizesForResult(result),
       })
     } catch (animError) {
       console.warn('[wheel] strip animation error (non-fatal)', animError)
