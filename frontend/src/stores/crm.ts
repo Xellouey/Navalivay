@@ -227,6 +227,9 @@ export interface PromoCode {
   customer_description?: string | null;
   manager_description?: string | null;
   has_gift?: number;
+  is_wheel_template?: number;
+  is_wheel_generated?: number;
+  wheel_owner_customer_id?: string | null;
   discount_type: 'fixed' | 'percent';
   discount_value: number;
   min_order_amount: number;
@@ -2168,12 +2171,13 @@ export const useCrmStore = defineStore("crm", () => {
   const promoCodesLoading = ref(false);
   const promoCodesTotal = ref(0);
 
-  async function fetchPromoCodes(params?: { search?: string; filter?: string; limit?: number; offset?: number }) {
+  async function fetchPromoCodes(params?: { search?: string; filter?: string; source?: 'regular' | 'wheel' | 'all'; limit?: number; offset?: number }) {
     promoCodesLoading.value = true;
     try {
       const query = new URLSearchParams();
       if (params?.search) query.set('search', params.search);
       if (params?.filter) query.set('filter', params.filter);
+      if (params?.source) query.set('source', params.source);
       if (params?.limit) query.set('limit', String(params.limit));
       if (params?.offset) query.set('offset', String(params.offset));
       const qs = query.toString();

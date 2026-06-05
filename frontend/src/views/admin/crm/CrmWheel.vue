@@ -1809,7 +1809,7 @@ async function loadDashboard() {
 async function loadPromoTemplates() {
   try {
     const data = await fetchJson<{ promo_codes: PromoTemplate[] } | PromoTemplate[]>(
-      '/api/admin/crm/promo-codes',
+      '/api/admin/crm/promo-codes?source=all',
     )
     promoTemplates.value = Array.isArray(data)
       ? data

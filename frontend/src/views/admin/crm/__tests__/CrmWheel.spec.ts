@@ -202,7 +202,7 @@ function installFetchMock(
       });
     }
 
-    if (url.endsWith("/api/admin/crm/promo-codes")) {
+    if (url.includes("/api/admin/crm/promo-codes")) {
       return createJsonResponse({
         promo_codes: promos,
       });

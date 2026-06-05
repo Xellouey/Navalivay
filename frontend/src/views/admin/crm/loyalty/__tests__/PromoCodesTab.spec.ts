@@ -5,23 +5,98 @@ import PromoCodesTab from "@/views/admin/crm/loyalty/PromoCodesTab.vue";
 const fetchPromoCodesMock = vi.fn();
 const createPromoCodeMock = vi.fn();
 const updatePromoCodeMock = vi.fn();
+const deletePromoCodeMock = vi.fn();
+const fetchPromoUsageMock = vi.fn();
+const promoCodesMock = vi.hoisted(() => [] as any[]);
 
 vi.mock("@/stores/crm", () => ({
   useCrmStore: () => ({
-    promoCodes: [],
+    promoCodes: promoCodesMock,
     promoCodesLoading: false,
     fetchPromoCodes: fetchPromoCodesMock,
     createPromoCode: createPromoCodeMock,
     updatePromoCode: updatePromoCodeMock,
+    deletePromoCode: deletePromoCodeMock,
+    fetchPromoUsage: fetchPromoUsageMock,
   }),
 }));
 
 describe("PromoCodesTab zero-discount gift handling", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    promoCodesMock.splice(0);
     fetchPromoCodesMock.mockResolvedValue(undefined);
     createPromoCodeMock.mockResolvedValue({ id: "promo-gift-zero" });
     updatePromoCodeMock.mockResolvedValue(undefined);
+    deletePromoCodeMock.mockResolvedValue(undefined);
+    fetchPromoUsageMock.mockResolvedValue([]);
+  });
+
+  it("loads regular promo codes by default and can switch to wheel codes", async () => {
+    const wrapper = mount(PromoCodesTab);
+    await flushPromises();
+
+    expect(fetchPromoCodesMock).toHaveBeenCalledWith(
+      expect.objectContaining({ source: "regular" }),
+    );
+
+    await wrapper.findAll("button").find((item) => item.text().includes("Рулетка"))!.trigger("click");
+    await flushPromises();
+
+    expect(fetchPromoCodesMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({ source: "wheel" }),
+    );
+  });
+
+  it("marks wheel promo templates and issued wheel codes", async () => {
+    promoCodesMock.push(
+      {
+        id: "template-1",
+        code: "SPIN-TEMPLATE",
+        description: "Wheel template",
+        customer_description: "Wheel template",
+        manager_description: null,
+        has_gift: 0,
+        is_wheel_template: 1,
+        is_wheel_generated: 0,
+        wheel_owner_customer_id: null,
+        discount_type: "fixed",
+        discount_value: 5,
+        min_order_amount: 0,
+        max_uses: 10,
+        current_uses: 0,
+        valid_from: null,
+        valid_until: null,
+        active: 1,
+        created_at: "2026-06-01",
+      },
+      {
+        id: "issued-1",
+        code: "WHEEL-123456",
+        description: "Issued by wheel",
+        customer_description: "Issued by wheel",
+        manager_description: null,
+        has_gift: 0,
+        is_wheel_template: 0,
+        is_wheel_generated: 1,
+        wheel_owner_customer_id: "customer-1",
+        discount_type: "fixed",
+        discount_value: 5,
+        min_order_amount: 0,
+        max_uses: 1,
+        current_uses: 0,
+        valid_from: null,
+        valid_until: null,
+        active: 1,
+        created_at: "2026-06-01",
+      },
+    );
+
+    const wrapper = mount(PromoCodesTab);
+    await flushPromises();
+
+    expect(wrapper.text()).toContain("Шаблон рулетки");
+    expect(wrapper.text()).toContain("Выдан рулеткой");
   });
 
   it("submits zero discount as a gift promo without a separate checkbox", async () => {

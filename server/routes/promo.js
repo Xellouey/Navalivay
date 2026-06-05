@@ -41,7 +41,7 @@ function computeEffectiveValidUntilDate(validFromDate, durationDays) {
 // GET /api/admin/crm/promo-codes - список промокодов
 promoRouter.get('/api/admin/crm/promo-codes', authMiddleware, (req, res) => {
   try {
-    const { search, filter, limit = 50, offset = 0 } = req.query;
+    const { search, filter, source = 'regular', limit = 50, offset = 0 } = req.query;
 
     let whereClause = '1=1';
     const params = [];
@@ -61,9 +61,40 @@ promoRouter.get('/api/admin/crm/promo-codes', authMiddleware, (req, res) => {
       whereClause += ' AND pc.active = 0';
     }
 
+    if (source === 'wheel') {
+      whereClause += ` AND (
+        pc.is_wheel_template = 1
+        OR pc.wheel_owner_customer_id IS NOT NULL
+        OR EXISTS (
+          SELECT 1
+          FROM wheel_spins ws
+          WHERE ws.generated_promo_code_id = pc.id
+          LIMIT 1
+        )
+      )`;
+    } else if (source === 'regular') {
+      whereClause += ` AND COALESCE(pc.is_wheel_template, 0) = 0
+        AND pc.wheel_owner_customer_id IS NULL
+        AND NOT EXISTS (
+          SELECT 1
+          FROM wheel_spins ws
+          WHERE ws.generated_promo_code_id = pc.id
+          LIMIT 1
+        )`;
+    }
+
     const promoCodesRaw = db.prepare(`
       SELECT
         pc.*,
+        CASE
+          WHEN EXISTS (
+            SELECT 1
+            FROM wheel_spins ws
+            WHERE ws.generated_promo_code_id = pc.id
+            LIMIT 1
+          ) THEN 1
+          ELSE 0
+        END as is_wheel_generated,
         COALESCE(stats.reserved_uses, 0) as reserved_uses,
         COALESCE(stats.consumed_uses, 0) as consumed_uses
       FROM promo_codes pc

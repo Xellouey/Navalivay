@@ -493,6 +493,46 @@ async function testIssueAndPaymentRollbackSyncPromoUsage() {
   assert.equal(getPromo(promoId).current_uses, 1);
 }
 
+async function testAdminPromoSourceFiltersSeparateWheelCodes() {
+  seedPromo({ promoId: "promo-source-regular", code: "SOURCE-REGULAR" });
+  seedPromo({ promoId: "promo-source-wheel-template", code: "SOURCE-WHEEL-TEMPLATE" });
+  seedPromo({ promoId: "promo-source-wheel-issued", code: "SOURCE-WHEEL-ISSUED" });
+  db.prepare("UPDATE promo_codes SET is_wheel_template = 1 WHERE id = ?").run(
+    "promo-source-wheel-template",
+  );
+  db.prepare("UPDATE promo_codes SET wheel_owner_customer_id = ? WHERE id = ?").run(
+    "customer-source-wheel",
+    "promo-source-wheel-issued",
+  );
+
+  const regular = await requestJson("/api/admin/crm/promo-codes?source=regular&limit=200", {
+    headers: adminHeaders(),
+  });
+  assert.equal(regular.response.status, 200);
+  const regularCodes = regular.data.promo_codes.map((promo) => promo.code);
+  assert.ok(regularCodes.includes("SOURCE-REGULAR"));
+  assert.ok(!regularCodes.includes("SOURCE-WHEEL-TEMPLATE"));
+  assert.ok(!regularCodes.includes("SOURCE-WHEEL-ISSUED"));
+
+  const wheel = await requestJson("/api/admin/crm/promo-codes?source=wheel&limit=200", {
+    headers: adminHeaders(),
+  });
+  assert.equal(wheel.response.status, 200);
+  const wheelCodes = wheel.data.promo_codes.map((promo) => promo.code);
+  assert.ok(!wheelCodes.includes("SOURCE-REGULAR"));
+  assert.ok(wheelCodes.includes("SOURCE-WHEEL-TEMPLATE"));
+  assert.ok(wheelCodes.includes("SOURCE-WHEEL-ISSUED"));
+
+  const all = await requestJson("/api/admin/crm/promo-codes?source=all&limit=200", {
+    headers: adminHeaders(),
+  });
+  assert.equal(all.response.status, 200);
+  const allCodes = all.data.promo_codes.map((promo) => promo.code);
+  assert.ok(allCodes.includes("SOURCE-REGULAR"));
+  assert.ok(allCodes.includes("SOURCE-WHEEL-TEMPLATE"));
+  assert.ok(allCodes.includes("SOURCE-WHEEL-ISSUED"));
+}
+
 async function main() {
   seedProduct();
 
@@ -501,6 +541,7 @@ async function main() {
   await testPromoSwitchAndRemovalOnSameOrder();
   await testPromoConsumedAndReturnedToReservedByAdmin();
   await testIssueAndPaymentRollbackSyncPromoUsage();
+  await testAdminPromoSourceFiltersSeparateWheelCodes();
 
   console.log("[promo-lifecycle-smoke] OK");
 }

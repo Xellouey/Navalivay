@@ -2,6 +2,21 @@
   <div class="space-y-5">
     <!-- Toolbar -->
     <div class="flex flex-wrap items-center gap-3">
+      <div class="inline-flex rounded-xl border border-slate-200/70 bg-slate-50 p-1">
+        <button
+          v-for="option in sourceOptions"
+          :key="option.value"
+          type="button"
+          class="rounded-lg px-3 py-1.5 text-sm font-semibold transition-all"
+          :class="sourceFilter === option.value
+            ? 'bg-white text-slate-900 shadow-sm'
+            : 'text-slate-500 hover:text-slate-800'"
+          @click="setSourceFilter(option.value)"
+        >
+          {{ option.label }}
+        </button>
+      </div>
+
       <select
         v-model="filter"
         class="rounded-xl border border-slate-200/40 bg-gradient-to-br from-slate-50/90 to-gray-50/60 px-3 py-2 text-sm font-medium text-slate-600 shadow-sm transition-all duration-200 hover:border-slate-300/50 focus:border-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-200"
@@ -68,7 +83,7 @@
             </tr>
             <tr v-else-if="!promoCodes.length">
               <td colspan="7" class="px-4 py-12 text-center text-slate-400">
-                Нет промокодов
+                {{ emptyStateText }}
               </td>
             </tr>
             <tr
@@ -85,6 +100,13 @@
                   class="ml-2 inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700"
                 >
                   Подарок
+                </span>
+                <span
+                  v-if="isWheelPromo(promo)"
+                  class="ml-2 inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold"
+                  :class="getSourceBadgeClass(promo)"
+                >
+                  {{ getSourceBadgeText(promo) }}
                 </span>
               </td>
               <td class="px-4 py-3.5 text-sm text-slate-600 max-w-[200px] truncate">
@@ -426,6 +448,13 @@ import { useCrmStore, type PromoCode, type PromoUsage } from '@/stores/crm'
 const crmStore = useCrmStore()
 const promoCodes = computed(() => crmStore.promoCodes)
 
+type PromoSourceFilter = 'regular' | 'wheel' | 'all'
+const sourceOptions: Array<{ value: PromoSourceFilter; label: string }> = [
+  { value: 'regular', label: 'Обычные' },
+  { value: 'wheel', label: 'Рулетка' },
+  { value: 'all', label: 'Все' },
+]
+const sourceFilter = ref<PromoSourceFilter>('regular')
 const filter = ref('')
 const search = ref('')
 let searchTimeout: ReturnType<typeof setTimeout> | null = null
@@ -471,7 +500,14 @@ async function loadPromoCodes() {
   await crmStore.fetchPromoCodes({
     search: search.value || undefined,
     filter: filter.value || undefined,
+    source: sourceFilter.value,
   })
+}
+
+function setSourceFilter(source: PromoSourceFilter) {
+  if (sourceFilter.value === source) return
+  sourceFilter.value = source
+  loadPromoCodes()
 }
 
 function debouncedSearch() {
@@ -650,6 +686,34 @@ function getUsageBarClass(promo: PromoCode): string {
   if (ratio >= 0.5) return 'bg-blue-400'
   return 'bg-green-400'
 }
+
+function isWheelPromo(promo: PromoCode): boolean {
+  return Boolean(
+    Number(promo.is_wheel_template || 0) === 1 ||
+      promo.wheel_owner_customer_id ||
+      Number(promo.is_wheel_generated || 0) === 1,
+  )
+}
+
+function getSourceBadgeText(promo: PromoCode): string {
+  if (promo.wheel_owner_customer_id || Number(promo.is_wheel_generated || 0) === 1) {
+    return 'Выдан рулеткой'
+  }
+  return 'Шаблон рулетки'
+}
+
+function getSourceBadgeClass(promo: PromoCode): string {
+  if (promo.wheel_owner_customer_id || Number(promo.is_wheel_generated || 0) === 1) {
+    return 'bg-violet-100 text-violet-700'
+  }
+  return 'bg-indigo-100 text-indigo-700'
+}
+
+const emptyStateText = computed(() => {
+  if (sourceFilter.value === 'regular') return 'Нет обычных промокодов'
+  if (sourceFilter.value === 'wheel') return 'В рулетке нет промокодов'
+  return 'Нет промокодов'
+})
 
 function formatDate(dateStr: string): string {
   try {
