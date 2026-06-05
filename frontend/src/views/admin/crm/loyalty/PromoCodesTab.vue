@@ -102,11 +102,11 @@
                   Подарок
                 </span>
                 <span
-                  v-if="isWheelPromo(promo)"
+                  v-if="isWheelTemplatePromo(promo)"
                   class="ml-2 inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold"
-                  :class="getSourceBadgeClass(promo)"
+                  :class="getSourceBadgeClass()"
                 >
-                  {{ getSourceBadgeText(promo) }}
+                  Шаблон рулетки
                 </span>
               </td>
               <td class="px-4 py-3.5 text-sm text-slate-600 max-w-[200px] truncate">
@@ -687,25 +687,11 @@ function getUsageBarClass(promo: PromoCode): string {
   return 'bg-green-400'
 }
 
-function isWheelPromo(promo: PromoCode): boolean {
-  return Boolean(
-    Number(promo.is_wheel_template || 0) === 1 ||
-      promo.wheel_owner_customer_id ||
-      Number(promo.is_wheel_generated || 0) === 1,
-  )
+function isWheelTemplatePromo(promo: PromoCode): boolean {
+  return Number(promo.is_wheel_template || 0) === 1
 }
 
-function getSourceBadgeText(promo: PromoCode): string {
-  if (promo.wheel_owner_customer_id || Number(promo.is_wheel_generated || 0) === 1) {
-    return 'Выдан рулеткой'
-  }
-  return 'Шаблон рулетки'
-}
-
-function getSourceBadgeClass(promo: PromoCode): string {
-  if (promo.wheel_owner_customer_id || Number(promo.is_wheel_generated || 0) === 1) {
-    return 'bg-violet-100 text-violet-700'
-  }
+function getSourceBadgeClass(): string {
   return 'bg-indigo-100 text-indigo-700'
 }
 

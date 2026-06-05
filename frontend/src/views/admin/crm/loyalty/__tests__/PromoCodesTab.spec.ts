@@ -48,7 +48,7 @@ describe("PromoCodesTab zero-discount gift handling", () => {
     );
   });
 
-  it("marks wheel promo templates and issued wheel codes", async () => {
+  it("marks only wheel promo templates with a badge", async () => {
     promoCodesMock.push(
       {
         id: "template-1",
@@ -96,7 +96,7 @@ describe("PromoCodesTab zero-discount gift handling", () => {
     await flushPromises();
 
     expect(wrapper.text()).toContain("Шаблон рулетки");
-    expect(wrapper.text()).toContain("Выдан рулеткой");
+    expect(wrapper.text()).not.toContain("Выдан рулеткой");
   });
 
   it("submits zero discount as a gift promo without a separate checkbox", async () => {
