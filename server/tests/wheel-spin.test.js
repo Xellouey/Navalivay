@@ -739,6 +739,61 @@ async function testGeneratedPromoUsesTemplateDurationInsteadOfPrizeLegacyDuratio
   );
 }
 
+async function testGeneratedWheelPromosAreUniqueAndOwnerBound() {
+  clearWheelData();
+  insertPrize({
+    id: "p_unique_owner_bound",
+    rarity_code: "common",
+    title: "Unique owner bound",
+    weight: 1,
+    template_max_uses: 0,
+  });
+  updateRarityRule("common", { chance_percent: 100 });
+  updateRarityRule("rare", { chance_percent: 0 });
+  updateRarityRule("mythic", { chance_percent: 0 });
+  updateRarityRule("legendary", { chance_percent: 0 });
+  updateRarityRule("epic", { chance_percent: 0 });
+
+  const firstCustomerId = "cust-unique-promo-first";
+  const secondCustomerId = "cust-unique-promo-second";
+  ensureCustomer(firstCustomerId);
+  ensureCustomer(secondCustomerId);
+  setBalance(firstCustomerId, 1);
+  setBalance(secondCustomerId, 1);
+
+  const firstResult = spinWheelForCustomer({
+    customerId: firstCustomerId,
+    rng: makeSequenceRng([0, 0, 0]),
+    auditEnabled: false,
+  });
+  const secondResult = spinWheelForCustomer({
+    customerId: secondCustomerId,
+    rng: makeSequenceRng([0, 0, 0]),
+    auditEnabled: false,
+  });
+
+  assert.ok(firstResult.promo?.promoId);
+  assert.ok(secondResult.promo?.promoId);
+  assert.notEqual(firstResult.promo.code, secondResult.promo.code);
+
+  const generatedPromos = db
+    .prepare(
+      `SELECT id, code, max_uses, is_wheel_template, wheel_owner_customer_id
+       FROM promo_codes
+       WHERE id IN (?, ?)
+       ORDER BY id`,
+    )
+    .all(firstResult.promo.promoId, secondResult.promo.promoId);
+
+  assert.equal(generatedPromos.length, 2);
+  for (const promo of generatedPromos) {
+    assert.equal(promo.max_uses, 1, "generated wheel promo must be single-use");
+    assert.equal(promo.is_wheel_template, 0, "generated wheel promo must not be treated as template");
+  }
+  assert.ok(generatedPromos.some((promo) => promo.wheel_owner_customer_id === firstCustomerId));
+  assert.ok(generatedPromos.some((promo) => promo.wheel_owner_customer_id === secondCustomerId));
+}
+
 async function testGeneratedPromoFallsBackWhenTemplateDurationIsMissing() {
   clearWheelData();
   updateWheelSettings({ default_promo_validity_days: 21 });
@@ -804,6 +859,7 @@ async function main() {
   await testNotEnoughSpins();
   await testSpinAuditCapturesEffectiveChanceAndRng();
   await testGeneratedPromoUsesTemplateDurationInsteadOfPrizeLegacyDuration();
+  await testGeneratedWheelPromosAreUniqueAndOwnerBound();
   await testGeneratedPromoFallsBackWhenTemplateDurationIsMissing();
 
   console.log("[wheel-spin] OK");

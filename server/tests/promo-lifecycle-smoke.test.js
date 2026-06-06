@@ -160,6 +160,48 @@ function getPromoUsageForOrder(orderId) {
     .all(orderId);
 }
 
+function getCustomerByTelegramId(telegramId) {
+  return db
+    .prepare("SELECT * FROM customers WHERE telegram_id = ?")
+    .get(String(telegramId));
+}
+
+function ensureCustomer({ id, telegramId, username }) {
+  db.prepare(
+    `
+    INSERT OR IGNORE INTO customers (
+      id, telegram_id, telegram_username, first_name, last_name,
+      first_visit_at, last_visit_at, total_orders, total_spent
+    ) VALUES (?, ?, ?, 'Promo', 'User', DATETIME('now'), DATETIME('now'), 0, 0)
+  `,
+  ).run(id, String(telegramId), username);
+}
+
+function seedWheelOwnedPromo({
+  promoId,
+  code,
+  ownerCustomerId,
+  discountValue = 3,
+  maxUses = 1,
+} = {}) {
+  db.prepare(
+    `
+    INSERT INTO promo_codes (
+      id, code, description, discount_type, discount_value, min_order_amount,
+      max_uses, current_uses, active, has_gift, is_wheel_template,
+      wheel_owner_customer_id, created_at
+    ) VALUES (?, ?, ?, 'fixed', ?, 0, ?, 0, 1, 0, 0, ?, DATETIME('now'))
+  `,
+  ).run(
+    promoId,
+    code,
+    `${code} wheel promo`,
+    discountValue,
+    maxUses,
+    ownerCustomerId,
+  );
+}
+
 async function testGiftPromoCanHaveZeroDiscount() {
   const plainZero = await requestJson("/api/admin/crm/promo-codes", {
     method: "POST",
@@ -533,6 +575,108 @@ async function testAdminPromoSourceFiltersSeparateWheelCodes() {
   assert.ok(allCodes.includes("SOURCE-WHEEL-ISSUED"));
 }
 
+async function testWheelOwnedPromoCanOnlyBeUsedByWinner() {
+  const ownerIdentity = {
+    telegram_id: "910001",
+    telegram_username: "promo_wheel_owner",
+  };
+  const otherIdentity = {
+    telegram_id: "910002",
+    telegram_username: "promo_wheel_other",
+  };
+
+  ensureCustomer({
+    id: "cust-promo-wheel-owner",
+    telegramId: ownerIdentity.telegram_id,
+    username: ownerIdentity.telegram_username,
+  });
+  const ownerCustomerId = getCustomerByTelegramId(ownerIdentity.telegram_id)?.id;
+  assert.ok(ownerCustomerId);
+
+  ensureCustomer({
+    id: "cust-promo-wheel-other",
+    telegramId: otherIdentity.telegram_id,
+    username: otherIdentity.telegram_username,
+  });
+  const otherCustomerId = getCustomerByTelegramId(otherIdentity.telegram_id)?.id;
+  assert.ok(otherCustomerId);
+
+  const promoId = "promo-wheel-owned";
+  const promoCode = "WHEEL-OWNER1";
+  seedWheelOwnedPromo({ promoId, code: promoCode, ownerCustomerId });
+
+  const ownerValidated = await requestJson("/api/promo/validate", {
+    method: "POST",
+    headers: telegramHeaders(ownerIdentity),
+    body: JSON.stringify({ code: promoCode, order_amount: 15 }),
+  });
+  assert.equal(ownerValidated.response.status, 200);
+  assert.equal(ownerValidated.data.valid, true);
+
+  const otherValidated = await requestJson("/api/promo/validate", {
+    method: "POST",
+    headers: telegramHeaders(otherIdentity),
+    body: JSON.stringify({ code: promoCode, order_amount: 15 }),
+  });
+  assert.equal(otherValidated.response.status, 200);
+  assert.equal(otherValidated.data.valid, false);
+  assert.equal(otherValidated.data.error, "wheel_promo_owner_mismatch");
+
+  const otherCreate = await createOrder(otherIdentity, { promo_code: promoCode });
+  assert.equal(otherCreate.response.status, 400);
+  assert.equal(otherCreate.data.error, "invalid_promo");
+  assert.equal(getPromo(promoId).current_uses, 0);
+  assert.equal(
+    db.prepare("SELECT COUNT(*) AS count FROM promo_usage WHERE promo_code_id = ?").get(promoId)
+      .count,
+    0,
+  );
+
+  const otherBaseOrder = await createOrder(otherIdentity);
+  assert.equal(otherBaseOrder.response.status, 200);
+  const otherModify = await modifyOrder(otherBaseOrder.data.order_id, otherIdentity, {
+    promo_code: promoCode,
+  });
+  assert.equal(otherModify.response.status, 400);
+  assert.equal(otherModify.data.error, "invalid_promo");
+  assert.equal(getPromo(promoId).current_uses, 0);
+
+  const ownerCreate = await createOrder(ownerIdentity, { promo_code: promoCode });
+  assert.equal(ownerCreate.response.status, 200, JSON.stringify(ownerCreate.data));
+  const ownerOrder = getOrder(ownerCreate.data.order_id);
+  assert.equal(ownerOrder.promo_code_id, promoId);
+  assert.equal(ownerOrder.promo_code_text, promoCode);
+  assert.equal(getPromo(promoId).current_uses, 1);
+  const usageRows = getPromoUsageForOrder(ownerCreate.data.order_id);
+  assert.equal(usageRows.length, 1);
+  assert.equal(usageRows[0].customer_id, ownerCustomerId);
+}
+
+async function testWheelTemplatePromoCannotBeAppliedDirectly() {
+  const identity = {
+    telegram_id: "910003",
+    telegram_username: "promo_wheel_template_user",
+  };
+  const promoId = "promo-wheel-template-direct";
+  const promoCode = "WHEEL-TEMPLATE-DIRECT";
+  seedPromo({ promoId, code: promoCode, maxUses: 0 });
+  db.prepare("UPDATE promo_codes SET is_wheel_template = 1 WHERE id = ?").run(promoId);
+
+  const validated = await requestJson("/api/promo/validate", {
+    method: "POST",
+    headers: telegramHeaders(identity),
+    body: JSON.stringify({ code: promoCode, order_amount: 15 }),
+  });
+  assert.equal(validated.response.status, 200);
+  assert.equal(validated.data.valid, false);
+  assert.equal(validated.data.error, "wheel_template_not_applicable");
+
+  const created = await createOrder(identity, { promo_code: promoCode });
+  assert.equal(created.response.status, 400);
+  assert.equal(created.data.error, "invalid_promo");
+  assert.equal(getPromo(promoId).current_uses, 0);
+}
+
 async function main() {
   seedProduct();
 
@@ -542,6 +686,8 @@ async function main() {
   await testPromoConsumedAndReturnedToReservedByAdmin();
   await testIssueAndPaymentRollbackSyncPromoUsage();
   await testAdminPromoSourceFiltersSeparateWheelCodes();
+  await testWheelOwnedPromoCanOnlyBeUsedByWinner();
+  await testWheelTemplatePromoCannotBeAppliedDirectly();
 
   console.log("[promo-lifecycle-smoke] OK");
 }

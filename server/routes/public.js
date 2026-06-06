@@ -81,6 +81,8 @@ function getNextNumber(table, field) {
 
 function throwPromoValidationError(result) {
   const error = new Error(result?.error || "invalid_promo");
+  error.code = "invalid_promo";
+  error.promoError = result?.error || "invalid_promo";
   error.userMessage = result?.message || "Недействительный промокод";
   throw error;
 }
@@ -2128,6 +2130,7 @@ publicRouter.put(
         errorCode === "telegram_username_required" ||
         errorCode === "telegram_username_not_verified" ||
         errorCode === "promo_and_loyalty_conflict" ||
+        errorCode === "invalid_promo" ||
         errorCode === "loyalty_category_not_available" ||
         errorCode === "loyalty_balance_not_enough" ||
         errorCode === "loyalty_category_limit_exceeded" ||
@@ -2478,6 +2481,7 @@ publicRouter.post(
         errorCode === "telegram_username_required" ||
         errorCode === "telegram_username_not_verified" ||
         errorCode === "promo_and_loyalty_conflict" ||
+        errorCode === "invalid_promo" ||
         errorCode === "loyalty_category_not_available" ||
         errorCode === "loyalty_balance_not_enough" ||
         errorCode === "loyalty_category_limit_exceeded" ||
