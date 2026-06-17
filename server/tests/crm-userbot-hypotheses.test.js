@@ -270,6 +270,18 @@ console.log('\n=== H9: is_blocked — проверка активного бло
   assertEq(emptyAfter.length, 0, 'неактивный блок не найден');
 }
 
+console.log('\n=== H11: block notify message format ===');
+{
+  const { formatBlockNotifyMessage } = await import('../utils/block-notify-message.js');
+  assertEq(
+    formatBlockNotifyMessage('не забрал заказ'),
+    'не забрал заказ',
+    'reason sent as-is without system wrapper',
+  );
+  assertEq(formatBlockNotifyMessage(''), 'Ваш аккаунт заблокирован.', 'empty reason fallback');
+  assertEq(formatBlockNotifyMessage(null), 'Ваш аккаунт заблокирован.', 'null reason fallback');
+}
+
 console.log('\n=== H10: block_reason_templates CRUD ===');
 {
   // GET empty

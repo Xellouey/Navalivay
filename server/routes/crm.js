@@ -21,6 +21,7 @@ import {
   serializeBlock,
   unblockCustomerBlock,
 } from '../utils/customer-blocks.js';
+import { formatBlockNotifyMessage } from '../utils/block-notify-message.js';
 import {
   createOrMergePosCustomer,
   getCustomerPurchaseHistory,
@@ -1492,7 +1493,7 @@ crmRouter.post('/api/admin/crm/blocks/:blockId/notify', authMiddleware, async (r
       return res.json({ ok: false, error: 'no_telegram_id' });
     }
 
-    const text = req.body?.text || `Ваш аккаунт заблокирован. Причина: ${block.reason || 'не указана'}`;
+    const text = formatBlockNotifyMessage(block.reason);
 
     const result = await sendViaUserbot({
       chatId: customer.telegram_id,

@@ -51,6 +51,7 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useWheelStore } from '@/stores/wheel'
+import { useWholesaleStore } from '@/stores/wholesale'
 
 const props = withDefaults(
   defineProps<{
@@ -60,17 +61,30 @@ const props = withDefaults(
 )
 
 const wheelStore = useWheelStore()
+const wholesaleStore = useWholesaleStore()
 const router = useRouter()
 
 // localStorage keys (раньше использовался sessionStorage и dismiss
 // сбрасывался при каждом перезапуске вкладки — теперь dismiss
 // переживает закрытие приложения, но автоматически снимается через
 // 24 часа или сразу при появлении нового спина).
-const DISMISSED_AT_KEY = 'wheel_widget_dismissed_at'
-const LAST_SEEN_SPINS_KEY = 'wheel_widget_last_seen_spins'
+// Розница и опт хранят dismiss отдельно — закрытие в одном режиме
+// не влияет на другой.
 const COOLDOWN_MS = 24 * 60 * 60 * 1000
 
 const dismissed = ref(false)
+
+function dismissStorageKeys() {
+  const wholesale = wholesaleStore.isWholesale
+  return {
+    dismissedAt: wholesale
+      ? 'wheel_widget_dismissed_at_wholesale'
+      : 'wheel_widget_dismissed_at',
+    lastSeenSpins: wholesale
+      ? 'wheel_widget_last_seen_spins_wholesale'
+      : 'wheel_widget_last_seen_spins',
+  }
+}
 
 function readNumber(key: string): number {
   try {
@@ -84,9 +98,10 @@ function readNumber(key: string): number {
 }
 
 function clearDismissState() {
+  const { dismissedAt, lastSeenSpins } = dismissStorageKeys()
   try {
-    localStorage.removeItem(DISMISSED_AT_KEY)
-    localStorage.removeItem(LAST_SEEN_SPINS_KEY)
+    localStorage.removeItem(dismissedAt)
+    localStorage.removeItem(lastSeenSpins)
   } catch {
     // localStorage недоступен — у нас всё равно нет persisted state.
   }
@@ -102,15 +117,16 @@ function clearDismissState() {
  * Возвращает `true`, если виджет должен быть виден.
  */
 function shouldShow(): boolean {
+  const { dismissedAt: dismissedAtKey, lastSeenSpins } = dismissStorageKeys()
   let dismissedAt = ''
   try {
-    dismissedAt = localStorage.getItem(DISMISSED_AT_KEY) || ''
+    dismissedAt = localStorage.getItem(dismissedAtKey) || ''
   } catch {
     return true
   }
   if (!dismissedAt) return true
 
-  const lastSeen = readNumber(LAST_SEEN_SPINS_KEY)
+  const lastSeen = readNumber(lastSeenSpins)
   const currentSpins = wheelStore.balance.spins_available
   if (currentSpins > lastSeen) {
     clearDismissState()
@@ -136,8 +152,15 @@ function recomputeDismissed() {
 onMounted(() => {
   recomputeDismissed()
 
-  if (props.autoLoad && wheelStore.lastFetchedAt === null) {
-    wheelStore.fetchState().catch(() => {
+  const modeMismatch =
+    wheelStore.lastFetchedAt !== null
+    && wheelStore.isWholesale !== wholesaleStore.isWholesale
+
+  if (
+    props.autoLoad
+    && (wheelStore.lastFetchedAt === null || modeMismatch)
+  ) {
+    wheelStore.fetchState({ force: modeMismatch }).catch(() => {
       // Виджет работает в degraded-режиме, ошибку логируем тихо.
     })
   }
@@ -150,6 +173,17 @@ watch(
   () => wheelStore.balance.spins_available,
   () => {
     recomputeDismissed()
+  },
+)
+
+// Смена розница ↔ опт — пересчитываем dismiss по своим ключам.
+watch(
+  () => wholesaleStore.isWholesale,
+  () => {
+    recomputeDismissed()
+    if (wheelStore.lastFetchedAt !== null) {
+      wheelStore.fetchState({ force: true, silent: true }).catch(() => {})
+    }
   },
 )
 
@@ -175,7 +209,7 @@ const spinsLabel = computed(() => {
 })
 
 const titleText = computed(() =>
-  hasSpins.value ? `${spinsAvailable.value} ${spinsLabel.value}` : 'Скоро спин',
+  hasSpins.value ? `${spinsAvailable.value} ${spinsLabel.value}` : 'Рулетка',
 )
 
 const ariaLabel = computed(() =>
@@ -197,10 +231,11 @@ function goToWheel() {
 }
 
 function dismiss() {
+  const { dismissedAt, lastSeenSpins } = dismissStorageKeys()
   try {
-    localStorage.setItem(DISMISSED_AT_KEY, new Date().toISOString())
+    localStorage.setItem(dismissedAt, new Date().toISOString())
     localStorage.setItem(
-      LAST_SEEN_SPINS_KEY,
+      lastSeenSpins,
       String(wheelStore.balance.spins_available),
     )
   } catch {

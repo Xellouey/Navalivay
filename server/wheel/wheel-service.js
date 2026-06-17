@@ -8,8 +8,6 @@ const PROMO_ID_PREFIX = "wpp";
 const POOL_ID_PREFIX = "wep";
 const SPIN_AUDIT_ID_PREFIX = "wsa";
 const PROMO_CODE_PREFIX = "WHEEL";
-const REQUIRED_WHEEL_ACCESS_USERNAMES = ["dmitriy_mityuk", "rk0ff"];
-
 const DEFAULT_SETTINGS = {
   spin_byn_retail: 40,
   spin_byn_wholesale: 200,
@@ -18,7 +16,7 @@ const DEFAULT_SETTINGS = {
   feed_size: 30,
   start_collecting_at: null,
   elite_rarities_json: ["valuable"],
-  wheel_access_usernames_json: REQUIRED_WHEEL_ACCESS_USERNAMES,
+  wheel_access_usernames_json: [],
 };
 
 function generateId(prefix) {
@@ -86,10 +84,10 @@ function jsonForAudit(value, fallback = {}) {
   }
 }
 
-function mergeRequiredWheelAccessUsernames(value) {
+function normalizeWheelAccessUsernamesList(value) {
   const current = Array.isArray(value) ? value : [];
   return [...new Set(
-    [...current, ...REQUIRED_WHEEL_ACCESS_USERNAMES]
+    current
       .map((entry) => normalizeTelegramUsername(entry))
       .filter(Boolean)
       .map((entry) => entry.toLowerCase()),
@@ -184,7 +182,7 @@ export function getWheelSettings() {
       map.get("elite_rarities_json"),
       DEFAULT_SETTINGS.elite_rarities_json,
     ),
-    wheel_access_usernames: mergeRequiredWheelAccessUsernames(
+    wheel_access_usernames: normalizeWheelAccessUsernamesList(
       parseJson(
         map.get("wheel_access_usernames_json"),
         DEFAULT_SETTINGS.wheel_access_usernames_json,
@@ -242,7 +240,7 @@ export function updateWheelSettings(partial) {
       "wheel_access_usernames_json",
       (v) =>
         JSON.stringify(
-          mergeRequiredWheelAccessUsernames(v),
+          normalizeWheelAccessUsernamesList(v),
         ),
     ],
   ];
@@ -438,31 +436,45 @@ function loadAllActivePrizes() {
     .all();
 }
 
-function prizeDisplayTitle(prize) {
+export function prizeDisplayTitle(prize) {
   if (!prize) return "";
   if (String(prize.rarity_code || "") === "nothing") {
     return String(prize.title || "").trim() || "Ничего";
   }
+  const promoTitle = String(prize.promo_description || "").trim();
+  const customerText = String(prize.promo_customer_description || "").trim();
   return (
-    String(prize.promo_customer_description || "").trim() ||
-    String(prize.promo_description || "").trim() ||
+    promoTitle ||
+    customerText ||
     String(prize.title || "").trim() ||
     String(prize.promo_code || "").trim() ||
     "Приз"
   );
 }
 
-function prizeDisplayDescription(prize) {
+export function prizeDisplayDescription(prize) {
   if (!prize) return null;
   if (String(prize.rarity_code || "") === "nothing") {
     return String(prize.description || "").trim() || null;
   }
-  const legacyDescription = String(prize.description || "").trim();
   const title = prizeDisplayTitle(prize).trim();
-  if (!legacyDescription || legacyDescription.toLowerCase() === title.toLowerCase()) {
-    return null;
+  const promoTitle = String(prize.promo_description || "").trim();
+  const customerText = String(prize.promo_customer_description || "").trim();
+  const storedDescription = String(prize.description || "").trim();
+
+  if (promoTitle && customerText) {
+    return customerText;
   }
-  return legacyDescription;
+
+  if (storedDescription && storedDescription.toLowerCase() !== title.toLowerCase()) {
+    return storedDescription;
+  }
+
+  if (customerText && customerText.toLowerCase() !== title.toLowerCase()) {
+    return customerText;
+  }
+
+  return null;
 }
 
 function resolvePrizeStorageText(payload = {}, existing = null) {
@@ -480,13 +492,16 @@ function resolvePrizeStorageText(payload = {}, existing = null) {
        WHERE id = ?`,
     )
     .get(templateId);
+  const promoTitle = String(template?.description || "").trim();
+  const customerText = String(template?.customer_description || "").trim();
   const title =
-    String(template?.customer_description || "").trim() ||
-    String(template?.description || "").trim() ||
+    promoTitle ||
+    customerText ||
     String(payload.title ?? existing?.title ?? "").trim() ||
     String(template?.code || "").trim() ||
     "Приз";
-  return { title, description: null };
+  const description = promoTitle ? customerText || null : null;
+  return { title, description };
 }
 
 function getPromoTemplateAvailability(templateId) {
@@ -1190,12 +1205,17 @@ function generatePromoForPrize(prize, settings, ownerCustomerId = null) {
   ).run(
     promoId,
     code,
-    template.description || prize.title,
+    String(template.description || "").trim() ||
+      String(template.customer_description || "").trim() ||
+      String(prize.title || "").trim() ||
+      code,
     template.discount_type,
     template.discount_value,
     template.min_order_amount,
     validUntilIso,
-    template.customer_description || prize.title,
+    String(template.description || "").trim()
+      ? String(template.customer_description || "").trim() || null
+      : null,
     template.manager_description || null,
     Number(template.has_gift || 0),
     validFromDate,

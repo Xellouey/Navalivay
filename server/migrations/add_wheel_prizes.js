@@ -1,7 +1,5 @@
 import { db } from "../db.js";
 
-const REQUIRED_WHEEL_ACCESS_USERNAMES = ["dmitriy_mityuk", "rk0ff"];
-
 function tableExists(table) {
   return Boolean(
     db
@@ -93,12 +91,8 @@ const DEFAULT_SETTINGS = {
   default_promo_validity_days: "90",
   feed_size: "30",
   elite_rarities_json: JSON.stringify(["valuable"]),
-  wheel_access_usernames_json: JSON.stringify(REQUIRED_WHEEL_ACCESS_USERNAMES),
+  wheel_access_usernames_json: JSON.stringify([]),
 };
-
-function normalizeTelegramUsername(value) {
-  return typeof value === "string" ? value.trim().replace(/^@+/, "").toLowerCase() : "";
-}
 
 export function migrateWheelPrizes() {
   try {
@@ -444,35 +438,6 @@ export function seedDefaultWheelData() {
 
     for (const [key, value] of Object.entries(DEFAULT_SETTINGS)) {
       insertSetting.run(key, value);
-    }
-
-    const wheelAccessSetting = db
-      .prepare("SELECT value FROM wheel_settings WHERE key = 'wheel_access_usernames_json'")
-      .get();
-    const currentWheelAccess = (() => {
-      try {
-        const parsed = JSON.parse(String(wheelAccessSetting?.value || "[]"));
-        return Array.isArray(parsed) ? parsed : [];
-      } catch {
-        return [];
-      }
-    })();
-    const mergedWheelAccess = [
-      ...new Set(
-        [...currentWheelAccess, ...REQUIRED_WHEEL_ACCESS_USERNAMES]
-          .map((entry) => normalizeTelegramUsername(entry))
-          .filter(Boolean),
-      ),
-    ];
-    if (
-      JSON.stringify(currentWheelAccess.map((entry) => normalizeTelegramUsername(entry)).filter(Boolean)) !==
-      JSON.stringify(mergedWheelAccess)
-    ) {
-      db.prepare(
-        `INSERT INTO wheel_settings (key, value, updated_at)
-         VALUES ('wheel_access_usernames_json', ?, DATETIME('now'))
-         ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = DATETIME('now')`,
-      ).run(JSON.stringify(mergedWheelAccess));
     }
 
     const startCollectingExists = db

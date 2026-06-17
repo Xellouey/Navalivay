@@ -19,10 +19,11 @@
       <section class="wheel-howto-card wheel-howto-card--hero">
         <div class="wheel-howto-card__copy">
           <h2 class="wheel-howto-card__title wheel-howto-card__title--inverted">
-            Какие призы можно выиграть&nbsp;?
+            Как получить спин
           </h2>
           <p class="wheel-howto-card__text wheel-howto-card__text--inverted">
-            Призы и шансы на них могут меняться следите здесь за актуальным наличием призов и шасов из выпадения
+            За каждые {{ spinThreshold }} BYN, потраченные у нас — вам выдается одна
+            прокрутка (спин) рулетки призов
           </p>
         </div>
         <div class="wheel-howto-card__gift" aria-hidden="true">
@@ -33,14 +34,6 @@
             alt=""
           />
         </div>
-      </section>
-
-      <section class="wheel-howto-card">
-        <h2 class="wheel-howto-card__title">Как получить спин</h2>
-        <p class="wheel-howto-card__text">
-          За каждые {{ retailThreshold }} BYN покупок копится один спин. Считаются только
-          выданные заказы, без промокодов и бонусных списаний.
-        </p>
       </section>
 
       <section class="wheel-howto-card">
@@ -79,9 +72,11 @@
 import { computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useWheelStore } from '@/stores/wheel'
+import { useWholesaleStore } from '@/stores/wholesale'
 import giftImage from '@/assets/wheel-howto-gift.png'
 
 const wheelStore = useWheelStore()
+const wholesaleStore = useWholesaleStore()
 const router = useRouter()
 
 const rarities = computed(() =>
@@ -92,8 +87,17 @@ function isLastSolo(index: number): boolean {
   const total = rarities.value.length
   return total % 2 === 1 && index === total - 1
 }
-const retailThreshold = computed(() => wheelStore.settings.spin_byn_retail || 40)
-const pityThreshold = computed(() => wheelStore.settings.pity_threshold || 3)
+const spinThreshold = computed(() => {
+  if (wheelStore.lastFetchedAt !== null && wheelStore.balance.threshold_byn > 0) {
+    return Math.round(wheelStore.balance.threshold_byn)
+  }
+  const isWholesale = wheelStore.isWholesale || wholesaleStore.isWholesale
+  return Math.round(
+    isWholesale
+      ? (wheelStore.settings.spin_byn_wholesale || 200)
+      : (wheelStore.settings.spin_byn_retail || 40),
+  )
+})
 
 function goBack() {
   if (window.history.length > 1) {
@@ -174,8 +178,7 @@ onMounted(() => {
   position: relative;
   background: linear-gradient(135deg, #18181b 0%, #2a2a2f 52%, #17171a 100%);
   color: #FFFFFF;
-  padding: 20px 22px;
-  display: block;
+  padding: 16px 102px 16px 18px;
   overflow: hidden;
   border-radius: 20px;
   box-shadow: none;
@@ -189,7 +192,7 @@ onMounted(() => {
 
 @media (max-width: 380px) {
   .wheel-howto-card--hero {
-    padding: 18px 18px;
+    padding: 14px 92px 14px 16px;
   }
 }
 
@@ -198,12 +201,10 @@ onMounted(() => {
   color: #FFFFFF;
   font-family: 'SF Pro Display', system-ui, sans-serif;
   font-weight: 700;
-  font-size: 24px;
-  line-height: 29px;
-  margin: 0 0 16px;
+  font-size: 22px;
+  line-height: 26px;
+  margin: 0 0 8px;
   letter-spacing: -0.01em;
-  /* Title still avoids overlapping the gift on the right */
-  padding-right: 0px;
 }
 
 .wheel-howto-card--hero .wheel-howto-card__text,
@@ -211,42 +212,43 @@ onMounted(() => {
   color: #FFFFFF;
   font-family: 'SF Pro Display', system-ui, sans-serif;
   font-weight: 400;
-  font-size: 14px;
-  line-height: 17px;
+  font-size: 13px;
+  line-height: 16px;
   opacity: 1;
 }
 
 @media (max-width: 380px) {
   .wheel-howto-card--hero .wheel-howto-card__title,
   .wheel-howto-card--hero .wheel-howto-card__title--inverted {
-    font-size: 24px;
-    line-height: 26px;
-    margin-bottom: 12px;
-    padding-right: 90px;
+    font-size: 20px;
+    line-height: 24px;
+    margin-bottom: 6px;
   }
+
   .wheel-howto-card--hero .wheel-howto-card__text,
   .wheel-howto-card--hero .wheel-howto-card__text--inverted {
-    font-size: 13px;
-    line-height: 16px;
+    font-size: 12px;
+    line-height: 15px;
   }
 }
 
 .wheel-howto-card__gift {
   position: absolute;
-  right: 5px;
-  top: 0px;
-  width: 110px;
-  height: 100px;
+  right: 2px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 104px;
+  height: 96px;
   pointer-events: none;
   z-index: 1;
 }
 
 .wheel-howto-card__gift-glow {
   position: absolute;
-  width: 92px;
-  height: 92px;
-  left: 9px;
-  top: 7px;
+  width: 84px;
+  height: 84px;
+  left: 10px;
+  top: 6px;
   background: #FDD52A;
   opacity: 0.15;
   filter: blur(10px);
@@ -257,16 +259,21 @@ onMounted(() => {
 
 @media (max-width: 380px) {
   .wheel-howto-card__gift {
-    right: 20px;
-    top: 12px;
+    right: 0;
     width: 92px;
-    height: 88px;
+    height: 84px;
   }
   .wheel-howto-card__gift-glow {
-    width: 76px;
-    height: 76px;
-    left: 8px;
+    width: 72px;
+    height: 72px;
+    left: 10px;
     top: 6px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wheel-howto-card__gift {
+    transform: translateY(-50%);
   }
 }
 

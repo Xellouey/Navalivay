@@ -155,6 +155,7 @@
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import AdminModal from '@/components/AdminModal.vue'
 import { useCrmStore, type CustomerBlockDuration } from '@/stores/crm'
+import { formatBlockNotifyMessage } from '@/utils/block-notify-message'
 
 const props = defineProps<{
   isOpen: boolean
@@ -333,15 +334,16 @@ async function submit() {
     })
     emit('created', { kind: result.kind, username })
 
+    const notifyText = formatBlockNotifyMessage(reason.value.trim() || null)
+
     // Try to send block notification via userbot
     try {
       const blockId = result.block.id
-      const notifyText = reason.value.trim() || 'Ваш аккаунт заблокирован.'
       const notifyRes = await fetch(`/api/admin/crm/blocks/${encodeURIComponent(blockId)}/notify`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ text: notifyText }),
+        body: JSON.stringify({}),
       })
       const notifyData = await notifyRes.json()
       if (notifyData.ok) {
@@ -350,7 +352,7 @@ async function submit() {
         emit('notifyResult', { ok: false, error: notifyData.error, text: notifyText, username })
       }
     } catch {
-      emit('notifyResult', { ok: false, error: 'network_error', text: reason.value.trim(), username })
+      emit('notifyResult', { ok: false, error: 'network_error', text: notifyText, username })
     }
 
     emit('close')

@@ -109,8 +109,14 @@
                   Шаблон рулетки
                 </span>
               </td>
-              <td class="px-4 py-3.5 text-sm text-slate-600 max-w-[200px] truncate">
-                {{ promo.customer_description || promo.description || '-' }}
+              <td class="px-4 py-3.5 text-sm text-slate-600 max-w-[240px]">
+                <p class="truncate font-medium text-slate-800">{{ promo.description || promo.customer_description || '-' }}</p>
+                <p
+                  v-if="promo.description && promo.customer_description"
+                  class="truncate text-xs text-slate-500"
+                >
+                  {{ promo.customer_description }}
+                </p>
               </td>
               <td class="px-4 py-3.5 text-sm text-right font-semibold text-slate-800">
                 <template v-if="promo.has_gift && Number(promo.discount_value) <= 0">Подарок</template>
@@ -237,12 +243,22 @@
               </div>
 
               <div>
+                <label class="block text-sm font-medium text-slate-700 mb-1.5">Заголовок</label>
+                <input
+                  v-model="form.description"
+                  type="text"
+                  class="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
+                  placeholder="Название приза или промокода для клиента"
+                />
+              </div>
+
+              <div>
                 <label class="block text-sm font-medium text-slate-700 mb-1.5">Описание для клиента</label>
                 <textarea
                   v-model="form.customer_description"
                   rows="2"
                   class="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
-                  placeholder="Текст для клиента в миниаппе"
+                  placeholder="Дополнительный текст под заголовком в миниаппе"
                 ></textarea>
               </div>
 
@@ -526,8 +542,8 @@ function openEditModal(promo: PromoCode) {
   editingPromo.value = promo
   form.value = {
     code: promo.code,
-    description: promo.description || '',
-    customer_description: promo.customer_description || promo.description || '',
+    description: promo.description || promo.customer_description || '',
+    customer_description: promo.customer_description || '',
     manager_description: promo.manager_description || '',
     has_gift: Boolean(promo.has_gift),
     discount_type: promo.discount_type,
@@ -574,7 +590,8 @@ async function handleSubmit() {
 
     const data = {
       ...form.value,
-      description: form.value.customer_description || null,
+      description: form.value.description?.trim() || null,
+      customer_description: form.value.customer_description?.trim() || null,
       duration_days: useNewValidity ? (form.value.is_perpetual ? null : form.value.duration_days) : null,
       valid_from_date: useNewValidity ? (form.value.valid_from_date || null) : null,
       valid_from: useNewValidity ? null : (form.value.valid_from || null),

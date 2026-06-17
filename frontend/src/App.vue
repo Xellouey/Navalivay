@@ -7,11 +7,8 @@ import BottomTabBar from "@/components/BottomTabBar.vue";
 import BlockedScreen from "@/components/BlockedScreen.vue";
 import WheelHomeWidget from "@/components/wheel/WheelHomeWidget.vue";
 import { useCustomerBlock } from "@/composables/useCustomerBlock";
-import { useWholesaleStore } from "@/stores/wholesale";
-
 const route = useRoute();
 const { currentBlock, isBlocked, refreshBlock } = useCustomerBlock();
-const wholesaleStore = useWholesaleStore();
 
 // Экран блокировки клиента не показываем в админке —
 // у админа другая аутентификация, а не клиентский telegram_id.
@@ -30,10 +27,9 @@ const showTabBar = computed(() => {
 });
 
 // Глобальный плавающий виджет рулетки. Показываем на всех customer-
-// экранах, кроме самой рулетки, чекаута, оформленного заказа и
-// админки. Опту виджет пока скрываем (бизнес-логика на этой итерации).
+// экранах, кроме самой рулетки, чекаута, оформленного заказа,
+// админки и лендинга опт-ссылки (/opt/...).
 const showWheelWidget = computed(() => {
-  if (wholesaleStore.isWholesale) return false;
   const path = route.path;
   if (path.startsWith("/admin")) return false;
   if (path === "/wheel" || path.startsWith("/wheel/")) return false;

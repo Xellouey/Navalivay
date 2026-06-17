@@ -21,6 +21,8 @@ import {
   registerCustomerProfitForEpicPools,
   setFeedConsent,
   spinWheelForCustomer,
+  prizeDisplayTitle,
+  prizeDisplayDescription,
   updateRarityRule,
   updatePrize,
   updateWheelSettings,
@@ -470,11 +472,21 @@ wheelRouter.get(
 
       const rows = db
         .prepare(
-          `SELECT s.*, p.title AS prize_title, p.description AS prize_description,
-                  p.image_url AS prize_image_url, r.label AS rarity_label,
-                  r.bg_color AS rarity_bg, r.text_color AS rarity_text
+          `SELECT s.*,
+                  p.title AS prize_title,
+                  p.description AS prize_description,
+                  p.rarity_code AS prize_rarity_code,
+                  p.promo_template_id,
+                  pc.code AS promo_code,
+                  pc.description AS promo_description,
+                  pc.customer_description AS promo_customer_description,
+                  p.image_url AS prize_image_url,
+                  r.label AS rarity_label,
+                  r.bg_color AS rarity_bg,
+                  r.text_color AS rarity_text
            FROM wheel_spins s
            JOIN wheel_prizes p ON p.id = s.prize_id
+           LEFT JOIN promo_codes pc ON pc.id = p.promo_template_id
            LEFT JOIN wheel_rarities r ON r.code = s.rarity_code
            WHERE ${where}
            ORDER BY s.spun_at DESC
@@ -485,8 +497,8 @@ wheelRouter.get(
       res.json({
         prizes: rows.map((row) => ({
           spin_id: row.id,
-          prize_title: row.prize_title,
-          prize_description: row.prize_description,
+          prize_title: prizeDisplayTitle(row),
+          prize_description: prizeDisplayDescription(row),
           prize_image_url: row.prize_image_url,
           rarity_code: row.rarity_code,
           rarity_label: row.rarity_label,

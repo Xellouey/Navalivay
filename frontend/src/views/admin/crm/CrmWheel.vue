@@ -455,7 +455,7 @@
               class="rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
             ></textarea>
             <span class="text-[11px] text-slate-400">
-              Укажите Telegram-username по одному в строке, без @.
+              Пустое поле — рулетка доступна всем. Иначе укажите Telegram-username по одному в строке, без @.
             </span>
           </label>
           <div class="rounded-2xl border border-slate-200/60 bg-slate-50/70 p-4 space-y-3">
@@ -724,9 +724,17 @@
                       <p class="rounded-xl bg-slate-50 px-3 py-1.5 text-xs text-slate-600">
                         {{ selectedPromoValidityHint }}
                       </p>
-                      <p v-if="selectedPromoDisplayText" class="rounded-xl border border-emerald-100 bg-emerald-50 px-3 py-1.5 text-xs text-emerald-800">
-                        <span class="font-semibold">Клиент увидит:</span> {{ selectedPromoDisplayText }}
-                      </p>
+                      <div
+                        v-if="selectedPromoPreviewTitle || selectedPromoPreviewDescription"
+                        class="rounded-xl border border-emerald-100 bg-emerald-50 px-3 py-1.5 text-xs text-emerald-800 space-y-1"
+                      >
+                        <p v-if="selectedPromoPreviewTitle">
+                          <span class="font-semibold">Заголовок:</span> {{ selectedPromoPreviewTitle }}
+                        </p>
+                        <p v-if="selectedPromoPreviewDescription">
+                          <span class="font-semibold">Описание:</span> {{ selectedPromoPreviewDescription }}
+                        </p>
+                      </div>
                     </div>
                   </section>
 
@@ -810,7 +818,7 @@
                           <img
                             v-if="prizeImagePreview"
                             :src="prizeImagePreview"
-                            :alt="selectedPromoDisplayText || 'Превью приза'"
+                            :alt="selectedPromoPreviewTitle || 'Превью приза'"
                             class="h-full w-full object-cover drop-shadow-[0_10px_14px_rgba(15,23,42,0.10)]"
                           />
                           <div
@@ -923,6 +931,16 @@
                 <section class="rounded-2xl border border-slate-200/70 bg-white p-4 shadow-sm">
                   <p class="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-500">Текст приза</p>
                   <div class="space-y-3">
+                    <div>
+                      <label for="wheel-promo-quick-title" class="mb-1.5 block text-sm font-medium text-slate-700">Заголовок</label>
+                      <input
+                        id="wheel-promo-quick-title"
+                        v-model="promoQuickForm.description"
+                        type="text"
+                        placeholder="Например: Скидка на жидкость VINTAGE"
+                        class="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
+                      />
+                    </div>
                     <div>
                       <label for="wheel-promo-quick-code" class="mb-1.5 block text-sm font-medium text-slate-700">Промокод</label>
                       <div class="flex gap-2">
@@ -1350,7 +1368,7 @@ const settingsForm = reactive({
   default_promo_validity_days: 90,
   feed_size: 30,
   start_collecting_at: '',
-  wheel_access_usernames_text: 'dmitriy_mityuk\nrk0ff',
+  wheel_access_usernames_text: '',
 })
 
 const selectedRarityCode = ref('common')
@@ -1358,6 +1376,7 @@ const savingRarityCode = ref('')
 const promoQuickModalOpen = ref(false)
 const promoQuickForm = reactive({
   code: '',
+  description: '',
   customer_description: '',
   manager_description: '',
   discount_type: 'fixed',
@@ -1449,10 +1468,20 @@ const selectedPromoValidityHint = computed(() => {
   })
 })
 
-const selectedPromoDisplayText = computed(() => {
+const selectedPromoPreviewTitle = computed(() => {
   const template = selectedPromoTemplate.value
   if (!template) return ''
-  return String(template.customer_description || template.description || template.code || '').trim()
+  return String(template.description || template.customer_description || template.code || '').trim()
+})
+
+const selectedPromoPreviewDescription = computed(() => {
+  const template = selectedPromoTemplate.value
+  if (!template) return ''
+  const title = selectedPromoPreviewTitle.value.trim().toLowerCase()
+  const customerText = String(template.customer_description || '').trim()
+  if (!String(template.description || '').trim()) return ''
+  if (!customerText || customerText.toLowerCase() === title) return ''
+  return customerText
 })
 
 const selectedPrizeRarity = computed(() => rarityByCode.value.get(prizeForm.rarity_code) || null)
@@ -1825,7 +1854,7 @@ async function loadSettings() {
   )
   settingsForm.wheel_access_usernames_text = Array.isArray(data.wheel_access_usernames)
     ? data.wheel_access_usernames.join('\n')
-    : 'dmitriy_mityuk\nrk0ff'
+    : ''
 }
 
 function formatBackendDateForLocalInput(value: string | null | undefined): string {
@@ -1963,6 +1992,7 @@ function openQuickPromoModal() {
   promoQuickError.value = ''
   Object.assign(promoQuickForm, {
     code: '',
+    description: '',
     customer_description: '',
     manager_description: '',
     discount_type: 'fixed',
@@ -1996,7 +2026,8 @@ async function createQuickPromoTemplate() {
     }
     const promo = await crmStore.createPromoCode({
       code: promoQuickForm.code.trim().toUpperCase(),
-      customer_description: promoQuickForm.customer_description.trim(),
+      description: promoQuickForm.description.trim() || null,
+      customer_description: promoQuickForm.customer_description.trim() || null,
       manager_description: promoQuickForm.manager_description.trim() || null,
       discount_type: promoQuickForm.discount_type as 'fixed' | 'percent',
       discount_value: discountValue,

@@ -274,7 +274,7 @@ async function testWheelAccessAllowlistBlocksConsentAndMyPrizesForOutsider() {
   updateWheelSettings({ wheel_access_usernames: [] });
 }
 
-function testWheelSeedRestoresRequiredAllowlistAfterRestart() {
+function testWheelSeedDoesNotRestoreHardcodedAllowlistAfterRestart() {
   updateWheelSettings({ wheel_access_usernames: [] });
   seedDefaultWheelData();
   const row = db
@@ -283,19 +283,19 @@ function testWheelSeedRestoresRequiredAllowlistAfterRestart() {
   const usernames = JSON.parse(String(row?.value || "[]"));
   assert.deepEqual(
     usernames,
-    ["dmitriy_mityuk", "rk0ff"],
-    "seed on restart must restore required wheel allowlist usernames",
+    [],
+    "seed on restart must not inject hardcoded wheel allowlist usernames",
   );
-  updateWheelSettings({ wheel_access_usernames: [] });
+  updateWheelSettings({ wheel_access_usernames: DEFAULT_TEST_ALLOWLIST });
 }
 
-function testWheelSettingsAlwaysExposeRequiredAllowlist() {
+function testWheelSettingsEmptyAllowlistMeansOpenAccess() {
   updateWheelSettings({ wheel_access_usernames: [] });
   const settings = getWheelSettings();
   assert.deepEqual(
     settings.wheel_access_usernames,
-    ["dmitriy_mityuk", "rk0ff"],
-    "wheel settings response must include required usernames even if DB row was emptied",
+    [],
+    "empty allowlist must stay empty — open access for everyone",
   );
   updateWheelSettings({ wheel_access_usernames: DEFAULT_TEST_ALLOWLIST });
 }
@@ -609,8 +609,8 @@ async function testPrizeRequiresPromoTemplateUnlessNothing() {
     promo_template_id: "promo_text_source",
   });
   const listedPrize = listAdminPrizes().find((prize) => prize.id === textSourcePrize.id);
-  assert.equal(listedPrize.title, "Подарок из промокода");
-  assert.equal(listedPrize.description, null);
+  assert.equal(listedPrize.title, "Legacy promo description");
+  assert.equal(listedPrize.description, "Подарок из промокода");
 
   const existing = createPrize({
     rarity_code: "common",
@@ -737,8 +737,33 @@ async function testSpinResponseUsesPromoTextAsPrizeText() {
   });
 
   assert.equal(response.status, 200, JSON.stringify(data));
-  assert.equal(data.prize.title, "Клиентский подарок из промокода");
-  assert.equal(data.prize.description, null);
+  assert.equal(data.prize.title, "Legacy promo text");
+  assert.equal(data.prize.description, "Клиентский подарок из промокода");
+
+  db.prepare(
+    `UPDATE promo_codes
+     SET customer_description = 'Только старый заголовок',
+         description = NULL
+     WHERE id = 'promo_p_promo_text'`,
+  ).run();
+  db.prepare(
+    `INSERT OR REPLACE INTO wheel_customer_balances (
+      customer_id, spins_available, accumulated_retail_byn,
+      accumulated_wholesale_byn, consecutive_nothing, last_updated_at
+    ) VALUES (?, 1, 0, 0, 0, DATETIME('now'))`,
+  ).run("cust_promo_text");
+
+  const legacy = await requestJson("/api/wheel/spin", {
+    method: "POST",
+    headers: telegramHeaders({
+      telegram_id: "777453",
+      telegram_username: "wheel_promo_text",
+    }),
+    body: JSON.stringify({}),
+  });
+  assert.equal(legacy.response.status, 200, JSON.stringify(legacy.data));
+  assert.equal(legacy.data.prize.title, "Только старый заголовок");
+  assert.equal(legacy.data.prize.description, null);
 }
 
 // P1 regression: a second POST /api/wheel/spin with the same
@@ -1246,8 +1271,8 @@ async function main() {
   await testWheelAccessAllowlistLocksStateForOutsiders();
   await testWheelAccessAllowlistLetsTesterInAndBlocksSpinForOutsider();
   await testWheelAccessAllowlistBlocksConsentAndMyPrizesForOutsider();
-  testWheelSeedRestoresRequiredAllowlistAfterRestart();
-  testWheelSettingsAlwaysExposeRequiredAllowlist();
+  testWheelSeedDoesNotRestoreHardcodedAllowlistAfterRestart();
+  testWheelSettingsEmptyAllowlistMeansOpenAccess();
   await testMyPrizesStatusFiltersExcludeNothingAndSplitLifecycle();
   await testWheelTemplateRejectedAtCheckout();
   await testWheelTemplateFlagClearedWhenPrizeChangesTemplate();
