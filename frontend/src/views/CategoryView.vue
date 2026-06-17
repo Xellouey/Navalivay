@@ -29,6 +29,17 @@
     </div>
 
     <div class="main-content-wrapper">
+      <div v-if="showCategoryFilters" class="category-content">
+        <CategoryFilterBar
+          :profile="storefrontFiltersProfile"
+          :top-active="filterTopActive"
+          :strength-tier="filterStrengthTier"
+          :top-loading="filterTopSalesLoading"
+          @toggle-top="toggleTopFilter()"
+          @toggle-strength="toggleStrengthFilter($event)"
+        />
+      </div>
+
       <!-- Cross-sell товары (без заголовка, первыми) -->
       <div
         v-if="crossSellItems.length && !wholesaleStore.isWholesale"
@@ -93,9 +104,11 @@
             class="group-list-container"
           >
             <GroupLineItem
-              v-for="group in groupCards"
+              v-for="group in filteredGroupCards"
               :key="group.id"
               :node="group"
+              :top-rank="categoryFilters.getTopRank(group.id)"
+              :top-rank-by-group-id="topRankMap"
               :category-image="selectedCategory?.coverImage"
               :expanded-groups="groupExpansionState"
               @toggle="toggleGroupExpansion"
@@ -107,7 +120,15 @@
         </Transition>
 
         <p
-          v-if="!groupCards.length && !showLiquidShowcase"
+          v-if="!filteredGroupCards.length && !showLiquidShowcase && groupCards.length"
+          class="text-gray-600 bg-gray-100 border border-dashed border-gray-300 rounded-xl px-5 py-4 text-sm font-medium"
+        >
+          По выбранным фильтрам линеек не найдено. Сбросьте фильтры и попробуйте
+          снова.
+        </p>
+
+        <p
+          v-else-if="!groupCards.length && !showLiquidShowcase"
           class="text-gray-600 bg-gray-100 border border-dashed border-gray-300 rounded-xl px-5 py-4 text-sm font-medium"
         >
           Для категории пока не добавлены подгруппы - товары будут показаны в
@@ -129,10 +150,20 @@
             @decrement="decrementUngroupedQuantity(nicaBoosterProduct)"
           />
 
+          <p
+            v-if="!filteredLiquidGroups.length && liquidGroups.length"
+            class="text-gray-600 bg-gray-100 border border-dashed border-gray-300 rounded-xl px-5 py-4 text-sm font-medium"
+          >
+            По выбранным фильтрам линеек не найдено. Сбросьте фильтры и попробуйте
+            снова.
+          </p>
+
           <LiquidLineTree
-            v-for="group in liquidGroups"
+            v-for="group in filteredLiquidGroups"
             :key="group.id"
             :group="group"
+            :top-rank="categoryFilters.getTopRank(group.id)"
+            :top-rank-by-group-id="topRankMap"
             :fallback-image="selectedCategory?.coverImage || PLACEHOLDER_IMAGE"
             :expanded-groups="liquidExpansionState"
             @toggle="toggleLiquidExpansion"
@@ -333,8 +364,10 @@ import SmokeParticles from "@/components/SmokeParticles.vue";
 import LiquidLineTree from "@/components/product/liquid/LiquidLineTree.vue";
 import ToastNotification from "@/components/ToastNotification.vue";
 import GroupLineItem from "@/components/product/GroupLineItem.vue";
+import CategoryFilterBar from "@/components/product/CategoryFilterBar.vue";
 import SingleProductCard from "@/components/product/SingleProductCard.vue";
 import { useProductCardLayout } from "@/composables/useProductCardLayout";
+import { useCategoryFilters } from "@/composables/useCategoryFilters";
 
 const props = defineProps<{
   slug: string;
@@ -345,6 +378,14 @@ const cartStore = useCartStore();
 const wholesaleStore = useWholesaleStore();
 const router = useRouter();
 const route = useRoute();
+const categoryFilters = useCategoryFilters();
+const {
+  topActive: filterTopActive,
+  strengthTier: filterStrengthTier,
+  topSalesLoading: filterTopSalesLoading,
+  toggleTopFilter,
+  toggleStrengthFilter,
+} = categoryFilters;
 
 // Toast notification
 const toastMessage = ref("");
@@ -442,6 +483,24 @@ const selectedCategory = computed<Category | null>(() => {
   );
 });
 
+const storefrontFiltersProfile = computed(
+  () => selectedCategory.value?.storefrontFiltersProfile ?? "none",
+);
+
+const showCategoryFilters = computed(
+  () =>
+    storefrontFiltersProfile.value === "liquids" ||
+    storefrontFiltersProfile.value === "snus_plates",
+);
+
+const topRankMap = computed(() => {
+  const map: Record<string, number> = {};
+  categoryFilters.topRankByGroupId.value.forEach((rank, groupId) => {
+    map[groupId] = rank;
+  });
+  return map;
+});
+
 async function prefetchCurrentCategoryImages() {
   const categoryId = selectedCategory.value?.id;
   if (!categoryId) {
@@ -490,6 +549,7 @@ type LiquidGroup = {
   badgeColor?: string | null;
   metaLabel?: string | null;
   metaValue?: string | null;
+  strengthTier?: string | null;
   children: LiquidGroup[];
 };
 
@@ -604,6 +664,7 @@ const liquidStructure = computed(() => {
         badgeColor: group.badgeColor ?? null,
         metaLabel: group.metaLabel ?? null,
         metaValue: group.metaValue ?? null,
+        strengthTier: group.strengthTier ?? null,
         children: [],
       });
     });
@@ -663,6 +724,15 @@ const liquidStructure = computed(() => {
 });
 
 const liquidGroups = computed(() => liquidStructure.value.groups);
+
+const filteredLiquidGroups = computed(() =>
+  categoryFilters.filterGroupTree(liquidGroups.value),
+);
+
+const filteredGroupCards = computed(() =>
+  categoryFilters.filterGroupTree(groupCards.value),
+);
+
 const liquidUngrouped = computed(() => {
   // Filter out NiCa Booster from ungrouped display
   return liquidStructure.value.ungrouped.filter((product) => {
@@ -1041,6 +1111,16 @@ watch(
   { flush: "post" },
 );
 
+async function syncCategoryFilters() {
+  categoryFilters.resetFilters();
+  const category = selectedCategory.value;
+  if (!category?.id || !showCategoryFilters.value) {
+    categoryFilters.topSales.value = [];
+    return;
+  }
+  await categoryFilters.loadTopSales(category.id, 5);
+}
+
 onMounted(async () => {
   // Инициализируем каталог если ещё не загружен
   if (!catalogStore.categories.length) {
@@ -1049,6 +1129,7 @@ onMounted(async () => {
 
   // Устанавливаем активную категорию
   await catalogStore.setActiveCategory(props.slug);
+  await syncCategoryFilters();
 
   // Загружаем cross-sell если нужно
   if (!wholesaleStore.isWholesale && props.slug && !catalogStore.crossSellProducts[props.slug]) {
@@ -1064,6 +1145,7 @@ watch(
       groupExpansionState.value = {};
       liquidExpansionState.value = {};
       await catalogStore.setActiveCategory(newSlug);
+      await syncCategoryFilters();
       if (!wholesaleStore.isWholesale && !catalogStore.crossSellProducts[newSlug]) {
         catalogStore.fetchCrossSell(newSlug);
       }

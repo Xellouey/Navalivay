@@ -3,6 +3,10 @@ import {
   getActiveWholesaleTiers,
   getBulkGroupWholesalePrices,
 } from '../wholesale-service.js';
+import {
+  hasStrengthTier,
+  STOREFRONT_FILTER_PROFILES,
+} from './storefront-filters.js';
 
 /**
  * Контроль заполненности линеек для админки «Категории» (п.3).
@@ -19,6 +23,7 @@ export const COMPLETENESS_FIELD_LABELS = Object.freeze({
   description: 'Описание',
   min_stock: 'Минимальный остаток',
   wholesale: 'Оптовые цены',
+  strength_tier: 'Крепость (фильтр)',
 });
 
 function isWaiverActive(value) {
@@ -83,18 +88,22 @@ function selectAllGroups() {
          g.name,
          g.meta_value,
          g.min_stock_threshold,
+         g.strength_tier,
          g.waive_description,
          g.waive_min_stock,
          g.waive_wholesale,
+         g.waive_strength_tier,
          (g.cover_image IS NOT NULL AND g.cover_image != '') AS has_cover_image,
          c.name AS category_name,
+         c.storefront_filters_profile AS storefront_filters_profile,
          COUNT(p.id) AS product_count
        FROM category_groups g
        LEFT JOIN categories c ON c.id = g.categoryId
        LEFT JOIN products p ON p.groupId = g.id
        GROUP BY g.id, g.categoryId, g.slug, g.name, g.meta_value,
-                g.min_stock_threshold, g.waive_description, g.waive_min_stock,
-                g.waive_wholesale, g.cover_image, c.name`,
+                g.min_stock_threshold, g.strength_tier, g.waive_description,
+                g.waive_min_stock, g.waive_wholesale, g.waive_strength_tier,
+                g.cover_image, c.name, c.storefront_filters_profile`,
     )
     .all();
 }
@@ -105,13 +114,25 @@ export function evaluateGroupCompleteness(row, tiers, priceMapByGroup) {
     description: isWaiverActive(row.waive_description),
     min_stock: isWaiverActive(row.waive_min_stock),
     wholesale: isWaiverActive(row.waive_wholesale),
+    strength_tier: isWaiverActive(row.waive_strength_tier),
   };
+
+  const filtersProfile = String(
+    row.storefront_filters_profile ?? STOREFRONT_FILTER_PROFILES.NONE,
+  ).toLowerCase();
 
   if (!waivers.description && !hasDescription(row.meta_value)) {
     missingFields.push('description');
   }
   if (!waivers.min_stock && !hasMinStock(row.min_stock_threshold)) {
     missingFields.push('min_stock');
+  }
+  if (
+    filtersProfile === STOREFRONT_FILTER_PROFILES.LIQUIDS &&
+    !waivers.strength_tier &&
+    !hasStrengthTier(row.strength_tier)
+  ) {
+    missingFields.push('strength_tier');
   }
 
   const wholesaleStatus = getWholesaleStatusForGroup(
@@ -186,7 +207,7 @@ export function getIncompleteGroupsSummary() {
 
 export function updateGroupCompletenessWaivers(
   groupId,
-  { waiveDescription, waiveMinStock, waiveWholesale } = {},
+  { waiveDescription, waiveMinStock, waiveWholesale, waiveStrengthTier } = {},
 ) {
   if (!groupId) {
     const err = new Error('group_id_required');
@@ -203,7 +224,7 @@ export function updateGroupCompletenessWaivers(
 
   const current = db
     .prepare(
-      `SELECT waive_description, waive_min_stock, waive_wholesale
+      `SELECT waive_description, waive_min_stock, waive_wholesale, waive_strength_tier
          FROM category_groups WHERE id = ?`,
     )
     .get(String(groupId));
@@ -220,20 +241,32 @@ export function updateGroupCompletenessWaivers(
     waiveWholesale !== undefined
       ? normalizeWaiverInput(waiveWholesale)
       : Number(current.waive_wholesale ?? 0);
+  const nextStrengthTier =
+    waiveStrengthTier !== undefined
+      ? normalizeWaiverInput(waiveStrengthTier)
+      : Number(current.waive_strength_tier ?? 0);
 
   db.prepare(
     `UPDATE category_groups
         SET waive_description = ?,
             waive_min_stock = ?,
             waive_wholesale = ?,
+            waive_strength_tier = ?,
             updatedAt = DATETIME('now')
       WHERE id = ?`,
-  ).run(nextDescription, nextMinStock, nextWholesale, String(groupId));
+  ).run(
+    nextDescription,
+    nextMinStock,
+    nextWholesale,
+    nextStrengthTier,
+    String(groupId),
+  );
 
   return {
     id: String(groupId),
     waive_description: nextDescription,
     waive_min_stock: nextMinStock,
     waive_wholesale: nextWholesale,
+    waive_strength_tier: nextStrengthTier,
   };
 }

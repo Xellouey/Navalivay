@@ -54,8 +54,11 @@ function resetTables() {
   db.exec('DELETE FROM categories;');
 }
 
-function seedCategory(id = 'c_t', name = 'Test Cat') {
-  db.prepare(`INSERT INTO categories (id, slug, name, [order]) VALUES (?, 'test', ?, 1)`).run(id, name);
+function seedCategory(id = 'c_t', name = 'Test Cat', profile = 'none') {
+  db.prepare(
+    `INSERT INTO categories (id, slug, name, [order], storefront_filters_profile)
+     VALUES (?, 'test', ?, 1, ?)`,
+  ).run(id, name, profile);
 }
 
 function seedGroup({
@@ -66,13 +69,16 @@ function seedGroup({
   waiveDescription = 0,
   waiveMinStock = 0,
   waiveWholesale = 0,
+  waiveStrengthTier = 0,
+  strengthTier = null,
   categoryId = 'c_t',
 }) {
   db.prepare(
     `INSERT INTO category_groups
       (id, categoryId, slug, name, [order], hide_empty, meta_value, min_stock_threshold,
-       waive_description, waive_min_stock, waive_wholesale, createdAt, updatedAt)
-     VALUES (?, ?, ?, ?, 1, 1, ?, ?, ?, ?, ?, DATETIME('now'), DATETIME('now'))`,
+       waive_description, waive_min_stock, waive_wholesale, waive_strength_tier, strength_tier,
+       createdAt, updatedAt)
+     VALUES (?, ?, ?, ?, 1, 1, ?, ?, ?, ?, ?, ?, ?, DATETIME('now'), DATETIME('now'))`,
   ).run(
     id,
     categoryId,
@@ -83,6 +89,8 @@ function seedGroup({
     waiveDescription,
     waiveMinStock,
     waiveWholesale,
+    waiveStrengthTier,
+    strengthTier,
   );
 }
 
@@ -342,6 +350,39 @@ console.log('\n=== A8: продукт только на дочерней — par
   assertEq(byId.has('g_child'), true, 'child with product listed');
   assertEq(byId.has('g_parent'), true, 'parent without direct products listed');
   assertEq(byId.get('g_parent')?.productCount, 0, 'parent productCount 0');
+}
+
+console.log('\n=== A9: liquids profile requires strength_tier ===');
+{
+  resetTables();
+  seedCategory('c_liq', 'Liquids', 'liquids');
+  seedGroup({
+    id: 'g_no_strength',
+    name: 'No strength',
+    categoryId: 'c_liq',
+    metaValue: '60 mg',
+    threshold: 10,
+    waiveWholesale: 1,
+  });
+  const item = computeIncompleteGroups().find((row) => row.id === 'g_no_strength');
+  assertEq(item?.missingFields.includes('strength_tier'), true, 'missing strength_tier flagged');
+}
+
+console.log('\n=== A10: strength_tier waiver clears liquids requirement ===');
+{
+  resetTables();
+  seedCategory('c_liq', 'Liquids', 'liquids');
+  seedGroup({
+    id: 'g_waived_strength',
+    name: 'Waived strength',
+    categoryId: 'c_liq',
+    metaValue: '60 mg',
+    threshold: 10,
+    waiveWholesale: 1,
+    waiveStrengthTier: 1,
+  });
+  const item = computeIncompleteGroups().find((row) => row.id === 'g_waived_strength');
+  assertEq(item, undefined, 'waived strength_tier not incomplete');
 }
 
 console.log(`\n=== Results: ${results.passed} passed, ${results.failed} failed ===`);

@@ -12,6 +12,34 @@
       <p v-if="nameError" class="mt-1 text-sm text-red-600">{{ nameError }}</p>
     </div>
 
+    <div v-if="showStrengthTier" class="space-y-2">
+      <label class="block text-sm font-medium text-gray-700">Крепость для фильтра</label>
+      <div class="flex flex-wrap gap-2">
+        <label
+          v-for="option in strengthOptions"
+          :key="option.value"
+          class="inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm cursor-pointer"
+          :class="form.strengthTier === option.value ? 'border-brand-dark bg-brand-dark/5 text-gray-900' : 'border-gray-200 text-gray-700'"
+        >
+          <input
+            v-model="form.strengthTier"
+            type="radio"
+            class="text-brand-dark focus:ring-brand-dark/30"
+            :value="option.value"
+          />
+          <span>{{ option.label }}</span>
+        </label>
+        <button
+          type="button"
+          class="rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-600 hover:border-gray-300"
+          @click="form.strengthTier = ''"
+        >
+          Не задано
+        </button>
+      </div>
+      <p class="text-xs text-gray-500">Используется в фильтре «Очень крепкие / Крепкие / Легкие» на витрине</p>
+    </div>
+
     <div>
       <label class="block text-sm font-medium text-gray-700 mb-2">Дополнительный параметр</label>
       <input
@@ -248,6 +276,14 @@
         />
         <span>Оптовые цены не требуются</span>
       </label>
+      <label v-if="showStrengthTier" class="flex items-start gap-2 text-sm text-gray-700">
+        <input
+          v-model="form.waiveStrengthTier"
+          type="checkbox"
+          class="mt-0.5 rounded border-gray-300 text-brand-dark focus:ring-brand-dark/30"
+        />
+        <span>Крепость для фильтра не требуется</span>
+      </label>
     </div>
 
     <div class="flex justify-end gap-3 pt-2">
@@ -284,6 +320,8 @@ interface CategoryGroup {
   waiveDescription?: boolean
   waiveMinStock?: boolean
   waiveWholesale?: boolean
+  waiveStrengthTier?: boolean
+  strengthTier?: string | null
   depth?: number
   averageCostAuto?: number | null
   directProductCount?: number
@@ -300,15 +338,16 @@ interface WholesaleTier {
   sortOrder?: number
 }
 
-const props = withDefaults(defineProps<{ editingGroup?: CategoryGroup | null; isSubmitting?: boolean; availableGroups?: Array<CategoryGroup & { depth?: number }>; wholesaleTiers?: WholesaleTier[] }>(), {
+const props = withDefaults(defineProps<{ editingGroup?: CategoryGroup | null; isSubmitting?: boolean; availableGroups?: Array<CategoryGroup & { depth?: number }>; wholesaleTiers?: WholesaleTier[]; showStrengthTier?: boolean }>(), {
   editingGroup: null,
   isSubmitting: false,
   availableGroups: () => [],
-  wholesaleTiers: () => []
+  wholesaleTiers: () => [],
+  showStrengthTier: false,
 })
 
 const emit = defineEmits<{
-  (e: 'submit', payload: { name: string; coverImage?: string | null; hideEmpty?: boolean; parentId?: string | null; metaLabel?: string | null; metaValue?: string | null; minStockThreshold?: number | null; wholesalePrices?: Record<string, number | null>; waiveDescription?: boolean; waiveMinStock?: boolean; waiveWholesale?: boolean }): void
+  (e: 'submit', payload: { name: string; coverImage?: string | null; hideEmpty?: boolean; parentId?: string | null; metaLabel?: string | null; metaValue?: string | null; minStockThreshold?: number | null; wholesalePrices?: Record<string, number | null>; waiveDescription?: boolean; waiveMinStock?: boolean; waiveWholesale?: boolean; waiveStrengthTier?: boolean; strengthTier?: string | null }): void
   (e: 'cancel'): void
 }>()
 
@@ -322,7 +361,15 @@ const form = reactive({
   waiveDescription: false,
   waiveMinStock: false,
   waiveWholesale: false,
+  waiveStrengthTier: false,
+  strengthTier: '',
 })
+
+const strengthOptions = [
+  { value: 'very_strong', label: 'Очень крепкая' },
+  { value: 'strong', label: 'Крепкая' },
+  { value: 'light', label: 'Легкая' },
+]
 
 const nameError = ref('')
 const coverMode = ref<'url' | 'file'>('url')
@@ -403,6 +450,8 @@ watch(
       form.waiveDescription = Boolean(group.waiveDescription)
       form.waiveMinStock = Boolean(group.waiveMinStock)
       form.waiveWholesale = Boolean(group.waiveWholesale)
+      form.waiveStrengthTier = Boolean(group.waiveStrengthTier)
+      form.strengthTier = group.strengthTier || ''
       syncWholesalePriceInputs(group)
       if ((group.coverImage || '').startsWith('data:')) {
         coverMode.value = 'file'
@@ -422,6 +471,8 @@ watch(
       form.waiveDescription = false
       form.waiveMinStock = false
       form.waiveWholesale = false
+      form.waiveStrengthTier = false
+      form.strengthTier = ''
       syncWholesalePriceInputs(null)
       coverMode.value = 'url'
       uploadPreview.value = ''
@@ -483,6 +534,8 @@ function onSubmit() {
     waiveDescription: form.waiveDescription,
     waiveMinStock: form.waiveMinStock,
     waiveWholesale: form.waiveWholesale,
+    waiveStrengthTier: form.waiveStrengthTier,
+    strengthTier: form.strengthTier ? form.strengthTier : null,
   })
 }
 

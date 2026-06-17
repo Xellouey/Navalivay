@@ -146,6 +146,19 @@
               />
               <span>Оптовые цены не требуются</span>
             </label>
+            <label
+              v-if="group.missingFields.includes('strength_tier') || group.waivers.strength_tier"
+              class="inline-flex cursor-pointer items-center gap-1.5 text-[11px] text-gray-700"
+            >
+              <input
+                type="checkbox"
+                class="rounded border-gray-300 text-brand-dark focus:ring-brand-dark/30"
+                :checked="group.waivers.strength_tier"
+                :disabled="busyGroupId === group.id"
+                @change="onWaiverToggle(group, 'strength_tier', ($event.target as HTMLInputElement).checked)"
+              />
+              <span>Крепость не требуется</span>
+            </label>
             <span
               v-if="busyGroupId === group.id"
               class="text-[11px] text-rose-600"
@@ -222,6 +235,7 @@ function initials(name: string) {
 function missingChips(group: IncompleteGroupItem) {
   const chips: string[] = [];
   if (group.missingFields.includes("description")) chips.push("Нет описания");
+  if (group.missingFields.includes("strength_tier")) chips.push("Нет крепости");
   if (group.missingFields.includes("min_stock")) chips.push("Нет порога остатка");
   if (group.missingFields.includes("wholesale")) {
     const total = group.wholesaleTotalCount || 0;
@@ -239,6 +253,7 @@ function hasWaiverOptions(group: IncompleteGroupItem) {
     || group.waivers.description
     || group.waivers.min_stock
     || group.waivers.wholesale
+    || group.waivers.strength_tier
   );
 }
 
@@ -277,7 +292,7 @@ watch(
 
 async function onWaiverToggle(
   group: IncompleteGroupItem,
-  field: "description" | "min_stock" | "wholesale",
+  field: "description" | "min_stock" | "wholesale" | "strength_tier",
   checked: boolean,
 ) {
   busyGroupId.value = group.id;
@@ -287,6 +302,7 @@ async function onWaiverToggle(
       waiveDescription: field === "description" ? checked : group.waivers.description,
       waiveMinStock: field === "min_stock" ? checked : group.waivers.min_stock,
       waiveWholesale: field === "wholesale" ? checked : group.waivers.wholesale,
+      waiveStrengthTier: field === "strength_tier" ? checked : group.waivers.strength_tier,
     });
     await adminStore.fetchIncompleteGroups();
     await adminStore.fetchIncompleteGroupsSummary();

@@ -38,8 +38,35 @@ import {
 } from "../utils/business-bot.js";
 import { resolveUsernameViaUserbot } from "../utils/userbot-client.js";
 import { autoNotifyOrderAccepted } from "../utils/auto-notify.js";
+import { getBusinessPeriodRange } from "../utils/business-time.js";
+import { queryTopSalesGroups } from "../utils/top-sales-groups.js";
+import { STOREFRONT_FILTER_PROFILES } from "../utils/storefront-filters.js";
 
 export const publicRouter = express.Router();
+
+const topSalesCache = new Map();
+const TOP_SALES_CACHE_TTL_MS = 10 * 60 * 1000;
+
+function getTopSalesCacheKey(categoryId, limit) {
+  return `${String(categoryId || "all")}:${Number(limit)}`;
+}
+
+function readTopSalesCache(key) {
+  const entry = topSalesCache.get(key);
+  if (!entry) return null;
+  if (Date.now() > entry.expiresAt) {
+    topSalesCache.delete(key);
+    return null;
+  }
+  return entry.data;
+}
+
+function writeTopSalesCache(key, data) {
+  topSalesCache.set(key, {
+    data,
+    expiresAt: Date.now() + TOP_SALES_CACHE_TTL_MS,
+  });
+}
 
 /** Розница: цена варианта из БД, если > 0; иначе цена строки товара / опт. Опт: всегда effectivePrice. */
 function resolveVariantPublicPriceRub(variantRow, effectivePrice, isWholesaleTier) {
@@ -656,7 +683,8 @@ publicRouter.get("/api/categories", (req, res) => {
       `
     SELECT c.id, c.slug, c.name, c.[order], c.hide_empty, 
            CASE WHEN c.cover_image IS NOT NULL AND c.cover_image != '' THEN 1 ELSE 0 END as hasCoverImage,
-           c.display_mode
+           c.display_mode,
+           c.storefront_filters_profile
     FROM categories c
     ORDER BY c.[order] ASC, c.name ASC
   `,
@@ -668,7 +696,8 @@ publicRouter.get("/api/categories", (req, res) => {
       `
     SELECT g.id, g.categoryId, g.slug, g.name, 
            CASE WHEN g.cover_image IS NOT NULL AND g.cover_image != '' THEN 1 ELSE 0 END as hasCoverImage,
-           g.[order], g.hide_empty, g.parent_group_id, g.meta_label, g.meta_value
+           g.[order], g.hide_empty, g.parent_group_id, g.meta_label, g.meta_value,
+           g.strength_tier
     FROM category_groups g
     ORDER BY g.categoryId ASC, g.[order] ASC, g.name ASC
   `,
@@ -781,6 +810,7 @@ publicRouter.get("/api/categories", (req, res) => {
     parentId: group.parent_group_id || null,
     metaLabel: group.meta_label || null,
     metaValue: group.meta_value || null,
+    strengthTier: group.strength_tier || null,
     productCount: groupCounts.get(group.id) || 0,
     totalProductCount: 0,
     children: [],
@@ -830,6 +860,7 @@ publicRouter.get("/api/categories", (req, res) => {
         parentId: node.parentId,
         metaLabel: node.metaLabel || null,
         metaValue: node.metaValue || null,
+        strengthTier: node.strengthTier || null,
         productCount: node.productCount,
         totalProductCount: node.totalProductCount,
       },
@@ -877,10 +908,72 @@ publicRouter.get("/api/categories", (req, res) => {
       productCount: totalProducts,
       groups,
       displayMode: cat.display_mode || "default",
+      storefrontFiltersProfile:
+        cat.storefront_filters_profile || STOREFRONT_FILTER_PROFILES.NONE,
     });
   }
 
   res.json(categories);
+});
+
+publicRouter.get("/api/top-sales-groups", (req, res) => {
+  try {
+    const categoryRaw = req.query.category ?? req.query.categoryId ?? null;
+    const categoryId =
+      categoryRaw != null && String(categoryRaw).trim() !== ""
+        ? String(categoryRaw).trim()
+        : null;
+
+    const limitRaw = Number(req.query.limit ?? 5);
+    const limit = Number.isFinite(limitRaw)
+      ? Math.min(Math.max(Math.trunc(limitRaw), 1), 20)
+      : 5;
+
+    if (categoryId) {
+      const category = db
+        .prepare("SELECT id, storefront_filters_profile FROM categories WHERE id = ?")
+        .get(categoryId);
+      if (!category) {
+        return res.status(404).json({ error: "category_not_found" });
+      }
+      const profile = String(
+        category.storefront_filters_profile ?? STOREFRONT_FILTER_PROFILES.NONE,
+      );
+      if (
+        profile !== STOREFRONT_FILTER_PROFILES.LIQUIDS &&
+        profile !== STOREFRONT_FILTER_PROFILES.SNUS_PLATES
+      ) {
+        return res.json({ period: "month", items: [], hasMore: false });
+      }
+    }
+
+    const cacheKey = getTopSalesCacheKey(categoryId, limit);
+    const cached = readTopSalesCache(cacheKey);
+    if (cached) {
+      return res.json(cached);
+    }
+
+    const { start, end } = getBusinessPeriodRange("month", 0);
+    const { items, hasMore } = queryTopSalesGroups({
+      start,
+      end,
+      categoryId,
+      sortBy: "quantity",
+      limit,
+    });
+
+    const payload = {
+      period: "month",
+      categoryId,
+      items,
+      hasMore,
+    };
+    writeTopSalesCache(cacheKey, payload);
+    res.json(payload);
+  } catch (error) {
+    console.error("[public] top-sales-groups error:", error);
+    res.status(500).json({ error: "failed", message: error.message });
+  }
 });
 
 publicRouter.get("/api/banners", (req, res) => {

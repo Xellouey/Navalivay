@@ -10,6 +10,7 @@ import {
   shiftBusinessCalendarDate,
   toSqliteUtcString,
 } from '../utils/business-time.js';
+import { queryTopSalesGroups } from '../utils/top-sales-groups.js';
 import {
   PENDING_ACTIVE_PREDICATE,
   computeBlockUntil,
@@ -174,53 +175,21 @@ crmRouter.get('/api/admin/crm/dashboard', authMiddleware, (req, res) => {
       unique_customers: stats.unique_customers || 0
     };
 
-    // Топ линейки (category groups) - по дате ОПЛАТЫ (paid_at)
-    // Whitelist для ORDER BY (защита от SQL-инъекции через top_sort)
-    const topOrderBy = topSort === 'quantity' ? 'total_quantity DESC' : 'total_profit DESC';
-    // Запрашиваем на 1 строку больше, чтобы понимать «есть ли ещё» без второго запроса
-    const topRowsRaw = db.prepare(`
-      WITH order_totals AS (
-        SELECT order_id, SUM(total_price) AS items_subtotal
-        FROM order_items
-        GROUP BY order_id
-      ),
-      item_totals AS (
-        SELECT
-          oi.quantity AS quantity,
-          oi.total_price AS total_price,
-          oi.total_cost AS total_cost,
-          COALESCE(g.id, 'no_group') AS group_id,
-          COALESCE(g.name, 'Без линейки') AS group_name,
-          g.cover_image AS cover_image,
-          CASE
-            WHEN COALESCE(ot.items_subtotal, 0) > 0
-            THEN (COALESCE(ot.items_subtotal, 0) - COALESCE(o.final_amount, ot.items_subtotal)) / COALESCE(ot.items_subtotal, 0)
-            ELSE 0
-          END AS order_discount_ratio
-        FROM order_items oi
-        JOIN orders o ON o.id = oi.order_id
-        JOIN order_totals ot ON ot.order_id = o.id
-        LEFT JOIN products p ON p.id = oi.product_id
-        LEFT JOIN category_groups g ON g.id = p.groupId
-        WHERE o.status IN ('completed', 'delivered')
-          AND o.paid_at IS NOT NULL
-          AND ${paidAtFilter}
-      )
-      SELECT
-        group_id,
-        group_name,
-        MAX(cover_image) AS cover_image,
-        SUM(quantity) as total_quantity,
-        SUM(total_price - (total_price * order_discount_ratio)) as total_revenue,
-        SUM((total_price - (total_price * order_discount_ratio)) - total_cost) as total_profit
-      FROM item_totals
-      WHERE (? = '' OR LOWER(group_name) LIKE '%' || LOWER(?) || '%' ESCAPE '\\')
-      GROUP BY group_id, group_name
-      ORDER BY ${topOrderBy}
-      LIMIT ?
-    `).all(topSearch, topSearch, topLimit + 1);
-    const topProductsHasMore = topRowsRaw.length > topLimit;
-    const topProducts = topRowsRaw.slice(0, topLimit);
+    const { items: topItems, hasMore: topProductsHasMore } = queryTopSalesGroups({
+      start,
+      end,
+      sortBy: topSort,
+      limit: topLimit,
+      search: topSearch,
+    });
+    const topProducts = topItems.map((item) => ({
+      group_id: item.groupId,
+      group_name: item.groupName,
+      cover_image: item.hasCoverImage ? 1 : null,
+      total_quantity: item.totalQuantity,
+      total_revenue: item.totalRevenue,
+      total_profit: item.totalProfit,
+    }));
 
     // Статистика по статусам заказов - по дате СОЗДАНИЯ
     const ordersByStatus = db.prepare(`

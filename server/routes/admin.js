@@ -27,6 +27,10 @@ import {
   normalizeWaiverInput,
   updateGroupCompletenessWaivers,
 } from '../utils/category-group-completeness.js';
+import {
+  normalizeStorefrontFiltersProfile,
+  normalizeStrengthTier,
+} from '../utils/storefront-filters.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -172,7 +176,26 @@ function enrichAdminCategoryGroup(group) {
     waive_description: Number(group.waive_description ?? 0),
     waive_min_stock: Number(group.waive_min_stock ?? 0),
     waive_wholesale: Number(group.waive_wholesale ?? 0),
+    strength_tier: group.strength_tier ?? null,
+    waive_strength_tier: Number(group.waive_strength_tier ?? 0),
   };
+}
+
+function resolveStrengthTierUpdate(body, currentValue) {
+  const provided =
+    'strengthTier' in (body || {}) ||
+    'strength_tier' in (body || {});
+  if (!provided) {
+    return currentValue ?? null;
+  }
+  try {
+    return normalizeStrengthTier(body.strengthTier ?? body.strength_tier, {
+      allowNull: true,
+    });
+  } catch (error) {
+    error.code = 'invalid_strength_tier';
+    throw error;
+  }
 }
 
 function resolveWaiverUpdate(body, snakeKey, camelKey, currentValue) {
@@ -1141,10 +1164,10 @@ adminRouter.get('/api/admin/categories', authMiddleware, (req, res) => {
     const rows = db.prepare(`
       SELECT c.id, c.slug, c.name, c.[order], c.hide_empty, 
         CASE WHEN c.cover_image IS NOT NULL AND c.cover_image != '' THEN 1 ELSE 0 END as has_cover_image,
-        c.display_mode, COUNT(p.id) as productCount
+        c.display_mode, c.storefront_filters_profile, COUNT(p.id) as productCount
       FROM categories c
       LEFT JOIN products p ON c.id = p.categoryId
-      GROUP BY c.id, c.slug, c.name, c.[order], c.hide_empty, c.display_mode
+      GROUP BY c.id, c.slug, c.name, c.[order], c.hide_empty, c.display_mode, c.storefront_filters_profile
       ORDER BY c.[order] ASC, c.name ASC
     `).all();
     res.json(rows);
@@ -1167,7 +1190,8 @@ adminRouter.get('/api/admin/categories/:id/image', authMiddleware, (req, res) =>
 adminRouter.get('/api/admin/categories/:id', authMiddleware, (req, res) => {
   const { id } = req.params;
   const row = db.prepare(`
-    SELECT c.id, c.slug, c.name, c.[order], c.hide_empty, c.cover_image, c.display_mode
+    SELECT c.id, c.slug, c.name, c.[order], c.hide_empty, c.cover_image, c.display_mode,
+           c.storefront_filters_profile
     FROM categories c
     WHERE c.id = ?
   `).get(id);
@@ -1302,7 +1326,17 @@ adminRouter.delete('/api/admin/banners/:id', authMiddleware, (req, res) => {
 
 // Categories CRUD
 adminRouter.post('/api/admin/categories', authMiddleware, async (req, res) => {
-  const { name, order, hide_empty, coverImage, cover_image, displayMode, display_mode } = req.body || {};
+  const {
+    name,
+    order,
+    hide_empty,
+    coverImage,
+    cover_image,
+    displayMode,
+    display_mode,
+    storefrontFiltersProfile,
+    storefront_filters_profile,
+  } = req.body || {};
   if (!name) return res.status(400).json({ error: 'name_required' });
   // Проверяем дубликаты по имени сразу
   const existingByName = db.prepare('SELECT id, name FROM categories WHERE LOWER(TRIM(name)) = LOWER(TRIM(?))').get(name);
@@ -1342,6 +1376,15 @@ adminRouter.post('/api/admin/categories', authMiddleware, async (req, res) => {
   if (!allowedDisplayModes.has(displayModeValue)) {
     displayModeValue = 'default';
   }
+
+  let storefrontFiltersProfileValue = 'none';
+  try {
+    storefrontFiltersProfileValue = normalizeStorefrontFiltersProfile(
+      storefrontFiltersProfile ?? storefront_filters_profile ?? 'none',
+    );
+  } catch (error) {
+    return res.status(400).json({ error: 'invalid_storefront_filters_profile' });
+  }
   
   // Получаем следующий order если не указан
   let finalOrder = order;
@@ -1354,9 +1397,19 @@ adminRouter.post('/api/admin/categories', authMiddleware, async (req, res) => {
     // Конвертируем изображение в WebP для экономии места и сохранения прозрачности
     const rawCoverImage = coverImage ?? cover_image ?? null;
     const coverImageValue = rawCoverImage ? await convertImageToWebP(rawCoverImage) : null;
-    db.prepare('INSERT INTO categories (id, slug, name, [order], hide_empty, cover_image, display_mode) VALUES (?, ?, ?, ?, ?, ?, ?)')
-      .run(id, slug, name, finalOrder, hideEmptyValue, coverImageValue, displayModeValue);
-    res.json({ ok: true, id, slug, name, order: finalOrder, hide_empty: hideEmptyValue, cover_image: coverImageValue, display_mode: displayModeValue });
+    db.prepare('INSERT INTO categories (id, slug, name, [order], hide_empty, cover_image, display_mode, storefront_filters_profile) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(id, slug, name, finalOrder, hideEmptyValue, coverImageValue, displayModeValue, storefrontFiltersProfileValue);
+    res.json({
+      ok: true,
+      id,
+      slug,
+      name,
+      order: finalOrder,
+      hide_empty: hideEmptyValue,
+      cover_image: coverImageValue,
+      display_mode: displayModeValue,
+      storefront_filters_profile: storefrontFiltersProfileValue,
+    });
   } catch (e) {
     console.error('[admin] Category creation failed:', e.message);
     res.status(400).json({ error: 'insert_failed', message: e.message, details: String(e) });
@@ -1364,7 +1417,18 @@ adminRouter.post('/api/admin/categories', authMiddleware, async (req, res) => {
 });
 adminRouter.put('/api/admin/categories/:id', authMiddleware, async (req, res) => {
   const { id } = req.params;
-  const { name, slug, order, hide_empty, coverImage, cover_image, displayMode, display_mode } = req.body || {};
+  const {
+    name,
+    slug,
+    order,
+    hide_empty,
+    coverImage,
+    cover_image,
+    displayMode,
+    display_mode,
+    storefrontFiltersProfile,
+    storefront_filters_profile,
+  } = req.body || {};
   try {
     const cur = db.prepare('SELECT * FROM categories WHERE id = ?').get(id);
     console.log('[admin] Current category in DB:', cur);
@@ -1443,17 +1507,29 @@ adminRouter.put('/api/admin/categories/:id', authMiddleware, async (req, res) =>
       }
     }
 
+    let storefrontFiltersProfileValue = cur.storefront_filters_profile || 'none';
+    if (storefrontFiltersProfile !== undefined || storefront_filters_profile !== undefined) {
+      try {
+        storefrontFiltersProfileValue = normalizeStorefrontFiltersProfile(
+          storefrontFiltersProfile ?? storefront_filters_profile,
+        );
+      } catch (error) {
+        return res.status(400).json({ error: 'invalid_storefront_filters_profile' });
+      }
+    }
+
     const next = {
       name: name !== undefined ? name : cur.name,
       slug: newSlug !== undefined ? newSlug : cur.slug,
       order: Number.isFinite(order) ? Number(order) : cur.order,
       hide_empty: hide_empty !== undefined ? (hide_empty ? 1 : 0) : cur.hide_empty,
       cover_image: coverImageValue,
-      display_mode: displayModeValue
+      display_mode: displayModeValue,
+      storefront_filters_profile: storefrontFiltersProfileValue,
     };
     
-    const updateResult = db.prepare('UPDATE categories SET name = ?, slug = ?, [order] = ?, hide_empty = ?, cover_image = ?, display_mode = ? WHERE id = ?')
-      .run(next.name, next.slug, next.order, next.hide_empty, next.cover_image, next.display_mode, id);
+    const updateResult = db.prepare('UPDATE categories SET name = ?, slug = ?, [order] = ?, hide_empty = ?, cover_image = ?, display_mode = ?, storefront_filters_profile = ? WHERE id = ?')
+      .run(next.name, next.slug, next.order, next.hide_empty, next.cover_image, next.display_mode, next.storefront_filters_profile, id);
     console.log('[admin] Update result:', updateResult);
     console.log('[admin] Update completed successfully');
     refreshProductSearchIndex('category update');
@@ -1564,6 +1640,8 @@ adminRouter.get('/api/admin/category-groups', authMiddleware, (req, res) => {
       g.waive_description,
       g.waive_min_stock,
       g.waive_wholesale,
+      g.strength_tier,
+      g.waive_strength_tier,
       g.createdAt,
       g.updatedAt,
       COUNT(p.id) AS productCount,
@@ -1576,7 +1654,7 @@ adminRouter.get('/api/admin/category-groups', authMiddleware, (req, res) => {
     FROM category_groups g
     LEFT JOIN products p ON p.groupId = g.id
     ${whereClause}
-    GROUP BY g.id, g.categoryId, g.slug, g.name, g.[order], g.hide_empty, g.parent_group_id, g.meta_label, g.meta_value, g.empty_since, g.parked_order, g.min_stock_threshold, g.waive_description, g.waive_min_stock, g.waive_wholesale, g.createdAt, g.updatedAt
+    GROUP BY g.id, g.categoryId, g.slug, g.name, g.[order], g.hide_empty, g.parent_group_id, g.meta_label, g.meta_value, g.empty_since, g.parked_order, g.min_stock_threshold, g.waive_description, g.waive_min_stock, g.waive_wholesale, g.strength_tier, g.waive_strength_tier, g.createdAt, g.updatedAt
     ORDER BY g.categoryId ASC, g.[order] ASC, g.name ASC
   `).all(...params);
 
@@ -1774,6 +1852,7 @@ adminRouter.patch('/api/admin/category-groups/:id/completeness-waivers', authMid
       waiveDescription: req.body?.waive_description ?? req.body?.waiveDescription,
       waiveMinStock: req.body?.waive_min_stock ?? req.body?.waiveMinStock,
       waiveWholesale: req.body?.waive_wholesale ?? req.body?.waiveWholesale,
+      waiveStrengthTier: req.body?.waive_strength_tier ?? req.body?.waiveStrengthTier,
     });
     res.json({ ok: true, waivers: result });
   } catch (error) {
@@ -1813,6 +1892,10 @@ adminRouter.post('/api/admin/category-groups', authMiddleware, async (req, res) 
     waive_min_stock,
     waiveWholesale,
     waive_wholesale,
+    waiveStrengthTier,
+    waive_strength_tier,
+    strengthTier,
+    strength_tier,
   } = req.body || {};
 
   if (!categoryId || !name) {
@@ -1822,6 +1905,8 @@ adminRouter.post('/api/admin/category-groups', authMiddleware, async (req, res) 
   let resolvedWaiveDescription = 0;
   let resolvedWaiveMinStock = 0;
   let resolvedWaiveWholesale = 0;
+  let resolvedWaiveStrengthTier = 0;
+  let resolvedStrengthTier = null;
   try {
     resolvedWaiveDescription = resolveWaiverUpdate(
       req.body,
@@ -1831,9 +1916,19 @@ adminRouter.post('/api/admin/category-groups', authMiddleware, async (req, res) 
     );
     resolvedWaiveMinStock = resolveWaiverUpdate(req.body, 'waive_min_stock', 'waiveMinStock', 0);
     resolvedWaiveWholesale = resolveWaiverUpdate(req.body, 'waive_wholesale', 'waiveWholesale', 0);
+    resolvedWaiveStrengthTier = resolveWaiverUpdate(
+      req.body,
+      'waive_strength_tier',
+      'waiveStrengthTier',
+      0,
+    );
+    resolvedStrengthTier = resolveStrengthTierUpdate(req.body, null);
   } catch (error) {
     if (error.code === 'invalid_waiver_value') {
       return res.status(400).json({ error: 'invalid_waiver_value' });
+    }
+    if (error.code === 'invalid_strength_tier') {
+      return res.status(400).json({ error: 'invalid_strength_tier' });
     }
     throw error;
   }
@@ -1889,9 +1984,10 @@ adminRouter.post('/api/admin/category-groups', authMiddleware, async (req, res) 
           id, categoryId, slug, name, cover_image, [order], hide_empty,
           meta_label, meta_value, parent_group_id, min_stock_threshold,
           waive_description, waive_min_stock, waive_wholesale,
+          strength_tier, waive_strength_tier,
           createdAt, updatedAt
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, DATETIME('now'), DATETIME('now'))
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, DATETIME('now'), DATETIME('now'))
       `).run(
         newId,
         String(categoryId),
@@ -1907,6 +2003,8 @@ adminRouter.post('/api/admin/category-groups', authMiddleware, async (req, res) 
         resolvedWaiveDescription,
         resolvedWaiveMinStock,
         resolvedWaiveWholesale,
+        resolvedStrengthTier,
+        resolvedWaiveStrengthTier,
       );
 
       saveGroupWholesalePrices(newId, wholesalePrices ?? wholesale_prices ?? {});
@@ -1937,13 +2035,15 @@ adminRouter.post('/api/admin/category-groups', authMiddleware, async (req, res) 
       g.waive_description,
       g.waive_min_stock,
       g.waive_wholesale,
+      g.strength_tier,
+      g.waive_strength_tier,
       g.createdAt,
       g.updatedAt,
       COUNT(p.id) AS productCount
     FROM category_groups g
     LEFT JOIN products p ON p.groupId = g.id
     WHERE g.id = ?
-    GROUP BY g.id, g.categoryId, g.slug, g.name, g.cover_image, g.[order], g.hide_empty, g.parent_group_id, g.meta_label, g.meta_value, g.min_stock_threshold, g.waive_description, g.waive_min_stock, g.waive_wholesale, g.createdAt, g.updatedAt
+    GROUP BY g.id, g.categoryId, g.slug, g.name, g.cover_image, g.[order], g.hide_empty, g.parent_group_id, g.meta_label, g.meta_value, g.min_stock_threshold, g.waive_description, g.waive_min_stock, g.waive_wholesale, g.strength_tier, g.waive_strength_tier, g.createdAt, g.updatedAt
   `).get(newId);
 
   if (!result) {
@@ -1992,6 +2092,10 @@ adminRouter.put('/api/admin/category-groups/:id', authMiddleware, async (req, re
     waive_min_stock,
     waiveWholesale,
     waive_wholesale,
+    waiveStrengthTier,
+    waive_strength_tier,
+    strengthTier,
+    strength_tier,
   } = req.body || {};
 
   const current = db.prepare('SELECT * FROM category_groups WHERE id = ?').get(id);
@@ -2002,6 +2106,8 @@ adminRouter.put('/api/admin/category-groups/:id', authMiddleware, async (req, re
   let nextWaiveDescription;
   let nextWaiveMinStock;
   let nextWaiveWholesale;
+  let nextWaiveStrengthTier;
+  let nextStrengthTier;
   try {
     nextWaiveDescription = resolveWaiverUpdate(
       req.body,
@@ -2021,9 +2127,19 @@ adminRouter.put('/api/admin/category-groups/:id', authMiddleware, async (req, re
       'waiveWholesale',
       current.waive_wholesale,
     );
+    nextWaiveStrengthTier = resolveWaiverUpdate(
+      req.body,
+      'waive_strength_tier',
+      'waiveStrengthTier',
+      current.waive_strength_tier,
+    );
+    nextStrengthTier = resolveStrengthTierUpdate(req.body, current.strength_tier);
   } catch (error) {
     if (error.code === 'invalid_waiver_value') {
       return res.status(400).json({ error: 'invalid_waiver_value' });
+    }
+    if (error.code === 'invalid_strength_tier') {
+      return res.status(400).json({ error: 'invalid_strength_tier' });
     }
     throw error;
   }
@@ -2120,6 +2236,7 @@ adminRouter.put('/api/admin/category-groups/:id', authMiddleware, async (req, re
         SET name = ?, slug = ?, cover_image = ?, hide_empty = ?, [order] = ?,
             meta_label = ?, meta_value = ?, parent_group_id = ?, min_stock_threshold = ?,
             waive_description = ?, waive_min_stock = ?, waive_wholesale = ?,
+            strength_tier = ?, waive_strength_tier = ?,
             updatedAt = DATETIME('now')
         WHERE id = ?
       `).run(
@@ -2135,6 +2252,8 @@ adminRouter.put('/api/admin/category-groups/:id', authMiddleware, async (req, re
         nextWaiveDescription,
         nextWaiveMinStock,
         nextWaiveWholesale,
+        nextStrengthTier,
+        nextWaiveStrengthTier,
         id,
       );
 
@@ -2168,13 +2287,15 @@ adminRouter.put('/api/admin/category-groups/:id', authMiddleware, async (req, re
       g.waive_description,
       g.waive_min_stock,
       g.waive_wholesale,
+      g.strength_tier,
+      g.waive_strength_tier,
       g.createdAt,
       g.updatedAt,
       COUNT(p.id) AS productCount
     FROM category_groups g
     LEFT JOIN products p ON p.groupId = g.id
     WHERE g.id = ?
-    GROUP BY g.id, g.categoryId, g.slug, g.name, g.cover_image, g.[order], g.hide_empty, g.parent_group_id, g.meta_label, g.meta_value, g.min_stock_threshold, g.waive_description, g.waive_min_stock, g.waive_wholesale, g.createdAt, g.updatedAt
+    GROUP BY g.id, g.categoryId, g.slug, g.name, g.cover_image, g.[order], g.hide_empty, g.parent_group_id, g.meta_label, g.meta_value, g.min_stock_threshold, g.waive_description, g.waive_min_stock, g.waive_wholesale, g.strength_tier, g.waive_strength_tier, g.createdAt, g.updatedAt
   `).get(id);
 
   if (!updated) {

@@ -10,6 +10,7 @@
     >
       <span class="group-line-main">
         <span class="group-line-image-wrapper">
+          <span v-if="topRank" class="group-line-top-rank">#{{ topRank }}</span>
           <span v-if="coverImage" class="group-line-image">
             <img :src="coverImage" :alt="node.name" loading="lazy" decoding="async" />
           </span>
@@ -77,6 +78,8 @@
               v-for="child in node.children"
               :key="child.id"
               :node="child"
+              :top-rank="resolveChildTopRank(child.id)"
+              :top-rank-by-group-id="topRankByGroupId"
               :category-image="categoryImage"
               :expanded-groups="expandedGroups"
               @toggle="$emit('toggle', $event)"
@@ -128,6 +131,8 @@ const props = defineProps<{
   categoryImage?: string | null;
   node: GroupNode;
   expandedGroups: Record<string, boolean>;
+  topRank?: number | null;
+  topRankByGroupId?: Record<string, number>;
 }>();
 
 const emit = defineEmits<{
@@ -145,6 +150,10 @@ const isExpanded = computed(() => props.expandedGroups[props.node.id] ?? false);
 const coverImage = computed(
   () => props.node.coverImage || catalogStore.getGroupImage(props.node.id) || null,
 );
+
+function resolveChildTopRank(groupId: string): number | null {
+  return props.topRankByGroupId?.[groupId] ?? null;
+}
 
 let transitionTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -365,6 +374,28 @@ onBeforeUnmount(() => {
   flex-direction: column;
   align-items: center;
   gap: 6px;
+  position: relative;
+}
+
+.group-line-top-rank {
+  position: absolute;
+  top: -4px;
+  left: -4px;
+  z-index: 2;
+  min-width: 28px;
+  height: 28px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: #e60000;
+  border: 2px solid #ffffff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: "Montserrat", sans-serif;
+  font-size: 11px;
+  font-weight: 800;
+  color: #ffffff;
+  box-shadow: 0 4px 10px rgba(230, 0, 0, 0.35);
 }
 
 .group-line-image {

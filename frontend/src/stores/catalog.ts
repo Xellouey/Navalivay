@@ -16,6 +16,7 @@ export interface CategoryGroup {
   badgeColor?: string | null
   metaLabel?: string | null
   metaValue?: string | null
+  strengthTier?: string | null
 }
 
 export interface Category {
@@ -28,6 +29,7 @@ export interface Category {
   hasCoverImage?: boolean
   groups: CategoryGroup[]
   displayMode?: 'default' | 'liquid' | 'visual'
+  storefrontFiltersProfile?: 'none' | 'liquids' | 'snus_plates'
 }
 
 export interface ProductLink {
@@ -305,6 +307,7 @@ export const useCatalogStore = defineStore('catalog', () => {
         coverImage: categoryImageCache.value.get(String(cat.id)) || null,
         hasCoverImage: cat.hasCoverImage ?? false,
         displayMode: (cat.displayMode ?? cat.display_mode ?? 'default') as 'default' | 'liquid' | 'visual',
+        storefrontFiltersProfile: (cat.storefrontFiltersProfile ?? cat.storefront_filters_profile ?? 'none') as 'none' | 'liquids' | 'snus_plates',
         groups: Array.isArray(cat.groups)
           ? (cat.groups as any[]).map((group) => ({
               id: String(group.id),
@@ -319,7 +322,8 @@ export const useCatalogStore = defineStore('catalog', () => {
               badge: group.badge ?? null,
               badgeColor: group.badgeColor ?? null,
               metaLabel: group.metaLabel ?? group.meta_label ?? null,
-              metaValue: group.metaValue ?? group.meta_value ?? null
+              metaValue: group.metaValue ?? group.meta_value ?? null,
+              strengthTier: group.strengthTier ?? group.strength_tier ?? null
             }))
           : []
       }))

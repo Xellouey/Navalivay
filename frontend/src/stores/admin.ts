@@ -31,6 +31,8 @@ export interface Category {
   hasCoverImage?: boolean
   display_mode?: 'default' | 'liquid' | 'visual'
   displayMode?: 'default' | 'liquid' | 'visual'
+  storefront_filters_profile?: 'none' | 'liquids' | 'snus_plates'
+  storefrontFiltersProfile?: 'none' | 'liquids' | 'snus_plates'
 }
 
 export interface ProductLink {
@@ -111,6 +113,8 @@ export interface CategoryGroup {
   waiveDescription?: boolean
   waiveMinStock?: boolean
   waiveWholesale?: boolean
+  waiveStrengthTier?: boolean
+  strengthTier?: string | null
   createdAt?: string
   updatedAt?: string
   productCount?: number
@@ -125,7 +129,7 @@ export interface CategoryGroup {
   wholesaleTiers?: WholesaleTier[]
 }
 
-export type IncompleteGroupField = 'description' | 'min_stock' | 'wholesale'
+export type IncompleteGroupField = 'description' | 'min_stock' | 'wholesale' | 'strength_tier'
 
 export interface IncompleteGroupItem {
   id: string
@@ -143,6 +147,7 @@ export interface IncompleteGroupItem {
     description: boolean
     min_stock: boolean
     wholesale: boolean
+    strength_tier: boolean
   }
 }
 
@@ -552,7 +557,9 @@ export const useAdminStore = defineStore('admin', () => {
         cover_image: existingCoverImages.get(category.id) ?? null,
         hasCoverImage: Boolean(category.has_cover_image),
         displayMode: (category.displayMode ?? category.display_mode ?? 'default') as 'default' | 'liquid' | 'visual',
-        display_mode: (category.displayMode ?? category.display_mode ?? 'default') as 'default' | 'liquid' | 'visual'
+        display_mode: (category.displayMode ?? category.display_mode ?? 'default') as 'default' | 'liquid' | 'visual',
+        storefrontFiltersProfile: (category.storefrontFiltersProfile ?? category.storefront_filters_profile ?? 'none') as 'none' | 'liquids' | 'snus_plates',
+        storefront_filters_profile: (category.storefrontFiltersProfile ?? category.storefront_filters_profile ?? 'none') as 'none' | 'liquids' | 'snus_plates',
       }))
 
       // Загружаем изображения для категорий с has_cover_image=true, у которых ещё нет cover_image
@@ -625,7 +632,7 @@ export const useAdminStore = defineStore('admin', () => {
     }
   }
 
-async function createCategory(category: { name: string; hideEmpty?: boolean; coverImage?: string | null }) {
+async function createCategory(category: { name: string; hideEmpty?: boolean; coverImage?: string | null; storefrontFiltersProfile?: 'none' | 'liquids' | 'snus_plates' }) {
     try {
       isLoading.value = true
       error.value = null
@@ -636,7 +643,8 @@ async function createCategory(category: { name: string; hideEmpty?: boolean; cov
         body: {
           name: category.name,
           hide_empty: category.hideEmpty || false,
-          cover_image: category.coverImage ?? null
+          cover_image: category.coverImage ?? null,
+          storefront_filters_profile: category.storefrontFiltersProfile ?? 'none',
         }
       })
 
@@ -827,6 +835,8 @@ async function createCategory(category: { name: string; hideEmpty?: boolean; cov
         waiveDescription: Boolean(group.waiveDescription ?? group.waive_description),
         waiveMinStock: Boolean(group.waiveMinStock ?? group.waive_min_stock),
         waiveWholesale: Boolean(group.waiveWholesale ?? group.waive_wholesale),
+        waiveStrengthTier: Boolean(group.waiveStrengthTier ?? group.waive_strength_tier),
+        strengthTier: group.strengthTier ?? group.strength_tier ?? null,
       })) as CategoryGroup[]
 
       if (categoryId) {
@@ -949,7 +959,7 @@ async function createCategory(category: { name: string; hideEmpty?: boolean; cov
     }
   }
 
-  async function createCategoryGroup(payload: { categoryId: string; name: string; slug?: string; coverImage?: string | null; hideEmpty?: boolean; parentId?: string | null; metaLabel?: string | null; metaValue?: string | null; minStockThreshold?: number | null; wholesalePrices?: Record<string, number | null>; waiveDescription?: boolean; waiveMinStock?: boolean; waiveWholesale?: boolean }) {
+  async function createCategoryGroup(payload: { categoryId: string; name: string; slug?: string; coverImage?: string | null; hideEmpty?: boolean; parentId?: string | null; metaLabel?: string | null; metaValue?: string | null; minStockThreshold?: number | null; wholesalePrices?: Record<string, number | null>; waiveDescription?: boolean; waiveMinStock?: boolean; waiveWholesale?: boolean; waiveStrengthTier?: boolean; strengthTier?: string | null }) {
     try {
       isLoading.value = true
       error.value = null
@@ -971,6 +981,8 @@ async function createCategory(category: { name: string; hideEmpty?: boolean; cov
           waiveDescription: payload.waiveDescription ?? false,
           waiveMinStock: payload.waiveMinStock ?? false,
           waiveWholesale: payload.waiveWholesale ?? false,
+          waiveStrengthTier: payload.waiveStrengthTier ?? false,
+          strengthTier: payload.strengthTier ?? null,
         }
       })
 
@@ -989,6 +1001,8 @@ async function createCategory(category: { name: string; hideEmpty?: boolean; cov
         waiveDescription: Boolean(response.waiveDescription ?? response.waive_description),
         waiveMinStock: Boolean(response.waiveMinStock ?? response.waive_min_stock),
         waiveWholesale: Boolean(response.waiveWholesale ?? response.waive_wholesale),
+        waiveStrengthTier: Boolean(response.waiveStrengthTier ?? response.waive_strength_tier),
+        strengthTier: response.strengthTier ?? response.strength_tier ?? null,
         createdAt: response.createdAt,
         updatedAt: response.updatedAt,
         productCount: response.productCount ?? 0,
@@ -1038,6 +1052,8 @@ async function createCategory(category: { name: string; hideEmpty?: boolean; cov
       if ('waiveDescription' in updates) body.waiveDescription = updates.waiveDescription
       if ('waiveMinStock' in updates) body.waiveMinStock = updates.waiveMinStock
       if ('waiveWholesale' in updates) body.waiveWholesale = updates.waiveWholesale
+      if ('waiveStrengthTier' in updates) body.waiveStrengthTier = updates.waiveStrengthTier
+      if ('strengthTier' in updates) body.strengthTier = updates.strengthTier ?? null
 
       const response = await $fetch<Record<string, any>>(`/api/admin/category-groups/${id}`, {
         method: 'PUT',
@@ -1079,6 +1095,8 @@ async function createCategory(category: { name: string; hideEmpty?: boolean; cov
         waiveDescription: Boolean(response.waiveDescription ?? response.waive_description ?? existing?.waiveDescription),
         waiveMinStock: Boolean(response.waiveMinStock ?? response.waive_min_stock ?? existing?.waiveMinStock),
         waiveWholesale: Boolean(response.waiveWholesale ?? response.waive_wholesale ?? existing?.waiveWholesale),
+        waiveStrengthTier: Boolean(response.waiveStrengthTier ?? response.waive_strength_tier ?? existing?.waiveStrengthTier),
+        strengthTier: response.strengthTier ?? response.strength_tier ?? existing?.strengthTier ?? null,
       }
 
       if (idx !== -1) {
@@ -1139,6 +1157,7 @@ async function createCategory(category: { name: string; hideEmpty?: boolean; cov
       waiveDescription?: boolean
       waiveMinStock?: boolean
       waiveWholesale?: boolean
+      waiveStrengthTier?: boolean
     },
   ) {
     await $fetch(`/api/admin/category-groups/${groupId}/completeness-waivers`, {
@@ -1148,6 +1167,7 @@ async function createCategory(category: { name: string; hideEmpty?: boolean; cov
         waiveDescription: waivers.waiveDescription,
         waiveMinStock: waivers.waiveMinStock,
         waiveWholesale: waivers.waiveWholesale,
+        waiveStrengthTier: waivers.waiveStrengthTier,
       },
     })
 
@@ -1168,6 +1188,10 @@ async function createCategory(category: { name: string; hideEmpty?: boolean; cov
             waivers.waiveWholesale !== undefined
               ? waivers.waiveWholesale
               : current.waiveWholesale,
+          waiveStrengthTier:
+            waivers.waiveStrengthTier !== undefined
+              ? waivers.waiveStrengthTier
+              : current.waiveStrengthTier,
         },
         ...categoryGroups.value.slice(idx + 1),
       ]

@@ -9,6 +9,7 @@
         @keyup.space.prevent="toggle"
       >
         <div class="liquid-line-image-wrapper">
+          <span v-if="topRank" class="liquid-line-top-rank">#{{ topRank }}</span>
           <div v-if="coverUrl" class="liquid-line-image">
             <img :src="coverUrl" :alt="title" loading="lazy" decoding="async" />
           </div>
@@ -310,6 +311,7 @@ const props = defineProps<{
   badgeColor?: string;
   metaLabel?: string | null;
   metaValue?: string | null;
+  topRank?: number | null;
 }>();
 
 const emit = defineEmits<{
@@ -864,6 +866,28 @@ function closeColorPreview() {
   flex-direction: column;
   align-items: center;
   gap: 6px;
+  position: relative;
+}
+
+.liquid-line-top-rank {
+  position: absolute;
+  top: -4px;
+  left: -4px;
+  z-index: 2;
+  min-width: 28px;
+  height: 28px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: #e60000;
+  border: 2px solid #ffffff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: "Montserrat", sans-serif;
+  font-size: 11px;
+  font-weight: 800;
+  color: #ffffff;
+  box-shadow: 0 4px 10px rgba(230, 0, 0, 0.35);
 }
 
 .liquid-line-image {

@@ -122,6 +122,23 @@
       </div>
     </div>
 
+    <div>
+      <label class="block text-sm font-medium text-gray-700 mb-2">
+        Фильтры на витрине
+      </label>
+      <select
+        v-model="storefrontFiltersProfile"
+        class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:ring-2 focus:ring-brand-dark focus:border-transparent"
+      >
+        <option value="none">Без фильтров</option>
+        <option value="liquids">Жидкости (топ + крепость)</option>
+        <option value="snus_plates">Снюс и пластины (топ)</option>
+      </select>
+      <p class="mt-1 text-xs text-gray-500">
+        Определяет, показывать ли клиенту фильтры «Чаще берут» и крепость в этой категории.
+      </p>
+    </div>
+
     <!-- Скрывать пустую -->
     <div class="flex items-center justify-between gap-3">
       <div>
@@ -169,6 +186,8 @@ interface Category {
   order?: number
   hide_empty?: number | boolean
   cover_image?: string | null
+  storefront_filters_profile?: 'none' | 'liquids' | 'snus_plates'
+  storefrontFiltersProfile?: 'none' | 'liquids' | 'snus_plates'
 }
 
 interface Props {
@@ -186,7 +205,7 @@ const props = withDefaults(defineProps<Props>(), {
 const currentCategory = computed(() => props.editingCategory ?? props.category ?? null)
 
 const emit = defineEmits<{
-  submit: [category: Pick<Category, 'name'> & { hideEmpty?: boolean; coverImage?: string | null }]
+  submit: [category: Pick<Category, 'name'> & { hideEmpty?: boolean; coverImage?: string | null; storefrontFiltersProfile?: 'none' | 'liquids' | 'snus_plates' }]
   cancel: []
 }>()
 
@@ -205,13 +224,17 @@ const { defineField, handleSubmit, errors, setValues, resetForm, setFieldValue }
   initialValues: {
     name: currentCategory.value?.name || '',
     hideEmpty: currentCategory.value?.hide_empty === 1 || false,
-    coverImage: currentCategory.value?.cover_image || ''
+    coverImage: currentCategory.value?.cover_image || '',
+    storefrontFiltersProfile: currentCategory.value?.storefrontFiltersProfile
+      ?? currentCategory.value?.storefront_filters_profile
+      ?? 'none',
   }
 })
 
 const [name, nameAttrs] = defineField('name')
 const [hideEmpty, hideEmptyAttrs] = defineField('hideEmpty')
 const [coverImage, coverImageAttrs] = defineField('coverImage')
+const [storefrontFiltersProfile] = defineField('storefrontFiltersProfile')
 
 const coverMode = ref<'url' | 'file'>('url')
 const uploadPreview = ref<string>('')
@@ -234,7 +257,10 @@ watch(currentCategory, (newCategory: Category | null) => {
     setValues({
       name: newCategory.name,
       hideEmpty: newCategory.hide_empty === 1,
-      coverImage: newCategory.cover_image || ''
+      coverImage: newCategory.cover_image || '',
+      storefrontFiltersProfile: newCategory.storefrontFiltersProfile
+        ?? newCategory.storefront_filters_profile
+        ?? 'none',
     })
     if ((newCategory.cover_image || '').startsWith('data:')) {
       coverMode.value = 'file'
@@ -257,7 +283,8 @@ const onSubmit = handleSubmit((values) => {
   emit('submit', {
     name: values.name,
     hideEmpty: values.hideEmpty,
-    coverImage: values.coverImage?.trim() ? values.coverImage.trim() : null
+    coverImage: values.coverImage?.trim() ? values.coverImage.trim() : null,
+    storefrontFiltersProfile: values.storefrontFiltersProfile || 'none',
   })
 })
 

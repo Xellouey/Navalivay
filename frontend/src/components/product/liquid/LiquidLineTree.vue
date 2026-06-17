@@ -13,6 +13,7 @@
       :meta-value="group.metaValue ?? null"
       :subgroups="group.children"
       :expanded="isExpanded"
+      :top-rank="topRank"
       @toggle="toggleExpand"
       @show-toast="
         (msg: string, type: 'error' | 'success' | 'info') =>
@@ -42,6 +43,7 @@
             v-for="child in group.children"
             :key="child.id"
             :group="child"
+            :top-rank="resolveChildTopRank(child.id)"
             :fallback-image="fallbackImage"
             :expanded-groups="expandedGroups"
             @toggle="$emit('toggle', $event)"
@@ -73,14 +75,22 @@ interface LiquidGroup {
   badgeColor?: string | null;
   metaLabel?: string | null;
   metaValue?: string | null;
+  strengthTier?: string | null;
   children: LiquidGroup[];
 }
 
 const props = defineProps<{
   group: LiquidGroup;
+  topRank?: number | null;
+  topRankByGroupId?: Record<string, number>;
   fallbackImage?: string;
   expandedGroups: Record<string, boolean>;
 }>();
+
+function resolveChildTopRank(groupId: string): number | null {
+  const fromMap = props.topRankByGroupId?.[groupId];
+  return fromMap ?? null;
+}
 
 const emit = defineEmits<{
   (e: "toggle", groupId: string): void;

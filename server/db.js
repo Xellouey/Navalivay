@@ -59,6 +59,7 @@ import { migrateImageThumbnailCache } from './migrations/add_image_thumbnail_cac
 import { migrateOrderAcceptedTemplate } from './migrations/add_order_accepted_template.js';
 import { migratePendingCustomerNotes } from './migrations/add_pending_customer_notes.js';
 import { migrateCategoryGroupCompletenessWaivers } from './migrations/add_category_group_completeness_waivers.js';
+import { migrateStorefrontFilters } from './migrations/add_storefront_filters.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -217,6 +218,7 @@ export function initDb() {
   migrateOrderAcceptedTemplate();
   migratePendingCustomerNotes();
   migrateCategoryGroupCompletenessWaivers();
+  migrateStorefrontFilters();
 
   seedIfEmpty();
   seedDefaultLoyaltyData();

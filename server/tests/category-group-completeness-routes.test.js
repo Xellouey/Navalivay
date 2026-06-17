@@ -64,8 +64,11 @@ function resetDb() {
   db.exec('DELETE FROM categories;');
 }
 
-function seedCategory() {
-  db.prepare(`INSERT INTO categories (id, slug, name, [order]) VALUES ('c1', 'cat', 'Liquids', 1)`).run();
+function seedCategory(profile = 'none') {
+  db.prepare(
+    `INSERT INTO categories (id, slug, name, [order], storefront_filters_profile)
+     VALUES ('c1', 'cat', 'Liquids', 1, ?)`,
+  ).run(profile);
 }
 
 function seedIncompleteGroup() {
@@ -200,6 +203,107 @@ console.log('\n=== R-API2: PUT with waive fields persists ===');
   const row = db.prepare('SELECT waive_description, waive_wholesale FROM category_groups WHERE id = ?').get('g1');
   ok(Number(row.waive_description) === 1, 'waive_description saved');
   ok(Number(row.waive_wholesale) === 1, 'waive_wholesale saved');
+}
+
+console.log('\n=== A-API7: liquids profile flags missing strength_tier ===');
+{
+  resetDb();
+  seedCategory('liquids');
+  seedIncompleteGroup();
+  fullWholesale('g1');
+  await requestJson('/api/admin/category-groups/g1', {
+    method: 'PUT',
+    headers: authHeaders(),
+    body: JSON.stringify({
+      metaValue: '60 mg',
+      minStockThreshold: 20,
+      waiveDescription: true,
+      waiveMinStock: true,
+      waiveWholesale: true,
+    }),
+  });
+  const { response, data } = await requestJson('/api/admin/category-groups/incomplete', {
+    headers: authHeaders(),
+  });
+  ok(response.status === 200, 'status 200');
+  ok(data?.items?.[0]?.missingFields?.includes('strength_tier'), 'strength_tier in missingFields');
+  ok(data?.fieldLabels?.strength_tier === 'Крепость (фильтр)', 'strength_tier label');
+}
+
+console.log('\n=== A-API8: PATCH waive_strength_tier clears liquids requirement ===');
+{
+  const { response, data } = await requestJson('/api/admin/category-groups/g1/completeness-waivers', {
+    method: 'PATCH',
+    headers: authHeaders(),
+    body: JSON.stringify({ waive_strength_tier: true }),
+  });
+  ok(response.status === 200, 'patch 200');
+  ok(data?.waivers?.waive_strength_tier === 1, 'waive_strength_tier persisted');
+  const after = await requestJson('/api/admin/category-groups/incomplete', { headers: authHeaders() });
+  ok(after.data?.items?.length === 0, 'list empty after strength waiver');
+}
+
+console.log('\n=== A-API9: PUT invalid strengthTier → 400 ===');
+{
+  resetDb();
+  seedCategory('liquids');
+  seedIncompleteGroup();
+  const { response, data } = await requestJson('/api/admin/category-groups/g1', {
+    method: 'PUT',
+    headers: authHeaders(),
+    body: JSON.stringify({ strengthTier: 'ultra_mega' }),
+  });
+  ok(response.status === 400, 'status 400');
+  ok(data?.error === 'invalid_strength_tier', 'invalid_strength_tier error');
+}
+
+console.log('\n=== R-API3: PUT valid strengthTier completes liquids group ===');
+{
+  resetDb();
+  seedCategory('liquids');
+  seedIncompleteGroup();
+  fullWholesale('g1');
+  await requestJson('/api/admin/category-groups/g1', {
+    method: 'PUT',
+    headers: authHeaders(),
+    body: JSON.stringify({
+      metaValue: '60 mg',
+      minStockThreshold: 20,
+      strengthTier: 'strong',
+      waiveDescription: true,
+      waiveMinStock: true,
+      waiveWholesale: true,
+    }),
+  });
+  const after = await requestJson('/api/admin/category-groups/incomplete', { headers: authHeaders() });
+  ok(after.data?.items?.length === 0, 'complete after strengthTier set');
+  const row = db.prepare('SELECT strength_tier FROM category_groups WHERE id = ?').get('g1');
+  ok(row?.strength_tier === 'strong', 'strength_tier saved');
+}
+
+console.log('\n=== R-API4: PUT category storefrontFiltersProfile persists ===');
+{
+  resetDb();
+  seedCategory('none');
+  const { response } = await requestJson('/api/admin/categories/c1', {
+    method: 'PUT',
+    headers: authHeaders(),
+    body: JSON.stringify({ storefrontFiltersProfile: 'snus_plates' }),
+  });
+  ok(response.status === 200, 'put category 200');
+  const row = db.prepare('SELECT storefront_filters_profile FROM categories WHERE id = ?').get('c1');
+  ok(row?.storefront_filters_profile === 'snus_plates', 'profile saved');
+}
+
+console.log('\n=== A-API10: PUT invalid storefrontFiltersProfile → 400 ===');
+{
+  const { response, data } = await requestJson('/api/admin/categories/c1', {
+    method: 'PUT',
+    headers: authHeaders(),
+    body: JSON.stringify({ storefrontFiltersProfile: 'pods' }),
+  });
+  ok(response.status === 400, 'status 400');
+  ok(data?.error === 'invalid_storefront_filters_profile', 'invalid profile error');
 }
 
 console.log(`\n=== Results: ${results.passed} passed, ${results.failed} failed ===`);
