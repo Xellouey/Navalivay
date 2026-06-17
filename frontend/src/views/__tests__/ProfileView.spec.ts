@@ -109,3 +109,138 @@ describe("ProfileView loyalty section", () => {
     wrapper.unmount();
   });
 });
+
+describe("ProfileView review preferences", () => {
+  beforeEach(() => {
+    setActivePinia(createPinia());
+    sessionStorage.clear();
+
+    (window as any).Telegram = {
+      WebApp: {
+        initData: "signed_init_data",
+        initDataUnsafe: {
+          user: {
+            id: 11,
+            username: "profile_user",
+            first_name: "Profile",
+            last_name: "User",
+          },
+        },
+      },
+    };
+  });
+
+  function buildFetchMock(patchHandler = vi.fn()) {
+    return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.startsWith("/api/customer/me")) {
+        return createJsonResponse({
+          id: "customer-1",
+          telegram_id: "11",
+          telegram_username: "profile_user",
+          first_name: "Profile",
+          last_name: "User",
+          total_orders: 2,
+          total_spent: 30,
+          member_since: "2026-03-01T10:00:00.000Z",
+        });
+      }
+      if (url.startsWith("/api/loyalty/me")) {
+        return createJsonResponse({ found: false, categories: [] });
+      }
+      if (url === "/api/reviews/prompt") {
+        return createJsonResponse({
+          show: true,
+          order_id: "ord1",
+          pending_review_count: 1,
+        });
+      }
+      if (url === "/api/wheel/state") {
+        return createJsonResponse({
+          balance: 0,
+          feed_consent: false,
+          can_spin: false,
+        });
+      }
+      if (url === "/api/profile/review-preferences" && init?.method === "PATCH") {
+        const body = JSON.parse(String(init.body));
+        patchHandler(body);
+        return createJsonResponse({
+          ok: true,
+          reviews_opt_out: Boolean(body.reviews_opt_out),
+          reviews_prefer_anonymous: Boolean(body.reviews_prefer_anonymous ?? false),
+        });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+  }
+
+  it("renders orders link and review preference toggles", async () => {
+    vi.stubGlobal("fetch", buildFetchMock());
+
+    const wrapper = mount(ProfileView, {
+      global: {
+        stubs: {
+          LoyaltyBonusPopup: true,
+        },
+      },
+    });
+    await flushPromises();
+
+    expect(wrapper.text()).toContain("Мои заказы");
+    expect(wrapper.text()).toContain("Напоминания об отзывах");
+    expect(wrapper.text()).toContain("Анонимные отзывы");
+
+    const switches = wrapper.findAll("button.wheel-feed-toggle");
+    expect(switches[1].attributes("aria-checked")).toBe("true");
+    expect(switches[2].attributes("aria-checked")).toBe("false");
+
+    wrapper.unmount();
+  });
+
+  it("toggles review prompt opt-out via preferences API", async () => {
+    const patchHandler = vi.fn();
+    vi.stubGlobal("fetch", buildFetchMock(patchHandler));
+
+    const wrapper = mount(ProfileView, {
+      global: {
+        stubs: {
+          LoyaltyBonusPopup: true,
+        },
+      },
+    });
+    await flushPromises();
+
+    const switches = wrapper.findAll("button.wheel-feed-toggle");
+    await switches[1].trigger("click");
+    await flushPromises();
+
+    expect(patchHandler).toHaveBeenCalledWith({ reviews_opt_out: true });
+    expect(switches[1].attributes("aria-checked")).toBe("false");
+
+    wrapper.unmount();
+  });
+
+  it("toggles anonymous review preference", async () => {
+    const patchHandler = vi.fn();
+    vi.stubGlobal("fetch", buildFetchMock(patchHandler));
+
+    const wrapper = mount(ProfileView, {
+      global: {
+        stubs: {
+          LoyaltyBonusPopup: true,
+        },
+      },
+    });
+    await flushPromises();
+
+    const switches = wrapper.findAll("button.wheel-feed-toggle");
+    await switches[2].trigger("click");
+    await flushPromises();
+
+    expect(patchHandler).toHaveBeenCalledWith({ reviews_prefer_anonymous: true });
+    expect(switches[2].attributes("aria-checked")).toBe("true");
+
+    wrapper.unmount();
+  });
+});

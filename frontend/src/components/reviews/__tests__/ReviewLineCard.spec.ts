@@ -1,0 +1,161 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { flushPromises, mount } from "@vue/test-utils";
+import ReviewForm from "@/components/reviews/ReviewForm.vue";
+import ReviewLineCard from "@/components/reviews/ReviewLineCard.vue";
+import type { ReviewableLine } from "@/composables/useCustomerOrders";
+
+const fetchQuickTagsMock = vi.hoisted(() => vi.fn());
+const submitReviewMock = vi.hoisted(() => vi.fn());
+
+vi.mock("@/composables/useCustomerOrders", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/composables/useCustomerOrders")>();
+  return {
+    ...actual,
+    useCustomerOrders: () => ({
+      fetchQuickTags: fetchQuickTagsMock,
+      submitReview: submitReviewMock,
+    }),
+  };
+});
+
+function buildLine(overrides: Partial<ReviewableLine> = {}): ReviewableLine {
+  return {
+    group_id: "grp1",
+    group_name: "Подонки",
+    group_cover_image: null,
+    category_cover_image: null,
+    purchased_variant_name: "Ананасовая шипучка",
+    order_item_id: "oi1",
+    review_category_key: "liquids",
+    items: [{ total_price: 25 }],
+    eligibility: { canReview: true, reason: null, cooldownEndsAt: null },
+    latest_review: null,
+    ...overrides,
+  };
+}
+
+describe("ReviewLineCard", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    fetchQuickTagsMock.mockResolvedValue([
+      { id: "tag1", label: "Вкусно", insert_text: "Вкусно" },
+    ]);
+    submitReviewMock.mockResolvedValue({ ok: true });
+  });
+
+  it("renders review form when line is eligible", async () => {
+    const wrapper = mount(ReviewLineCard, {
+      props: {
+        line: buildLine(),
+        orderId: "ord1",
+        initialRating: 3,
+      },
+    });
+    await flushPromises();
+
+    expect(wrapper.find(".review-form").exists()).toBe(true);
+    expect(wrapper.text()).toContain("Подонки");
+    expect(wrapper.text()).toContain("Ананасовая шипучка");
+    expect(fetchQuickTagsMock).toHaveBeenCalledWith("liquids", 3);
+
+    wrapper.unmount();
+  });
+
+  it("shows cooldown state instead of form", () => {
+    const wrapper = mount(ReviewLineCard, {
+      props: {
+        line: buildLine({
+          eligibility: {
+            canReview: false,
+            reason: "cooldown",
+            cooldownEndsAt: "2026-07-01T12:00:00.000Z",
+          },
+        }),
+        orderId: "ord1",
+      },
+    });
+
+    expect(wrapper.find(".review-form").exists()).toBe(false);
+    expect(wrapper.text()).toContain("Отзыв уже оставлен");
+    expect(wrapper.text()).toContain("Следующий отзыв");
+
+    wrapper.unmount();
+  });
+
+  it("shows pending moderation state with rating stars", () => {
+    const wrapper = mount(ReviewLineCard, {
+      props: {
+        line: buildLine({
+          eligibility: {
+            canReview: false,
+            reason: "pending_moderation",
+            cooldownEndsAt: null,
+          },
+          latest_review: {
+            id: "rev1",
+            status: "pending",
+            rating: 4,
+            body_text: "Хороший товар",
+            is_anonymous: 0,
+            created_at: "2026-06-01T10:00:00.000Z",
+          },
+        }),
+        orderId: "ord1",
+      },
+    });
+
+    expect(wrapper.text()).toContain("Отзыв на модерации");
+    expect(wrapper.findAll(".review-line-card__rating-star")).toHaveLength(5);
+
+    wrapper.unmount();
+  });
+
+  it("submits review and emits submitted on success", async () => {
+    const wrapper = mount(ReviewLineCard, {
+      props: {
+        line: buildLine(),
+        orderId: "ord1",
+        initialRating: 5,
+        preferAnonymous: true,
+      },
+    });
+    await flushPromises();
+
+    const form = wrapper.findComponent(ReviewForm);
+    await form.vm.$emit("submit", {
+      rating: 5,
+      body_text: "Достаточно длинный текст отзыва",
+      quick_tag_ids: ["tag1"],
+      is_anonymous: true,
+    });
+    await flushPromises();
+
+    expect(submitReviewMock).toHaveBeenCalledWith({
+      order_id: "ord1",
+      group_id: "grp1",
+      order_item_id: "oi1",
+      rating: 5,
+      body_text: "Достаточно длинный текст отзыва",
+      quick_tag_ids: ["tag1"],
+      is_anonymous: true,
+    });
+    expect(wrapper.emitted("submitted")).toHaveLength(1);
+
+    wrapper.unmount();
+  });
+
+  it("applies highlight class and anchor id for deep-link scroll", () => {
+    const wrapper = mount(ReviewLineCard, {
+      props: {
+        line: buildLine(),
+        orderId: "ord1",
+        highlighted: true,
+      },
+    });
+
+    expect(wrapper.attributes("id")).toBe("review-line-grp1");
+    expect(wrapper.classes()).toContain("review-line-card--highlight");
+
+    wrapper.unmount();
+  });
+});

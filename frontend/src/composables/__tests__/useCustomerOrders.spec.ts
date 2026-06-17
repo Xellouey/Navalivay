@@ -136,6 +136,74 @@ describe("useCustomerOrders", () => {
     );
   });
 
+  it("fetchOrderDetail returns reviewable lines", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/orders/ord1/detail") {
+        return createJsonResponse({
+          id: "ord1",
+          order_number: 1001,
+          status: "delivered",
+          created_at: "2026-06-01T10:00:00.000Z",
+          completed_at: "2026-06-01T12:00:00.000Z",
+          final_amount: 42,
+          fulfillment: null,
+          status_timeline: [],
+          lottery_hint_text: null,
+          reviewable_lines: [
+            {
+              group_id: "grp1",
+              group_name: "Подонки",
+              eligibility: { canReview: true, reason: null, cooldownEndsAt: null },
+            },
+          ],
+        });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { fetchOrderDetail } = useCustomerOrders();
+    const detail = await fetchOrderDetail("ord1");
+
+    expect(detail.order_number).toBe(1001);
+    expect(detail.reviewable_lines).toHaveLength(1);
+  });
+
+  it("fetchGroupReviews returns public approved items only shape", async () => {
+    const fetchMock = vi.fn(async () =>
+      createJsonResponse({
+        group_id: "grp1",
+        review_count: 1,
+        average_rating: 5,
+        items: [
+          {
+            id: "rev1",
+            rating: 5,
+            body_text: "Отличный вкус",
+            purchased_variant_name: "Ананас",
+            quick_tag_labels: ["Вкусно"],
+            created_at: "2026-06-01T10:00:00.000Z",
+            manager_reply: null,
+            reviewer: {
+              display_name: "Покупатель",
+              photo_url: null,
+              is_anonymous: false,
+            },
+          },
+        ],
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { fetchGroupReviews } = useCustomerOrders();
+    const data = await fetchGroupReviews("grp1", { limit: 10 });
+
+    expect(data.review_count).toBe(1);
+    expect(data.items[0].reviewer.display_name).toBe("Покупатель");
+    expect(fetchMock).toHaveBeenCalledWith("/api/groups/grp1/reviews?limit=10");
+  });
+
   it("updateReviewPreferences syncs local state", async () => {
     const fetchMock = vi.fn(async () =>
       createJsonResponse({
