@@ -88,6 +88,17 @@ const router = createRouter({
       component: () => import("../views/ProfileView.vue"),
     },
     {
+      path: "/profile/orders",
+      name: "order-history",
+      component: () => import("../views/OrderHistoryView.vue"),
+    },
+    {
+      path: "/profile/orders/:orderId",
+      name: "order-detail",
+      component: () => import("../views/OrderDetailView.vue"),
+      props: true,
+    },
+    {
       path: "/section-2",
       name: "section-2",
       component: () => import("../views/PlaceholderView.vue"),
@@ -199,6 +210,12 @@ const router = createRouter({
           path: "crm/wheel",
           name: "CrmWheel",
           component: () => import("@/views/admin/crm/CrmWheel.vue"),
+          beforeEnter: requireAdminAuth,
+        },
+        {
+          path: "crm/reviews",
+          name: "CrmReviews",
+          component: () => import("@/views/admin/crm/CrmReviews.vue"),
           beforeEnter: requireAdminAuth,
         },
       ],

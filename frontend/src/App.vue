@@ -6,6 +6,7 @@ import VapeSmoke from "@/components/VapeSmoke.vue";
 import BottomTabBar from "@/components/BottomTabBar.vue";
 import BlockedScreen from "@/components/BlockedScreen.vue";
 import WheelHomeWidget from "@/components/wheel/WheelHomeWidget.vue";
+import ReviewPromptDock from "@/components/reviews/ReviewPromptDock.vue";
 import { useCustomerBlock } from "@/composables/useCustomerBlock";
 const route = useRoute();
 const { currentBlock, isBlocked, refreshBlock } = useCustomerBlock();
@@ -25,6 +26,8 @@ const showTabBar = computed(() => {
   // см. docs/wholesale-rules.md и спецификацию рулетки.
   return true;
 });
+
+const showReviewDock = computed(() => showTabBar.value);
 
 // Глобальный плавающий виджет рулетки. Показываем на всех customer-
 // экранах, кроме самой рулетки, чекаута, оформленного заказа,
@@ -64,6 +67,7 @@ onMounted(() => {
     </div>
     <VapeSmoke />
     <BottomTabBar v-if="showTabBar" />
+    <ReviewPromptDock v-if="showReviewDock" />
     <WheelHomeWidget v-if="showWheelWidget" />
     <BlockedScreen
       v-if="showBlockedScreen"
@@ -77,6 +81,7 @@ onMounted(() => {
 :root {
   --app-screen-max-width: 393px;
   --app-bottom-tab-bar-height: 130px;
+  --app-review-dock-height: 0px;
   --app-page-background: #f5f7fa;
 }
 
@@ -94,7 +99,9 @@ body,
 }
 
 .app-shell--with-tab-bar {
-  padding-bottom: var(--app-bottom-tab-bar-height, 130px);
+  padding-bottom: calc(
+    var(--app-bottom-tab-bar-height, 130px) + var(--app-review-dock-height, 0px)
+  );
   box-sizing: border-box;
 }
 

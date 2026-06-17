@@ -41,6 +41,18 @@ import { autoNotifyOrderAccepted } from "../utils/auto-notify.js";
 import { getBusinessPeriodRange } from "../utils/business-time.js";
 import { queryTopSalesGroups } from "../utils/top-sales-groups.js";
 import { STOREFRONT_FILTER_PROFILES } from "../utils/storefront-filters.js";
+import {
+  createProductReview,
+  findCustomerByTelegram,
+  findOwnedOrders,
+  getPublicGroupReviews,
+  getReviewPromptForCustomer,
+  isDevTestModeEnabled,
+  listQuickTags,
+  serializeOrderDetail,
+  serializeOrderHistoryCard,
+  updateCustomerReviewPreferences,
+} from "../utils/product-reviews.js";
 
 export const publicRouter = express.Router();
 
@@ -1834,6 +1846,282 @@ publicRouter.get(
       return res.status(500).json({
         error: "active_order_failed",
         message: "Не удалось загрузить активный заказ",
+      });
+    }
+  },
+);
+
+publicRouter.get(
+  "/api/reviews/prompt",
+  publicMiniAppReadLimiter,
+  requireTelegramMiniAppAuth({ allowInsecureFallback: allowInsecureTelegramFallback }),
+  (req, res) => {
+    try {
+      const telegramId = String(req.telegramAuth?.telegramId || "").trim();
+      const telegramUsername = normalizeTelegramUsername(req.telegramAuth?.telegramUsername);
+      const customer = findCustomerByTelegram({ telegramId, telegramUsername });
+
+      if (!customer) {
+        return res.json({ show: false, reason: "no_customer" });
+      }
+
+      const devBypass = isDevTestModeEnabled();
+      return res.json(getReviewPromptForCustomer(customer, { devBypass }));
+    } catch (error) {
+      console.error("[public] Failed to get review prompt:", error);
+      return res.status(500).json({
+        error: "review_prompt_failed",
+        message: "Не удалось загрузить напоминание об отзыве",
+      });
+    }
+  },
+);
+
+publicRouter.get(
+  "/api/orders/my-history",
+  publicMiniAppReadLimiter,
+  requireTelegramMiniAppAuth({ allowInsecureFallback: allowInsecureTelegramFallback }),
+  (req, res) => {
+    try {
+      const telegramId = String(req.telegramAuth?.telegramId || "").trim();
+      const telegramUsername = normalizeTelegramUsername(req.telegramAuth?.telegramUsername);
+      const customer = findCustomerByTelegram({ telegramId, telegramUsername });
+
+      if (!customer) {
+        return res.json({ items: [], next_cursor: null });
+      }
+
+      const limit = Math.min(Math.max(Number(req.query.limit) || 20, 1), 50);
+      const beforeCreatedAt = typeof req.query.cursor === "string" ? req.query.cursor : null;
+      const devBypass = isDevTestModeEnabled();
+
+      const orders = findOwnedOrders({
+        telegramId,
+        telegramUsername,
+        statuses: ["delivered", "completed", "cancelled"],
+        limit: limit + 1,
+        beforeCreatedAt,
+      });
+
+      const page = orders.slice(0, limit);
+      const nextCursor =
+        orders.length > limit ? page[page.length - 1]?.created_at || null : null;
+
+      return res.json({
+        items: page.map((order) =>
+          serializeOrderHistoryCard(order, customer.id, { devBypass }),
+        ),
+        next_cursor: nextCursor,
+      });
+    } catch (error) {
+      console.error("[public] Failed to get order history:", error);
+      return res.status(500).json({
+        error: "order_history_failed",
+        message: "Не удалось загрузить историю заказов",
+      });
+    }
+  },
+);
+
+publicRouter.get(
+  "/api/orders/:id/detail",
+  publicMiniAppReadLimiter,
+  requireTelegramMiniAppAuth({ allowInsecureFallback: allowInsecureTelegramFallback }),
+  (req, res) => {
+    try {
+      const { id } = req.params;
+      const telegramId = String(req.telegramAuth?.telegramId || "").trim();
+      const telegramUsername = normalizeTelegramUsername(req.telegramAuth?.telegramUsername);
+      const customer = findCustomerByTelegram({ telegramId, telegramUsername });
+
+      if (!customer) {
+        return res.status(404).json({
+          error: "not_found",
+          message: "Заказ не найден",
+        });
+      }
+
+      const orders = findOwnedOrders({
+        orderId: id,
+        telegramId,
+        telegramUsername,
+        limit: 1,
+      });
+      const order = orders[0];
+
+      if (!order) {
+        return res.status(404).json({
+          error: "not_found",
+          message: "Заказ не найден",
+        });
+      }
+
+      const devBypass = isDevTestModeEnabled();
+      return res.json(
+        serializeOrderDetail(order, customer.id, { devBypass }),
+      );
+    } catch (error) {
+      console.error("[public] Failed to get order detail:", error);
+      return res.status(500).json({
+        error: "order_detail_failed",
+        message: "Не удалось загрузить детали заказа",
+      });
+    }
+  },
+);
+
+publicRouter.get(
+  "/api/reviews/quick-tags",
+  publicMiniAppReadLimiter,
+  requireTelegramMiniAppAuth({ allowInsecureFallback: allowInsecureTelegramFallback }),
+  (req, res) => {
+    try {
+      const categoryKey = String(req.query.category_key || "").trim();
+      const starRating = Number(req.query.star_rating || 0);
+
+      if (!categoryKey || !Number.isInteger(starRating) || starRating < 1 || starRating > 5) {
+        return res.status(400).json({ error: "invalid_params" });
+      }
+
+      return res.json({
+        items: listQuickTags(categoryKey, starRating),
+      });
+    } catch (error) {
+      console.error("[public] Failed to list quick tags:", error);
+      return res.status(500).json({
+        error: "quick_tags_failed",
+        message: "Не удалось загрузить быстрые отзывы",
+      });
+    }
+  },
+);
+
+publicRouter.post(
+  "/api/reviews",
+  publicMiniAppMutationLimiter,
+  requireTelegramMiniAppAuth({ allowInsecureFallback: allowInsecureTelegramFallback }),
+  (req, res) => {
+    try {
+      const telegramId = String(req.telegramAuth?.telegramId || "").trim();
+      const telegramUsername = normalizeTelegramUsername(req.telegramAuth?.telegramUsername);
+      const customer = findCustomerByTelegram({ telegramId, telegramUsername });
+
+      if (!customer) {
+        return res.status(404).json({ error: "customer_not_found" });
+      }
+
+      const {
+        order_id: orderId,
+        group_id: groupId,
+        order_item_id: orderItemId,
+        rating,
+        body_text: bodyText,
+        quick_tag_ids: quickTagIds,
+        is_anonymous: isAnonymous,
+      } = req.body || {};
+
+      const devBypass = isDevTestModeEnabled();
+      const review = createProductReview({
+        customerId: customer.id,
+        orderId,
+        groupId,
+        orderItemId: orderItemId || null,
+        rating,
+        bodyText,
+        quickTagIds: Array.isArray(quickTagIds) ? quickTagIds : [],
+        isAnonymous: Boolean(isAnonymous ?? customer.reviews_prefer_anonymous),
+        devBypass,
+      });
+
+      return res.status(201).json({ ok: true, review });
+    } catch (error) {
+      const code = error?.code || "review_create_failed";
+      const status =
+        code === "review_body_too_short" ||
+        code === "invalid_rating" ||
+        code === "invalid_quick_tags" ||
+        code === "not_eligible" ||
+        code === "cooldown" ||
+        code === "pending_moderation" ||
+        code === "not_purchased"
+          ? 400
+          : code === "order_not_found" || code === "group_not_found"
+            ? 404
+            : 500;
+
+      if (status === 500) {
+        console.error("[public] Failed to create review:", error);
+      }
+
+      return res.status(status).json({
+        error: code,
+        message: error.message,
+        details: error.details || null,
+      });
+    }
+  },
+);
+
+publicRouter.patch(
+  "/api/profile/review-preferences",
+  publicMiniAppMutationLimiter,
+  requireTelegramMiniAppAuth({ allowInsecureFallback: allowInsecureTelegramFallback }),
+  (req, res) => {
+    try {
+      const telegramId = String(req.telegramAuth?.telegramId || "").trim();
+      const telegramUsername = normalizeTelegramUsername(req.telegramAuth?.telegramUsername);
+      const customer = findCustomerByTelegram({ telegramId, telegramUsername });
+
+      if (!customer) {
+        return res.status(404).json({ error: "customer_not_found" });
+      }
+
+      const updated = updateCustomerReviewPreferences(customer.id, {
+        optOut:
+          req.body?.reviews_opt_out !== undefined
+            ? Boolean(req.body.reviews_opt_out)
+            : undefined,
+        preferAnonymous:
+          req.body?.reviews_prefer_anonymous !== undefined
+            ? Boolean(req.body.reviews_prefer_anonymous)
+            : undefined,
+      });
+
+      return res.json({
+        ok: true,
+        reviews_opt_out: Boolean(updated?.reviews_opt_out),
+        reviews_prefer_anonymous: Boolean(updated?.reviews_prefer_anonymous),
+      });
+    } catch (error) {
+      console.error("[public] Failed to update review preferences:", error);
+      return res.status(500).json({
+        error: "review_preferences_failed",
+        message: "Не удалось обновить настройки отзывов",
+      });
+    }
+  },
+);
+
+publicRouter.get(
+  "/api/groups/:groupId/reviews",
+  publicMiniAppReadLimiter,
+  (req, res) => {
+    try {
+      const { groupId } = req.params;
+      const limit = Math.min(Math.max(Number(req.query.limit) || 20, 1), 50);
+      const offset = Math.max(Number(req.query.offset) || 0, 0);
+
+      const group = db.prepare("SELECT id FROM category_groups WHERE id = ?").get(groupId);
+      if (!group) {
+        return res.status(404).json({ error: "group_not_found" });
+      }
+
+      return res.json(getPublicGroupReviews(groupId, { limit, offset }));
+    } catch (error) {
+      console.error("[public] Failed to get public group reviews:", error);
+      return res.status(500).json({
+        error: "group_reviews_failed",
+        message: "Не удалось загрузить отзывы",
       });
     }
   },

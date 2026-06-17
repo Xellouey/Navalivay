@@ -37,6 +37,14 @@
         <span class="group-line-info">
           <span class="group-line-title">{{ node.name }}</span>
           <span v-if="metaText" class="group-line-meta">{{ metaText }}</span>
+          <button
+            v-if="reviewCount > 0"
+            type="button"
+            class="group-reviews-link"
+            @click.stop="openReviewsModal"
+          >
+            Посмотреть отзывы
+          </button>
         </span>
       </span>
 
@@ -91,6 +99,13 @@
         </div>
       </div>
     </Transition>
+
+    <GroupReviewsModal
+      :open="showReviewsModal"
+      :group-id="node.id"
+      :group-name="node.name"
+      @close="showReviewsModal = false"
+    />
   </div>
 </template>
 
@@ -100,8 +115,11 @@ import {
   defineAsyncComponent,
   nextTick,
   onBeforeUnmount,
+  onMounted,
   ref,
 } from "vue";
+import GroupReviewsModal from "@/components/reviews/GroupReviewsModal.vue";
+import { useCustomerOrders } from "@/composables/useCustomerOrders";
 import { ChevronDownIcon } from "@heroicons/vue/24/outline";
 import { useCatalogStore, type Product } from "@/stores/catalog";
 import GroupLineItemContent from "@/components/product/GroupLineItemContent.vue";
@@ -143,7 +161,10 @@ const emit = defineEmits<{
 }>();
 
 const catalogStore = useCatalogStore();
+const { fetchGroupReviewSummary } = useCustomerOrders();
 const bodyWrapper = ref<HTMLElement | null>(null);
+const reviewCount = ref(0);
+const showReviewsModal = ref(false);
 const headerId = computed(() => `group-line-header-${props.node.id}`);
 const panelId = computed(() => `group-line-panel-${props.node.id}`);
 const isExpanded = computed(() => props.expandedGroups[props.node.id] ?? false);
@@ -311,6 +332,19 @@ function toggle() {
   emit("toggle", props.node.id);
 }
 
+function openReviewsModal() {
+  showReviewsModal.value = true;
+}
+
+onMounted(async () => {
+  try {
+    const summary = await fetchGroupReviewSummary(props.node.id);
+    reviewCount.value = summary.review_count;
+  } catch {
+    reviewCount.value = 0;
+  }
+});
+
 function forwardToast(
   message: string,
   type: "error" | "success" | "info",
@@ -477,6 +511,20 @@ onBeforeUnmount(() => {
   font-size: 14.4px;
   line-height: 17.3px;
   color: #aab2bd;
+}
+
+.group-reviews-link {
+  margin-top: 4px;
+  padding: 0;
+  border: none;
+  background: none;
+  font-family: -apple-system, "SF Pro Display", sans-serif;
+  font-size: 13px;
+  line-height: 16px;
+  color: #5c6470;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
 }
 
 .group-line-side {

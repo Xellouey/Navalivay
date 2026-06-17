@@ -35,6 +35,14 @@
         <div class="liquid-line-info">
           <h3 class="liquid-line-title">{{ title }}</h3>
           <p v-if="metaText" class="liquid-line-meta">{{ metaText }}</p>
+          <button
+            v-if="reviewCount > 0"
+            type="button"
+            class="liquid-reviews-link"
+            @click.stop="openReviewsModal"
+          >
+            Посмотреть отзывы
+          </button>
         </div>
       </div>
       <div class="liquid-line-side">
@@ -277,11 +285,20 @@
       :title="colorPreviewTitle"
       @close="closeColorPreview"
     />
+
+    <GroupReviewsModal
+      :open="showReviewsModal"
+      :group-id="groupId"
+      :group-name="title"
+      @close="showReviewsModal = false"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref, watch, nextTick } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, watch, nextTick } from "vue";
+import GroupReviewsModal from "@/components/reviews/GroupReviewsModal.vue";
+import { useCustomerOrders } from "@/composables/useCustomerOrders";
 import {
   ChevronDownIcon,
   PlusIcon,
@@ -321,7 +338,10 @@ const emit = defineEmits<{
 
 const cartStore = useCartStore();
 const catalogStore = useCatalogStore();
+const { fetchGroupReviewSummary } = useCustomerOrders();
 const bodyWrapper = ref<HTMLElement | null>(null);
+const reviewCount = ref(0);
+const showReviewsModal = ref(false);
 const expandedVariantProducts = ref<Record<string, boolean>>({});
 const failedImages = ref<Set<string>>(new Set());
 let transitionTimer: ReturnType<typeof setTimeout> | null = null;
@@ -508,6 +528,19 @@ watch(
 function toggle() {
   emit("toggle", props.groupId);
 }
+
+function openReviewsModal() {
+  showReviewsModal.value = true;
+}
+
+onMounted(async () => {
+  try {
+    const summary = await fetchGroupReviewSummary(props.groupId);
+    reviewCount.value = summary.review_count;
+  } catch {
+    reviewCount.value = 0;
+  }
+});
 
 function formatPrice(value?: number | null) {
   if (value === null || value === undefined) return "—";
@@ -966,6 +999,21 @@ function closeColorPreview() {
   font-size: 14.4px;
   line-height: 17.3px;
   color: #aab2bd;
+}
+
+.liquid-reviews-link {
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  align-self: flex-start;
+  font-family: -apple-system, "SF Pro Display", sans-serif;
+  font-size: 13px;
+  line-height: 16px;
+  color: #5c6470;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
 }
 
 .liquid-line-side {

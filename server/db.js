@@ -60,6 +60,7 @@ import { migrateOrderAcceptedTemplate } from './migrations/add_order_accepted_te
 import { migratePendingCustomerNotes } from './migrations/add_pending_customer_notes.js';
 import { migrateCategoryGroupCompletenessWaivers } from './migrations/add_category_group_completeness_waivers.js';
 import { migrateStorefrontFilters } from './migrations/add_storefront_filters.js';
+import { migrateProductReviews } from './migrations/add_product_reviews.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -219,6 +220,7 @@ export function initDb() {
   migratePendingCustomerNotes();
   migrateCategoryGroupCompletenessWaivers();
   migrateStorefrontFilters();
+  migrateProductReviews();
 
   seedIfEmpty();
   seedDefaultLoyaltyData();

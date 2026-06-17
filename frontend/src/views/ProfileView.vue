@@ -140,6 +140,38 @@
           </template>
         </article>
 
+        <router-link to="/profile/orders" class="orders-link-card">
+          <div class="orders-link-card__icon" aria-hidden="true">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+              <path
+                d="M7 4H17L19 8H5L7 4Z"
+                stroke="#1F2933"
+                stroke-width="1.8"
+                stroke-linejoin="round"
+              />
+              <path
+                d="M5 8H19V18C19 19.1046 18.1046 20 17 20H7C5.89543 20 5 19.1046 5 18V8Z"
+                stroke="#1F2933"
+                stroke-width="1.8"
+              />
+              <path d="M9 12H15" stroke="#1F2933" stroke-width="1.8" stroke-linecap="round" />
+            </svg>
+          </div>
+          <div class="orders-link-card__text">
+            <h3 class="orders-link-card__title">Мои заказы</h3>
+            <p class="orders-link-card__copy">История покупок и отзывы</p>
+          </div>
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+            <path
+              d="M3 1.5L7.5 6L3 10.5"
+              stroke="#AAB2BD"
+              stroke-width="1.6"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+          </svg>
+        </router-link>
+
         <article class="wheel-feed-card">
           <div class="wheel-feed-card__text">
             <h3 class="wheel-feed-card__title">Лента рулетки</h3>
@@ -155,6 +187,46 @@
             :disabled="wheelStore.isUpdatingConsent"
             :class="{ 'wheel-feed-toggle--on': wheelStore.feedConsent }"
             @click="onToggleFeedConsent"
+          >
+            <span class="wheel-feed-toggle__knob"></span>
+          </button>
+        </article>
+
+        <article class="wheel-feed-card">
+          <div class="wheel-feed-card__text">
+            <h3 class="wheel-feed-card__title">Напоминания об отзывах</h3>
+            <p class="wheel-feed-card__copy">
+              Показывать подсказку оставить отзыв после покупки.
+            </p>
+          </div>
+          <button
+            type="button"
+            class="wheel-feed-toggle"
+            role="switch"
+            :aria-checked="!reviewPreferences.reviews_opt_out"
+            :disabled="isUpdatingReviewPrefs"
+            :class="{ 'wheel-feed-toggle--on': !reviewPreferences.reviews_opt_out }"
+            @click="onToggleReviewPrompts"
+          >
+            <span class="wheel-feed-toggle__knob"></span>
+          </button>
+        </article>
+
+        <article class="wheel-feed-card">
+          <div class="wheel-feed-card__text">
+            <h3 class="wheel-feed-card__title">Анонимные отзывы</h3>
+            <p class="wheel-feed-card__copy">
+              По умолчанию публиковать отзывы без имени.
+            </p>
+          </div>
+          <button
+            type="button"
+            class="wheel-feed-toggle"
+            role="switch"
+            :aria-checked="reviewPreferences.reviews_prefer_anonymous"
+            :disabled="isUpdatingReviewPrefs"
+            :class="{ 'wheel-feed-toggle--on': reviewPreferences.reviews_prefer_anonymous }"
+            @click="onToggleAnonymousReviews"
           >
             <span class="wheel-feed-toggle__knob"></span>
           </button>
@@ -233,6 +305,7 @@ import { useWholesaleStore } from "@/stores/wholesale";
 import { useWheelStore } from "@/stores/wheel";
 import { getTelegramIdentity } from "@/utils/customerOrders";
 import LoyaltyBonusPopup from "@/components/LoyaltyBonusPopup.vue";
+import { useCustomerOrders } from "@/composables/useCustomerOrders";
 
 const userStore = useUserStore();
 const loyaltyStore = useLoyaltyStore();
@@ -242,6 +315,12 @@ const avatarError = ref(false);
 const activeLoyaltyKey = ref<string | null>(null);
 const showRulesModal = ref(false);
 const showLoyaltyPopup = ref(false);
+const isUpdatingReviewPrefs = ref(false);
+const {
+  reviewPreferences,
+  fetchReviewPrompt,
+  updateReviewPreferences,
+} = useCustomerOrders();
 
 const LOYALTY_CATEGORY_ORDER = ["liquids", "disposables", "devices"];
 const LOYALTY_CATEGORY_LABELS: Record<string, string> = {
@@ -330,6 +409,7 @@ onMounted(async () => {
   await Promise.allSettled([
     userStore.fetchProfile(),
     loyaltyStore.fetchSnapshot(identity),
+    fetchReviewPrompt().catch(() => undefined),
     // Q6: load the consent flag so the toggle reflects the server
     // state. Round 4 fix: previously this was skipped for wholesale
     // customers, but the toggle is rendered for everyone (wholesale
@@ -341,6 +421,34 @@ onMounted(async () => {
     wheelStore.fetchState().catch(() => undefined),
   ]);
 });
+
+async function onToggleReviewPrompts() {
+  const previous = reviewPreferences.value.reviews_opt_out;
+  const next = !previous;
+  isUpdatingReviewPrefs.value = true;
+  try {
+    await updateReviewPreferences({ reviews_opt_out: next });
+  } catch (error) {
+    reviewPreferences.value.reviews_opt_out = previous;
+    console.warn("[profile] review opt-out update failed", error);
+  } finally {
+    isUpdatingReviewPrefs.value = false;
+  }
+}
+
+async function onToggleAnonymousReviews() {
+  const previous = reviewPreferences.value.reviews_prefer_anonymous;
+  const next = !previous;
+  isUpdatingReviewPrefs.value = true;
+  try {
+    await updateReviewPreferences({ reviews_prefer_anonymous: next });
+  } catch (error) {
+    reviewPreferences.value.reviews_prefer_anonymous = previous;
+    console.warn("[profile] review anonymous preference update failed", error);
+  } finally {
+    isUpdatingReviewPrefs.value = false;
+  }
+}
 
 async function onToggleFeedConsent() {
   // Round 4 best-practice: optimistic UI with rollback. Flip the
@@ -740,6 +848,51 @@ async function goShopping() {
   color: #be123c;
   font-size: 14px;
   line-height: 18px;
+}
+
+.orders-link-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 16px 20px;
+  border-radius: 20px;
+  background: #ffffff;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.04);
+  text-decoration: none;
+  color: inherit;
+}
+
+.orders-link-card__icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 14px;
+  background: #f5f7fa;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.orders-link-card__text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.orders-link-card__title {
+  margin: 0 0 4px;
+  font-family: "Montserrat", sans-serif;
+  font-weight: 700;
+  font-size: 15px;
+  line-height: 19px;
+  color: #1f2933;
+}
+
+.orders-link-card__copy {
+  margin: 0;
+  font-family: -apple-system, "SF Pro Display", sans-serif;
+  font-size: 13px;
+  line-height: 17px;
+  color: #5c6470;
 }
 
 .wheel-feed-card {

@@ -12,6 +12,18 @@ import {
 } from '../utils/business-time.js';
 import { queryTopSalesGroups } from '../utils/top-sales-groups.js';
 import {
+  REVIEW_STATUSES,
+  getCooldownDays,
+  getReviewSetting,
+  setReviewSetting,
+} from '../utils/product-reviews.js';
+import {
+  getDrawById,
+  getReviewPeriodKey,
+  rerollDrawSeat,
+  runMonthlyReviewDraw,
+} from '../utils/review-monthly-draw.js';
+import {
   PENDING_ACTIVE_PREDICATE,
   computeBlockUntil,
   createBlock,
@@ -1899,5 +1911,349 @@ crmRouter.post('/api/admin/crm/orders/:orderId/generate-message', authMiddleware
   } catch (error) {
     console.error('[crm] Generate message error:', error);
     res.status(500).json({ error: 'failed', message: error.message });
+  }
+});
+
+// =========================
+// PRODUCT REVIEWS
+// =========================
+
+crmRouter.get('/api/admin/crm/product-reviews', authMiddleware, (req, res) => {
+  try {
+    const status = typeof req.query.status === 'string' ? req.query.status : null;
+    let sql = `
+      SELECT
+        pr.*,
+        c.telegram_id,
+        c.telegram_username,
+        c.first_name,
+        c.last_name,
+        g.name AS group_name,
+        o.order_number
+      FROM product_reviews pr
+      LEFT JOIN customers c ON c.id = pr.customer_id
+      LEFT JOIN category_groups g ON g.id = pr.group_id
+      LEFT JOIN orders o ON o.id = pr.order_id
+    `;
+    const params = [];
+    if (status) {
+      sql += ' WHERE pr.status = ?';
+      params.push(status);
+    }
+    sql += ' ORDER BY pr.created_at DESC LIMIT 200';
+    const items = db.prepare(sql).all(...params);
+    res.json({ items });
+  } catch (error) {
+    console.error('[crm] List product reviews error:', error);
+    res.status(500).json({ error: 'failed', message: error.message });
+  }
+});
+
+crmRouter.get('/api/admin/crm/product-reviews/pending-count', authMiddleware, (_req, res) => {
+  try {
+    const row = db.prepare(`
+      SELECT COUNT(*) AS count
+      FROM product_reviews
+      WHERE status = ?
+    `).get(REVIEW_STATUSES.PENDING);
+    res.json({ count: Number(row?.count || 0) });
+  } catch (error) {
+    console.error('[crm] Pending reviews count error:', error);
+    res.status(500).json({ error: 'failed', message: error.message });
+  }
+});
+
+crmRouter.post('/api/admin/crm/product-reviews/:id/approve', authMiddleware, (req, res) => {
+  try {
+    const { id } = req.params;
+    const now = new Date().toISOString();
+    const result = db.prepare(`
+      UPDATE product_reviews
+      SET status = ?, approved_at = ?, updated_at = ?
+      WHERE id = ? AND status = ?
+    `).run(REVIEW_STATUSES.APPROVED, now, now, id, REVIEW_STATUSES.PENDING);
+
+    if (!result.changes) {
+      return res.status(404).json({ error: 'not_found' });
+    }
+
+    const review = db.prepare('SELECT * FROM product_reviews WHERE id = ?').get(id);
+    res.json({ ok: true, review });
+  } catch (error) {
+    console.error('[crm] Approve review error:', error);
+    res.status(500).json({ error: 'failed', message: error.message });
+  }
+});
+
+crmRouter.post('/api/admin/crm/product-reviews/:id/reject', authMiddleware, (req, res) => {
+  try {
+    const { id } = req.params;
+    const now = new Date().toISOString();
+    const result = db.prepare(`
+      UPDATE product_reviews
+      SET status = ?, updated_at = ?
+      WHERE id = ? AND status = ?
+    `).run(REVIEW_STATUSES.REJECTED, now, id, REVIEW_STATUSES.PENDING);
+
+    if (!result.changes) {
+      return res.status(404).json({ error: 'not_found' });
+    }
+
+    const review = db.prepare('SELECT * FROM product_reviews WHERE id = ?').get(id);
+    res.json({ ok: true, review });
+  } catch (error) {
+    console.error('[crm] Reject review error:', error);
+    res.status(500).json({ error: 'failed', message: error.message });
+  }
+});
+
+crmRouter.post('/api/admin/crm/product-reviews/:id/reply', authMiddleware, (req, res) => {
+  try {
+    const { id } = req.params;
+    const reply = String(req.body?.reply || '').trim();
+    if (!reply) {
+      return res.status(400).json({ error: 'reply_required' });
+    }
+
+    const now = new Date().toISOString();
+    const result = db.prepare(`
+      UPDATE product_reviews
+      SET manager_reply = ?, manager_replied_at = ?, updated_at = ?
+      WHERE id = ?
+    `).run(reply, now, now, id);
+
+    if (!result.changes) {
+      return res.status(404).json({ error: 'not_found' });
+    }
+
+    const review = db.prepare('SELECT * FROM product_reviews WHERE id = ?').get(id);
+    res.json({
+      ok: true,
+      review,
+      manager_display_name: getReviewSetting('manager_display_name', 'Manager Rezonsky'),
+    });
+  } catch (error) {
+    console.error('[crm] Reply to review error:', error);
+    res.status(500).json({ error: 'failed', message: error.message });
+  }
+});
+
+crmRouter.get('/api/admin/crm/review-quick-tags', authMiddleware, (_req, res) => {
+  try {
+    const items = db.prepare(`
+      SELECT * FROM review_quick_tags
+      ORDER BY category_key ASC, star_rating ASC, sort_order ASC, label ASC
+    `).all();
+    res.json({ items });
+  } catch (error) {
+    console.error('[crm] List review quick tags error:', error);
+    res.status(500).json({ error: 'failed', message: error.message });
+  }
+});
+
+crmRouter.post('/api/admin/crm/review-quick-tags', authMiddleware, (req, res) => {
+  try {
+    const {
+      category_key: categoryKey,
+      star_rating: starRating,
+      label,
+      insert_text: insertText,
+      sort_order: sortOrder,
+      is_active: isActive,
+    } = req.body || {};
+
+    if (!categoryKey || !label || !insertText) {
+      return res.status(400).json({ error: 'missing_fields' });
+    }
+
+    const rating = Number(starRating);
+    if (!Number.isInteger(rating) || rating < 1 || rating > 5) {
+      return res.status(400).json({ error: 'invalid_star_rating' });
+    }
+
+    const id = generateId('rqt');
+    const now = new Date().toISOString();
+    db.prepare(`
+      INSERT INTO review_quick_tags (
+        id, category_key, star_rating, label, insert_text, sort_order, is_active, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      id,
+      String(categoryKey).trim(),
+      rating,
+      String(label).trim(),
+      String(insertText).trim(),
+      Number(sortOrder || 0),
+      isActive === false ? 0 : 1,
+      now,
+      now,
+    );
+
+    const item = db.prepare('SELECT * FROM review_quick_tags WHERE id = ?').get(id);
+    res.json(item);
+  } catch (error) {
+    console.error('[crm] Create review quick tag error:', error);
+    res.status(500).json({ error: 'failed', message: error.message });
+  }
+});
+
+crmRouter.patch('/api/admin/crm/review-quick-tags/:id', authMiddleware, (req, res) => {
+  try {
+    const { id } = req.params;
+    const current = db.prepare('SELECT * FROM review_quick_tags WHERE id = ?').get(id);
+    if (!current) {
+      return res.status(404).json({ error: 'not_found' });
+    }
+
+    const {
+      category_key: categoryKey,
+      star_rating: starRating,
+      label,
+      insert_text: insertText,
+      sort_order: sortOrder,
+      is_active: isActive,
+    } = req.body || {};
+
+    const rating = starRating !== undefined ? Number(starRating) : current.star_rating;
+    if (!Number.isInteger(rating) || rating < 1 || rating > 5) {
+      return res.status(400).json({ error: 'invalid_star_rating' });
+    }
+
+    const now = new Date().toISOString();
+    db.prepare(`
+      UPDATE review_quick_tags
+      SET category_key = ?, star_rating = ?, label = ?, insert_text = ?,
+          sort_order = ?, is_active = ?, updated_at = ?
+      WHERE id = ?
+    `).run(
+      categoryKey !== undefined ? String(categoryKey).trim() : current.category_key,
+      rating,
+      label !== undefined ? String(label).trim() : current.label,
+      insertText !== undefined ? String(insertText).trim() : current.insert_text,
+      sortOrder !== undefined ? Number(sortOrder) : current.sort_order,
+      isActive !== undefined ? (isActive ? 1 : 0) : current.is_active,
+      now,
+      id,
+    );
+
+    const item = db.prepare('SELECT * FROM review_quick_tags WHERE id = ?').get(id);
+    res.json(item);
+  } catch (error) {
+    console.error('[crm] Update review quick tag error:', error);
+    res.status(500).json({ error: 'failed', message: error.message });
+  }
+});
+
+crmRouter.delete('/api/admin/crm/review-quick-tags/:id', authMiddleware, (req, res) => {
+  try {
+    const { id } = req.params;
+    db.prepare('DELETE FROM review_quick_tags WHERE id = ?').run(id);
+    res.json({ ok: true });
+  } catch (error) {
+    console.error('[crm] Delete review quick tag error:', error);
+    res.status(500).json({ error: 'failed', message: error.message });
+  }
+});
+
+crmRouter.get('/api/admin/crm/review-settings', authMiddleware, (_req, res) => {
+  try {
+    res.json({
+      cooldown_days: getCooldownDays(),
+      lottery_hint_text: getReviewSetting('lottery_hint_text', ''),
+      dev_test_mode: getReviewSetting('dev_test_mode', '0') === '1',
+      manager_display_name: getReviewSetting('manager_display_name', 'Manager Rezonsky'),
+    });
+  } catch (error) {
+    console.error('[crm] Get review settings error:', error);
+    res.status(500).json({ error: 'failed', message: error.message });
+  }
+});
+
+crmRouter.patch('/api/admin/crm/review-settings', authMiddleware, (req, res) => {
+  try {
+    const {
+      cooldown_days: cooldownDays,
+      lottery_hint_text: lotteryHintText,
+      dev_test_mode: devTestMode,
+      manager_display_name: managerDisplayName,
+    } = req.body || {};
+
+    if (cooldownDays !== undefined) {
+      const parsed = Number(cooldownDays);
+      if (!Number.isFinite(parsed) || parsed < 1) {
+        return res.status(400).json({ error: 'invalid_cooldown_days' });
+      }
+      setReviewSetting('cooldown_days', String(Math.floor(parsed)));
+    }
+    if (lotteryHintText !== undefined) {
+      setReviewSetting('lottery_hint_text', String(lotteryHintText));
+    }
+    if (devTestMode !== undefined) {
+      setReviewSetting('dev_test_mode', devTestMode ? '1' : '0');
+    }
+    if (managerDisplayName !== undefined) {
+      setReviewSetting('manager_display_name', String(managerDisplayName).trim());
+    }
+
+    res.json({
+      cooldown_days: getCooldownDays(),
+      lottery_hint_text: getReviewSetting('lottery_hint_text', ''),
+      dev_test_mode: getReviewSetting('dev_test_mode', '0') === '1',
+      manager_display_name: getReviewSetting('manager_display_name', 'Manager Rezonsky'),
+    });
+  } catch (error) {
+    console.error('[crm] Update review settings error:', error);
+    res.status(500).json({ error: 'failed', message: error.message });
+  }
+});
+
+crmRouter.get('/api/admin/crm/review-monthly-draws', authMiddleware, (_req, res) => {
+  try {
+    const draws = db.prepare(`
+      SELECT * FROM review_monthly_draws
+      ORDER BY drawn_at DESC
+      LIMIT 24
+    `).all();
+
+    const items = draws.map((draw) => getDrawById(draw.id));
+    res.json({ items });
+  } catch (error) {
+    console.error('[crm] List review draws error:', error);
+    res.status(500).json({ error: 'failed', message: error.message });
+  }
+});
+
+crmRouter.post('/api/admin/crm/review-monthly-draws/run', authMiddleware, (req, res) => {
+  try {
+    const periodKey = req.body?.period_key || getReviewPeriodKey(0);
+    const draw = runMonthlyReviewDraw({ periodKey });
+    res.json({ ok: true, draw });
+  } catch (error) {
+    if (error?.code === 'draw_already_exists') {
+      return res.status(409).json({ error: error.code, draw_id: error.drawId });
+    }
+    console.error('[crm] Run review draw error:', error);
+    res.status(500).json({ error: 'failed', message: error.message });
+  }
+});
+
+crmRouter.post('/api/admin/crm/review-monthly-draws/:drawId/reroll', authMiddleware, (req, res) => {
+  try {
+    const seatNumber = Number(req.body?.seat_number || 0);
+    if (!Number.isInteger(seatNumber) || seatNumber < 1 || seatNumber > 5) {
+      return res.status(400).json({ error: 'invalid_seat_number' });
+    }
+
+    const draw = rerollDrawSeat(req.params.drawId, seatNumber);
+    res.json({ ok: true, draw });
+  } catch (error) {
+    const code = error?.code || 'failed';
+    const status =
+      code === 'draw_not_found' || code === 'seat_not_found' ? 404 :
+      code === 'no_eligible_tickets' ? 409 : 500;
+    if (status === 500) {
+      console.error('[crm] Reroll review draw error:', error);
+    }
+    res.status(status).json({ error: code, message: error.message });
   }
 });
