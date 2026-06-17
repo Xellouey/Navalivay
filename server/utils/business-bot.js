@@ -24,6 +24,7 @@ import { db } from '../db.js';
 
 /** Допустимые ключи событий для bot_status_templates.event. Расширять здесь. */
 export const BOT_STATUS_EVENTS = Object.freeze([
+  'order_accepted',
   'order_assembled',
   'order_issued',
   'order_cancelled',

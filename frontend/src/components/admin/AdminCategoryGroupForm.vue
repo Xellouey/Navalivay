@@ -217,6 +217,39 @@
       </label>
     </div>
 
+    <div class="space-y-3 rounded-2xl border border-amber-200 bg-amber-50/60 p-4">
+      <div>
+        <p class="text-sm font-medium text-gray-800">Не требуется для этой линейки</p>
+        <p class="mt-0.5 text-xs text-gray-600">
+          Снимет линейку из плашки «Нужно дозаполнить» по выбранным полям.
+        </p>
+      </div>
+      <label class="flex items-start gap-2 text-sm text-gray-700">
+        <input
+          v-model="form.waiveDescription"
+          type="checkbox"
+          class="mt-0.5 rounded border-gray-300 text-brand-dark focus:ring-brand-dark/30"
+        />
+        <span>Описание / крепость не требуется</span>
+      </label>
+      <label class="flex items-start gap-2 text-sm text-gray-700">
+        <input
+          v-model="form.waiveMinStock"
+          type="checkbox"
+          class="mt-0.5 rounded border-gray-300 text-brand-dark focus:ring-brand-dark/30"
+        />
+        <span>Минимальный остаток не требуется</span>
+      </label>
+      <label class="flex items-start gap-2 text-sm text-gray-700">
+        <input
+          v-model="form.waiveWholesale"
+          type="checkbox"
+          class="mt-0.5 rounded border-gray-300 text-brand-dark focus:ring-brand-dark/30"
+        />
+        <span>Оптовые цены не требуются</span>
+      </label>
+    </div>
+
     <div class="flex justify-end gap-3 pt-2">
       <button
         type="button"
@@ -248,6 +281,9 @@ interface CategoryGroup {
   metaLabel?: string | null
   metaValue?: string | null
   minStockThreshold?: number | null
+  waiveDescription?: boolean
+  waiveMinStock?: boolean
+  waiveWholesale?: boolean
   depth?: number
   averageCostAuto?: number | null
   directProductCount?: number
@@ -272,7 +308,7 @@ const props = withDefaults(defineProps<{ editingGroup?: CategoryGroup | null; is
 })
 
 const emit = defineEmits<{
-  (e: 'submit', payload: { name: string; coverImage?: string | null; hideEmpty?: boolean; parentId?: string | null; metaLabel?: string | null; metaValue?: string | null; minStockThreshold?: number | null; wholesalePrices?: Record<string, number | null> }): void
+  (e: 'submit', payload: { name: string; coverImage?: string | null; hideEmpty?: boolean; parentId?: string | null; metaLabel?: string | null; metaValue?: string | null; minStockThreshold?: number | null; wholesalePrices?: Record<string, number | null>; waiveDescription?: boolean; waiveMinStock?: boolean; waiveWholesale?: boolean }): void
   (e: 'cancel'): void
 }>()
 
@@ -282,7 +318,10 @@ const form = reactive({
   hideEmpty: false,
   parentId: '',
   metaValue: '',
-  minStockThreshold: ''
+  minStockThreshold: '',
+  waiveDescription: false,
+  waiveMinStock: false,
+  waiveWholesale: false,
 })
 
 const nameError = ref('')
@@ -361,6 +400,9 @@ watch(
         threshold === null || threshold === undefined || !Number.isFinite(Number(threshold)) || Number(threshold) <= 0
           ? ''
           : String(threshold)
+      form.waiveDescription = Boolean(group.waiveDescription)
+      form.waiveMinStock = Boolean(group.waiveMinStock)
+      form.waiveWholesale = Boolean(group.waiveWholesale)
       syncWholesalePriceInputs(group)
       if ((group.coverImage || '').startsWith('data:')) {
         coverMode.value = 'file'
@@ -377,6 +419,9 @@ watch(
       form.parentId = ''
       form.metaValue = ''
       form.minStockThreshold = ''
+      form.waiveDescription = false
+      form.waiveMinStock = false
+      form.waiveWholesale = false
       syncWholesalePriceInputs(null)
       coverMode.value = 'url'
       uploadPreview.value = ''
@@ -434,7 +479,10 @@ function onSubmit() {
     metaLabel: null,
     metaValue: metaValue.length ? metaValue : null,
     minStockThreshold,
-    wholesalePrices
+    wholesalePrices,
+    waiveDescription: form.waiveDescription,
+    waiveMinStock: form.waiveMinStock,
+    waiveWholesale: form.waiveWholesale,
   })
 }
 

@@ -108,6 +108,9 @@ export interface CategoryGroup {
   metaLabel?: string | null
   metaValue?: string | null
   minStockThreshold?: number | null
+  waiveDescription?: boolean
+  waiveMinStock?: boolean
+  waiveWholesale?: boolean
   createdAt?: string
   updatedAt?: string
   productCount?: number
@@ -120,6 +123,27 @@ export interface CategoryGroup {
   productsWithCostCount?: number
   wholesalePrices?: Record<string, number | null>
   wholesaleTiers?: WholesaleTier[]
+}
+
+export type IncompleteGroupField = 'description' | 'min_stock' | 'wholesale'
+
+export interface IncompleteGroupItem {
+  id: string
+  name: string
+  slug: string
+  categoryId: string
+  categoryName: string | null
+  hasCoverImage: boolean
+  productCount: number
+  missingFields: IncompleteGroupField[]
+  missingWholesaleTiers: string[]
+  wholesaleFilledCount: number
+  wholesaleTotalCount: number
+  waivers: {
+    description: boolean
+    min_stock: boolean
+    wholesale: boolean
+  }
 }
 
 interface ProductsResponse {
@@ -154,6 +178,9 @@ export const useAdminStore = defineStore('admin', () => {
   const categoryCrossSells = ref<Record<string, Product[]>>({})
   const wholesaleLinks = ref<WholesaleLink[]>([])
   const settings = ref<Record<string, string>>({})
+  const incompleteGroups = ref<IncompleteGroupItem[]>([])
+  const incompleteGroupsHasAny = ref(false)
+  const incompleteGroupsCount = ref(0)
 
   // UI state
   const isLoading = ref(false)
@@ -293,6 +320,7 @@ export const useAdminStore = defineStore('admin', () => {
       user.value = response.user || { username: credentials.username, role: 'admin' }
       isAuthenticated.value = true
       if (typeof window !== 'undefined') localStorage.setItem('admin_token', token.value)
+      void fetchIncompleteGroupsSummary()
       return { success: true, token: token.value, user: user.value as User }
     } catch (err: any) {
       handleApiError(err)
@@ -325,6 +353,7 @@ export const useAdminStore = defineStore('admin', () => {
       await $fetch('/api/admin/banners', { headers: { Authorization: `Bearer ${storedToken}` } })
       user.value = user.value || { username: 'admin', role: 'admin' }
       isAuthenticated.value = true
+      void fetchIncompleteGroupsSummary()
       return true
     } catch (err) {
       console.warn('Protected endpoint check failed:', err)
@@ -794,7 +823,10 @@ async function createCategory(category: { name: string; hideEmpty?: boolean; cov
         directProductCount: Number(group.directProductCount ?? group.direct_product_count ?? group.productCount ?? 0),
         productsWithCostCount: Number(group.productsWithCostCount ?? group.products_with_cost_count ?? 0),
         wholesalePrices: normalizeWholesalePrices(group.wholesalePrices ?? group.wholesale_prices),
-        wholesaleTiers: normalizeWholesaleTiers(group.wholesaleTiers ?? group.wholesale_tiers)
+        wholesaleTiers: normalizeWholesaleTiers(group.wholesaleTiers ?? group.wholesale_tiers),
+        waiveDescription: Boolean(group.waiveDescription ?? group.waive_description),
+        waiveMinStock: Boolean(group.waiveMinStock ?? group.waive_min_stock),
+        waiveWholesale: Boolean(group.waiveWholesale ?? group.waive_wholesale),
       })) as CategoryGroup[]
 
       if (categoryId) {
@@ -917,7 +949,7 @@ async function createCategory(category: { name: string; hideEmpty?: boolean; cov
     }
   }
 
-  async function createCategoryGroup(payload: { categoryId: string; name: string; slug?: string; coverImage?: string | null; hideEmpty?: boolean; parentId?: string | null; metaLabel?: string | null; metaValue?: string | null; minStockThreshold?: number | null; wholesalePrices?: Record<string, number | null> }) {
+  async function createCategoryGroup(payload: { categoryId: string; name: string; slug?: string; coverImage?: string | null; hideEmpty?: boolean; parentId?: string | null; metaLabel?: string | null; metaValue?: string | null; minStockThreshold?: number | null; wholesalePrices?: Record<string, number | null>; waiveDescription?: boolean; waiveMinStock?: boolean; waiveWholesale?: boolean }) {
     try {
       isLoading.value = true
       error.value = null
@@ -935,7 +967,10 @@ async function createCategory(category: { name: string; hideEmpty?: boolean; cov
           metaLabel: payload.metaLabel ?? null,
           metaValue: payload.metaValue ?? null,
           minStockThreshold: payload.minStockThreshold ?? null,
-          wholesalePrices: payload.wholesalePrices ?? undefined
+          wholesalePrices: payload.wholesalePrices ?? undefined,
+          waiveDescription: payload.waiveDescription ?? false,
+          waiveMinStock: payload.waiveMinStock ?? false,
+          waiveWholesale: payload.waiveWholesale ?? false,
         }
       })
 
@@ -951,6 +986,9 @@ async function createCategory(category: { name: string; hideEmpty?: boolean; cov
         metaLabel: response.metaLabel ?? response.meta_label ?? null,
         metaValue: response.metaValue ?? response.meta_value ?? null,
         minStockThreshold: normalizeMinStockThreshold(response.minStockThreshold ?? response.min_stock_threshold),
+        waiveDescription: Boolean(response.waiveDescription ?? response.waive_description),
+        waiveMinStock: Boolean(response.waiveMinStock ?? response.waive_min_stock),
+        waiveWholesale: Boolean(response.waiveWholesale ?? response.waive_wholesale),
         createdAt: response.createdAt,
         updatedAt: response.updatedAt,
         productCount: response.productCount ?? 0,
@@ -997,6 +1035,9 @@ async function createCategory(category: { name: string; hideEmpty?: boolean; cov
       if ('metaValue' in updates) body.metaValue = updates.metaValue ?? null
       if ('minStockThreshold' in updates) body.minStockThreshold = updates.minStockThreshold ?? null
       if ('wholesalePrices' in updates) body.wholesalePrices = updates.wholesalePrices
+      if ('waiveDescription' in updates) body.waiveDescription = updates.waiveDescription
+      if ('waiveMinStock' in updates) body.waiveMinStock = updates.waiveMinStock
+      if ('waiveWholesale' in updates) body.waiveWholesale = updates.waiveWholesale
 
       const response = await $fetch<Record<string, any>>(`/api/admin/category-groups/${id}`, {
         method: 'PUT',
@@ -1034,7 +1075,10 @@ async function createCategory(category: { name: string; hideEmpty?: boolean; cov
         directProductCount: Number(response.directProductCount ?? response.direct_product_count ?? response.productCount ?? existing?.directProductCount ?? 0),
         productsWithCostCount: Number(response.productsWithCostCount ?? response.products_with_cost_count ?? existing?.productsWithCostCount ?? 0),
         wholesalePrices: normalizeWholesalePrices(response.wholesalePrices ?? response.wholesale_prices),
-        wholesaleTiers: normalizeWholesaleTiers(response.wholesaleTiers ?? response.wholesale_tiers)
+        wholesaleTiers: normalizeWholesaleTiers(response.wholesaleTiers ?? response.wholesale_tiers),
+        waiveDescription: Boolean(response.waiveDescription ?? response.waive_description ?? existing?.waiveDescription),
+        waiveMinStock: Boolean(response.waiveMinStock ?? response.waive_min_stock ?? existing?.waiveMinStock),
+        waiveWholesale: Boolean(response.waiveWholesale ?? response.waive_wholesale ?? existing?.waiveWholesale),
       }
 
       if (idx !== -1) {
@@ -1048,12 +1092,85 @@ async function createCategory(category: { name: string; hideEmpty?: boolean; cov
       }
       categoryGroups.value = [...categoryGroups.value].sort((a, b) => a.order - b.order)
 
+      void fetchIncompleteGroupsSummary()
       return mapped
     } catch (err: any) {
       handleApiError(err)
       throw err
     } finally {
       isLoading.value = false
+    }
+  }
+
+  async function fetchIncompleteGroups() {
+    try {
+      const data = await $fetch<{ items: IncompleteGroupItem[] }>(
+        '/api/admin/category-groups/incomplete',
+        { headers: getAuthHeaders() },
+      )
+      incompleteGroups.value = Array.isArray(data?.items) ? data.items : []
+      incompleteGroupsCount.value = incompleteGroups.value.length
+      incompleteGroupsHasAny.value = incompleteGroups.value.length > 0
+      return incompleteGroups.value
+    } catch (err: any) {
+      console.warn('[admin] Failed to fetch incomplete groups:', err)
+      return incompleteGroups.value
+    }
+  }
+
+  async function fetchIncompleteGroupsSummary() {
+    try {
+      const data = await $fetch<{ hasAny: boolean; count: number }>(
+        '/api/admin/category-groups/incomplete/summary',
+        { headers: getAuthHeaders() },
+      )
+      incompleteGroupsHasAny.value = Boolean(data?.hasAny)
+      incompleteGroupsCount.value = Number(data?.count ?? 0)
+      return data
+    } catch (err: any) {
+      console.warn('[admin] Failed to fetch incomplete groups summary:', err)
+      return { hasAny: incompleteGroupsHasAny.value, count: incompleteGroupsCount.value }
+    }
+  }
+
+  async function updateGroupCompletenessWaivers(
+    groupId: string,
+    waivers: {
+      waiveDescription?: boolean
+      waiveMinStock?: boolean
+      waiveWholesale?: boolean
+    },
+  ) {
+    await $fetch(`/api/admin/category-groups/${groupId}/completeness-waivers`, {
+      method: 'PATCH',
+      headers: getAuthHeaders(),
+      body: {
+        waiveDescription: waivers.waiveDescription,
+        waiveMinStock: waivers.waiveMinStock,
+        waiveWholesale: waivers.waiveWholesale,
+      },
+    })
+
+    const idx = categoryGroups.value.findIndex((g) => g.id === groupId)
+    if (idx !== -1) {
+      const current = categoryGroups.value[idx]
+      categoryGroups.value = [
+        ...categoryGroups.value.slice(0, idx),
+        {
+          ...current,
+          waiveDescription:
+            waivers.waiveDescription !== undefined
+              ? waivers.waiveDescription
+              : current.waiveDescription,
+          waiveMinStock:
+            waivers.waiveMinStock !== undefined ? waivers.waiveMinStock : current.waiveMinStock,
+          waiveWholesale:
+            waivers.waiveWholesale !== undefined
+              ? waivers.waiveWholesale
+              : current.waiveWholesale,
+        },
+        ...categoryGroups.value.slice(idx + 1),
+      ]
     }
   }
 
@@ -1633,6 +1750,9 @@ async function createCategory(category: { name: string; hideEmpty?: boolean; cov
     categoryCrossSells,
     wholesaleLinks,
     settings,
+    incompleteGroups,
+    incompleteGroupsHasAny,
+    incompleteGroupsCount,
     isLoading,
     error,
     productsPagination,
@@ -1670,6 +1790,9 @@ async function createCategory(category: { name: string; hideEmpty?: boolean; cov
     updateCategoryGroup,
     deleteCategoryGroup,
     reorderCategoryGroups,
+    fetchIncompleteGroups,
+    fetchIncompleteGroupsSummary,
+    updateGroupCompletenessWaivers,
     fetchCategoryCrossSells,
     updateCategoryCrossSells,
 

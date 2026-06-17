@@ -56,6 +56,9 @@ import { migrateOrderNumberSearch } from './migrations/add_order_number_search.j
 import { migrateWheelPrizes, seedDefaultWheelData } from './migrations/add_wheel_prizes.js';
 import { migrateProductSearchIndex } from './migrations/add_product_search_index.js';
 import { migrateImageThumbnailCache } from './migrations/add_image_thumbnail_cache.js';
+import { migrateOrderAcceptedTemplate } from './migrations/add_order_accepted_template.js';
+import { migratePendingCustomerNotes } from './migrations/add_pending_customer_notes.js';
+import { migrateCategoryGroupCompletenessWaivers } from './migrations/add_category_group_completeness_waivers.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -211,6 +214,9 @@ export function initDb() {
   migrateWheelPrizes();
   migrateProductSearchIndex();
   migrateImageThumbnailCache();
+  migrateOrderAcceptedTemplate();
+  migratePendingCustomerNotes();
+  migrateCategoryGroupCompletenessWaivers();
 
   seedIfEmpty();
   seedDefaultLoyaltyData();

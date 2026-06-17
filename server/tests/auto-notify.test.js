@@ -64,6 +64,11 @@ function resetDb() {
     body: 'Заказ {order_number} отменён.',
     is_active: 1,
   });
+  upsertStatusTemplate('order_accepted', {
+    title: 'Заказ принят',
+    body: 'Заказ {order_number} принят.',
+    is_active: 1,
+  });
 }
 
 function makeOrderAndCustomer({ telegramId = '111', verified = true, totalOrders = 1 } = {}) {

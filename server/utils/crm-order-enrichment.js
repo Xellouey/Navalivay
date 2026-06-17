@@ -131,14 +131,22 @@ export function enrichOrdersWithRelations(db, orders) {
     }
   }
 
-  return orders.map((order) => ({
-    ...order,
-    items: itemsByOrder.get(order.id) || [],
-    auto_notification: notifyByOrder.get(order.id) || null,
-    is_returning_customer: returningMap.get(order.customer_id) || false,
-    is_blocked: blockedMap.get(order.customer_id) || false,
-    has_userbot_access: order.has_userbot_access === 1,
-  }));
+  return orders.map((order) => {
+    const rawCustomerNotes = order.customer_notes;
+    const customerNotes =
+      typeof rawCustomerNotes === 'string' && rawCustomerNotes.trim()
+        ? rawCustomerNotes.trim()
+        : null;
+    return {
+      ...order,
+      items: itemsByOrder.get(order.id) || [],
+      auto_notification: notifyByOrder.get(order.id) || null,
+      is_returning_customer: returningMap.get(order.customer_id) || false,
+      is_blocked: blockedMap.get(order.customer_id) || false,
+      has_userbot_access: order.has_userbot_access === 1,
+      customer_notes: customerNotes,
+    };
+  });
 }
 
 const ORDER_SELECT_SQL = `
@@ -147,6 +155,7 @@ const ORDER_SELECT_SQL = `
     COALESCE(o.telegram_username, c.telegram_username) as telegram_username,
     c.first_name || ' ' || COALESCE(c.last_name, '') as customer_name,
     c.telegram_id as customer_telegram_id,
+    c.notes as customer_notes,
     COALESCE(pc.has_gift, 0) as promo_has_gift,
     pc.manager_description as promo_manager_description,
     pc.customer_description as promo_customer_description,

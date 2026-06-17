@@ -503,6 +503,7 @@
               </div>
             </div>
             <div v-else class="space-y-6">
+              <IncompleteGroupsPanel @open-group="handleOpenIncompleteGroup" />
               <AdminCategoriesList
                 :categories="adminStore.categories"
                 :isLoading="adminStore.isLoading"
@@ -1256,6 +1257,7 @@ import AdminProductsTable from '@/components/admin/AdminProductsTable.vue'
 import AdminCategoryGroupForm from '@/components/admin/AdminCategoryGroupForm.vue'
 import AdminGroupMinStockEditor from '@/components/admin/AdminGroupMinStockEditor.vue'
 import AdminWholesaleLinksPanel from '@/components/admin/AdminWholesaleLinksPanel.vue'
+import IncompleteGroupsPanel from '@/components/admin/IncompleteGroupsPanel.vue'
 import AdminAgreementsSection from '@/components/admin/AdminAgreementsSection.vue'
 import AdminBotSection from '@/components/admin/AdminBotSection.vue'
 import CashierLockScreen from '@/components/admin/CashierLockScreen.vue'
@@ -1571,6 +1573,9 @@ async function ensureTabData(tab: AdminTabId) {
   }
 
   const success = await runDataLoaders(loaders)
+  if (tab === 'categories' && profitUnlocked.value) {
+    void adminStore.fetchIncompleteGroups()
+  }
   if (!success) {
     showToast('Не удалось загрузить данные раздела. Попробуйте обновить страницу.', 'error', 5000)
   }
@@ -2583,6 +2588,21 @@ function handleManageGroups(category: Category) {
   void openManageGroups(category)
 }
 
+async function handleOpenIncompleteGroup(payload: { categoryId: string; groupId: string }) {
+  const category = adminStore.categories.find((cat) => cat.id === payload.categoryId) || null
+  if (!category) {
+    showToast('Категория не найдена', 'error')
+    return
+  }
+  await openManageGroups(category)
+  const group = adminStore.categoryGroups.find((g) => g.id === payload.groupId) || null
+  if (group) {
+    openGroupForm(group, category)
+  } else {
+    showToast('Линейка не найдена', 'error')
+  }
+}
+
 async function openManageGroups(category: Category) {
   activeGroupCategory.value = category
   groupFormCategoryId.value = category.id
@@ -2641,7 +2661,7 @@ function closeGroupForm() {
   }
 }
 
-async function handleGroupFormSubmit(payload: { name: string; slug?: string; coverImage?: string | null; hideEmpty?: boolean; parentId?: string | null; metaLabel?: string | null; metaValue?: string | null; minStockThreshold?: number | null; wholesalePrices?: Record<string, number | null> }) {
+async function handleGroupFormSubmit(payload: { name: string; slug?: string; coverImage?: string | null; hideEmpty?: boolean; parentId?: string | null; metaLabel?: string | null; metaValue?: string | null; minStockThreshold?: number | null; wholesalePrices?: Record<string, number | null>; waiveDescription?: boolean; waiveMinStock?: boolean; waiveWholesale?: boolean }) {
   const categoryId = groupFormCategoryId.value || activeGroupCategory.value?.id || null
   if (!categoryId) {
     showToast('Сначала выберите категорию', 'error')
@@ -2667,7 +2687,10 @@ async function handleGroupFormSubmit(payload: { name: string; slug?: string; cov
         metaLabel: payload.metaLabel ?? null,
         metaValue: payload.metaValue ?? null,
         minStockThreshold: payload.minStockThreshold ?? null,
-        wholesalePrices: payload.wholesalePrices ?? {}
+        wholesalePrices: payload.wholesalePrices ?? {},
+        waiveDescription: payload.waiveDescription,
+        waiveMinStock: payload.waiveMinStock,
+        waiveWholesale: payload.waiveWholesale,
       })
       showToast('Линейка обновлена', 'success')
     } else {
@@ -2681,11 +2704,15 @@ async function handleGroupFormSubmit(payload: { name: string; slug?: string; cov
         metaLabel: payload.metaLabel ?? null,
         metaValue: payload.metaValue ?? null,
         minStockThreshold: payload.minStockThreshold ?? null,
-        wholesalePrices: payload.wholesalePrices ?? {}
+        wholesalePrices: payload.wholesalePrices ?? {},
+        waiveDescription: payload.waiveDescription,
+        waiveMinStock: payload.waiveMinStock,
+        waiveWholesale: payload.waiveWholesale,
       })
       showToast('Линейка создана', 'success')
     }
     await adminStore.fetchCategoryGroups(categoryId)
+    await adminStore.fetchIncompleteGroups()
     syncEditableGroups(categoryId, true)
     showGroupFormModal.value = false
     groupFormCategoryId.value = null

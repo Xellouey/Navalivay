@@ -1,15 +1,15 @@
 <template>
   <div class="min-h-screen bg-gray-50 px-4 py-6 sm:px-6 lg:px-8">
     <div class="mx-auto w-full max-w-7xl space-y-6">
-      <div class="flex flex-wrap items-center justify-between gap-4">
+      <div class="flex items-center justify-between gap-4">
         <div
-          class="flex w-full flex-wrap items-center justify-start gap-2 sm:w-auto sm:justify-end"
+          class="flex w-full flex-nowrap items-center justify-start gap-1.5 sm:gap-2 sm:w-auto sm:justify-end"
         >
           <!-- Обновить -->
           <button
             @click="deferClick(() => refreshOrders())"
             :disabled="isRefreshing"
-            class="inline-flex items-center gap-2 rounded-xl border border-slate-200/40 bg-gradient-to-br from-slate-50/90 to-gray-50/60 px-4 py-2 text-sm font-medium text-slate-600 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-slate-300/50 hover:shadow-md disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:translate-y-0"
+            class="inline-flex shrink-0 items-center gap-2 whitespace-nowrap rounded-xl border border-slate-200/40 bg-gradient-to-br from-slate-50/90 to-gray-50/60 px-3 py-2 text-sm font-medium text-slate-600 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-slate-300/50 hover:shadow-md disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:translate-y-0"
           >
             <svg
               class="h-4 w-4 transition-transform duration-500"
@@ -31,8 +31,10 @@
           <!-- Dropdown: Настройки -->
           <div class="relative" ref="settingsDropdownRef">
             <button
-              @click="settingsDropdownOpen = !settingsDropdownOpen"
-              class="inline-flex items-center gap-2 rounded-xl border px-4 py-2 text-sm font-medium transition-all duration-200"
+              type="button"
+              @click.stop="settingsDropdownOpen = !settingsDropdownOpen"
+              title="Настройки"
+              class="inline-flex shrink-0 items-center gap-1 rounded-xl border px-2.5 py-2 text-sm font-medium transition-all duration-200"
               :class="
                 hasActiveSettings
                   ? 'border-emerald-200 bg-gradient-to-r from-emerald-50 to-green-50 text-emerald-700 shadow-sm'
@@ -43,9 +45,8 @@
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
               </svg>
-              <span class="hidden sm:inline">Настройки</span>
               <svg
-                class="h-3.5 w-3.5 transition-transform duration-200"
+                class="h-3 w-3 transition-transform duration-200"
                 :class="{ 'rotate-180': settingsDropdownOpen }"
                 fill="none"
                 stroke="currentColor"
@@ -64,7 +65,8 @@
             >
               <div
                 v-if="settingsDropdownOpen"
-                class="absolute left-0 z-50 mt-2 w-80 origin-top-left rounded-2xl border border-slate-200/40 bg-white/95 p-3 shadow-2xl backdrop-blur-sm sm:left-auto sm:right-0 sm:origin-top-right"
+                class="absolute left-0 z-[60] mt-2 w-80 origin-top-left rounded-2xl border border-slate-200/40 bg-white/95 p-3 shadow-2xl backdrop-blur-sm"
+                @click.stop
               >
                 <!-- Заголовок -->
                 <div class="px-2 py-1.5 mb-2">
@@ -211,8 +213,9 @@
           <!-- Dropdown: Ещё -->
           <div class="relative" ref="moreDropdownRef">
             <button
-              @click="moreDropdownOpen = !moreDropdownOpen"
-              class="inline-flex items-center gap-2 rounded-xl border border-slate-200/40 bg-gradient-to-br from-slate-50/90 to-gray-50/60 px-4 py-2 text-sm font-medium text-slate-600 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-slate-300/50 hover:shadow-md"
+              type="button"
+              @click.stop="moreDropdownOpen = !moreDropdownOpen"
+              class="inline-flex shrink-0 items-center gap-2 whitespace-nowrap rounded-xl border border-slate-200/40 bg-gradient-to-br from-slate-50/90 to-gray-50/60 px-3 py-2 text-sm font-medium text-slate-600 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-slate-300/50 hover:shadow-md"
             >
               <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h.01M12 12h.01M19 12h.01M6 12a1 1 0 11-2 0 1 1 0 012 0zm7 0a1 1 0 11-2 0 1 1 0 012 0zm7 0a1 1 0 11-2 0 1 1 0 012 0z" />
@@ -229,7 +232,8 @@
             >
               <div
                 v-if="moreDropdownOpen"
-                class="absolute left-0 z-50 mt-2 w-72 origin-top-left rounded-2xl border border-slate-200/40 bg-white/95 p-3 shadow-2xl backdrop-blur-sm sm:left-auto sm:right-0 sm:origin-top-right"
+                class="absolute left-0 z-[60] mt-2 w-72 origin-top-left rounded-2xl border border-slate-200/40 bg-white/95 p-3 shadow-2xl backdrop-blur-sm"
+                @click.stop
               >
                 <!-- Заголовок -->
                 <div class="px-2 py-1.5 mb-2">
@@ -273,7 +277,7 @@
           <button
             v-if="cancelledOrders.length"
             @click="cancelledModalOpen = true"
-            class="inline-flex items-center gap-2 rounded-xl border border-red-200 bg-gradient-to-r from-red-50 to-rose-50 px-4 py-2 text-sm font-medium text-red-600 shadow-sm transition-all duration-200 hover:from-red-100 hover:to-rose-100"
+            class="inline-flex shrink-0 items-center gap-2 whitespace-nowrap rounded-xl border border-red-200 bg-gradient-to-r from-red-50 to-rose-50 px-3 py-2 text-sm font-medium text-red-600 shadow-sm transition-all duration-200 hover:from-red-100 hover:to-rose-100"
           >
             <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
@@ -284,7 +288,7 @@
           <!-- Выданные (запаролено) -->
           <button
             @click="profitUnlocked ? openDeliveredModal('today') : openPasswordModal()"
-            class="inline-flex items-center gap-2 rounded-xl border border-emerald-200 bg-gradient-to-r from-emerald-50 to-green-50 px-4 py-2 text-sm font-medium text-emerald-600 shadow-sm transition-all duration-200 hover:from-emerald-100 hover:to-green-100"
+            class="inline-flex shrink-0 items-center gap-2 whitespace-nowrap rounded-xl border border-emerald-200 bg-gradient-to-r from-emerald-50 to-green-50 px-3 py-2 text-sm font-medium text-emerald-600 shadow-sm transition-all duration-200 hover:from-emerald-100 hover:to-green-100"
           >
             <LockClosedIcon v-if="!profitUnlocked" class="h-4 w-4" />
             <svg v-else class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -296,7 +300,7 @@
           <!-- Создать заказ -->
           <button
             @click="showCreateModal = true"
-            class="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 px-5 py-2 text-sm font-semibold text-white shadow-md transition-all duration-200 hover:from-blue-700 hover:to-indigo-700 hover:shadow-lg"
+            class="inline-flex shrink-0 items-center gap-2 whitespace-nowrap rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 px-3 py-2 text-sm font-semibold text-white shadow-md transition-all duration-200 hover:from-blue-700 hover:to-indigo-700 hover:shadow-lg sm:px-4"
           >
             <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
@@ -305,10 +309,22 @@
             <span class="sm:hidden">Заказ</span>
           </button>
 
+          <!-- Заметка на клиента -->
+          <button
+            @click="openNoteModal()"
+            class="inline-flex shrink-0 items-center gap-2 whitespace-nowrap rounded-xl border border-sky-200 bg-sky-50 px-3 py-2 text-sm font-semibold text-sky-700 shadow-sm transition-all duration-200 hover:bg-sky-100"
+            title="Заметка на клиента по @username"
+          >
+            <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 8h10M7 12h6m-6 8l-2 4 4-2h8a2 2 0 002-2V6a2 2 0 00-2-2H7a2 2 0 00-2 2v12z" />
+            </svg>
+            <span class="hidden sm:inline">Заметка на клиента</span>
+          </button>
+
           <!-- Заблокировать клиента -->
           <button
             @click="openBlockModal()"
-            class="inline-flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-2 text-sm font-semibold text-red-600 shadow-sm transition-all duration-200 hover:bg-red-100"
+            class="inline-flex shrink-0 items-center gap-2 whitespace-nowrap rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-600 shadow-sm transition-all duration-200 hover:bg-red-100"
             title="Заблокировать клиента по @username"
           >
             <NoSymbolIcon class="h-4 w-4" />
@@ -618,6 +634,17 @@
                         class="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-800"
                         title="Клиент не в кэше юзербота. Авто-уведомления не дойдут - напишите вручную."
                       >Вручную</span>
+                      <button
+                        v-if="order.customer_id"
+                        type="button"
+                        class="inline-flex items-center justify-center rounded-md border border-blue-200 bg-blue-50 px-2 py-1 text-blue-700 transition hover:bg-blue-100"
+                        title="Заметка о клиенте"
+                        @click.stop="openNoteModalForOrder(order)"
+                      >
+                        <svg class="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                        </svg>
+                      </button>
                     </div>
                     <button
                       v-if="order.telegram_username"
@@ -668,6 +695,15 @@
                     :title="order.auto_notification?.error || ''"
                   >
                     Не удалось отправить сообщение клиенту
+                  </div>
+                  <div
+                    v-if="order.customer_notes"
+                    class="flex items-start gap-1.5 rounded-md border border-sky-200 bg-sky-50 px-2 py-1.5 text-[11px] font-medium text-sky-900"
+                  >
+                    <svg class="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-sky-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 8h10M7 12h6m-6 8l-2 4 4-2h8a2 2 0 002-2V6a2 2 0 00-2-2H7a2 2 0 00-2 2v12z" />
+                    </svg>
+                    <span class="leading-snug">{{ order.customer_notes }}</span>
                   </div>
                   <div
                     v-if="
@@ -1204,6 +1240,17 @@
       @notify-result="handleBlockNotifyResult"
     />
 
+    <CustomerNoteModal
+      :is-open="showNoteModal"
+      :mode="noteModalMode"
+      :prefill-username="notePrefillUsername"
+      :customer-id="noteCustomerId"
+      :customer-name="noteCustomerName"
+      :initial-notes="noteInitialText"
+      @close="showNoteModal = false"
+      @saved="handleNoteSaved"
+    />
+
     <!-- Модалка скидки -->
     <AdminModal
       :isOpen="discountModalOpen && !!discountOrder"
@@ -1389,6 +1436,7 @@ import OrderCreateModal from "@/components/crm/OrderCreateModal.vue";
 import ManagerActionSummary from "@/components/crm/ManagerActionSummary.vue";
 import AdminModal from "@/components/AdminModal.vue";
 import CustomerBlockModal from "@/components/admin/CustomerBlockModal.vue";
+import CustomerNoteModal from "@/components/admin/CustomerNoteModal.vue";
 import { LockClosedIcon, NoSymbolIcon } from "@heroicons/vue/24/outline";
 import { buildAutoNotifyToast } from "@/utils/auto-notify-message";
 import CrmProfitPasswordField from "@/components/crm/CrmProfitPasswordField.vue";
@@ -1422,6 +1470,54 @@ const blockPrefillUsername = ref<string>('');
 function openBlockModal(prefill?: string) {
   blockPrefillUsername.value = prefill ?? '';
   showBlockModal.value = true;
+}
+
+const showNoteModal = ref(false);
+const noteModalMode = ref<'toolbar' | 'card'>('toolbar');
+const notePrefillUsername = ref('');
+const noteCustomerId = ref<string | undefined>(undefined);
+const noteCustomerName = ref('');
+const noteInitialText = ref<string | null>(null);
+
+function openNoteModal() {
+  noteModalMode.value = 'toolbar';
+  notePrefillUsername.value = '';
+  noteCustomerId.value = undefined;
+  noteCustomerName.value = '';
+  noteInitialText.value = null;
+  showNoteModal.value = true;
+}
+
+function openNoteModalForOrder(order: Order) {
+  noteModalMode.value = 'card';
+  notePrefillUsername.value = order.telegram_username || '';
+  noteCustomerId.value = order.customer_id || undefined;
+  noteCustomerName.value = order.customer_name || '';
+  noteInitialText.value = order.customer_notes || null;
+  showNoteModal.value = true;
+}
+
+function handleNoteSaved(payload: {
+  kind: 'active' | 'pending' | 'cleared';
+  customerId?: string;
+  username?: string;
+  notes: string | null;
+}) {
+  if (payload.customerId) {
+    crmStore.patchCustomerNotesOnOrders(payload.customerId, payload.notes);
+  }
+  if (payload.kind === 'pending') {
+    showOrderToast({
+      kind: 'success',
+      message: `Заметка сохранена. Появится, когда @${payload.username || 'клиент'} сделает заказ.`,
+    });
+    return;
+  }
+  if (payload.kind === 'cleared') {
+    showOrderToast({ kind: 'success', message: 'Заметка удалена.' });
+    return;
+  }
+  showOrderToast({ kind: 'success', message: 'Заметка сохранена.' });
 }
 function handleBlockCreated(payload: { kind: 'active' | 'pending'; username: string }) {
   const verb = payload.kind === 'pending'

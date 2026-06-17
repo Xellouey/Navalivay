@@ -108,6 +108,20 @@ console.log('\n=== fetchEnrichedOrdersByIds returns items for batch ===');
   assert(Array.isArray(rows[0].items) && rows[0].items.length === 1, 'batch fetch attaches items');
 }
 
+console.log('\n=== enrichment includes customer_notes ===');
+{
+  db.exec('DELETE FROM order_items; DELETE FROM orders; DELETE FROM customers;');
+  db.prepare(
+    `INSERT INTO customers (id, telegram_id, first_name, notes) VALUES ('c1', '1', 'A', '  Менеджерская  ')`,
+  ).run();
+  db.prepare(`
+    INSERT INTO orders (id, order_number, customer_id, status, archived, total_amount, final_amount, created_at, updated_at)
+    VALUES ('o1', 1, 'c1', 'new', 0, 10, 10, '2026-06-03 10:00:00', '2026-06-03 10:00:00')
+  `).run();
+  const rows = fetchEnrichedOrdersByIds({ db, orderIds: ['o1'] });
+  assert(rows[0]?.customer_notes === 'Менеджерская', 'customer_notes trimmed');
+}
+
 try {
   db.close();
 } catch {

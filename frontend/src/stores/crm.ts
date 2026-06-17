@@ -149,6 +149,17 @@ export interface Order {
   is_returning_customer?: boolean;
   is_blocked?: boolean;
   has_userbot_access?: boolean;
+  /** Внутренняя заметка менеджера о клиенте (customers.notes). */
+  customer_notes?: string | null;
+}
+
+export interface PendingCustomerNote {
+  id: number;
+  kind: "pending";
+  telegram_username: string;
+  notes: string;
+  created_by: string | null;
+  created_at: string | null;
 }
 
 export interface OrderItem {
@@ -1201,6 +1212,77 @@ export const useCrmStore = defineStore("crm", () => {
         body: JSON.stringify({ unblock_reason: unblock_reason ?? null }),
       },
     );
+  }
+
+  // ===== Заметки о клиентах (канбан) =====
+  function patchCustomerNotesOnOrders(customerId: string, notes: string | null) {
+    if (!customerId) return;
+    orders.value = orders.value.map((order) =>
+      order.customer_id === customerId
+        ? { ...order, customer_notes: notes }
+        : order,
+    );
+  }
+
+  async function upsertCustomerNote(payload: {
+    customer_id?: string;
+    telegram_username?: string;
+    notes: string;
+  }) {
+    const result = await fetchAPI<{
+      ok: true;
+      kind: "active" | "pending" | "pending_cleared";
+      notes?: string | null;
+      customer?: { id: string; notes: string | null; telegram_username: string | null };
+      pending?: PendingCustomerNote;
+      removed?: number;
+    }>(`${API_BASE}/customer-notes`, {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    });
+    if (result.kind === "active" && result.customer?.id) {
+      patchCustomerNotesOnOrders(
+        result.customer.id,
+        result.notes ?? result.customer.notes ?? null,
+      );
+      if (latestOrderActivityAt.value) {
+        try {
+          await syncKanbanBoardSince(latestOrderActivityAt.value);
+        } catch {
+          /* board-sync best-effort */
+        }
+      }
+    }
+    return result;
+  }
+
+  async function clearCustomerNote(payload: {
+    customer_id?: string;
+    telegram_username?: string;
+    pending_id?: number;
+  }) {
+    const result = await fetchAPI<{
+      ok: true;
+      kind: string;
+      customer?: { id: string; notes: string | null };
+    }>(`${API_BASE}/customer-notes`, {
+      method: "DELETE",
+      body: JSON.stringify(payload),
+    });
+    const customerId =
+      payload.customer_id ||
+      (result as { customer?: { id: string } }).customer?.id;
+    if (customerId) {
+      patchCustomerNotesOnOrders(customerId, null);
+    }
+    return result;
+  }
+
+  async function fetchPendingCustomerNotes(limit = 100) {
+    const result = await fetchAPI<{ pending: PendingCustomerNote[] }>(
+      `${API_BASE}/customer-notes/pending?limit=${limit}`,
+    );
+    return result.pending;
   }
 
   // ===== POS-клиенты (касса): поиск, создание/merge, история покупок =====
@@ -2588,6 +2670,11 @@ export const useCrmStore = defineStore("crm", () => {
     fetchCustomerBlocksList,
     createCustomerBlock,
     removeCustomerBlock,
+
+    patchCustomerNotesOnOrders,
+    upsertCustomerNote,
+    clearCustomerNote,
+    fetchPendingCustomerNotes,
 
     // POS-клиенты (касса)
     searchCustomersForPos,

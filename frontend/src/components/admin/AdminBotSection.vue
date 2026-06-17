@@ -406,6 +406,7 @@ const TABS = [
 type TabId = (typeof TABS)[number]["id"];
 
 const STATUS_EVENT_LABELS: Record<string, string> = {
+  order_accepted: "Заказ принят",
   order_assembled: "Заказ собран",
   order_issued: "Заказ выдан",
   order_cancelled: "Заказ отменён",

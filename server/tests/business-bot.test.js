@@ -84,6 +84,7 @@ function runTests() {
   setup();
 
   console.log('\n=== Test 1: BOT_STATUS_EVENTS — известный набор ===');
+  assertEq(BOT_STATUS_EVENTS.includes('order_accepted'), true, 'order_accepted присутствует');
   assertEq(BOT_STATUS_EVENTS.includes('order_assembled'), true, 'order_assembled присутствует');
   assertEq(BOT_STATUS_EVENTS.includes('order_issued'), true, 'order_issued присутствует');
   assertEq(BOT_STATUS_EVENTS.includes('price_list'), true, 'price_list присутствует');
@@ -475,7 +476,26 @@ function runTests() {
   const v3 = buildOrderVariables('order_anon_named');
   assertEq(v3.customer_name, 'клиент', 'ни имени ни username — generic «клиент»');
 
-  console.log('\n=== Test 42: registerBusinessConnection reconnect bumps connected_at ===');
+  console.log('\n=== Test 42: prepareStatusNotification — order_accepted event ===');
+  upsertStatusTemplate('order_accepted', {
+    title: 'Заказ принят',
+    body: 'Заказ №{order_number} принят, сумма {final_amount} BYN.',
+    is_active: 1,
+  });
+  db.prepare(`
+    INSERT INTO orders (id, order_number, customer_id, status, delivery_type, total_amount, final_amount, created_at, updated_at)
+    VALUES ('order_accepted_t', 3001, 'cust_v1', 'new', 'pickup', 120, 120, DATETIME('now'), DATETIME('now'))
+  `).run();
+  const acceptedPrep = prepareStatusNotification({
+    orderId: 'order_accepted_t',
+    event: 'order_accepted',
+  });
+  assertEq(acceptedPrep.ok, true, 'order_accepted ok=true');
+  assertEq(acceptedPrep.templateEvent, 'order_accepted', 'templateEvent=order_accepted');
+  assert(acceptedPrep.text.includes('3001'), 'текст содержит order_number');
+  assert(acceptedPrep.text.includes('120'), 'текст содержит final_amount');
+
+  console.log('\n=== Test 43: registerBusinessConnection reconnect bumps connected_at ===');
   registerBusinessConnection({
     id: 'bc_reconnect',
     userId: '500',

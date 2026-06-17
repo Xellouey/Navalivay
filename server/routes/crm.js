@@ -21,6 +21,14 @@ import {
   serializeBlock,
   unblockCustomerBlock,
 } from '../utils/customer-blocks.js';
+import {
+  clearCustomerNote,
+  listPendingCustomerNotes,
+  sanitizeCustomerNote,
+  serializePendingNote,
+  touchKanbanOrdersForCustomer,
+  upsertCustomerNote,
+} from '../utils/customer-notes.js';
 import { formatBlockNotifyMessage } from '../utils/block-notify-message.js';
 import {
   createOrMergePosCustomer,
@@ -1361,16 +1369,120 @@ crmRouter.patch('/api/admin/crm/customers/:id', authMiddleware, (req, res) => {
       return res.status(404).json({ error: 'not_found' });
     }
 
+    let nextNotes = current.notes;
+    if (notes !== undefined) {
+      try {
+        nextNotes = sanitizeCustomerNote(notes);
+      } catch (err) {
+        if (err.code === 'note_too_long') {
+          return res.status(400).json({ error: 'note_too_long' });
+        }
+        throw err;
+      }
+    }
+
     db.prepare(`
       UPDATE customers 
       SET notes = ?, phone = ?, updated_at = DATETIME('now')
       WHERE id = ?
-    `).run(notes !== undefined ? notes : current.notes, phone !== undefined ? phone : current.phone, id);
+    `).run(nextNotes, phone !== undefined ? phone : current.phone, id);
+
+    if (notes !== undefined) {
+      touchKanbanOrdersForCustomer(id);
+    }
 
     const updated = db.prepare('SELECT * FROM customers WHERE id = ?').get(id);
     res.json(updated);
   } catch (error) {
     console.error('[crm] Update customer error:', error);
+    res.status(500).json({ error: 'failed', message: error.message });
+  }
+});
+
+// =========================
+// ЗАМЕТКИ О КЛИЕНТАХ
+// =========================
+crmRouter.put('/api/admin/crm/customer-notes', authMiddleware, (req, res) => {
+  try {
+    const { customer_id, telegram_username, notes } = req.body || {};
+    if (!customer_id && !telegram_username) {
+      return res.status(400).json({ error: 'customer_id_or_telegram_username_required' });
+    }
+    try {
+      const result = upsertCustomerNote({
+        customer_id,
+        telegram_username,
+        notes,
+        created_by: req.user?.u || 'admin',
+      });
+      if (result.kind === 'pending') {
+        return res.json({
+          ok: true,
+          kind: 'pending',
+          pending: serializePendingNote(result.pending),
+        });
+      }
+      if (result.kind === 'pending_cleared') {
+        return res.json({ ok: true, kind: 'pending_cleared', removed: result.removed });
+      }
+      return res.json({
+        ok: true,
+        kind: 'active',
+        notes: result.notes,
+        customer: {
+          id: result.customer.id,
+          notes: result.customer.notes,
+          telegram_username: result.customer.telegram_username,
+        },
+      });
+    } catch (err) {
+      if (err.code === 'customer_not_found') {
+        return res.status(404).json({ error: 'customer_not_found' });
+      }
+      if (err.code === 'note_too_long') {
+        return res.status(400).json({ error: 'note_too_long' });
+      }
+      if (err.code === 'invalid_telegram_username') {
+        return res.status(400).json({ error: 'invalid_telegram_username' });
+      }
+      throw err;
+    }
+  } catch (error) {
+    console.error('[crm] Upsert customer note error:', error);
+    res.status(500).json({ error: 'failed', message: error.message });
+  }
+});
+
+crmRouter.delete('/api/admin/crm/customer-notes', authMiddleware, (req, res) => {
+  try {
+    const { customer_id, telegram_username, pending_id } = req.body || {};
+    if (!customer_id && !telegram_username && pending_id === undefined) {
+      return res.status(400).json({ error: 'customer_id_or_telegram_username_or_pending_id_required' });
+    }
+    const result = clearCustomerNote({ customer_id, telegram_username, pending_id });
+    if (result.kind === 'pending_removed' && !result.removed) {
+      return res.status(404).json({ error: 'not_found' });
+    }
+    res.json({ ok: true, ...result });
+  } catch (error) {
+    if (error.code === 'invalid_telegram_username') {
+      return res.status(400).json({ error: 'invalid_telegram_username' });
+    }
+    if (error.code === 'customer_not_found') {
+      return res.status(404).json({ error: 'customer_not_found' });
+    }
+    console.error('[crm] Clear customer note error:', error);
+    res.status(500).json({ error: 'failed', message: error.message });
+  }
+});
+
+crmRouter.get('/api/admin/crm/customer-notes/pending', authMiddleware, (req, res) => {
+  try {
+    const limit = Number(req.query?.limit) || 100;
+    const rows = listPendingCustomerNotes({ limit });
+    res.json({ pending: rows.map(serializePendingNote) });
+  } catch (error) {
+    console.error('[crm] List pending customer notes error:', error);
     res.status(500).json({ error: 'failed', message: error.message });
   }
 });

@@ -20,6 +20,7 @@ import {
   resolveWholesaleContextFromRequest,
   validateWholesaleMinimum,
 } from "../wholesale-service.js";
+import { activatePendingNotesForCustomer } from '../utils/customer-notes.js';
 import {
   activatePendingBansForCustomer,
   getActiveBlockForTelegramId,
@@ -36,6 +37,7 @@ import {
   isCustomerVerified,
 } from "../utils/business-bot.js";
 import { resolveUsernameViaUserbot } from "../utils/userbot-client.js";
+import { autoNotifyOrderAccepted } from "../utils/auto-notify.js";
 
 export const publicRouter = express.Router();
 
@@ -2464,6 +2466,12 @@ publicRouter.post(
         resolveUsernameViaUserbot({ username: verifiedTelegramUsername }).catch(() => {});
       }
 
+      setImmediate(() => {
+        void autoNotifyOrderAccepted({ orderId: created.orderId }).catch((notifyErr) => {
+          console.error("[public] deferred order-accepted notify error:", notifyErr);
+        });
+      });
+
       return res.json({
         success: true,
         order_id: created.orderId,
@@ -2628,6 +2636,10 @@ function upsertPublicCustomer({
       id: existing.id,
       telegram_username: telegramUsername || existing.telegram_username,
     });
+    activatePendingNotesForCustomer({
+      id: existing.id,
+      telegram_username: telegramUsername || existing.telegram_username,
+    });
     return existing.id;
   }
 
@@ -2652,6 +2664,10 @@ function upsertPublicCustomer({
   // (превентивный бан, оформленный админом до первого визита). Если есть —
   // переносим в customer_blocks с реальным customer_id.
   activatePendingBansForCustomer({
+    id: customerId,
+    telegram_username: telegramUsername,
+  });
+  activatePendingNotesForCustomer({
     id: customerId,
     telegram_username: telegramUsername,
   });

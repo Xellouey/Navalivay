@@ -58,8 +58,14 @@
                       : 'sidebar-button--default'
                   ]"
                 >
-                  <span class="sidebar-button__icon">
+                  <span class="sidebar-button__icon relative">
                     <component :is="tab.icon" class="w-5 h-5" />
+                    <span
+                      v-if="tab.id === 'categories' && incompleteGroupsHasAny"
+                      class="absolute -top-1.5 -right-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-[11px] font-bold text-white shadow-lg"
+                      :title="`Нужно дозаполнить: ${incompleteGroupsCount}`"
+                      aria-label="Есть линейки с незаполненными данными"
+                    >!</span>
                   </span>
                   <div class="flex flex-col items-start gap-0.5">
                     <span class="truncate text-left leading-tight text-slate-900">{{ tab.name }}</span>
@@ -138,6 +144,7 @@ import { Bars3Icon, XMarkIcon, LockClosedIcon } from '@heroicons/vue/24/outline'
 import { storeToRefs } from 'pinia'
 import AdminSidebar from './AdminSidebar.vue'
 import { useCrmStore } from '@/stores/crm'
+import { useAdminStore } from '@/stores/admin'
 
 interface Tab { id: string; name: string; icon: any; description?: string }
 interface SidebarLink { id: string; name: string; description: string; icon: any; to: string }
@@ -154,7 +161,9 @@ const props = withDefaults(defineProps<{
 const emit = defineEmits<{ (e: 'update:modelValue', v: string): void; (e: 'lock'): void }>()
 
 const crmStore = useCrmStore()
+const adminStore = useAdminStore()
 const { newOrdersCount, lowStockHasAny, lowStockCount } = storeToRefs(crmStore)
+const { incompleteGroupsHasAny, incompleteGroupsCount } = storeToRefs(adminStore)
 
 const innerValue = ref(props.modelValue)
 watch(() => props.modelValue, v => innerValue.value = v)

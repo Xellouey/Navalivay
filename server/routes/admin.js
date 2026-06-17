@@ -20,6 +20,13 @@ import {
 } from '../wholesale-service.js';
 import { syncGroupParking, syncParkingFromFlattened } from '../utils/group-parking.js';
 import { searchProductsForAdmin, syncProductSearchIndex } from '../services/product-search-service.js';
+import {
+  COMPLETENESS_FIELD_LABELS,
+  computeIncompleteGroups,
+  getIncompleteGroupsSummary,
+  normalizeWaiverInput,
+  updateGroupCompletenessWaivers,
+} from '../utils/category-group-completeness.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -162,7 +169,18 @@ function enrichAdminCategoryGroup(group) {
     direct_product_count: costStats.directProductCount,
     products_with_cost_count: costStats.productsWithCostCount,
     wholesale_tiers: wholesaleTiers,
+    waive_description: Number(group.waive_description ?? 0),
+    waive_min_stock: Number(group.waive_min_stock ?? 0),
+    waive_wholesale: Number(group.waive_wholesale ?? 0),
   };
+}
+
+function resolveWaiverUpdate(body, snakeKey, camelKey, currentValue) {
+  const provided = snakeKey in (body || {}) || camelKey in (body || {});
+  if (!provided) {
+    return Number(currentValue ?? 0);
+  }
+  return normalizeWaiverInput(body[camelKey] ?? body[snakeKey]);
 }
 
 export const adminRouter = express.Router();
@@ -1543,6 +1561,9 @@ adminRouter.get('/api/admin/category-groups', authMiddleware, (req, res) => {
       g.empty_since,
       g.parked_order,
       g.min_stock_threshold,
+      g.waive_description,
+      g.waive_min_stock,
+      g.waive_wholesale,
       g.createdAt,
       g.updatedAt,
       COUNT(p.id) AS productCount,
@@ -1555,7 +1576,7 @@ adminRouter.get('/api/admin/category-groups', authMiddleware, (req, res) => {
     FROM category_groups g
     LEFT JOIN products p ON p.groupId = g.id
     ${whereClause}
-    GROUP BY g.id, g.categoryId, g.slug, g.name, g.[order], g.hide_empty, g.parent_group_id, g.meta_label, g.meta_value, g.empty_since, g.parked_order, g.min_stock_threshold, g.createdAt, g.updatedAt
+    GROUP BY g.id, g.categoryId, g.slug, g.name, g.[order], g.hide_empty, g.parent_group_id, g.meta_label, g.meta_value, g.empty_since, g.parked_order, g.min_stock_threshold, g.waive_description, g.waive_min_stock, g.waive_wholesale, g.createdAt, g.updatedAt
     ORDER BY g.categoryId ASC, g.[order] ASC, g.name ASC
   `).all(...params);
 
@@ -1683,6 +1704,26 @@ adminRouter.get('/api/admin/category-groups', authMiddleware, (req, res) => {
   res.json(enrichAdminCategoryGroups(flattened));
 });
 
+// Статические сегменты ДО :id — иначе Express примет "incomplete" как id группы.
+adminRouter.get('/api/admin/category-groups/incomplete', authMiddleware, (req, res) => {
+  try {
+    const items = computeIncompleteGroups();
+    res.json({ items, fieldLabels: COMPLETENESS_FIELD_LABELS });
+  } catch (error) {
+    console.error('[admin] List incomplete category groups error:', error);
+    res.status(500).json({ error: 'failed', message: error.message });
+  }
+});
+
+adminRouter.get('/api/admin/category-groups/incomplete/summary', authMiddleware, (req, res) => {
+  try {
+    res.json(getIncompleteGroupsSummary());
+  } catch (error) {
+    console.error('[admin] Incomplete category groups summary error:', error);
+    res.status(500).json({ error: 'failed', message: error.message });
+  }
+});
+
 // Отдельный эндпоинт для получения изображения группы (чтобы не грузить все изображения в списке)
 adminRouter.get('/api/admin/category-groups/:id/image', authMiddleware, (req, res) => {
   const { id } = req.params;
@@ -1727,6 +1768,29 @@ adminRouter.get('/api/admin/category-groups/:id', authMiddleware, (req, res) => 
   }));
 });
 
+adminRouter.patch('/api/admin/category-groups/:id/completeness-waivers', authMiddleware, (req, res) => {
+  try {
+    const result = updateGroupCompletenessWaivers(req.params.id, {
+      waiveDescription: req.body?.waive_description ?? req.body?.waiveDescription,
+      waiveMinStock: req.body?.waive_min_stock ?? req.body?.waiveMinStock,
+      waiveWholesale: req.body?.waive_wholesale ?? req.body?.waiveWholesale,
+    });
+    res.json({ ok: true, waivers: result });
+  } catch (error) {
+    if (error.code === 'group_not_found') {
+      return res.status(404).json({ error: 'group_not_found' });
+    }
+    if (error.code === 'invalid_waiver_value') {
+      return res.status(400).json({ error: 'invalid_waiver_value' });
+    }
+    if (error.code === 'group_id_required') {
+      return res.status(400).json({ error: 'group_id_required' });
+    }
+    console.error('[admin] Update completeness waivers error:', error);
+    res.status(500).json({ error: 'failed', message: error.message });
+  }
+});
+
 adminRouter.post('/api/admin/category-groups', authMiddleware, async (req, res) => {
   const {
     categoryId,
@@ -1743,10 +1807,35 @@ adminRouter.post('/api/admin/category-groups', authMiddleware, async (req, res) 
     wholesale_prices,
     minStockThreshold,
     min_stock_threshold,
+    waiveDescription,
+    waive_description,
+    waiveMinStock,
+    waive_min_stock,
+    waiveWholesale,
+    waive_wholesale,
   } = req.body || {};
 
   if (!categoryId || !name) {
     return res.status(400).json({ error: 'missing_fields' });
+  }
+
+  let resolvedWaiveDescription = 0;
+  let resolvedWaiveMinStock = 0;
+  let resolvedWaiveWholesale = 0;
+  try {
+    resolvedWaiveDescription = resolveWaiverUpdate(
+      req.body,
+      'waive_description',
+      'waiveDescription',
+      0,
+    );
+    resolvedWaiveMinStock = resolveWaiverUpdate(req.body, 'waive_min_stock', 'waiveMinStock', 0);
+    resolvedWaiveWholesale = resolveWaiverUpdate(req.body, 'waive_wholesale', 'waiveWholesale', 0);
+  } catch (error) {
+    if (error.code === 'invalid_waiver_value') {
+      return res.status(400).json({ error: 'invalid_waiver_value' });
+    }
+    throw error;
   }
 
   const category = db.prepare('SELECT id FROM categories WHERE id = ?').get(String(categoryId));
@@ -1796,8 +1885,13 @@ adminRouter.post('/api/admin/category-groups', authMiddleware, async (req, res) 
   try {
     const tx = db.transaction(() => {
       db.prepare(`
-        INSERT INTO category_groups (id, categoryId, slug, name, cover_image, [order], hide_empty, meta_label, meta_value, parent_group_id, min_stock_threshold, createdAt, updatedAt)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, DATETIME('now'), DATETIME('now'))
+        INSERT INTO category_groups (
+          id, categoryId, slug, name, cover_image, [order], hide_empty,
+          meta_label, meta_value, parent_group_id, min_stock_threshold,
+          waive_description, waive_min_stock, waive_wholesale,
+          createdAt, updatedAt
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, DATETIME('now'), DATETIME('now'))
       `).run(
         newId,
         String(categoryId),
@@ -1810,6 +1904,9 @@ adminRouter.post('/api/admin/category-groups', authMiddleware, async (req, res) 
         resolvedMetaValue,
         resolvedParentId,
         resolvedThreshold,
+        resolvedWaiveDescription,
+        resolvedWaiveMinStock,
+        resolvedWaiveWholesale,
       );
 
       saveGroupWholesalePrices(newId, wholesalePrices ?? wholesale_prices ?? {});
@@ -1837,13 +1934,16 @@ adminRouter.post('/api/admin/category-groups', authMiddleware, async (req, res) 
       g.meta_label,
       g.meta_value,
       g.min_stock_threshold,
+      g.waive_description,
+      g.waive_min_stock,
+      g.waive_wholesale,
       g.createdAt,
       g.updatedAt,
       COUNT(p.id) AS productCount
     FROM category_groups g
     LEFT JOIN products p ON p.groupId = g.id
     WHERE g.id = ?
-    GROUP BY g.id, g.categoryId, g.slug, g.name, g.cover_image, g.[order], g.hide_empty, g.parent_group_id, g.meta_label, g.meta_value, g.min_stock_threshold, g.createdAt, g.updatedAt
+    GROUP BY g.id, g.categoryId, g.slug, g.name, g.cover_image, g.[order], g.hide_empty, g.parent_group_id, g.meta_label, g.meta_value, g.min_stock_threshold, g.waive_description, g.waive_min_stock, g.waive_wholesale, g.createdAt, g.updatedAt
   `).get(newId);
 
   if (!result) {
@@ -1886,11 +1986,46 @@ adminRouter.put('/api/admin/category-groups/:id', authMiddleware, async (req, re
     wholesale_prices,
     minStockThreshold,
     min_stock_threshold,
+    waiveDescription,
+    waive_description,
+    waiveMinStock,
+    waive_min_stock,
+    waiveWholesale,
+    waive_wholesale,
   } = req.body || {};
 
   const current = db.prepare('SELECT * FROM category_groups WHERE id = ?').get(id);
   if (!current) {
     return res.status(404).json({ error: 'not_found' });
+  }
+
+  let nextWaiveDescription;
+  let nextWaiveMinStock;
+  let nextWaiveWholesale;
+  try {
+    nextWaiveDescription = resolveWaiverUpdate(
+      req.body,
+      'waive_description',
+      'waiveDescription',
+      current.waive_description,
+    );
+    nextWaiveMinStock = resolveWaiverUpdate(
+      req.body,
+      'waive_min_stock',
+      'waiveMinStock',
+      current.waive_min_stock,
+    );
+    nextWaiveWholesale = resolveWaiverUpdate(
+      req.body,
+      'waive_wholesale',
+      'waiveWholesale',
+      current.waive_wholesale,
+    );
+  } catch (error) {
+    if (error.code === 'invalid_waiver_value') {
+      return res.status(400).json({ error: 'invalid_waiver_value' });
+    }
+    throw error;
   }
 
   const nextName = name ? String(name) : current.name;
@@ -1982,9 +2117,26 @@ adminRouter.put('/api/admin/category-groups/:id', authMiddleware, async (req, re
     const tx = db.transaction(() => {
       db.prepare(`
         UPDATE category_groups
-        SET name = ?, slug = ?, cover_image = ?, hide_empty = ?, [order] = ?, meta_label = ?, meta_value = ?, parent_group_id = ?, min_stock_threshold = ?, updatedAt = DATETIME('now')
+        SET name = ?, slug = ?, cover_image = ?, hide_empty = ?, [order] = ?,
+            meta_label = ?, meta_value = ?, parent_group_id = ?, min_stock_threshold = ?,
+            waive_description = ?, waive_min_stock = ?, waive_wholesale = ?,
+            updatedAt = DATETIME('now')
         WHERE id = ?
-      `).run(nextName, nextSlug, nextCover, nextHideEmpty, nextOrder, nextMetaLabel, nextMetaValue, nextParentId, nextThreshold, id);
+      `).run(
+        nextName,
+        nextSlug,
+        nextCover,
+        nextHideEmpty,
+        nextOrder,
+        nextMetaLabel,
+        nextMetaValue,
+        nextParentId,
+        nextThreshold,
+        nextWaiveDescription,
+        nextWaiveMinStock,
+        nextWaiveWholesale,
+        id,
+      );
 
       if (wholesalePricesProvided) {
         saveGroupWholesalePrices(id, wholesalePrices ?? wholesale_prices ?? {});
@@ -2013,13 +2165,16 @@ adminRouter.put('/api/admin/category-groups/:id', authMiddleware, async (req, re
       g.meta_label,
       g.meta_value,
       g.min_stock_threshold,
+      g.waive_description,
+      g.waive_min_stock,
+      g.waive_wholesale,
       g.createdAt,
       g.updatedAt,
       COUNT(p.id) AS productCount
     FROM category_groups g
     LEFT JOIN products p ON p.groupId = g.id
     WHERE g.id = ?
-    GROUP BY g.id, g.categoryId, g.slug, g.name, g.cover_image, g.[order], g.hide_empty, g.parent_group_id, g.meta_label, g.meta_value, g.min_stock_threshold, g.createdAt, g.updatedAt
+    GROUP BY g.id, g.categoryId, g.slug, g.name, g.cover_image, g.[order], g.hide_empty, g.parent_group_id, g.meta_label, g.meta_value, g.min_stock_threshold, g.waive_description, g.waive_min_stock, g.waive_wholesale, g.createdAt, g.updatedAt
   `).get(id);
 
   if (!updated) {
