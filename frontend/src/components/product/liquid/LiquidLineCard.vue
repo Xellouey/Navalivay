@@ -27,14 +27,14 @@
               <path d="M21 15l-5-5L5 21" />
             </svg>
           </div>
-          <p v-if="minPriceLabel" class="liquid-line-image-price">
-            <span class="liquid-line-image-price-amount">{{ minPriceLabel }}</span>
-            <span class="liquid-line-image-price-currency">BYN</span>
-          </p>
         </div>
         <div class="liquid-line-info">
           <h3 class="liquid-line-title">{{ title }}</h3>
           <p v-if="metaText" class="liquid-line-meta">{{ metaText }}</p>
+          <p v-else-if="minPriceLabel" class="liquid-line-price">
+            <span class="liquid-line-price-amount">{{ minPriceLabel }}</span>
+            <span class="liquid-line-price-currency"> BYN</span>
+          </p>
           <button
             v-if="reviewCount > 0"
             type="button"
@@ -947,12 +947,8 @@ function closeColorPreview() {
   background: #fafafa;
 }
 
-.liquid-line-image-price {
+.liquid-line-price {
   margin: 0;
-  display: inline-flex;
-  align-items: baseline;
-  justify-content: center;
-  gap: 4px;
   font-family: "Montserrat", sans-serif;
   font-style: normal;
   font-weight: 700;
@@ -961,11 +957,11 @@ function closeColorPreview() {
   white-space: nowrap;
 }
 
-.liquid-line-image-price-amount {
+.liquid-line-price-amount {
   color: var(--navalivay-red, #d32f2f);
 }
 
-.liquid-line-image-price-currency {
+.liquid-line-price-currency {
   color: #191919;
 }
 
@@ -1468,7 +1464,7 @@ function closeColorPreview() {
     line-height: 20px;
   }
 
-  .liquid-line-image-price {
+  .liquid-line-price {
     font-size: 16px;
     line-height: 20px;
   }
@@ -1566,7 +1562,7 @@ function closeColorPreview() {
     line-height: 20px;
   }
 
-  .liquid-line-image-price {
+  .liquid-line-price {
     font-size: 15px;
     line-height: 19px;
   }
@@ -1689,7 +1685,7 @@ function closeColorPreview() {
     line-height: 20px;
   }
 
-  .liquid-line-image-price {
+  .liquid-line-price {
     font-size: 14px;
     line-height: 18px;
   }
@@ -1823,7 +1819,7 @@ function closeColorPreview() {
     line-height: 19px;
   }
 
-  .liquid-line-image-price {
+  .liquid-line-price {
     font-size: 13px;
     line-height: 17px;
   }

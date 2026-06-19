@@ -1,23 +1,41 @@
 <template>
   <section v-if="visible" class="category-filter-bar" aria-label="Фильтры категории">
-    <div
-      v-if="chips.length"
-      class="category-filter-chips scrollbar-hide"
-      role="group"
-      aria-label="Быстрые фильтры"
-    >
-      <button
-        v-for="chip in chips"
-        :key="chip.id"
-        type="button"
-        class="category-filter-chip"
-        :class="{ 'is-active': chip.active, 'is-loading': chip.loading }"
-        :disabled="chip.loading"
-        @click="chip.onClick"
+    <div v-if="chips.length" class="category-filter-rows" aria-label="Быстрые фильтры">
+      <div
+        v-if="topChip"
+        class="category-filter-row"
+        role="group"
+        aria-label="Популярные линейки"
       >
-        <span v-if="chip.rankIcon" class="category-filter-chip-rank">{{ chip.rankIcon }}</span>
-        <span>{{ chip.label }}</span>
-      </button>
+        <button
+          type="button"
+          class="category-filter-chip"
+          :class="{ 'is-active': topChip.active, 'is-loading': topChip.loading }"
+          :disabled="topChip.loading"
+          @click="topChip.onClick"
+        >
+          <span v-if="topChip.rankIcon" class="category-filter-chip-rank">{{ topChip.rankIcon }}</span>
+          <span>{{ topChip.label }}</span>
+        </button>
+      </div>
+
+      <div
+        v-if="strengthChips.length"
+        class="category-filter-row category-filter-row--strength"
+        role="group"
+        aria-label="Крепость"
+      >
+        <button
+          v-for="chip in strengthChips"
+          :key="chip.id"
+          type="button"
+          class="category-filter-chip"
+          :class="{ 'is-active': chip.active }"
+          @click="chip.onClick"
+        >
+          <span>{{ chip.label }}</span>
+        </button>
+      </div>
     </div>
   </section>
 </template>
@@ -92,6 +110,12 @@ const chips = computed<ChipItem[]>(() => {
 
   return list;
 });
+
+const topChip = computed(() => chips.value.find((chip) => chip.id === "top") ?? null);
+
+const strengthChips = computed(() =>
+  chips.value.filter((chip) => chip.id !== "top"),
+);
 </script>
 
 <style scoped>
@@ -99,10 +123,20 @@ const chips = computed<ChipItem[]>(() => {
   margin-bottom: 16px;
 }
 
-.category-filter-chips {
+.category-filter-rows {
   display: flex;
-  flex-wrap: nowrap;
+  flex-direction: column;
   gap: 8px;
+}
+
+.category-filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.category-filter-row--strength {
+  flex-wrap: nowrap;
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
   overscroll-behavior-x: contain;

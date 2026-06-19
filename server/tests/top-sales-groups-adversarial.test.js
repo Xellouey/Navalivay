@@ -13,7 +13,7 @@ process.env.DATABASE_FILE = TMP_DB;
 const { db, initDb } = await import('../db.js');
 initDb();
 
-const { queryTopSalesGroups } = await import('../utils/top-sales-groups.js');
+const { queryTopSalesGroups, isGroupAvailableOnStorefront } = await import('../utils/top-sales-groups.js');
 const { getBusinessPeriodRange } = await import('../utils/business-time.js');
 
 const results = { passed: 0, failed: 0 };
@@ -62,11 +62,11 @@ function seedGroup(id, categoryId, name) {
   ).run(id, categoryId, id, name);
 }
 
-function seedProduct(id, categoryId, groupId, title = 'Flavor') {
+function seedProduct(id, categoryId, groupId, title = 'Flavor', stock = 5) {
   db.prepare(
     `INSERT INTO products (id, categoryId, groupId, title, priceRub, description, stock, createdAt)
-     VALUES (?, ?, ?, ?, 10, '', 5, DATETIME('now'))`,
-  ).run(id, categoryId, groupId ?? null, title);
+     VALUES (?, ?, ?, ?, 10, '', ?, DATETIME('now'))`,
+  ).run(id, categoryId, groupId ?? null, title, stock);
 }
 
 function seedPaidOrder({ orderId, customerId, paidAt, status = 'completed' }) {
@@ -301,6 +301,113 @@ console.log('\n--- R3: CRM field mapping parity ---');
   assertEq(crmRow.total_quantity, 4, 'CRM total_quantity maps from totalQuantity');
   ok(Number.isFinite(crmRow.total_revenue), 'CRM total_revenue is numeric');
   ok(Number.isFinite(crmRow.total_profit), 'CRM total_profit is numeric');
+}
+
+console.log('\n--- A6: storefront filter skips OOS and re-ranks ---');
+{
+  resetTables();
+  seedCategory('c_oos');
+  seedGroup('g_1', 'c_oos', 'PODGON');
+  seedGroup('g_2', 'c_oos', 'CRITICAL');
+  seedGroup('g_3', 'c_oos', 'CATSWILL');
+  seedGroup('g_4', 'c_oos', 'DUALL');
+  seedGroup('g_5', 'c_oos', 'FIFTH');
+  seedProduct('p_1', 'c_oos', 'g_1', 'P1', 5);
+  seedProduct('p_2', 'c_oos', 'g_2', 'P2', 0);
+  seedProduct('p_3', 'c_oos', 'g_3', 'P3', 0);
+  seedProduct('p_4', 'c_oos', 'g_4', 'P4', 3);
+  seedProduct('p_5', 'c_oos', 'g_5', 'P5', 2);
+  seedCustomer('cust_oos');
+  seedPaidOrder({ orderId: 'o_oos', customerId: 'cust_oos', paidAt });
+  seedOrderItem({ id: 'oi_1', orderId: 'o_oos', productId: 'p_1', quantity: 100, totalPrice: 1000 });
+  seedOrderItem({ id: 'oi_2', orderId: 'o_oos', productId: 'p_2', quantity: 80, totalPrice: 800 });
+  seedOrderItem({ id: 'oi_3', orderId: 'o_oos', productId: 'p_3', quantity: 60, totalPrice: 600 });
+  seedOrderItem({ id: 'oi_4', orderId: 'o_oos', productId: 'p_4', quantity: 40, totalPrice: 400 });
+  seedOrderItem({ id: 'oi_5', orderId: 'o_oos', productId: 'p_5', quantity: 20, totalPrice: 200 });
+
+  ok(!isGroupAvailableOnStorefront('g_2'), 'critical line is OOS on storefront');
+  ok(isGroupAvailableOnStorefront('g_4'), 'duall line stays available');
+
+  const storefrontTop = queryTopSalesGroups({
+    start,
+    end,
+    categoryId: 'c_oos',
+    limit: 5,
+    onlyStorefrontAvailable: true,
+  });
+  ok(storefrontTop.items.length === 3, 'only in-stock groups returned');
+  ok(storefrontTop.items[0].groupId === 'g_1' && storefrontTop.items[0].rank === 1, 'leader keeps rank 1');
+  ok(storefrontTop.items[1].groupId === 'g_4' && storefrontTop.items[1].rank === 2, 'duall promoted to rank 2');
+  ok(storefrontTop.items[2].groupId === 'g_5' && storefrontTop.items[2].rank === 3, 'fifth becomes rank 3');
+
+  const crmTop = queryTopSalesGroups({
+    start,
+    end,
+    categoryId: 'c_oos',
+    limit: 5,
+    onlyStorefrontAvailable: false,
+  });
+  ok(crmTop.items.length === 5, 'CRM view still shows all sales leaders');
+  ok(crmTop.items[1].groupId === 'g_2', 'CRM keeps OOS group in raw rank 2');
+}
+
+console.log('\n--- A7: storefront filter backfills when many leaders are OOS ---');
+{
+  resetTables();
+  seedCategory('c_fill');
+  for (let i = 1; i <= 6; i += 1) {
+    const gid = `g_fill_${i}`;
+    seedGroup(gid, 'c_fill', `Line ${i}`);
+    const stock = i <= 4 ? 0 : 4;
+    seedProduct(`p_fill_${i}`, 'c_fill', gid, `P${i}`, stock);
+  }
+  seedCustomer('cust_fill');
+  seedPaidOrder({ orderId: 'o_fill', customerId: 'cust_fill', paidAt });
+  for (let i = 1; i <= 6; i += 1) {
+    seedOrderItem({
+      id: `oi_fill_${i}`,
+      orderId: 'o_fill',
+      productId: `p_fill_${i}`,
+      quantity: 100 - i,
+      totalPrice: (100 - i) * 10,
+    });
+  }
+
+  const top = queryTopSalesGroups({
+    start,
+    end,
+    categoryId: 'c_fill',
+    limit: 2,
+    onlyStorefrontAvailable: true,
+  });
+  ok(top.items.length === 2, 'backfills top-2 from deeper sales pool');
+  ok(top.items[0].groupId === 'g_fill_5' && top.items[0].rank === 1, 'first available sales leader is rank 1');
+  ok(top.items[1].groupId === 'g_fill_6' && top.items[1].rank === 2, 'next available leader is rank 2');
+  ok(top.hasMore === false, 'only two in-stock groups total');
+}
+
+console.log('\n--- A8: parent line stays available when child subgroup has stock ---');
+{
+  resetTables();
+  seedCategory('c_parent');
+  seedGroup('g_parent', 'c_parent', 'PODONKI');
+  seedGroup('g_child', 'c_parent', 'PODONKI CRITICAL', null);
+  db.prepare('UPDATE category_groups SET parent_group_id = ? WHERE id = ?').run('g_parent', 'g_child');
+  seedProduct('p_parent', 'c_parent', 'g_parent', 'Parent flavor', 0);
+  seedProduct('p_child', 'c_parent', 'g_child', 'Child flavor', 6);
+  seedCustomer('cust_parent');
+  seedPaidOrder({ orderId: 'o_parent', customerId: 'cust_parent', paidAt });
+  seedOrderItem({ id: 'oi_parent', orderId: 'o_parent', productId: 'p_parent', quantity: 50, totalPrice: 500 });
+
+  ok(isGroupAvailableOnStorefront('g_parent'), 'parent counts child stock');
+  const top = queryTopSalesGroups({
+    start,
+    end,
+    categoryId: 'c_parent',
+    limit: 5,
+    onlyStorefrontAvailable: true,
+  });
+  ok(top.items.length === 1 && top.items[0].groupId === 'g_parent', 'parent sales row kept when subtree has stock');
 }
 
 console.log('\n--- R4: case-insensitive search ---');

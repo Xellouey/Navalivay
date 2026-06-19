@@ -972,6 +972,7 @@ publicRouter.get("/api/top-sales-groups", (req, res) => {
       categoryId,
       sortBy: "quantity",
       limit,
+      onlyStorefrontAvailable: true,
     });
 
     const payload = {

@@ -119,7 +119,7 @@ describe("GroupLineItem", () => {
       },
     });
 
-    expect(wrapper.find(".group-line-image-price").exists()).toBe(false);
+    expect(wrapper.find(".group-line-price").exists()).toBe(false);
   });
 
   it("shows the direct group price when the group has its own products", () => {
@@ -157,9 +157,9 @@ describe("GroupLineItem", () => {
       },
     });
 
-    const priceWrapper = wrapper.find(".group-line-image-price");
+    const priceWrapper = wrapper.find(".group-line-price");
     expect(priceWrapper.exists()).toBe(true);
-    expect(wrapper.find(".group-line-image-price-amount").text()).toBe("90");
-    expect(wrapper.find(".group-line-image-price-currency").text()).toBe("BYN");
+    expect(wrapper.find(".group-line-price-amount").text()).toBe("90");
+    expect(wrapper.find(".group-line-price-currency").text()).toBe("BYN");
   });
 });

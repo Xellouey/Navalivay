@@ -80,11 +80,11 @@ function seedGroup(id, categoryId, name, strengthTier = null) {
   ).run(id, categoryId, id, name, strengthTier);
 }
 
-function seedProduct(id, categoryId, groupId) {
+function seedProduct(id, categoryId, groupId, stock = 5) {
   db.prepare(
     `INSERT INTO products (id, categoryId, groupId, title, priceRub, description, stock, createdAt)
-     VALUES (?, ?, ?, 'Item', 10, '', 5, DATETIME('now'))`,
-  ).run(id, categoryId, groupId);
+     VALUES (?, ?, ?, 'Item', 10, '', ?, DATETIME('now'))`,
+  ).run(id, categoryId, groupId, stock);
 }
 
 function seedMonthSale(categoryId, groupId, productId, quantity) {
@@ -170,7 +170,44 @@ console.log('\n--- R-ROUTE2: snus_plates profile supported ---');
   ok(data?.items?.length === 1, 'snus_plates returns sales');
 }
 
-console.log('\n--- R-ROUTE3: /api/categories exposes storefront + strength ---');
+console.log('\n--- R-ROUTE3: OOS leaders are skipped and ranks shift on public API ---');
+{
+  resetSalesData();
+  seedCategory({ id: 'c_shift', profile: 'liquids', name: 'Жидкости' });
+  seedGroup('g_shift_1', 'c_shift', 'Leader');
+  seedGroup('g_shift_2', 'c_shift', 'Sold out');
+  seedGroup('g_shift_3', 'c_shift', 'Next up');
+  seedProduct('p_shift_1', 'c_shift', 'g_shift_1', 4);
+  seedProduct('p_shift_2', 'c_shift', 'g_shift_2', 0);
+  seedProduct('p_shift_3', 'c_shift', 'g_shift_3', 2);
+  seedCustomer('cust_shift');
+  const { start } = getBusinessPeriodRange('month', 0);
+  const paidAt = start.toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, '');
+  db.prepare(
+    `INSERT INTO orders (id, order_number, customer_id, status, total_amount, final_amount, paid_at, created_at)
+     VALUES ('o_shift', 'o_shift', 'cust_shift', 'completed', 10, 10, ?, DATETIME('now'))`,
+  ).run(paidAt);
+  db.prepare(
+    `INSERT INTO order_items (id, order_id, product_id, product_title, quantity, price_per_unit, total_price, total_cost)
+     VALUES ('oi_s1', 'o_shift', 'p_shift_1', 'Item', 30, 10, 300, 40)`,
+  ).run();
+  db.prepare(
+    `INSERT INTO order_items (id, order_id, product_id, product_title, quantity, price_per_unit, total_price, total_cost)
+     VALUES ('oi_s2', 'o_shift', 'p_shift_2', 'Item', 20, 10, 200, 40)`,
+  ).run();
+  db.prepare(
+    `INSERT INTO order_items (id, order_id, product_id, product_title, quantity, price_per_unit, total_price, total_cost)
+     VALUES ('oi_s3', 'o_shift', 'p_shift_3', 'Item', 10, 10, 100, 40)`,
+  ).run();
+
+  const { response, data } = await requestJson('/api/top-sales-groups?category=c_shift&limit=5');
+  ok(response.status === 200, 'status 200');
+  ok(data?.items?.length === 2, 'OOS group excluded from public top');
+  ok(data?.items?.[0]?.groupId === 'g_shift_1' && data?.items?.[0]?.rank === 1, 'leader rank 1');
+  ok(data?.items?.[1]?.groupId === 'g_shift_3' && data?.items?.[1]?.rank === 2, 'next in-stock group promoted to rank 2');
+}
+
+console.log('\n--- R-ROUTE4: /api/categories exposes storefront + strength ---');
 {
   resetSalesData();
   seedCategory({ id: 'c_pub', profile: 'liquids', name: 'Public cat' });

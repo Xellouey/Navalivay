@@ -1,8 +1,99 @@
 import { db } from '../db.js';
 import { toSqliteUtcString } from './business-time.js';
 
+const STOREFRONT_OVERFETCH_MAX = 100;
+
 function toSqliteDate(date) {
   return toSqliteUtcString(date);
+}
+
+function collectGroupSubtreeIds(groupId) {
+  const rootId = String(groupId);
+  const ids = new Set([rootId]);
+  const queue = [rootId];
+
+  while (queue.length > 0) {
+    const current = queue.shift();
+    const children = db
+      .prepare('SELECT id FROM category_groups WHERE parent_group_id = ?')
+      .all(current);
+    for (const child of children) {
+      const childId = String(child.id);
+      if (!ids.has(childId)) {
+        ids.add(childId);
+        queue.push(childId);
+      }
+    }
+  }
+
+  return [...ids];
+}
+
+function countInStockProductsInGroups(groupIds) {
+  if (!groupIds.length) return 0;
+
+  const placeholders = groupIds.map(() => '?').join(',');
+  const row = db
+    .prepare(
+      `
+      SELECT COUNT(DISTINCT p.id) AS total
+      FROM products p
+      WHERE p.groupId IN (${placeholders})
+        AND (
+          (COALESCE(p.has_variants, 0) = 0 AND (p.stock IS NULL OR p.stock > 0))
+          OR
+          (COALESCE(p.has_variants, 0) = 1 AND EXISTS (
+            SELECT 1 FROM product_variants pv
+            WHERE pv.product_id = p.id
+              AND (pv.stock IS NULL OR pv.stock > 0)
+          ))
+        )
+    `,
+    )
+    .get(...groupIds);
+
+  return Number(row?.total ?? 0);
+}
+
+/**
+ * Линейка доступна на витрине, если в ней или в подлинейках есть товар в наличии.
+ * Совпадает с логикой productCount / totalProductCount в /api/categories.
+ */
+export function isGroupAvailableOnStorefront(groupId) {
+  const id = String(groupId);
+  if (!id || id === 'no_group') return false;
+
+  const group = db.prepare('SELECT id FROM category_groups WHERE id = ?').get(id);
+  if (!group) return false;
+
+  return countInStockProductsInGroups(collectGroupSubtreeIds(id)) > 0;
+}
+
+function mapTopSalesRow(row, rank) {
+  return {
+    groupId: String(row.group_id),
+    groupName: row.group_name,
+    categoryId: row.category_id ? String(row.category_id) : null,
+    rank,
+    totalQuantity: Number(row.total_quantity ?? 0),
+    totalRevenue: Number(row.total_revenue ?? 0),
+    totalProfit: Number(row.total_profit ?? 0),
+    hasCoverImage: Boolean(row.cover_image),
+  };
+}
+
+function applyStorefrontAvailabilityFilter(rows, safeLimit, candidateLimit) {
+  const availableRows = rows.filter((row) =>
+    isGroupAvailableOnStorefront(row.group_id),
+  );
+
+  const hasMore = availableRows.length > safeLimit || rows.length > candidateLimit;
+
+  const items = availableRows
+    .slice(0, safeLimit)
+    .map((row, index) => mapTopSalesRow(row, index + 1));
+
+  return { items, hasMore };
 }
 
 /**
@@ -16,6 +107,7 @@ export function queryTopSalesGroups({
   sortBy = 'quantity',
   limit = 5,
   search = '',
+  onlyStorefrontAvailable = false,
 } = {}) {
   if (!start || !end) {
     const err = new Error('period_required');
@@ -31,12 +123,17 @@ export function queryTopSalesGroups({
   const safeSearch =
     typeof search === 'string' ? search.trim().replace(/[\\%_]/g, (ch) => `\\${ch}`) : '';
 
+  const candidateLimit = onlyStorefrontAvailable
+    ? Math.min(Math.max(safeLimit * 10, safeLimit + 5), STOREFRONT_OVERFETCH_MAX)
+    : safeLimit;
+
   const categoryClause = categoryId ? 'AND g.categoryId = ?' : '';
   const params = [];
   if (categoryId) {
     params.push(String(categoryId));
   }
-  params.push(safeSearch, safeSearch, safeLimit + 1);
+  const sqlLimit = onlyStorefrontAvailable ? candidateLimit + 1 : safeLimit + 1;
+  params.push(safeSearch, safeSearch, sqlLimit);
 
   const rows = db
     .prepare(
@@ -88,17 +185,12 @@ export function queryTopSalesGroups({
     )
     .all(...params);
 
+  if (onlyStorefrontAvailable) {
+    return applyStorefrontAvailabilityFilter(rows, safeLimit, candidateLimit);
+  }
+
   const hasMore = rows.length > safeLimit;
-  const items = rows.slice(0, safeLimit).map((row, index) => ({
-    groupId: String(row.group_id),
-    groupName: row.group_name,
-    categoryId: row.category_id ? String(row.category_id) : null,
-    rank: index + 1,
-    totalQuantity: Number(row.total_quantity ?? 0),
-    totalRevenue: Number(row.total_revenue ?? 0),
-    totalProfit: Number(row.total_profit ?? 0),
-    hasCoverImage: Boolean(row.cover_image),
-  }));
+  const items = rows.slice(0, safeLimit).map((row, index) => mapTopSalesRow(row, index + 1));
 
   return { items, hasMore };
 }

@@ -83,6 +83,28 @@ describe("useCategoryFilters", () => {
     expect(filtered[0].children?.map((c) => c.id)).toEqual(["child"]);
   });
 
+  it("uses server-provided ranks after OOS groups are skipped", () => {
+    const { topActive, topSales, filterGroupTree, getTopRank } = useCategoryFilters();
+    topActive.value = true;
+    topSales.value = [
+      { groupId: "podgon", rank: 1 },
+      { groupId: "duall", rank: 2 },
+      { groupId: "fifth", rank: 3 },
+    ];
+
+    const groups = [
+      makeGroup({ id: "podgon", name: "PODGON" }),
+      makeGroup({ id: "critical", name: "CRITICAL" }),
+      makeGroup({ id: "duall", name: "DUALL" }),
+      makeGroup({ id: "fifth", name: "FIFTH" }),
+    ];
+
+    const filtered = filterGroupTree(groups);
+    expect(filtered.map((g) => g.id)).toEqual(["podgon", "duall", "fifth"]);
+    expect(getTopRank("duall")).toBe(2);
+    expect(getTopRank("critical")).toBeNull();
+  });
+
   it("sorts by top rank when top filter active", () => {
     const { topActive, topSales, filterGroupTree } = useCategoryFilters();
     topActive.value = true;

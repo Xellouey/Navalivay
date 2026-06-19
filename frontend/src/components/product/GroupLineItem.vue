@@ -28,15 +28,15 @@
               <path d="M21 15l-5-5L5 21" />
             </svg>
           </span>
-          <span v-if="firstProductPrice" class="group-line-image-price">
-            <span class="group-line-image-price-amount">{{ formatPrice(firstProductPrice) }}</span>
-            <span class="group-line-image-price-currency">BYN</span>
-          </span>
         </span>
 
         <span class="group-line-info">
           <span class="group-line-title">{{ node.name }}</span>
           <span v-if="metaText" class="group-line-meta">{{ metaText }}</span>
+          <span v-else-if="firstProductPrice" class="group-line-price">
+            <span class="group-line-price-amount">{{ formatPrice(firstProductPrice) }}</span>
+            <span class="group-line-price-currency"> BYN</span>
+          </span>
           <button
             v-if="reviewCount > 0"
             type="button"
@@ -456,11 +456,9 @@ onBeforeUnmount(() => {
   background: #fafafa;
 }
 
-.group-line-image-price {
-  display: inline-flex;
-  align-items: baseline;
-  justify-content: center;
-  gap: 4px;
+.group-line-price {
+  display: block;
+  margin: 0;
   font-family: "Montserrat", sans-serif;
   font-style: normal;
   font-weight: 700;
@@ -469,11 +467,11 @@ onBeforeUnmount(() => {
   white-space: nowrap;
 }
 
-.group-line-image-price-amount {
+.group-line-price-amount {
   color: var(--navalivay-red, #d32f2f);
 }
 
-.group-line-image-price-currency {
+.group-line-price-currency {
   color: #191919;
 }
 
@@ -486,7 +484,8 @@ onBeforeUnmount(() => {
 }
 
 .group-line-title,
-.group-line-meta {
+.group-line-meta,
+.group-line-price {
   display: block;
   margin: 0;
 }
@@ -602,7 +601,7 @@ onBeforeUnmount(() => {
     line-height: 20px;
   }
 
-  .group-line-image-price {
+  .group-line-price {
     font-size: 16px;
     line-height: 20px;
   }
@@ -662,7 +661,7 @@ onBeforeUnmount(() => {
     line-height: 20px;
   }
 
-  .group-line-image-price {
+  .group-line-price {
     font-size: 15px;
     line-height: 19px;
   }
@@ -713,7 +712,7 @@ onBeforeUnmount(() => {
     line-height: 20px;
   }
 
-  .group-line-image-price {
+  .group-line-price {
     font-size: 14px;
     line-height: 18px;
   }
@@ -764,7 +763,7 @@ onBeforeUnmount(() => {
     line-height: 19px;
   }
 
-  .group-line-image-price {
+  .group-line-price {
     font-size: 13px;
     line-height: 17px;
   }

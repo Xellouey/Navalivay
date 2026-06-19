@@ -52,9 +52,8 @@ describe("LiquidLineCard", () => {
       },
     });
 
-    expect(wrapper.find(".liquid-line-image-price").exists()).toBe(true);
-    expect(wrapper.find(".liquid-line-image-price-amount").text()).toBe("15");
-    expect(wrapper.find(".liquid-line-image-price-currency").text()).toBe("BYN");
+    expect(wrapper.find(".liquid-line-price").exists()).toBe(false);
+    expect(wrapper.find(".liquid-line-meta").text()).toBe("Крепость 20 мг");
   });
 
   it("does not show a price for a parent line with subgroups", () => {
@@ -78,6 +77,31 @@ describe("LiquidLineCard", () => {
       },
     });
 
-    expect(wrapper.find(".liquid-line-image-price").exists()).toBe(false);
+    expect(wrapper.find(".liquid-line-price").exists()).toBe(false);
+  });
+
+  it("shows price as the second line when meta is absent", () => {
+    const wrapper = mount(LiquidLineCard, {
+      global: {
+        plugins: [pinia],
+        stubs: {
+          ColorPreviewModal: true,
+        },
+      },
+      props: {
+        groupId: "g-3",
+        title: "CHAPPMAN",
+        products: [makeProduct({ priceRub: 15 })],
+        expanded: false,
+        coverImage: null,
+        fallbackImage: "/placeholder-category.png",
+        subgroups: [],
+        metaLabel: null,
+        metaValue: null,
+      },
+    });
+
+    expect(wrapper.find(".liquid-line-price").exists()).toBe(true);
+    expect(wrapper.find(".liquid-line-price-amount").text()).toBe("15");
   });
 });
