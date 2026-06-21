@@ -493,16 +493,16 @@
           role="status"
         >
           <p class="font-semibold text-violet-950">
-            Сейчас идёт период: {{ currentPeriodLabel }}
+            Текущий период: {{ currentPeriodLabel }}
           </p>
           <p class="mt-1 text-violet-900/90">
-            С {{ periodStartLabel }}. В розыгрыш попадают одобренные отзывы за этот месяц.
+            Учитываются одобренные отзывы с {{ periodStartLabel }}.
           </p>
           <p class="mt-1 text-violet-900/90">
-            Автозапуск: {{ autoScheduleLabel }}
+            Автоматический розыгрыш: {{ autoScheduleLabel }}
           </p>
           <p v-if="currentPeriodDrawn" class="mt-2 font-medium text-emerald-800">
-            Розыгрыш за {{ currentPeriodLabel }} уже проведён.
+            Розыгрыш за {{ currentPeriodLabel }} завершён.
           </p>
           <div class="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center">
             <CrmButton
@@ -516,7 +516,7 @@
               Запустить досрочно
             </CrmButton>
             <p class="text-xs text-violet-800/80">
-              Обычно не нужно — в конце месяца сработает сам.
+              По расписанию розыгрыш запускается автоматически. Досрочный запуск используйте при необходимости.
             </p>
           </div>
           <button
@@ -525,7 +525,7 @@
             class="mt-3 text-xs font-medium text-violet-700 underline decoration-violet-300 underline-offset-2 hover:text-violet-950"
             @click="crmStore.clearDrawAcknowledgement()"
           >
-            Показать снова на доске заказов
+            Вернуть уведомление на доске заказов
           </button>
         </div>
 
@@ -570,7 +570,7 @@
               </li>
             </ul>
             <p v-else class="mt-3 rounded-lg border border-dashed border-slate-200 bg-white px-3 py-2 text-slate-500">
-              За этот месяц не нашлось одобренных отзывов. Победители не выбраны.
+              Одобренных отзывов за период нет. Победители не определены.
             </p>
           </article>
         </div>
@@ -581,9 +581,9 @@
           v-else
           class="mt-4 rounded-xl border border-dashed border-slate-200 bg-slate-50/50 px-4 py-6 text-center text-sm text-slate-500"
         >
-          <p class="font-medium text-slate-700">Розыгрышей пока не было</p>
+          <p class="font-medium text-slate-700">История розыгрышей пуста</p>
           <p class="mt-1">
-            Первый запуск — {{ autoScheduleLabel }} или кнопкой «Запустить досрочно».
+            Первый розыгрыш запланирован на {{ autoScheduleLabel }}. Досрочный запуск доступен кнопкой выше.
           </p>
         </div>
       </section>
@@ -980,8 +980,8 @@
             Запустить розыгрыш досрочно?
           </h3>
           <p class="mb-4 text-sm text-slate-600">
-            Выберем 5 победителей за {{ currentPeriodLabel }} среди одобренных отзывов этого месяца.
-            Повторно за тот же месяц запустить нельзя.
+            Будут выбраны 5 победителей за {{ currentPeriodLabel }} из одобренных отзывов текущего месяца.
+            Повторный запуск за этот период недоступен.
           </p>
           <div class="flex justify-end gap-2">
             <CrmButton variant="ghost" size="sm" @click="confirmRunDraw = false">
@@ -1606,9 +1606,9 @@ function formatDrawDate(value?: string) {
 function formatDrawStatus(draw: MonthlyDraw) {
   const winnerCount = draw.winners?.length || 0;
   if (winnerCount > 0) {
-    return `Проведён, ${formatDrawWinnerCount(winnerCount)}`;
+    return `Завершён. ${formatDrawWinnerCount(winnerCount)}`;
   }
-  return "Проведён, участников не нашлось";
+  return "Завершён. Одобренных отзывов за период не было";
 }
 
 function formatDrawWinnerCount(count: number) {
@@ -2054,7 +2054,7 @@ async function runDrawConfirmed() {
       showToast("error", await parseApiError(response, "Не удалось запустить розыгрыш."));
       return;
     }
-    showToast("success", `Розыгрыш за ${currentPeriodLabel.value} проведён.`);
+    showToast("success", `Розыгрыш за ${currentPeriodLabel.value} завершён.`);
     await loadDraws();
   } finally {
     runningDraw.value = false;
