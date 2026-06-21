@@ -277,6 +277,11 @@
           </CrmButton>
         </div>
 
+        <p class="mt-3 text-sm text-slate-500">
+          Клиент выбирает звёзды, пишет отзыв вручную и при желании нажимает кнопки в блоке «Дополнительно».
+          Текст в поле отзыва не подставляется — теги сохраняются отдельно и показываются рядом с отзывом.
+        </p>
+
         <form
           class="mt-4 grid gap-3 rounded-xl border border-dashed border-slate-200 p-4 sm:grid-cols-2"
           @submit.prevent="createQuickTag"
@@ -301,24 +306,20 @@
               <option v-for="star in 5" :key="star" :value="star">{{ star }}</option>
             </select>
           </label>
-          <label class="block text-sm">
-            <span class="font-medium text-slate-700">Подпись кнопки</span>
+          <label class="block text-sm sm:col-span-2">
+            <span class="font-medium text-slate-700">Текст кнопки</span>
             <input
               v-model="newTag.label"
               type="text"
+              placeholder="Например: Очень вкусно"
               class="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2.5"
             />
-          </label>
-          <label class="block text-sm">
-            <span class="font-medium text-slate-700">Текст для вставки</span>
-            <input
-              v-model="newTag.insert_text"
-              type="text"
-              class="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2.5"
-            />
+            <span class="mt-1 block text-xs text-slate-500">
+              Так кнопка будет выглядеть у клиента в Telegram.
+            </span>
           </label>
           <p v-if="!canCreateTag" class="text-xs text-slate-500 sm:col-span-2">
-            Нужны подпись и текст.
+            Укажите текст кнопки.
           </p>
           <div class="sm:col-span-2">
             <CrmButton
@@ -353,7 +354,6 @@
           >
             <p class="font-medium text-slate-900">{{ tag.label }}</p>
             <p class="mt-1 text-slate-600">{{ categoryLabel(tag.category_key) }} · {{ tag.star_rating }} ★</p>
-            <p class="mt-1 text-slate-500">Вставка: {{ tag.insert_text || "не задана" }}</p>
             <div class="mt-3 flex items-center justify-between">
               <label class="inline-flex items-center gap-2 text-slate-700">
                 <input
@@ -387,8 +387,7 @@
               <tr class="border-b border-slate-200 text-slate-500">
                 <th class="px-2 py-2">Категория</th>
                 <th class="px-2 py-2">★</th>
-                <th class="px-2 py-2">Подпись</th>
-                <th class="px-2 py-2">Текст для вставки</th>
+                <th class="px-2 py-2">Текст кнопки</th>
                 <th class="px-2 py-2">Активен</th>
                 <th class="px-2 py-2" />
               </tr>
@@ -398,7 +397,6 @@
                 <td class="px-2 py-2">{{ categoryLabel(tag.category_key) }}</td>
                 <td class="px-2 py-2">{{ tag.star_rating }}</td>
                 <td class="px-2 py-2">{{ tag.label }}</td>
-                <td class="px-2 py-2 text-slate-600">{{ tag.insert_text || "-" }}</td>
                 <td class="px-2 py-2">
                   <label class="inline-flex items-center gap-2">
                     <input
@@ -1050,7 +1048,7 @@ interface QuickTag {
   category_key: string;
   star_rating: number;
   label: string;
-  insert_text?: string;
+
   is_active?: number | boolean;
 }
 
@@ -1136,7 +1134,6 @@ const newTag = ref({
   category_key: "liquids",
   star_rating: 5,
   label: "",
-  insert_text: "",
 });
 
 const toast = ref<ToastMessage | null>(null);
@@ -1171,7 +1168,7 @@ const currentPeriodDrawn = computed(() =>
 );
 
 const canCreateTag = computed(
-  () => Boolean(newTag.value.label.trim() && newTag.value.insert_text.trim()),
+  () => Boolean(newTag.value.label.trim()),
 );
 
 const previewDockTitle = computed(() => buildReviewDockTitle("Ваш заказ"));
@@ -1615,7 +1612,6 @@ async function createQuickTag() {
       return;
     }
     newTag.value.label = "";
-    newTag.value.insert_text = "";
     showToast("success", "Быстрый тег добавлен.");
     await loadQuickTags();
   } finally {

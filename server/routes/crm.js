@@ -2065,7 +2065,10 @@ crmRouter.post('/api/admin/crm/review-quick-tags', authMiddleware, (req, res) =>
       is_active: isActive,
     } = req.body || {};
 
-    if (!categoryKey || !label || !insertText) {
+    const normalizedLabel = String(label || '').trim();
+    const normalizedInsertText = String(insertText || normalizedLabel).trim();
+
+    if (!categoryKey || !normalizedLabel) {
       return res.status(400).json({ error: 'missing_fields' });
     }
 
@@ -2084,8 +2087,8 @@ crmRouter.post('/api/admin/crm/review-quick-tags', authMiddleware, (req, res) =>
       id,
       String(categoryKey).trim(),
       rating,
-      String(label).trim(),
-      String(insertText).trim(),
+      normalizedLabel,
+      normalizedInsertText,
       Number(sortOrder || 0),
       isActive === false ? 0 : 1,
       now,
