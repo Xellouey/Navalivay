@@ -83,6 +83,9 @@ onMounted(() => {
   --app-screen-max-width: 393px;
   --app-bottom-tab-bar-height: 130px;
   --app-review-dock-height: 0px;
+  --app-cart-bottom-offset: calc(
+    var(--app-bottom-tab-bar-height, 130px) + var(--app-review-dock-height, 0px)
+  );
   --app-page-background: #f5f7fa;
 }
 

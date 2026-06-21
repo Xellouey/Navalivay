@@ -1613,12 +1613,13 @@ watch(
 /* Cart Button Styles */
 .cart-wrapper {
   position: fixed;
-  bottom: var(--app-bottom-tab-bar-height, 130px);
+  bottom: var(--app-cart-bottom-offset);
   left: 0;
   right: 0;
   z-index: 50;
   padding: 0 1rem;
   pointer-events: none;
+  transition: bottom 0.28s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .cart-button {
