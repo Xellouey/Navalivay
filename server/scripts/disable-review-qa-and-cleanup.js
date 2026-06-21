@@ -140,11 +140,20 @@ const result = db.transaction(() => {
   disableReviewQaModes();
   setQaUsernames([]);
 
+  let customersDeleted = 0;
+  if (testCustomerIds.length) {
+    const customerPlaceholders = testCustomerIds.map(() => '?').join(', ');
+    customersDeleted += db
+      .prepare(`DELETE FROM customers WHERE id IN (${customerPlaceholders})`)
+      .run(...testCustomerIds).changes;
+  }
+
   return {
     reviewsDeleted,
     winnersDeleted,
     drawsDeleted,
     ordersDeleted,
+    customersDeleted,
     qaUsernamesCleared: qaUsernames,
   };
 })();
