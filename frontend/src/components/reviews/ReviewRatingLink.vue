@@ -15,10 +15,7 @@
         посмотреть отзывы
       </button>
     </template>
-    <p v-else class="review-rating-row__empty">
-      <span class="review-rating-row__star" aria-hidden="true">★</span>
-      нет отзывов
-    </p>
+    <p v-else class="review-rating-row__empty">нет отзывов</p>
   </div>
 </template>
 
@@ -105,14 +102,13 @@ const actionAriaLabel = computed(() => {
 }
 
 .review-rating-row__empty {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
   margin: 0;
   font-family: -apple-system, "SF Pro Display", sans-serif;
   font-size: 13px;
   line-height: 16px;
-  font-weight: 500;
-  color: #a35b5b;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: #f50302;
 }
 </style>
