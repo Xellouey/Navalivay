@@ -18,14 +18,28 @@ function hasFlag(name) {
 
 const dryRun = hasFlag('dry-run');
 
-const DEV_ORDER_PREFIXES = ['order_dev_%'];
 const DEV_DRAW_PREFIXES = ['draw_dev_scn_%', 'draw_dev_%'];
-const TEST_TELEGRAM_IDS = ['900000001', '900000002', '900000003', '900000004'];
+const TEST_TELEGRAM_IDS = [
+  '900000001',
+  '900000002',
+  '900000003',
+  '900000004',
+  '900000101',
+  '900000102',
+  '900000103',
+  '900000104',
+  '900000105',
+];
 const TEST_USERNAMES = [
   'review_demo',
   'review_pending',
   'review_cooldown',
   'review_optout',
+  'winner_anna',
+  'winner_boris',
+  'winner_clara',
+  'winner_denis',
+  'winner_elena',
 ];
 
 initDb();
@@ -34,10 +48,14 @@ function count(sql, params = []) {
   return Number(db.prepare(sql).get(...params)?.n || 0);
 }
 
-function listDevOrderIds() {
+function listTestOrderIds() {
   return db
     .prepare(
-      `SELECT id FROM orders WHERE id LIKE 'order_dev_%' OR id LIKE 'ord_dev_%' OR id LIKE 'ord_konst_%' OR id LIKE 'ord_pending_%' OR id LIKE 'ord_repeat%' OR id LIKE 'ord_last_hap%'`,
+      `SELECT id FROM orders
+       WHERE id LIKE 'order_dev_%'
+          OR id LIKE 'order_%_review_qa_%'
+          OR notes LIKE '[dev-reviews-%'
+          OR notes LIKE '%-review-qa]'`,
     )
     .all()
     .map((row) => row.id);
@@ -49,7 +67,8 @@ function listTestCustomerIds() {
   return db
     .prepare(
       `SELECT id FROM customers
-       WHERE telegram_id IN (${placeholders})
+       WHERE id LIKE 'cust_dev_scn_%'
+          OR telegram_id IN (${placeholders})
           OR LOWER(telegram_username) IN (${usernamePlaceholders})`,
     )
     .all(...TEST_TELEGRAM_IDS, ...TEST_USERNAMES)
@@ -66,14 +85,20 @@ const before = {
     .get()?.value,
   product_reviews: count('SELECT COUNT(*) AS n FROM product_reviews'),
   review_draws: count('SELECT COUNT(*) AS n FROM review_monthly_draws'),
-  dev_orders: count(`SELECT COUNT(*) AS n FROM orders WHERE id LIKE 'order_dev_%'`),
+  test_orders: count(
+    `SELECT COUNT(*) AS n FROM orders
+     WHERE id LIKE 'order_dev_%'
+        OR id LIKE 'order_%_review_qa_%'
+        OR notes LIKE '[dev-reviews-%'
+        OR notes LIKE '%-review-qa]'`,
+  ),
 };
 
-const devOrderIds = listDevOrderIds();
+const testOrderIds = listTestOrderIds();
 const testCustomerIds = listTestCustomerIds();
 
 console.log('[disable-review-qa-and-cleanup] before:', JSON.stringify(before, null, 2));
-console.log('devOrderIds:', devOrderIds.length, devOrderIds.slice(0, 10));
+console.log('testOrderIds:', testOrderIds.length, testOrderIds);
 console.log('testCustomerIds:', testCustomerIds.length, testCustomerIds);
 
 if (dryRun) {
@@ -101,18 +126,18 @@ const result = db.transaction(() => {
       .run(...qaUsernames).changes;
   }
 
-  if (devOrderIds.length) {
-    const orderPlaceholders = devOrderIds.map(() => '?').join(', ');
+  if (testOrderIds.length) {
+    const orderPlaceholders = testOrderIds.map(() => '?').join(', ');
     reviewsDeleted += db
       .prepare(`DELETE FROM product_reviews WHERE order_id IN (${orderPlaceholders})`)
-      .run(...devOrderIds).changes;
+      .run(...testOrderIds).changes;
     db.prepare(`DELETE FROM order_items WHERE order_id IN (${orderPlaceholders})`)
-      .run(...devOrderIds);
+      .run(...testOrderIds);
     db.prepare(`DELETE FROM order_status_history WHERE order_id IN (${orderPlaceholders})`)
-      .run(...devOrderIds);
+      .run(...testOrderIds);
     ordersDeleted += db
       .prepare(`DELETE FROM orders WHERE id IN (${orderPlaceholders})`)
-      .run(...devOrderIds).changes;
+      .run(...testOrderIds).changes;
   }
 
   if (testCustomerIds.length) {
@@ -168,7 +193,13 @@ const after = {
     .get()?.value,
   product_reviews: count('SELECT COUNT(*) AS n FROM product_reviews'),
   review_draws: count('SELECT COUNT(*) AS n FROM review_monthly_draws'),
-  dev_orders: count(`SELECT COUNT(*) AS n FROM orders WHERE id LIKE 'order_dev_%'`),
+  test_orders: count(
+    `SELECT COUNT(*) AS n FROM orders
+     WHERE id LIKE 'order_dev_%'
+        OR id LIKE 'order_%_review_qa_%'
+        OR notes LIKE '[dev-reviews-%'
+        OR notes LIKE '%-review-qa]'`,
+  ),
 };
 
 console.log('');
