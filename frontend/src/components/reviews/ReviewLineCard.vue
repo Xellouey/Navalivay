@@ -42,10 +42,13 @@
     />
 
     <div v-else-if="state === 'cooldown'" class="review-line-card__state">
-      <p class="review-line-card__state-title">Отзыв уже оставлен</p>
+      <p class="review-line-card__state-title">Отзыв на эту линейку уже оставлен</p>
       <p class="review-line-card__state-text">
-        Следующий отзыв на эту линейку можно оставить
+        Новый отзыв на «{{ line.group_name }}» можно оставить
         {{ formatOrderDateTime(line.eligibility.cooldownEndsAt) }}.
+      </p>
+      <p class="review-line-card__state-note">
+        Одобренный отзыв участвует в розыгрыше подарков в конце месяца.
       </p>
     </div>
 
@@ -371,6 +374,14 @@ async function handleSubmit(payload: {
   font-size: 14px;
   line-height: 18px;
   color: #5c6470;
+}
+
+.review-line-card__state-note {
+  margin: 0;
+  font-family: -apple-system, "SF Pro Display", sans-serif;
+  font-size: 13px;
+  line-height: 16px;
+  color: #8a93a0;
 }
 
 .review-line-card__rating {

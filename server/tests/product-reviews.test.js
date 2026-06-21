@@ -757,9 +757,13 @@ console.log('\n--- Konstantin: LAST HAP rebuy after 10d with 30d cooldown ---');
   const firstDetail = serializeOrderDetail(firstOrder, 'cust1');
   ok(firstDetail.reviewable_lines[0].latest_review?.id === 'rev_konst_1', 'first order keeps approved review');
 
-  const historyCard = serializeOrderHistoryCard(secondOrder);
-  ok(!('pending_review_count' in historyCard), 'history list stays silent about cooldown');
-  ok(!('has_reviews' in historyCard), 'history list has no review badges');
+  const historyCard = serializeOrderHistoryCard(secondOrder, 'cust1');
+  ok(!('pending_review_count' in historyCard), 'history card has no pending_review_count');
+  ok(!('has_reviews' in historyCard), 'history card has no review badges');
+  ok(
+    historyCard.review_hint === 'Отзыв на эту линейку уже оставлен',
+    'history card hints cooldown on repeat purchase',
+  );
 }
 
 console.log('\n--- Dmitriy hole: pending moderation blocks repeat purchase dock ---');

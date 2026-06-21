@@ -476,30 +476,59 @@
       >
         <div class="flex flex-wrap items-center justify-between gap-3">
           <h2 class="text-lg font-semibold text-slate-900">Розыгрыш месяца</h2>
-          <div class="flex flex-wrap gap-2">
-            <CrmButton
-              variant="secondary"
-              size="sm"
-              refresh-icon
-              :loading="drawsLoading"
-              loading-label="Обновляем..."
-              @click="loadDraws"
-            >
-              Обновить
-            </CrmButton>
+          <CrmButton
+            variant="secondary"
+            size="sm"
+            refresh-icon
+            :loading="drawsLoading"
+            loading-label="Обновляем..."
+            @click="loadDraws"
+          >
+            Обновить
+          </CrmButton>
+        </div>
+
+        <div
+          class="mt-4 rounded-xl border border-violet-100 bg-gradient-to-r from-violet-50/80 to-fuchsia-50/50 p-4 text-sm"
+          role="status"
+        >
+          <p class="font-semibold text-violet-950">
+            Сейчас идёт период: {{ currentPeriodLabel }}
+          </p>
+          <p class="mt-1 text-violet-900/90">
+            С {{ periodStartLabel }}. В розыгрыш попадают одобренные отзывы за этот месяц.
+          </p>
+          <p class="mt-1 text-violet-900/90">
+            Автозапуск: {{ autoScheduleLabel }}
+          </p>
+          <p v-if="currentPeriodDrawn" class="mt-2 font-medium text-emerald-800">
+            Розыгрыш за {{ currentPeriodLabel }} уже проведён.
+          </p>
+          <div class="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center">
             <CrmButton
               variant="primary"
+              size="sm"
               :loading="runningDraw"
+              :disabled="currentPeriodDrawn"
               loading-label="Запускаем..."
               @click="requestRunDraw"
             >
-              Запустить розыгрыш
+              Запустить досрочно
             </CrmButton>
+            <p class="text-xs text-violet-800/80">
+              Обычно не нужно — в конце месяца сработает сам.
+            </p>
           </div>
+          <button
+            v-if="crmStore.isDrawBannerDismissed && crmStore.latestMonthlyDraw"
+            type="button"
+            class="mt-3 text-xs font-medium text-violet-700 underline decoration-violet-300 underline-offset-2 hover:text-violet-950"
+            @click="crmStore.clearDrawAcknowledgement()"
+          >
+            Показать снова на доске заказов
+          </button>
         </div>
-        <p class="mt-1 text-sm text-slate-500">
-          Автозапуск: последний день месяца в 21:00 по Минску.
-        </p>
+
         <div
           v-if="draws.length"
           class="relative mt-4 space-y-3"
@@ -508,10 +537,18 @@
           <article
             v-for="draw in draws"
             :key="draw.id"
-            class="rounded-xl border border-slate-100 bg-slate-50 p-3 text-sm"
+            class="rounded-xl border border-slate-100 bg-slate-50 p-4 text-sm"
           >
-            <p class="font-medium text-slate-900">{{ formatPeriodKey(draw.period_key) }}</p>
-            <ul class="mt-2 space-y-2 text-slate-700">
+            <div class="flex flex-wrap items-start justify-between gap-2">
+              <div>
+                <p class="font-medium text-slate-900">{{ formatPeriodKey(draw.period_key) }}</p>
+                <p class="mt-1 text-xs text-slate-500">{{ formatDrawStatus(draw) }}</p>
+              </div>
+              <p v-if="draw.drawn_at" class="text-xs text-slate-400">
+                {{ formatDrawDate(draw.drawn_at) }}
+              </p>
+            </div>
+            <ul v-if="draw.winners.length" class="mt-3 space-y-2 text-slate-700">
               <li
                 v-for="winner in draw.winners"
                 :key="winner.id"
@@ -532,14 +569,23 @@
                 </CrmButton>
               </li>
             </ul>
+            <p v-else class="mt-3 rounded-lg border border-dashed border-slate-200 bg-white px-3 py-2 text-slate-500">
+              За этот месяц не нашлось одобренных отзывов. Победители не выбраны.
+            </p>
           </article>
         </div>
         <div v-else-if="drawsLoading" class="mt-4 py-6 text-center text-slate-500">
           Загрузка...
         </div>
-        <p v-else class="mt-4 text-sm text-slate-500">
-          Розыгрышей нет. Первый - в конце месяца сам или кнопкой выше.
-        </p>
+        <div
+          v-else
+          class="mt-4 rounded-xl border border-dashed border-slate-200 bg-slate-50/50 px-4 py-6 text-center text-sm text-slate-500"
+        >
+          <p class="font-medium text-slate-700">Розыгрышей пока не было</p>
+          <p class="mt-1">
+            Первый запуск — {{ autoScheduleLabel }} или кнопкой «Запустить досрочно».
+          </p>
+        </div>
       </section>
 
       <!-- Настройки -->
@@ -931,17 +977,18 @@
           @keydown.esc="confirmRunDraw = false"
         >
           <h3 id="reviews-confirm-draw-title" class="mb-2 text-base font-semibold text-slate-900">
-            Запустить розыгрыш?
+            Запустить розыгрыш досрочно?
           </h3>
           <p class="mb-4 text-sm text-slate-600">
-            Будут выбраны победители за {{ currentPeriodLabel }}. Повторный запуск за тот же месяц может быть недоступен.
+            Выберем 5 победителей за {{ currentPeriodLabel }} среди одобренных отзывов этого месяца.
+            Повторно за тот же месяц запустить нельзя.
           </p>
           <div class="flex justify-end gap-2">
             <CrmButton variant="ghost" size="sm" @click="confirmRunDraw = false">
               Отмена
             </CrmButton>
             <CrmButton variant="primary" size="sm" @click="runDrawConfirmed">
-              Запустить
+              Запустить досрочно
             </CrmButton>
           </div>
         </div>
@@ -1209,6 +1256,12 @@ import CrmButton from "@/components/admin/crm/CrmButton.vue";
 import { useAdminStore } from "@/stores/admin";
 import { useCrmStore } from "@/stores/crm";
 import { buildReviewDockMetaLine, buildReviewDockTitle } from "@/utils/reviewDockCopy";
+import {
+  formatReviewDrawPeriodKey,
+  getCurrentReviewDrawPeriodKey,
+  getReviewDrawAutoScheduleLabel,
+  getReviewDrawPeriodStartLabel,
+} from "@/utils/reviewDrawPeriod";
 
 type ReviewTabId = "moderation" | "replies" | "tags" | "draw" | "settings";
 type ToastKind = "success" | "error" | "info";
@@ -1252,6 +1305,8 @@ interface DrawWinner {
 interface MonthlyDraw {
   id: string;
   period_key: string;
+  drawn_at?: string;
+  status?: string;
   winners: DrawWinner[];
 }
 
@@ -1271,21 +1326,6 @@ const CATEGORY_LABELS: Record<string, string> = {
   devices: "Устройства",
   other: "Прочее",
 };
-
-const MONTH_LABELS = [
-  "Январь",
-  "Февраль",
-  "Март",
-  "Апрель",
-  "Май",
-  "Июнь",
-  "Июль",
-  "Август",
-  "Сентябрь",
-  "Октябрь",
-  "Ноябрь",
-  "Декабрь",
-];
 
 const adminStore = useAdminStore();
 const crmStore = useCrmStore();
@@ -1373,10 +1413,13 @@ const filteredApprovedReviews = computed(() => {
   return approvedReviews.value;
 });
 
-const currentPeriodLabel = computed(() => {
-  const now = new Date();
-  return formatPeriodKey(`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`);
-});
+const currentPeriodKey = computed(() => getCurrentReviewDrawPeriodKey());
+const currentPeriodLabel = computed(() => formatReviewDrawPeriodKey(currentPeriodKey.value));
+const periodStartLabel = computed(() => getReviewDrawPeriodStartLabel());
+const autoScheduleLabel = computed(() => getReviewDrawAutoScheduleLabel());
+const currentPeriodDrawn = computed(() =>
+  draws.value.some((draw) => draw.period_key === currentPeriodKey.value),
+);
 
 const canCreateTag = computed(
   () => Boolean(newTag.value.label.trim() && newTag.value.insert_text.trim()),
@@ -1544,12 +1587,38 @@ function categoryLabel(key: string) {
 }
 
 function formatPeriodKey(periodKey: string) {
-  const match = /^(\d{4})-(\d{2})$/.exec(periodKey || "");
-  if (!match) return periodKey;
-  const monthIndex = Number(match[2]) - 1;
-  const month = MONTH_LABELS[monthIndex];
-  if (!month) return periodKey;
-  return `${month} ${match[1]}`;
+  return formatReviewDrawPeriodKey(periodKey);
+}
+
+function formatDrawDate(value?: string) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString("ru-RU", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function formatDrawStatus(draw: MonthlyDraw) {
+  const winnerCount = draw.winners?.length || 0;
+  if (winnerCount > 0) {
+    return `Проведён, ${formatDrawWinnerCount(winnerCount)}`;
+  }
+  return "Проведён, участников не нашлось";
+}
+
+function formatDrawWinnerCount(count: number) {
+  const mod10 = count % 10;
+  const mod100 = count % 100;
+  if (mod10 === 1 && mod100 !== 11) return `${count} победитель`;
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) {
+    return `${count} победителя`;
+  }
+  return `${count} победителей`;
 }
 
 function formatReviewDate(value: string) {
@@ -1985,7 +2054,7 @@ async function runDrawConfirmed() {
       showToast("error", await parseApiError(response, "Не удалось запустить розыгрыш."));
       return;
     }
-    showToast("success", `Розыгрыш за ${currentPeriodLabel.value} запущен.`);
+    showToast("success", `Розыгрыш за ${currentPeriodLabel.value} проведён.`);
     await loadDraws();
   } finally {
     runningDraw.value = false;

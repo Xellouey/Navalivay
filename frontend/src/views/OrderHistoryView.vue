@@ -81,9 +81,14 @@
                 </span>
               </div>
 
-              <p class="order-history-card__meta">
-                {{ formatOrderHistoryMeta(order) }}
-              </p>
+              <div class="order-history-card__meta-wrap">
+                <p class="order-history-card__meta">
+                  {{ formatOrderHistoryMeta(order) }}
+                </p>
+                <p v-if="order.review_hint" class="order-history-card__hint">
+                  {{ order.review_hint }}
+                </p>
+              </div>
             </div>
           </button>
         </li>
@@ -401,13 +406,29 @@ onMounted(() => {
   white-space: nowrap;
 }
 
-.order-history-card__meta {
+.order-history-card__meta-wrap {
   margin: 0 0 0 auto;
   text-align: right;
   flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+}
+
+.order-history-card__meta {
+  margin: 0;
   font-family: -apple-system, "SF Pro Display", sans-serif;
   font-size: 13px;
   line-height: 16px;
+  color: #8a93a0;
+}
+
+.order-history-card__hint {
+  margin: 0;
+  font-family: -apple-system, "SF Pro Display", sans-serif;
+  font-size: 12px;
+  line-height: 14px;
   color: #8a93a0;
 }
 

@@ -1015,6 +1015,19 @@ export const useCrmStore = defineStore("crm", () => {
     }
   }
 
+  const isDrawBannerDismissed = computed(() => {
+    const draw = latestMonthlyDraw.value;
+    if (!draw?.id) return false;
+    return acknowledgedDrawId.value === draw.id;
+  });
+
+  function clearDrawAcknowledgement() {
+    acknowledgedDrawId.value = "";
+    if (typeof localStorage !== "undefined") {
+      localStorage.removeItem("crm_ack_draw_id");
+    }
+  }
+
   async function fetchOrderPollSummary() {
     return await fetchAPI<OrderPollSummary>(`${API_BASE}/orders/poll-summary`);
   }
@@ -2737,7 +2750,9 @@ export const useCrmStore = defineStore("crm", () => {
     markReviewsAsSeen,
     latestMonthlyDraw,
     hasUnseenDraw,
+    isDrawBannerDismissed,
     markDrawAsSeen,
+    clearDrawAcknowledgement,
     // In-app toast (Safari fallback)
     inAppToast,
     hideInAppToast,

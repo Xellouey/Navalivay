@@ -40,6 +40,7 @@ export interface OrderHistoryItem {
   category_icons: OrderHistoryCategoryIcon[];
   category_icons_overflow: number;
   fulfillment_milestones?: OrderFulfillmentMilestones | null;
+  review_hint?: string | null;
 }
 
 export interface OrderHistoryResponse {

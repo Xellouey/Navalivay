@@ -103,8 +103,8 @@ describe("ReviewLineCard", () => {
     });
 
     expect(wrapper.find(".review-form").exists()).toBe(false);
-    expect(wrapper.text()).toContain("Отзыв уже оставлен");
-    expect(wrapper.text()).toContain("Следующий отзыв");
+    expect(wrapper.text()).toContain("Отзыв на эту линейку уже оставлен");
+    expect(wrapper.text()).toContain("Новый отзыв");
 
     wrapper.unmount();
   });
@@ -128,8 +128,9 @@ describe("ReviewLineCard", () => {
     });
 
     expect(wrapper.text()).toContain("PODONKI LAST HAP");
-    expect(wrapper.text()).toContain("Отзыв уже оставлен");
-    expect(wrapper.text()).toContain("Следующий отзыв на эту линейку можно оставить");
+    expect(wrapper.text()).toContain("Отзыв на эту линейку уже оставлен");
+    expect(wrapper.text()).toContain("Новый отзыв на «PODONKI LAST HAP» можно оставить");
+    expect(wrapper.text()).toContain("розыгрыше подарков");
     expect(wrapper.find(".review-form").exists()).toBe(false);
 
     wrapper.unmount();

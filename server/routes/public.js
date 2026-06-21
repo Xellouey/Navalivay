@@ -1911,7 +1911,7 @@ publicRouter.get(
 
       return res.json({
         items: page.map((order) =>
-          serializeOrderHistoryCard(order),
+          serializeOrderHistoryCard(order, customer.id, { devBypass }),
         ),
         next_cursor: nextCursor,
       });

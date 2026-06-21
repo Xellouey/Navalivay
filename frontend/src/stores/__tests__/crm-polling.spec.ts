@@ -111,6 +111,11 @@ describe("crm polling summary", () => {
 
     crmStore.markDrawAsSeen("draw_june");
     expect(crmStore.hasUnseenDraw).toBe(false);
+    expect(crmStore.isDrawBannerDismissed).toBe(true);
+
+    crmStore.clearDrawAcknowledgement();
+    expect(crmStore.hasUnseenDraw).toBe(true);
+    expect(crmStore.isDrawBannerDismissed).toBe(false);
 
     crmStore.stopPolling();
   });

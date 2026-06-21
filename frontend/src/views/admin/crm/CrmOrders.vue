@@ -391,7 +391,7 @@
                 class="rounded-lg border border-violet-200 bg-white px-3 py-2 text-sm font-medium text-violet-700 transition-colors hover:bg-violet-50"
                 @click="crmStore.markDrawAsSeen()"
               >
-                Скрыть
+                Понятно
               </button>
             </div>
           </div>

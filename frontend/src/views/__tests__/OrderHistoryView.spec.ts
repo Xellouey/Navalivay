@@ -63,6 +63,32 @@ describe("OrderHistoryView", () => {
     wrapper.unmount();
   });
 
+  it("shows review hint on cooldown repeat-purchase order", async () => {
+    fetchOrderHistoryMock.mockResolvedValue({
+      items: [
+        {
+          id: "ord_repeat",
+          order_number: 2002,
+          status: "delivered",
+          created_at: "2026-06-10T10:00:00.000Z",
+          completed_at: "2026-06-10T12:00:00.000Z",
+          final_amount: 55,
+          category_icons: [],
+          category_icons_overflow: 0,
+          review_hint: "Отзыв на эту линейку уже оставлен",
+        },
+      ],
+      next_cursor: null,
+    });
+
+    const wrapper = mount(OrderHistoryView);
+    await flushPromises();
+
+    expect(wrapper.text()).toContain("Отзыв на эту линейку уже оставлен");
+
+    wrapper.unmount();
+  });
+
   it("shows empty state when history has no items", async () => {
     fetchOrderHistoryMock.mockResolvedValue({ items: [], next_cursor: null });
 

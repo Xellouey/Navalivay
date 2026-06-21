@@ -503,14 +503,15 @@ console.log('\n--- A13: cooldown hides dock when only repeat line exists ---');
   ok(prompt.show === false && prompt.reason === 'nothing_to_review', 'dock hidden on cooldown-only customer');
 }
 
-console.log('\n--- A14: order history stays silent about cooldown ---');
+console.log('\n--- A14: order history hints cooldown without exposing internals ---');
 {
   seedRepeatPurchaseWorld();
   const repeatOrder = db.prepare('SELECT * FROM orders WHERE id = ?').get('ord_repeat');
-  const card = serializeOrderHistoryCard(repeatOrder);
+  const card = serializeOrderHistoryCard(repeatOrder, 'cust1');
   ok(!('pending_review_count' in card), 'history card has no pending_review_count');
   ok(!('has_reviews' in card), 'history card has no has_reviews');
-  ok(!('cooldownEndsAt' in card), 'history card has no cooldown hint');
+  ok(!('cooldownEndsAt' in card), 'history card has no cooldown end date');
+  ok(card.review_hint === 'Отзыв на эту линейку уже оставлен', 'history card hints cooldown repeat purchase');
 }
 
 console.log('\n--- A15: order detail exposes cooldown explanation ---');

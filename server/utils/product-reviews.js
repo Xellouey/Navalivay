@@ -698,12 +698,29 @@ export function buildOrderLineIconsFromGroups(groups, maxVisible = 4) {
   };
 }
 
-export function serializeOrderHistoryCard(order) {
+function buildOrderHistoryReviewHint(order, customerId, { devBypass = false } = {}) {
+  if (!customerId || !['delivered', 'completed'].includes(order.status)) {
+    return null;
+  }
+
+  const lines = buildReviewableLinesForOrder(order, customerId, { devBypass });
+  if (!lines.length) return null;
+
+  const hasReviewable = lines.some((line) => line.eligibility.canReview);
+  if (hasReviewable) return null;
+
+  const hasCooldown = lines.some((line) => line.eligibility.reason === 'cooldown');
+  if (!hasCooldown) return null;
+
+  return 'Отзыв на эту линейку уже оставлен';
+}
+
+export function serializeOrderHistoryCard(order, customerId = null, { devBypass = false } = {}) {
   const groups = loadOrderItemsGrouped(order.id);
   const { icons: categoryIcons, overflow: categoryIconsOverflow } =
     buildOrderLineIconsFromGroups(groups);
 
-  return {
+  const card = {
     id: order.id,
     order_number: order.order_number,
     status: order.status,
@@ -715,6 +732,13 @@ export function serializeOrderHistoryCard(order) {
     category_icons_overflow: categoryIconsOverflow,
     fulfillment_milestones: buildOrderFulfillmentMilestones(order),
   };
+
+  const reviewHint = buildOrderHistoryReviewHint(order, customerId, { devBypass });
+  if (reviewHint) {
+    card.review_hint = reviewHint;
+  }
+
+  return card;
 }
 
 export function serializeOrderDetail(order, customerId, { devBypass = false } = {}) {
