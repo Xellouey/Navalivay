@@ -38,6 +38,7 @@ const showWheelWidget = computed(() => {
   if (path === "/wheel" || path.startsWith("/wheel/")) return false;
   if (path === "/checkout") return false;
   if (path === "/my-order") return false;
+  if (path.startsWith("/profile/orders")) return false;
   if (path.startsWith("/opt")) return false;
   return true;
 });

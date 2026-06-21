@@ -12,10 +12,7 @@
           />
         </svg>
       </button>
-      <h1 class="order-detail-title">
-        <template v-if="order">Заказ №{{ order.order_number }}</template>
-        <template v-else>Заказ</template>
-      </h1>
+      <h1 class="order-detail-title">Заказ № {{ order?.order_number ?? "…" }}</h1>
     </header>
 
     <div class="order-detail-container">
@@ -30,48 +27,55 @@
       </div>
 
       <template v-else-if="order">
-        <section class="order-detail-card">
-          <div class="order-detail-status-row">
-            <span class="order-detail-status">{{ formatOrderStatus(order.status) }}</span>
-            <span class="order-detail-date">{{ formatOrderDate(order.completed_at || order.created_at) }}</span>
-          </div>
-          <p class="order-detail-amount">{{ formatPrice(order.final_amount) }} BYN</p>
-        </section>
-
-        <section v-if="order.fulfillment" class="order-detail-card">
-          <h2 class="order-detail-section-title">Выполнение</h2>
-          <p class="order-detail-text">
-            Заказ выполнен за {{ formatDurationMinutes(order.fulfillment.duration_minutes) }}.
-          </p>
-          <p class="order-detail-meta">
-            Создан {{ formatOrderDateTime(order.fulfillment.created_at) }} ·
-            завершён {{ formatOrderDateTime(order.fulfillment.completed_at) }}
-          </p>
-        </section>
-
-        <section v-if="order.status_timeline.length" class="order-detail-card">
-          <h2 class="order-detail-section-title">Статусы</h2>
-          <ol class="order-detail-timeline">
-            <li
-              v-for="(entry, index) in order.status_timeline"
-              :key="`${entry.changed_at}-${index}`"
-              class="order-detail-timeline-item"
+        <section class="order-detail-overview" aria-label="Информация о заказе">
+          <div class="order-detail-overview__head">
+            <div class="order-detail-overview__summary">
+              <span class="order-detail-overview__amount">
+                {{ formatPrice(order.final_amount) }} BYN
+              </span>
+              <span v-if="positionsCount > 0" class="order-detail-overview__positions">
+                {{ formatPositionsCount(positionsCount) }}
+              </span>
+            </div>
+            <span
+              class="order-detail-overview__status"
+              :class="`order-detail-overview__status--${order.status}`"
             >
-              <span class="order-detail-timeline-dot" aria-hidden="true" />
-              <div class="order-detail-timeline-copy">
-                <strong>{{ formatOrderStatus(entry.new_status) }}</strong>
-                <span>{{ formatOrderDateTime(entry.changed_at) }}</span>
-                <span v-if="entry.note" class="order-detail-timeline-note">{{ entry.note }}</span>
+              {{ formatOrderStatus(order.status, order.delivery_type) }}
+            </span>
+          </div>
+
+          <ol
+            v-if="fulfillmentLines.length"
+            class="order-detail-overview__timeline"
+            aria-label="Этапы заказа"
+          >
+            <li
+              v-for="(line, index) in fulfillmentLines"
+              :key="line.key"
+              class="order-detail-overview__step"
+              :class="{
+                'order-detail-overview__step--last': index === fulfillmentLines.length - 1,
+                'order-detail-overview__step--success':
+                  index === fulfillmentLines.length - 1 && isFulfilledStatus,
+              }"
+            >
+              <span class="order-detail-overview__dot" aria-hidden="true" />
+              <div class="order-detail-overview__step-body">
+                <span class="order-detail-overview__step-label">{{ line.label }}</span>
+                <time class="order-detail-overview__step-time" :datetime="line.at">
+                  {{ formatOrderDateTime(line.at) }}
+                </time>
               </div>
             </li>
           </ol>
         </section>
 
         <section v-if="order.reviewable_lines.length" class="order-detail-reviews">
-          <div class="order-detail-reviews-head">
+          <header class="order-detail-reviews-head">
             <h2 class="order-detail-section-title">Отзывы по заказу</h2>
             <p v-if="order.lottery_hint_text" class="order-detail-hint">{{ order.lottery_hint_text }}</p>
-          </div>
+          </header>
 
           <ReviewLineCard
             v-for="line in order.reviewable_lines"
@@ -94,8 +98,7 @@ import { computed, nextTick, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import ReviewLineCard from "@/components/reviews/ReviewLineCard.vue";
 import {
-  formatDurationMinutes,
-  formatOrderDate,
+  buildFulfillmentTimelineLines,
   formatOrderDateTime,
   formatOrderStatus,
   useCustomerOrders,
@@ -109,6 +112,28 @@ const { fetchOrderDetail, reviewPreferences, fetchReviewPrompt } = useCustomerOr
 const order = ref<OrderDetail | null>(null);
 const loading = ref(false);
 const errorMessage = ref<string | null>(null);
+
+const positionsCount = computed(() => {
+  if (!order.value) return 0;
+  return order.value.reviewable_lines.reduce(
+    (sum, line) => sum + line.items.length,
+    0,
+  );
+});
+
+const fulfillmentLines = computed(() => {
+  if (!order.value) return [];
+  return buildFulfillmentTimelineLines(
+    order.value.fulfillment_milestones,
+    order.value.status,
+    order.value.delivery_type,
+  );
+});
+
+const isFulfilledStatus = computed(
+  () =>
+    order.value?.status === "delivered" || order.value?.status === "completed",
+);
 
 const deepLinkRating = computed(() => {
   const raw = route.query.rating;
@@ -166,6 +191,16 @@ function formatPrice(value: number) {
     minimumFractionDigits: 0,
     maximumFractionDigits: 2,
   });
+}
+
+function formatPositionsCount(count: number) {
+  const mod10 = count % 10;
+  const mod100 = count % 100;
+  if (mod10 === 1 && mod100 !== 11) return `${count} позиция`;
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) {
+    return `${count} позиции`;
+  }
+  return `${count} позиций`;
 }
 
 watch(
@@ -278,111 +313,153 @@ onMounted(async () => {
   cursor: pointer;
 }
 
-.order-detail-card {
+.order-detail-overview {
   background: #ffffff;
   border-radius: 20px;
   padding: 16px;
   box-shadow: 0 4px 12px rgba(15, 23, 42, 0.04);
 }
 
-.order-detail-status-row {
+.order-detail-overview__head {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid #f0f2f5;
 }
 
-.order-detail-status {
-  font-family: "Montserrat", sans-serif;
-  font-weight: 700;
-  font-size: 16px;
-  line-height: 20px;
-  color: #191919;
-}
-
-.order-detail-date,
-.order-detail-meta {
-  font-family: -apple-system, "SF Pro Display", sans-serif;
-  font-size: 13px;
-  line-height: 16px;
-  color: #8a93a0;
-}
-
-.order-detail-amount {
-  margin: 8px 0 0;
-  font-family: "Montserrat", sans-serif;
-  font-weight: 700;
-  font-size: 22px;
-  line-height: 26px;
-  color: #191919;
-}
-
-.order-detail-section-title {
-  margin: 0 0 10px;
-  font-family: "Montserrat", sans-serif;
-  font-weight: 700;
-  font-size: 16px;
-  line-height: 20px;
-  color: #191919;
-}
-
-.order-detail-text {
-  margin: 0;
-  font-family: -apple-system, "SF Pro Display", sans-serif;
-  font-size: 14px;
-  line-height: 18px;
-  color: #191919;
-}
-
-.order-detail-meta {
-  margin: 6px 0 0;
-}
-
-.order-detail-timeline {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
-
-.order-detail-timeline-item {
-  display: flex;
-  gap: 10px;
-}
-
-.order-detail-timeline-dot {
-  width: 10px;
-  height: 10px;
-  margin-top: 5px;
-  border-radius: 50%;
-  background: #f50302;
-  flex-shrink: 0;
-}
-
-.order-detail-timeline-copy {
+.order-detail-overview__summary {
   display: flex;
   flex-direction: column;
   gap: 2px;
+  min-width: 0;
 }
 
-.order-detail-timeline-copy strong {
+.order-detail-overview__amount {
   font-family: "Montserrat", sans-serif;
-  font-size: 14px;
-  line-height: 18px;
+  font-size: 22px;
+  line-height: 26px;
+  font-weight: 700;
   color: #191919;
 }
 
-.order-detail-timeline-copy span {
+.order-detail-overview__positions {
   font-family: -apple-system, "SF Pro Display", sans-serif;
   font-size: 13px;
   line-height: 16px;
   color: #8a93a0;
 }
 
-.order-detail-timeline-note {
-  color: #5c6470 !important;
+.order-detail-overview__status {
+  flex-shrink: 0;
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: #f0f2f5;
+  font-family: -apple-system, "SF Pro Display", sans-serif;
+  font-size: 12px;
+  line-height: 14px;
+  font-weight: 600;
+  color: #5c6470;
+}
+
+.order-detail-overview__status--delivered,
+.order-detail-overview__status--completed {
+  background: #e8f7ef;
+  color: #1d7a4b;
+}
+
+.order-detail-overview__status--cancelled {
+  background: #f0f2f5;
+  color: #8a93a0;
+}
+
+.order-detail-overview__timeline {
+  list-style: none;
+  margin: 0;
+  padding: 14px 0 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.order-detail-overview__step {
+  display: grid;
+  grid-template-columns: 16px 1fr;
+  gap: 12px;
+  position: relative;
+  padding-bottom: 16px;
+}
+
+.order-detail-overview__step--last {
+  padding-bottom: 0;
+}
+
+.order-detail-overview__step:not(.order-detail-overview__step--last)::after {
+  content: "";
+  position: absolute;
+  left: 5px;
+  top: 14px;
+  bottom: 0;
+  width: 2px;
+  background: #e6e9ed;
+}
+
+.order-detail-overview__dot {
+  width: 12px;
+  height: 12px;
+  margin-top: 2px;
+  border-radius: 50%;
+  background: #d7dce3;
+  position: relative;
+  z-index: 1;
+}
+
+.order-detail-overview__step--last .order-detail-overview__dot {
+  background: #8a93a0;
+  box-shadow: 0 0 0 4px rgba(138, 147, 160, 0.12);
+}
+
+.order-detail-overview__step--success .order-detail-overview__dot {
+  background: #22a06b;
+  box-shadow: 0 0 0 4px rgba(34, 197, 94, 0.14);
+}
+
+.order-detail-overview__step-body {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+}
+
+.order-detail-overview__step-label {
+  font-family: -apple-system, "SF Pro Display", sans-serif;
+  font-size: 14px;
+  line-height: 18px;
+  color: #5c6470;
+}
+
+.order-detail-overview__step--last .order-detail-overview__step-label {
+  color: #191919;
+  font-weight: 600;
+}
+
+.order-detail-overview__step-time {
+  font-family: -apple-system, "SF Pro Display", sans-serif;
+  font-size: 13px;
+  line-height: 16px;
+  font-weight: 600;
+  color: #191919;
+  white-space: nowrap;
+}
+
+.order-detail-section-title {
+  margin: 0;
+  font-family: "Montserrat", sans-serif;
+  font-weight: 700;
+  font-size: 16px;
+  line-height: 20px;
+  color: #191919;
 }
 
 .order-detail-reviews {
@@ -392,6 +469,9 @@ onMounted(async () => {
 }
 
 .order-detail-reviews-head {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
   padding: 0 2px;
 }
 

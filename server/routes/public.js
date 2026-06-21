@@ -47,7 +47,7 @@ import {
   findOwnedOrders,
   getPublicGroupReviews,
   getReviewPromptForCustomer,
-  isDevTestModeEnabled,
+  shouldDevBypassForCustomer,
   listQuickTags,
   serializeOrderDetail,
   serializeOrderHistoryCard,
@@ -1629,7 +1629,7 @@ publicRouter.get("/api/settings", (req, res) => {
       order_redirect_telegram: getSettingValue("order_redirect_telegram", ""),
       order_redirect_text_template: getSettingValue(
         "order_redirect_text_template",
-        "Мой номер заказа - #{order_number}",
+        "Здравствуйте, хочу уточнить по покупке",
       ),
     });
   } catch (error) {
@@ -1645,7 +1645,7 @@ publicRouter.get("/api/settings", (req, res) => {
       min_delivery_banner_button_color: "#FFD700",
       delivery_conditions_image: "",
       order_redirect_telegram: "",
-      order_redirect_text_template: "Мой номер заказа - #{order_number}",
+      order_redirect_text_template: "Здравствуйте, хочу уточнить по покупке",
     });
   }
 });
@@ -1866,7 +1866,7 @@ publicRouter.get(
         return res.json({ show: false, reason: "no_customer" });
       }
 
-      const devBypass = isDevTestModeEnabled();
+      const devBypass = shouldDevBypassForCustomer(customer);
       return res.json(getReviewPromptForCustomer(customer, { devBypass }));
     } catch (error) {
       console.error("[public] Failed to get review prompt:", error);
@@ -1894,7 +1894,7 @@ publicRouter.get(
 
       const limit = Math.min(Math.max(Number(req.query.limit) || 20, 1), 50);
       const beforeCreatedAt = typeof req.query.cursor === "string" ? req.query.cursor : null;
-      const devBypass = isDevTestModeEnabled();
+      const devBypass = shouldDevBypassForCustomer(customer);
 
       const orders = findOwnedOrders({
         telegramId,
@@ -1910,7 +1910,7 @@ publicRouter.get(
 
       return res.json({
         items: page.map((order) =>
-          serializeOrderHistoryCard(order, customer.id, { devBypass }),
+          serializeOrderHistoryCard(order),
         ),
         next_cursor: nextCursor,
       });
@@ -1957,7 +1957,7 @@ publicRouter.get(
         });
       }
 
-      const devBypass = isDevTestModeEnabled();
+      const devBypass = shouldDevBypassForCustomer(customer);
       return res.json(
         serializeOrderDetail(order, customer.id, { devBypass }),
       );
@@ -2021,7 +2021,7 @@ publicRouter.post(
         is_anonymous: isAnonymous,
       } = req.body || {};
 
-      const devBypass = isDevTestModeEnabled();
+      const devBypass = shouldDevBypassForCustomer(customer);
       const review = createProductReview({
         customerId: customer.id,
         orderId,
@@ -2039,12 +2039,14 @@ publicRouter.post(
       const code = error?.code || "review_create_failed";
       const status =
         code === "review_body_too_short" ||
+        code === "review_body_too_long" ||
         code === "invalid_rating" ||
         code === "invalid_quick_tags" ||
         code === "not_eligible" ||
         code === "cooldown" ||
         code === "pending_moderation" ||
-        code === "not_purchased"
+        code === "not_purchased" ||
+        code === "order_not_reviewable"
           ? 400
           : code === "order_not_found" || code === "group_not_found"
             ? 404

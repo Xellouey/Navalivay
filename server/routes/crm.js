@@ -13,10 +13,13 @@ import {
 import { queryTopSalesGroups } from '../utils/top-sales-groups.js';
 import {
   REVIEW_STATUSES,
-  getCooldownDays,
+  disableReviewQaModes,
   getReviewSetting,
+  getReviewSettingsResponse,
+  setQaUsernames,
   setReviewSetting,
 } from '../utils/product-reviews.js';
+import { runReviewQaSeed } from '../utils/review-qa-seed.js';
 import {
   getDrawById,
   getReviewPeriodKey,
@@ -2157,12 +2160,7 @@ crmRouter.delete('/api/admin/crm/review-quick-tags/:id', authMiddleware, (req, r
 
 crmRouter.get('/api/admin/crm/review-settings', authMiddleware, (_req, res) => {
   try {
-    res.json({
-      cooldown_days: getCooldownDays(),
-      lottery_hint_text: getReviewSetting('lottery_hint_text', ''),
-      dev_test_mode: getReviewSetting('dev_test_mode', '0') === '1',
-      manager_display_name: getReviewSetting('manager_display_name', 'Manager Rezonsky'),
-    });
+    res.json(getReviewSettingsResponse());
   } catch (error) {
     console.error('[crm] Get review settings error:', error);
     res.status(500).json({ error: 'failed', message: error.message });
@@ -2175,7 +2173,10 @@ crmRouter.patch('/api/admin/crm/review-settings', authMiddleware, (req, res) => 
       cooldown_days: cooldownDays,
       lottery_hint_text: lotteryHintText,
       dev_test_mode: devTestMode,
+      qa_active: qaActive,
+      qa_usernames: qaUsernames,
       manager_display_name: managerDisplayName,
+      manager_avatar_url: managerAvatarUrl,
     } = req.body || {};
 
     if (cooldownDays !== undefined) {
@@ -2191,18 +2192,49 @@ crmRouter.patch('/api/admin/crm/review-settings', authMiddleware, (req, res) => 
     if (devTestMode !== undefined) {
       setReviewSetting('dev_test_mode', devTestMode ? '1' : '0');
     }
+    if (qaActive !== undefined) {
+      setReviewSetting('qa_active', qaActive ? '1' : '0');
+    }
+    if (qaUsernames !== undefined) {
+      setQaUsernames(qaUsernames);
+    }
     if (managerDisplayName !== undefined) {
       setReviewSetting('manager_display_name', String(managerDisplayName).trim());
     }
+    if (managerAvatarUrl !== undefined) {
+      setReviewSetting('manager_avatar_url', String(managerAvatarUrl).trim());
+    }
 
-    res.json({
-      cooldown_days: getCooldownDays(),
-      lottery_hint_text: getReviewSetting('lottery_hint_text', ''),
-      dev_test_mode: getReviewSetting('dev_test_mode', '0') === '1',
-      manager_display_name: getReviewSetting('manager_display_name', 'Manager Rezonsky'),
-    });
+    res.json(getReviewSettingsResponse());
   } catch (error) {
     console.error('[crm] Update review settings error:', error);
+    res.status(500).json({ error: 'failed', message: error.message });
+  }
+});
+
+crmRouter.post('/api/admin/crm/review-qa/seed', authMiddleware, (req, res) => {
+  try {
+    const reset = req.body?.reset !== false;
+    const result = runReviewQaSeed({ reset });
+    res.json({
+      ok: true,
+      period_key: result.periodKey,
+      rating_group_name: result.ratingGroup.group_name,
+      fresh_order_number: result.freshOrder.orderNumber,
+      suggested_whitelist_usernames: result.suggestedWhitelistUsernames,
+    });
+  } catch (error) {
+    console.error('[crm] Review QA seed error:', error);
+    res.status(500).json({ error: 'failed', message: error.message });
+  }
+});
+
+crmRouter.post('/api/admin/crm/review-qa/disable', authMiddleware, (_req, res) => {
+  try {
+    disableReviewQaModes();
+    res.json(getReviewSettingsResponse());
+  } catch (error) {
+    console.error('[crm] Review QA disable error:', error);
     res.status(500).json({ error: 'failed', message: error.message });
   }
 });

@@ -3,15 +3,17 @@ import { flushPromises, mount } from "@vue/test-utils";
 import OrderHistoryView from "@/views/OrderHistoryView.vue";
 
 const routerPush = vi.hoisted(() => vi.fn());
+const routerBack = vi.hoisted(() => vi.fn());
 const fetchOrderHistoryMock = vi.hoisted(() => vi.fn());
 
 vi.mock("vue-router", () => ({
-  useRouter: () => ({ push: routerPush }),
+  useRouter: () => ({ push: routerPush, back: routerBack }),
 }));
 
 vi.mock("@/composables/useCustomerOrders", () => ({
-  formatOrderDate: (value: string) => value.slice(0, 10),
-  formatOrderStatus: (status: string) => (status === "delivered" ? "Доставлен" : status),
+  formatOrderHistoryTitle: (orderNumber: number) => `Заказ № ${orderNumber}`,
+  formatOrderHistoryMeta: (order: { status: string }) =>
+    order.status === "delivered" ? "Выдан" : order.status,
   useCustomerOrders: () => ({
     fetchOrderHistory: fetchOrderHistoryMock,
   }),
@@ -22,7 +24,7 @@ describe("OrderHistoryView", () => {
     vi.clearAllMocks();
   });
 
-  it("renders order cards with badge and opens detail on tap", async () => {
+  it("renders order cards and opens detail on tap", async () => {
     fetchOrderHistoryMock.mockResolvedValue({
       items: [
         {
@@ -32,10 +34,11 @@ describe("OrderHistoryView", () => {
           created_at: "2026-06-01T10:00:00.000Z",
           completed_at: "2026-06-01T12:00:00.000Z",
           final_amount: 42,
-          category_icons: [],
+          category_icons: [
+            { category_id: "cat1", category_name: "Жидкости", image: null },
+            { category_id: "cat2", category_name: "Расходники", image: null },
+          ],
           category_icons_overflow: 0,
-          pending_review_count: 2,
-          has_reviews: false,
         },
       ],
       next_cursor: null,
@@ -45,8 +48,11 @@ describe("OrderHistoryView", () => {
     await flushPromises();
 
     expect(wrapper.text()).toContain("Мои заказы");
-    expect(wrapper.text()).toContain("Заказ №1001");
-    expect(wrapper.text()).toContain("Оценить");
+    expect(wrapper.text()).toContain("Заказ № 1001");
+    expect(wrapper.text()).not.toContain("Жидкости");
+    expect(wrapper.text()).toContain("Выдан");
+    expect(wrapper.text()).not.toContain("Оценить");
+    expect(wrapper.text()).toContain("42 BYN");
 
     await wrapper.find(".order-history-card").trigger("click");
     expect(routerPush).toHaveBeenCalledWith({
@@ -81,8 +87,6 @@ describe("OrderHistoryView", () => {
             final_amount: 42,
             category_icons: [],
             category_icons_overflow: 0,
-            pending_review_count: 0,
-            has_reviews: true,
           },
         ],
         next_cursor: "cursor-1",
@@ -98,8 +102,6 @@ describe("OrderHistoryView", () => {
             final_amount: 30,
             category_icons: [],
             category_icons_overflow: 0,
-            pending_review_count: 0,
-            has_reviews: false,
           },
         ],
         next_cursor: null,
@@ -118,6 +120,18 @@ describe("OrderHistoryView", () => {
       limit: 20,
     });
     expect(wrapper.findAll(".order-history-card")).toHaveLength(2);
+
+    wrapper.unmount();
+  });
+
+  it("navigates back to profile from header button", async () => {
+    fetchOrderHistoryMock.mockResolvedValue({ items: [], next_cursor: null });
+
+    const wrapper = mount(OrderHistoryView);
+    await flushPromises();
+
+    await wrapper.find(".order-history-back").trigger("click");
+    expect(routerPush).toHaveBeenCalledWith({ name: "profile" });
 
     wrapper.unmount();
   });

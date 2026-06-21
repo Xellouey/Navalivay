@@ -391,48 +391,6 @@ function patchFetchForDevMock(identity: DevMockIdentity): void {
   console.info('[dev] fetch patched for dev Telegram identity')
 }
 
-function showDevBanner(identity: DevMockIdentity): void {
-  if (document.getElementById('navalivay-dev-mock-banner')) return
-
-  const mount = () => {
-    if (document.getElementById('navalivay-dev-mock-banner')) return
-    const el = document.createElement('div')
-    el.id = 'navalivay-dev-mock-banner'
-    el.textContent = `dev mock: tg_id=${identity.id}${
-      identity.username ? ` @${identity.username}` : ''
-    } В· clearDevTelegramMock()`
-    Object.assign(el.style, {
-      position: 'fixed',
-      bottom: '8px',
-      left: '8px',
-      zIndex: '2147483647',
-      padding: '4px 8px',
-      borderRadius: '6px',
-      background: 'rgba(220, 38, 38, 0.92)',
-      color: '#fff',
-      font: '11px/1.3 ui-monospace, SFMono-Regular, Menlo, monospace',
-      pointerEvents: 'auto',
-      cursor: 'pointer',
-      boxShadow: '0 2px 6px rgba(0,0,0,0.25)',
-      maxWidth: 'calc(100vw - 16px)',
-      whiteSpace: 'nowrap',
-      overflow: 'hidden',
-      textOverflow: 'ellipsis',
-    } as Partial<CSSStyleDeclaration>)
-    el.title = 'Click to clear dev mock and reload'
-    el.addEventListener('click', () => {
-      ;(window as unknown as { clearDevTelegramMock?: () => void }).clearDevTelegramMock?.()
-    })
-    document.body.appendChild(el)
-  }
-
-  if (document.body) {
-    mount()
-  } else {
-    document.addEventListener('DOMContentLoaded', mount, { once: true })
-  }
-}
-
 export function applyDevTelegramMockIfNeeded(): void {
   if (!import.meta.env.DEV) return
   if (typeof window === 'undefined') return
@@ -479,11 +437,10 @@ export function applyDevTelegramMockIfNeeded(): void {
     window.location.reload()
   }
 
-  // Р•СЃР»Рё СЂРµР°Р»СЊРЅС‹Р№ Mini App СѓР¶Рµ РїРѕРґРјРѕРЅС‚РёСЂРѕРІР°РЅ вЂ” РЅРµ РїР°С‚С‡РёРј fetch Рё РЅРµ РїРѕРєР°Р·С‹РІР°РµРј Р±Р°РЅРЅРµСЂ.
+  // Real Mini App already mounted — do not patch fetch.
   if (!injected) return
 
   patchFetchForDevMock(identity)
-
 
   console.warn('[dev] Telegram WebApp mock applied', identity)
 }

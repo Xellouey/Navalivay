@@ -43,6 +43,23 @@ describe("ReviewLineCard", () => {
     submitReviewMock.mockResolvedValue({ ok: true });
   });
 
+  it("does not pass lottery hint into review form", async () => {
+    const wrapper = mount(ReviewLineCard, {
+      props: {
+        line: buildLine(),
+        orderId: "ord1",
+        initialRating: 5,
+      },
+    });
+    await flushPromises();
+
+    const form = wrapper.findComponent(ReviewForm);
+    expect(form.props()).not.toHaveProperty("lotteryHint");
+    expect(wrapper.find(".review-form__disclosure").exists()).toBe(false);
+
+    wrapper.unmount();
+  });
+
   it("renders review form when line is eligible", async () => {
     const wrapper = mount(ReviewLineCard, {
       props: {
@@ -140,6 +157,80 @@ describe("ReviewLineCard", () => {
       is_anonymous: true,
     });
     expect(wrapper.emitted("submitted")).toHaveLength(1);
+
+    wrapper.unmount();
+  });
+
+  it("shows thank-you state for approved review", () => {
+    const wrapper = mount(ReviewLineCard, {
+      props: {
+        line: buildLine({
+          eligibility: {
+            canReview: false,
+            reason: null,
+            cooldownEndsAt: null,
+          },
+          latest_review: {
+            id: "rev1",
+            status: "approved",
+            rating: 5,
+            body_text: "Отлично",
+            is_anonymous: 0,
+            created_at: "2026-06-01T10:00:00.000Z",
+          },
+        }),
+        orderId: "ord1",
+      },
+    });
+
+    expect(wrapper.text()).toContain("Спасибо за отзыв");
+    expect(wrapper.find(".review-form").exists()).toBe(false);
+
+    wrapper.unmount();
+  });
+
+  it("shows unavailable copy when review cannot be left", () => {
+    const wrapper = mount(ReviewLineCard, {
+      props: {
+        line: buildLine({
+          eligibility: {
+            canReview: false,
+            reason: "not_purchased",
+            cooldownEndsAt: null,
+          },
+        }),
+        orderId: "ord1",
+      },
+    });
+
+    expect(wrapper.text()).toContain("купленные товары");
+
+    wrapper.unmount();
+  });
+
+  it("surfaces submit errors without emitting submitted", async () => {
+    submitReviewMock.mockRejectedValueOnce(new Error("Отзыв уже на модерации"));
+
+    const wrapper = mount(ReviewLineCard, {
+      props: {
+        line: buildLine(),
+        orderId: "ord1",
+        initialRating: 5,
+      },
+    });
+    await flushPromises();
+
+    const form = wrapper.findComponent(ReviewForm);
+    await form.vm.$emit("submit", {
+      rating: 5,
+      body_text: "Достаточно длинный текст отзыва",
+      quick_tag_ids: [],
+      is_anonymous: false,
+    });
+    await flushPromises();
+
+    expect(wrapper.text()).toContain("Отзыв уже на модерации");
+    expect(wrapper.emitted("submitted")).toBeUndefined();
 
     wrapper.unmount();
   });

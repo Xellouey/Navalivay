@@ -55,6 +55,55 @@ console.log('\n=== CRM poll summary returns lightweight IDs and latest activity 
   assert(summary.latestOrderActivityAt === '2026-06-01 13:00:00', 'latestOrderActivityAt reflects newest active order update');
 }
 
+console.log('\n=== CRM poll summary includes pending review count ===');
+{
+  const group = db.prepare('SELECT id FROM category_groups LIMIT 1').get();
+  db.exec('DELETE FROM product_reviews;');
+  db.prepare(`
+    INSERT INTO product_reviews (
+      id, customer_id, order_id, group_id, rating, body_text, quick_tag_ids, status, created_at, updated_at
+    ) VALUES ('pr1', 'c1', 'o_old', ?, 5, 'Хороший товар, всё понравилось!', '[]', 'pending', '2026-06-01 10:00:00', '2026-06-01 10:00:00')
+  `).run(group.id);
+  db.prepare(`
+    INSERT INTO product_reviews (
+      id, customer_id, order_id, group_id, rating, body_text, quick_tag_ids, status, created_at, updated_at
+    ) VALUES ('pr2', 'c2', 'o_new', ?, 4, 'Нормальный товар, но есть нюансы.', '[]', 'approved', '2026-06-01 10:00:00', '2026-06-01 10:00:00')
+  `).run(group.id);
+
+  const summary = buildCrmOrderPollSummary({ db });
+  assert(summary.pendingReviewCount === 1, 'pendingReviewCount counts only pending reviews');
+}
+
+console.log('\n=== CRM poll summary includes latest monthly draw ===');
+{
+  db.exec('DELETE FROM review_monthly_draw_winners;');
+  db.exec('DELETE FROM review_monthly_draws;');
+
+  db.prepare(`
+    INSERT INTO review_monthly_draws (id, period_key, drawn_at, status)
+    VALUES ('draw_old', '2026-05', '2026-05-31 21:00:00', 'completed')
+  `).run();
+  db.prepare(`
+    INSERT INTO review_monthly_draws (id, period_key, drawn_at, status)
+    VALUES ('draw_new', '2026-06', '2026-06-30 21:00:00', 'completed')
+  `).run();
+  db.prepare(`
+    INSERT INTO review_monthly_draw_winners (
+      id, draw_id, seat_number, customer_id, review_id, created_at
+    ) VALUES ('win1', 'draw_new', 1, 'c1', NULL, '2026-06-30 21:00:00')
+  `).run();
+  db.prepare(`
+    INSERT INTO review_monthly_draw_winners (
+      id, draw_id, seat_number, customer_id, review_id, created_at
+    ) VALUES ('win2', 'draw_new', 2, 'c2', NULL, '2026-06-30 21:00:00')
+  `).run();
+
+  const summary = buildCrmOrderPollSummary({ db });
+  assert(summary.latestMonthlyDraw?.id === 'draw_new', 'latestMonthlyDraw picks newest draw');
+  assert(summary.latestMonthlyDraw?.period_key === '2026-06', 'latestMonthlyDraw returns period_key');
+  assert(summary.latestMonthlyDraw?.winner_count === 2, 'latestMonthlyDraw counts active winners');
+}
+
 console.log('\n=== Adversarial: bot_message_log order lookup uses dedicated index ===');
 {
   const planRows = db.prepare(`

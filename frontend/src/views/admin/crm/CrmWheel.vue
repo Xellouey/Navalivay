@@ -1091,21 +1091,16 @@
             </template>
           </p>
           <div class="flex justify-end gap-2">
-            <button
-              type="button"
-              class="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 text-sm"
-              @click="confirmTogglePrize = null"
-            >
+            <CrmButton variant="ghost" size="sm" @click="confirmTogglePrize = null">
               Отмена
-            </button>
-            <button
-              type="button"
-              class="px-4 py-2 rounded-xl text-white text-sm font-semibold"
-              :class="confirmTogglePrize?.is_active ? 'bg-rose-600' : 'bg-emerald-600'"
+            </CrmButton>
+            <CrmButton
+              :variant="confirmTogglePrize?.is_active ? 'danger-solid' : 'success'"
+              size="sm"
               @click="togglePrizeConfirmed"
             >
               {{ confirmTogglePrize?.is_active ? 'Отключить приз' : 'Включить приз' }}
-            </button>
+            </CrmButton>
           </div>
         </div>
       </div>
@@ -1131,20 +1126,12 @@
             Приз «{{ confirmDeletePrize.title }}» будет удалён из списка без возможности восстановления.
           </p>
           <div class="flex justify-end gap-2">
-            <button
-              type="button"
-              class="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 text-sm"
-              @click="confirmDeletePrize = null"
-            >
+            <CrmButton variant="ghost" size="sm" @click="confirmDeletePrize = null">
               Не удалять
-            </button>
-            <button
-              type="button"
-              class="px-4 py-2 rounded-xl bg-rose-600 text-white text-sm font-semibold"
-              @click="deletePrizeConfirmed"
-            >
+            </CrmButton>
+            <CrmButton variant="danger-solid" size="sm" @click="deletePrizeConfirmed">
               Удалить приз
-            </button>
+            </CrmButton>
           </div>
         </div>
       </div>
@@ -1166,14 +1153,15 @@
         aria-atomic="true"
       >
         <span class="text-sm font-medium flex-1">{{ toast.text }}</span>
-        <button
-          type="button"
-          class="text-current opacity-70 hover:opacity-100"
+        <CrmButton
+          variant="ghost"
+          size="sm"
+          icon-only
           aria-label="Закрыть"
           @click="dismissToast"
         >
           ✕
-        </button>
+        </CrmButton>
       </div>
     </Transition>
   </div>
@@ -1181,6 +1169,7 @@
 
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, reactive, ref, computed, watch } from 'vue'
+import CrmButton from '@/components/admin/crm/CrmButton.vue'
 import {
   BUSINESS_TIME_ZONE,
   getBusinessDateParts,

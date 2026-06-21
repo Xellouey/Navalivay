@@ -81,9 +81,17 @@ export function migrateProductReviews() {
         INSERT OR IGNORE INTO review_settings (key, value) VALUES ('cooldown_days', '90');
         INSERT OR IGNORE INTO review_settings (key, value) VALUES ('lottery_hint_text', 'В конце месяца разыгрываем 5 подарков среди оставивших отзывы');
         INSERT OR IGNORE INTO review_settings (key, value) VALUES ('dev_test_mode', '0');
+        INSERT OR IGNORE INTO review_settings (key, value) VALUES ('qa_active', '0');
+        INSERT OR IGNORE INTO review_settings (key, value) VALUES ('qa_usernames', '[]');
         INSERT OR IGNORE INTO review_settings (key, value) VALUES ('manager_display_name', 'Manager Rezonsky');
+        INSERT OR IGNORE INTO review_settings (key, value) VALUES ('manager_avatar_url', '/favicon.png');
       `);
     }
+
+    db.exec(`
+      INSERT OR IGNORE INTO review_settings (key, value) VALUES ('qa_active', '0');
+      INSERT OR IGNORE INTO review_settings (key, value) VALUES ('qa_usernames', '[]');
+    `);
 
     const drawsExists = db.prepare(`
       SELECT name FROM sqlite_master

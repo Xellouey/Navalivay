@@ -16,37 +16,35 @@ vi.mock("vue-router", () => ({
   useRouter: () => ({ push: routerPush }),
 }));
 
-vi.mock("@/composables/useCustomerOrders", () => ({
-  formatDurationMinutes: (minutes: number) => `${minutes} мин`,
-  formatOrderDate: (value: string) => value.slice(0, 10),
-  formatOrderDateTime: (value: string) => value.replace("T", " ").slice(0, 16),
-  formatOrderStatus: (status: string) => (status === "delivered" ? "Доставлен" : status),
-  useCustomerOrders: () => ({
-    fetchOrderDetail: fetchOrderDetailMock,
-    fetchReviewPrompt: fetchReviewPromptMock,
-    reviewPreferences: { value: { reviews_prefer_anonymous: false, reviews_opt_out: false } },
-  }),
-}));
+vi.mock("@/composables/useCustomerOrders", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/composables/useCustomerOrders")>();
+  return {
+    ...actual,
+    formatOrderDate: (value: string) => value.slice(0, 10),
+    formatOrderDetailTitle: (_completedAt: string, createdAt: string) => createdAt.slice(0, 10),
+    formatOrderStatus: (status: string) => (status === "delivered" ? "Доставлен" : status),
+    useCustomerOrders: () => ({
+      fetchOrderDetail: fetchOrderDetailMock,
+      fetchReviewPrompt: fetchReviewPromptMock,
+      reviewPreferences: { value: { reviews_prefer_anonymous: false, reviews_opt_out: false } },
+    }),
+  };
+});
 
 const orderDetail = {
   id: "ord1",
   order_number: 1001,
   status: "delivered",
+  delivery_type: "pickup",
   created_at: "2026-06-01T10:00:00.000Z",
   completed_at: "2026-06-01T12:00:00.000Z",
   final_amount: 42,
-  fulfillment: {
-    created_at: "2026-06-01T10:00:00.000Z",
-    completed_at: "2026-06-01T12:00:00.000Z",
-    duration_minutes: 120,
+  fulfillment_milestones: {
+    submitted_at: "2026-06-01T10:00:00.000Z",
+    ready_at: "2026-06-01T11:00:00.000Z",
+    issued_at: "2026-06-01T12:00:00.000Z",
+    cancelled_at: null,
   },
-  status_timeline: [
-    {
-      new_status: "delivered",
-      changed_at: "2026-06-01T12:00:00.000Z",
-      note: null,
-    },
-  ],
   lottery_hint_text: "Оставьте отзыв — участвуйте в розыгрыше",
   reviewable_lines: [
     {
@@ -90,8 +88,16 @@ describe("OrderDetailView", () => {
     });
     await flushPromises();
 
-    expect(wrapper.text()).toContain("Заказ №1001");
-    expect(wrapper.text()).toContain("Доставлен");
+    expect(wrapper.text()).toContain("Подонки");
+    expect(wrapper.text()).toContain("42 BYN");
+    expect(wrapper.text()).toContain("1 позиция");
+    expect(wrapper.text()).toContain("Заказ № 1001");
+    expect(wrapper.find(".order-detail-overview").exists()).toBe(true);
+    expect(wrapper.text()).toContain("Оформлен");
+    expect(wrapper.text()).toContain("Собран");
+    expect(wrapper.text()).toContain("Выдан");
+    expect(wrapper.text()).not.toContain("Выполнение");
+    expect(wrapper.text()).not.toContain("выполнен за");
     expect(wrapper.text()).toContain("Оставьте отзыв — участвуйте в розыгрыше");
     expect(wrapper.find(".review-line-stub").text()).toBe("Подонки");
 

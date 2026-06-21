@@ -669,11 +669,31 @@ export const useCrmStore = defineStore("crm", () => {
   const unseenActionIds = ref<Set<string>>(new Set());
   const lastKnownActionIds = ref<Set<string>>(new Set());
   // In-app toast notification (fallback for Safari)
-  const inAppToast = ref<{ show: boolean; message: string; count: number }>({
+  const inAppToast = ref<{
+    show: boolean;
+    message: string;
+    count: number;
+    hint: string;
+  }>({
     show: false,
     message: "",
     count: 0,
+    hint: "",
   });
+  const pendingReviewCount = ref(0);
+  const reviewAlertBaseline = ref(0);
+  type MonthlyDrawAlert = {
+    id: string;
+    period_key: string;
+    drawn_at: string;
+    winner_count: number;
+  };
+  const latestMonthlyDraw = ref<MonthlyDrawAlert | null>(null);
+  const acknowledgedDrawId = ref(
+    typeof localStorage !== "undefined"
+      ? localStorage.getItem("crm_ack_draw_id") || ""
+      : "",
+  );
   const notificationsEnabled = ref(
     typeof localStorage !== "undefined"
       ? localStorage.getItem("crm_notifications_enabled") !== "false"
@@ -779,16 +799,29 @@ export const useCrmStore = defineStore("crm", () => {
     }
   }
 
-  function triggerBrowserNotification(count: number, isActionRequired = false) {
+  function triggerBrowserNotification(
+    count: number,
+    options: { isActionRequired?: boolean; isReview?: boolean; isMonthlyDraw?: boolean } = {},
+  ) {
+    const { isActionRequired = false, isReview = false, isMonthlyDraw = false } = options;
     // Always show in-app toast (works in Safari and all browsers)
-    const toastMessage = isActionRequired
-      ? (count === 1 ? "Заказ требует действий!" : `Заказов требует действий: ${count}`)
-      : (count === 1 ? "Новый заказ!" : `Новых заказов: ${count}`);
-    inAppToast.value = { show: true, message: toastMessage, count };
+    const toastMessage = isMonthlyDraw
+      ? "Определены победители розыгрыша!"
+      : isReview
+        ? (count === 1 ? "Новый отзыв!" : `Новых отзывов: ${count}`)
+        : isActionRequired
+          ? (count === 1 ? "Заказ требует действий!" : `Заказов требует действий: ${count}`)
+          : (count === 1 ? "Новый заказ!" : `Новых заказов: ${count}`);
+    const toastHint = isMonthlyDraw
+      ? "Свяжитесь с победителями и выдайте промокоды"
+      : isReview
+        ? "Откройте раздел «Отзывы» для модерации"
+        : "Проверьте колонку «Новые»";
+    inAppToast.value = { show: true, message: toastMessage, count, hint: toastHint };
     // Auto-hide after 10 seconds
     setTimeout(() => {
-      if (inAppToast.value.count === count) {
-        inAppToast.value = { show: false, message: "", count: 0 };
+      if (inAppToast.value.count === count && inAppToast.value.message === toastMessage) {
+        inAppToast.value = { show: false, message: "", count: 0, hint: "" };
       }
     }, 10000);
     
@@ -796,16 +829,26 @@ export const useCrmStore = defineStore("crm", () => {
     if (typeof window === "undefined" || !("Notification" in window)) return;
     if (Notification.permission !== "granted") return;
 
-    const title = isActionRequired
-      ? (count === 1 ? "Требует действий" : `Требует действий: ${count}`)
-      : (count === 1 ? "Новый заказ" : `Новых заказов: ${count}`);
-    const body = isActionRequired
-      ? (count === 1
-          ? "Заказ требует внимания менеджера."
-          : "Несколько заказов требуют внимания менеджера.")
-      : (count === 1
-          ? "Появился новый заказ в колонке «Новые»."
-          : "На доске появились новые заказы. Проверьте колонку «Новые».");
+    const title = isMonthlyDraw
+      ? "Розыгрыш отзывов"
+      : isReview
+        ? (count === 1 ? "Новый отзыв" : `Новых отзывов: ${count}`)
+        : isActionRequired
+          ? (count === 1 ? "Требует действий" : `Требует действий: ${count}`)
+          : (count === 1 ? "Новый заказ" : `Новых заказов: ${count}`);
+    const body = isMonthlyDraw
+      ? "Определены победители. Свяжитесь с ними и выдайте промокоды."
+      : isReview
+        ? (count === 1
+            ? "Появился отзыв на модерации."
+            : "Появились новые отзывы на модерации.")
+        : isActionRequired
+          ? (count === 1
+              ? "Заказ требует внимания менеджера."
+              : "Несколько заказов требуют внимания менеджера.")
+          : (count === 1
+              ? "Появился новый заказ в колонке «Новые»."
+              : "На доске появились новые заказы. Проверьте колонку «Новые».");
 
     try {
       new Notification(title, {
@@ -818,14 +861,26 @@ export const useCrmStore = defineStore("crm", () => {
   }
   
   function hideInAppToast() {
-    inAppToast.value = { show: false, message: "", count: 0 };
+    inAppToast.value = { show: false, message: "", count: 0, hint: "" };
   }
 
   type OrderPollSummary = {
     newOrderIds: string[];
     actionRequiredIds: string[];
     latestOrderActivityAt: string | null;
+    pendingReviewCount?: number;
+    latestMonthlyDraw?: MonthlyDrawAlert | null;
   };
+
+  const hasUnseenReviews = computed(
+    () => pendingReviewCount.value > reviewAlertBaseline.value,
+  );
+
+  const hasUnseenDraw = computed(() => {
+    const draw = latestMonthlyDraw.value;
+    if (!draw?.id) return false;
+    return draw.id !== acknowledgedDrawId.value;
+  });
 
   function notifyOrderActivityListeners(activitySince: string) {
     for (const listener of orderActivityListeners) {
@@ -893,6 +948,13 @@ export const useCrmStore = defineStore("crm", () => {
       notifyOrderActivityListeners(previousActivity);
     }
 
+    const currentPendingReviews = Number(summary.pendingReviewCount || 0);
+    const newReviewDelta = Math.max(
+      0,
+      currentPendingReviews - pendingReviewCount.value,
+    );
+    pendingReviewCount.value = currentPendingReviews;
+
     if (pollingInitialized && newIds.length > 0) {
       if (notificationsEnabled.value) {
         triggerBrowserNotification(newIds.length);
@@ -904,7 +966,33 @@ export const useCrmStore = defineStore("crm", () => {
 
     if (pollingInitialized && newActionIds.length > 0) {
       if (notificationsEnabled.value) {
-        triggerBrowserNotification(newActionIds.length, true);
+        triggerBrowserNotification(newActionIds.length, { isActionRequired: true });
+      }
+      if (soundEnabled.value) {
+        playNotificationSound();
+      }
+    }
+
+    if (pollingInitialized && newReviewDelta > 0) {
+      if (notificationsEnabled.value) {
+        triggerBrowserNotification(newReviewDelta, { isReview: true });
+      }
+      if (soundEnabled.value) {
+        playNotificationSound();
+      }
+    }
+
+    const previousDrawId = latestMonthlyDraw.value?.id || null;
+    const nextDraw = summary.latestMonthlyDraw || null;
+    latestMonthlyDraw.value = nextDraw;
+    const isNewDraw = Boolean(
+      pollingInitialized
+      && nextDraw?.id
+      && nextDraw.id !== previousDrawId,
+    );
+    if (isNewDraw) {
+      if (notificationsEnabled.value) {
+        triggerBrowserNotification(1, { isMonthlyDraw: true });
       }
       if (soundEnabled.value) {
         playNotificationSound();
@@ -912,6 +1000,19 @@ export const useCrmStore = defineStore("crm", () => {
     }
 
     pollingInitialized = true;
+  }
+
+  function markReviewsAsSeen() {
+    reviewAlertBaseline.value = pendingReviewCount.value;
+  }
+
+  function markDrawAsSeen(drawId?: string) {
+    const resolvedId = drawId || latestMonthlyDraw.value?.id || "";
+    if (!resolvedId) return;
+    acknowledgedDrawId.value = resolvedId;
+    if (typeof localStorage !== "undefined") {
+      localStorage.setItem("crm_ack_draw_id", resolvedId);
+    }
   }
 
   async function fetchOrderPollSummary() {
@@ -2631,6 +2732,12 @@ export const useCrmStore = defineStore("crm", () => {
     markOrderAsSeen,
     markAllOrdersAsSeen,
     isOrderUnseen,
+    pendingReviewCount,
+    hasUnseenReviews,
+    markReviewsAsSeen,
+    latestMonthlyDraw,
+    hasUnseenDraw,
+    markDrawAsSeen,
     // In-app toast (Safari fallback)
     inAppToast,
     hideInAppToast,

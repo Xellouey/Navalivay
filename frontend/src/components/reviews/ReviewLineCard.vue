@@ -4,24 +4,27 @@
     class="review-line-card"
     :class="{ 'review-line-card--highlight': highlighted }"
   >
-    <div class="review-line-card__header">
-      <div class="review-line-card__media">
-        <img
-          v-if="coverImage"
-          :src="coverImage"
-          :alt="line.group_name"
-          loading="lazy"
-          decoding="async"
-        />
-        <div v-else class="review-line-card__media-placeholder" aria-hidden="true" />
-      </div>
-      <div class="review-line-card__copy">
+    <div class="review-line-card__summary">
+      <div class="review-line-card__head">
         <h3 class="review-line-card__title">{{ line.group_name }}</h3>
-        <p v-if="line.purchased_variant_name" class="review-line-card__variant">
-          {{ line.purchased_variant_name }}
-        </p>
-        <p v-if="line.items.length" class="review-line-card__meta">
-          {{ line.items.length }} поз. · {{ formatPrice(lineTotal) }} BYN
+        <span class="review-line-card__amount">{{ formatPrice(lineTotal) }} BYN</span>
+      </div>
+
+      <div class="review-line-card__foot">
+        <div class="review-line-card__thumb" aria-hidden="true">
+          <img
+            v-if="coverImage"
+            :src="coverImage"
+            :alt="line.group_name"
+            loading="lazy"
+            decoding="async"
+          />
+          <span v-else class="review-line-card__thumb-placeholder" />
+        </div>
+
+        <p class="review-line-card__meta">
+          <template v-if="line.purchased_variant_name">{{ line.purchased_variant_name }}</template>
+          <template v-else-if="line.items.length">{{ line.items.length }} поз.</template>
         </p>
       </div>
     </div>
@@ -234,49 +237,87 @@ async function handleSubmit(payload: {
   box-shadow: 0 0 0 2px rgba(245, 3, 2, 0.18), 0 8px 20px rgba(15, 23, 42, 0.06);
 }
 
-.review-line-card__header {
+.review-line-card__summary {
   display: flex;
-  align-items: center;
-  gap: 12px;
+  flex-direction: column;
+  gap: 10px;
   margin-bottom: 14px;
 }
 
-.review-line-card__media,
-.review-line-card__media-placeholder {
-  width: 56px;
-  height: 56px;
-  border-radius: 14px;
-  flex-shrink: 0;
-  overflow: hidden;
-  background: #f5f7fa;
-}
-
-.review-line-card__media img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.review-line-card__copy {
-  min-width: 0;
+.review-line-card__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
 }
 
 .review-line-card__title {
   margin: 0;
+  flex: 1 1 auto;
+  min-width: 0;
   font-family: "Montserrat", sans-serif;
   font-weight: 700;
-  font-size: 16px;
-  line-height: 20px;
+  font-size: 15px;
+  line-height: 19px;
   color: #191919;
 }
 
-.review-line-card__variant,
+.review-line-card__amount {
+  flex-shrink: 0;
+  font-family: "Montserrat", sans-serif;
+  font-weight: 700;
+  font-size: 15px;
+  line-height: 19px;
+  color: #191919;
+  white-space: nowrap;
+}
+
+.review-line-card__foot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.review-line-card__thumb {
+  flex: 0 0 30px;
+  width: 30px;
+  height: 30px;
+  min-width: 30px;
+  max-width: 30px;
+  border-radius: 10px;
+  overflow: hidden;
+  background: #f5f7fa;
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.08);
+}
+
+.review-line-card__thumb-placeholder {
+  display: block;
+  flex: 0 0 30px;
+  width: 30px;
+  height: 30px;
+  min-width: 30px;
+  max-width: 30px;
+  border-radius: 10px;
+  background: #f5f7fa;
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.08);
+}
+
+.review-line-card__thumb img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  max-width: 100%;
+  object-fit: cover;
+}
+
 .review-line-card__meta {
-  margin: 4px 0 0;
+  margin: 0;
+  min-width: 0;
   font-family: -apple-system, "SF Pro Display", sans-serif;
   font-size: 13px;
-  line-height: 17px;
-  color: #5c6470;
+  line-height: 16px;
+  color: #8a93a0;
 }
 
 .review-line-card__state {

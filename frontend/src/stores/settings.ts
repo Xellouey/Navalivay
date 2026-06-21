@@ -32,7 +32,7 @@ export const useSettingsStore = defineStore('settings', () => {
     min_delivery_banner_button_color: '#FFD700',
     delivery_conditions_image: '',
     order_redirect_telegram: '',
-    order_redirect_text_template: 'Мой номер заказа - #{order_number}'
+    order_redirect_text_template: 'Здравствуйте, хочу уточнить по покупке'
   })
   const isLoading = ref(false)
   const error = ref<string | null>(null)

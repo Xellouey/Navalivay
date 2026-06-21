@@ -766,7 +766,7 @@
                       v-model="deliverySettingsForm.order_redirect_text_template"
                       type="text"
                       class="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-900 transition focus:border-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-200"
-                      placeholder="Мой номер заказа - #{order_number}"
+                      placeholder="Здравствуйте, хочу уточнить по покупке"
                     />
                   </div>
 
@@ -1710,7 +1710,7 @@ const deliverySettingsForm = ref({
   min_delivery_banner_button_color: '#FFD700',
   delivery_conditions_image: '',
   order_redirect_telegram: '',
-  order_redirect_text_template: 'Мой номер заказа - #{order_number}'
+  order_redirect_text_template: 'Здравствуйте, хочу уточнить по покупке'
 })
 const deliverySettingsSaving = ref(false)
 const profitPasswordForm = ref<{ current: string; next: string; confirm: string }>({
@@ -3101,7 +3101,7 @@ function updateDeliverySettingsForm() {
   deliverySettingsForm.value.min_delivery_banner_button_color = s.min_delivery_banner_button_color || '#FFD700'
   deliverySettingsForm.value.delivery_conditions_image = s.delivery_conditions_image || ''
   deliverySettingsForm.value.order_redirect_telegram = s.order_redirect_telegram || ''
-  deliverySettingsForm.value.order_redirect_text_template = s.order_redirect_text_template || 'Мой номер заказа - #{order_number}'
+  deliverySettingsForm.value.order_redirect_text_template = s.order_redirect_text_template || 'Здравствуйте, хочу уточнить по покупке'
 }
 
 function closeCrossSellModal() {

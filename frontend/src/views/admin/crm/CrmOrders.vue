@@ -6,27 +6,16 @@
           class="flex w-full flex-nowrap items-center justify-start gap-1.5 sm:gap-2 sm:w-auto sm:justify-end"
         >
           <!-- Обновить -->
-          <button
+          <CrmButton
+            variant="secondary"
+            size="sm"
+            refresh-icon
+            :loading="isRefreshing"
+            loading-label="Обновляем..."
             @click="deferClick(() => refreshOrders())"
-            :disabled="isRefreshing"
-            class="inline-flex shrink-0 items-center gap-2 whitespace-nowrap rounded-xl border border-slate-200/40 bg-gradient-to-br from-slate-50/90 to-gray-50/60 px-3 py-2 text-sm font-medium text-slate-600 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-slate-300/50 hover:shadow-md disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:translate-y-0"
           >
-            <svg
-              class="h-4 w-4 transition-transform duration-500"
-              :class="{ 'animate-spin': isRefreshing }"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="2"
-                d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-              />
-            </svg>
-            <span class="hidden sm:inline">{{ isRefreshing ? 'Обновляем...' : 'Обновить' }}</span>
-          </button>
+            <span class="hidden sm:inline">Обновить</span>
+          </CrmButton>
 
           <!-- Dropdown: Настройки -->
           <div class="relative" ref="settingsDropdownRef">
@@ -241,23 +230,8 @@
                 </div>
 
                 <button
-                  @click="$router.push('/admin/crm/reviews'); moreDropdownOpen = false"
-                  class="flex w-full items-center gap-3 rounded-xl border border-slate-200/40 bg-gradient-to-br from-slate-50/90 to-gray-50/60 px-3 py-2.5 text-left transition-all duration-200 hover:-translate-y-0.5 hover:border-slate-300/50 hover:shadow-md focus:outline-none"
-                >
-                  <span class="flex h-9 w-9 items-center justify-center rounded-xl bg-violet-100/80 text-violet-500 shadow-sm shadow-violet-200/50">
-                    <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.802 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.802-2.034a1 1 0 00-1.175 0l-2.802 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.88 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
-                    </svg>
-                  </span>
-                  <div>
-                    <div class="text-sm font-semibold text-slate-800">Отзывы</div>
-                    <div class="text-xs text-slate-400">Модерация и розыгрыш</div>
-                  </div>
-                </button>
-
-                <button
                   @click="$router.push('/admin/crm/message-templates'); moreDropdownOpen = false"
-                  class="mt-2 flex w-full items-center gap-3 rounded-xl border border-slate-200/40 bg-gradient-to-br from-slate-50/90 to-gray-50/60 px-3 py-2.5 text-left transition-all duration-200 hover:-translate-y-0.5 hover:border-slate-300/50 hover:shadow-md focus:outline-none"
+                  class="flex w-full items-center gap-3 rounded-xl border border-slate-200/40 bg-gradient-to-br from-slate-50/90 to-gray-50/60 px-3 py-2.5 text-left transition-all duration-200 hover:-translate-y-0.5 hover:border-slate-300/50 hover:shadow-md focus:outline-none"
                 >
                   <span class="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-100/80 text-blue-500 shadow-sm shadow-blue-200/50">
                     <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -374,6 +348,56 @@
           </svg>
         </div>
       </div>
+
+      <!-- Розыгрыш отзывов: плашка для менеджеров на доске заказов -->
+      <Transition
+        enter-active-class="transition ease-out duration-200"
+        enter-from-class="opacity-0 -translate-y-2"
+        enter-to-class="opacity-100 translate-y-0"
+        leave-active-class="transition ease-in duration-150"
+        leave-from-class="opacity-100 translate-y-0"
+        leave-to-class="opacity-0 -translate-y-2"
+      >
+        <div
+          v-if="crmStore.hasUnseenDraw && crmStore.latestMonthlyDraw"
+          class="rounded-xl border border-violet-200 bg-gradient-to-r from-violet-50 to-fuchsia-50 p-4 shadow-sm"
+        >
+          <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div class="flex items-start gap-3">
+              <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-violet-100 text-violet-600">
+                <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.802 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.802-2.034a1 1 0 00-1.175 0l-2.802 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.88 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
+                </svg>
+              </span>
+              <div>
+                <p class="font-semibold text-violet-900">
+                  Определены победители розыгрыша за {{ crmStore.latestMonthlyDraw.period_key }}
+                </p>
+                <p class="mt-1 text-sm text-violet-800/90">
+                  {{ drawWinnerCountLabel }}.
+                  Свяжитесь с ними в Telegram, сообщите об условиях и выдайте промокоды или подарки.
+                </p>
+              </div>
+            </div>
+            <div class="flex shrink-0 items-center gap-2">
+              <button
+                type="button"
+                class="rounded-lg bg-violet-600 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-violet-700"
+                @click="openReviews"
+              >
+                Открыть розыгрыш
+              </button>
+              <button
+                type="button"
+                class="rounded-lg border border-violet-200 bg-white px-3 py-2 text-sm font-medium text-violet-700 transition-colors hover:bg-violet-50"
+                @click="crmStore.markDrawAsSeen()"
+              >
+                Скрыть
+              </button>
+            </div>
+          </div>
+        </div>
+      </Transition>
 
       <!-- Error banner -->
       <Transition
@@ -1425,7 +1449,7 @@
           </div>
           <div class="flex-1">
             <div class="font-bold text-lg">{{ crmStore.inAppToast.message }}</div>
-            <div class="text-sm text-white/80">Проверьте колонку «Новые»</div>
+            <div class="text-sm text-white/80">{{ crmStore.inAppToast.hint || "Проверьте колонку «Новые»" }}</div>
           </div>
           <button
             @click="crmStore.hideInAppToast()"
@@ -1447,6 +1471,7 @@ import { useRouter } from "vue-router";
 import { storeToRefs } from "pinia";
 import type { Order } from "@/stores/crm";
 import { useCrmStore } from "@/stores/crm";
+import CrmButton from "@/components/admin/crm/CrmButton.vue";
 import OrderCreateModal from "@/components/crm/OrderCreateModal.vue";
 import ManagerActionSummary from "@/components/crm/ManagerActionSummary.vue";
 import AdminModal from "@/components/AdminModal.vue";
@@ -1476,6 +1501,20 @@ const {
 } = storeToRefs(crmStore);
 
 const router = useRouter();
+
+const drawWinnerCountLabel = computed(() => {
+  const count = crmStore.latestMonthlyDraw?.winner_count || 0;
+  if (count === 1) return "Выбран 1 победитель";
+  if (count >= 2 && count <= 4) return `Выбрано ${count} победителя`;
+  return `Выбрано ${count} победителей`;
+});
+
+function openReviews() {
+  crmStore.markReviewsAsSeen();
+  crmStore.markDrawAsSeen();
+  moreDropdownOpen.value = false;
+  router.push("/admin/crm/reviews");
+}
 
 const showCreateModal = ref(false);
 

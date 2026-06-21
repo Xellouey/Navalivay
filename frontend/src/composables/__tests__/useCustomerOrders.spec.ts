@@ -1,5 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { useCustomerOrders } from "@/composables/useCustomerOrders";
+import {
+  buildFulfillmentTimelineLines,
+  buildOrderSummaryFromLines,
+  formatOrderCardTitle,
+  formatOrderDetailTitle,
+  formatOrderHistoryMeta,
+  formatOrderHistoryTitle,
+  formatOrderStatus,
+  useCustomerOrders,
+} from "@/composables/useCustomerOrders";
 
 function createJsonResponse(data: unknown, ok = true, status = 200) {
   return {
@@ -19,13 +28,17 @@ describe("useCustomerOrders", () => {
     };
   });
 
-  it("fetchReviewPrompt stores prompt and opt-out preference", async () => {
+  it("fetchReviewPrompt stores prompt and preferences from API", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url === "/api/reviews/prompt") {
         return createJsonResponse({
           show: false,
           reason: "opt_out",
+          preferences: {
+            reviews_opt_out: true,
+            reviews_prefer_anonymous: true,
+          },
         });
       }
       throw new Error(`Unexpected fetch: ${url}`);
@@ -38,6 +51,7 @@ describe("useCustomerOrders", () => {
     expect(result.reason).toBe("opt_out");
     expect(reviewPrompt.value?.reason).toBe("opt_out");
     expect(reviewPreferences.value.reviews_opt_out).toBe(true);
+    expect(reviewPreferences.value.reviews_prefer_anonymous).toBe(true);
     expect(fetchMock).toHaveBeenCalledWith(
       "/api/reviews/prompt",
       expect.objectContaining({
@@ -61,8 +75,6 @@ describe("useCustomerOrders", () => {
             final_amount: 42,
             category_icons: [],
             category_icons_overflow: 0,
-            pending_review_count: 1,
-            has_reviews: false,
           },
         ],
         next_cursor: "2026-06-01T10:00:00.000Z",
@@ -147,8 +159,7 @@ describe("useCustomerOrders", () => {
           created_at: "2026-06-01T10:00:00.000Z",
           completed_at: "2026-06-01T12:00:00.000Z",
           final_amount: 42,
-          fulfillment: null,
-          status_timeline: [],
+
           lottery_hint_text: null,
           reviewable_lines: [
             {
@@ -176,6 +187,10 @@ describe("useCustomerOrders", () => {
         group_id: "grp1",
         review_count: 1,
         average_rating: 5,
+        manager: {
+          display_name: "Manager Rezonsky",
+          avatar_url: "/favicon.png",
+        },
         items: [
           {
             id: "rev1",
@@ -204,6 +219,89 @@ describe("useCustomerOrders", () => {
     expect(fetchMock).toHaveBeenCalledWith("/api/groups/grp1/reviews?limit=10");
   });
 
+  it("deduplicates parallel fetchReviewPrompt calls", async () => {
+    let resolvePrompt: (value: unknown) => void = () => undefined;
+    const fetchMock = vi.fn(
+      () =>
+        new Promise((resolve) => {
+          resolvePrompt = resolve;
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { fetchReviewPrompt } = useCustomerOrders();
+    const first = fetchReviewPrompt();
+    const second = fetchReviewPrompt();
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    resolvePrompt(
+      createJsonResponse({
+        show: false,
+        reason: "nothing_to_review",
+        preferences: {
+          reviews_opt_out: false,
+          reviews_prefer_anonymous: false,
+        },
+      }),
+    );
+
+    const [a, b] = await Promise.all([first, second]);
+    expect(a).toEqual(b);
+  });
+
+  it("fetchQuickTags loads tags for category and rating", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.startsWith("/api/reviews/quick-tags")) {
+        return createJsonResponse({
+          items: [
+            {
+              id: "tag1",
+              label: "Вкусно",
+              insert_text: "Очень вкусно.",
+              sort_order: 1,
+            },
+          ],
+        });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { fetchQuickTags } = useCustomerOrders();
+    const tags = await fetchQuickTags("liquids", 5);
+
+    expect(tags).toHaveLength(1);
+    expect(tags[0].label).toBe("Вкусно");
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/reviews/quick-tags?category_key=liquids&star_rating=5",
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          "X-Telegram-Init-Data": "signed_init_data",
+        }),
+      }),
+    );
+  });
+
+  it("fetchGroupReviewSummary requests only one public review", async () => {
+    const fetchMock = vi.fn(async () =>
+      createJsonResponse({
+        group_id: "grp1",
+        review_count: 12,
+        average_rating: 4.8,
+        items: [{ id: "rev1", rating: 5 }],
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { fetchGroupReviewSummary } = useCustomerOrders();
+    const summary = await fetchGroupReviewSummary("grp1");
+
+    expect(summary.review_count).toBe(12);
+    expect(fetchMock).toHaveBeenCalledWith("/api/groups/grp1/reviews?limit=1");
+  });
+
   it("updateReviewPreferences syncs local state", async () => {
     const fetchMock = vi.fn(async () =>
       createJsonResponse({
@@ -222,5 +320,133 @@ describe("useCustomerOrders", () => {
 
     expect(reviewPreferences.value.reviews_opt_out).toBe(true);
     expect(reviewPreferences.value.reviews_prefer_anonymous).toBe(true);
+  });
+});
+
+describe("order display labels", () => {
+  it("formatOrderCardTitle uses category names without order numbers", () => {
+    expect(formatOrderCardTitle([], 0)).toBe("Покупка");
+    expect(
+      formatOrderCardTitle([{ category_name: "Жидкости" }], 0),
+    ).toBe("Жидкости");
+    expect(
+      formatOrderCardTitle(
+        [{ category_name: "Жидкости" }, { category_name: "Расходники" }],
+        0,
+      ),
+    ).toBe("Жидкости · Расходники");
+    expect(
+      formatOrderCardTitle(
+        [
+          { category_name: "Жидкости" },
+          { category_name: "Расходники" },
+          { category_name: "Устройства" },
+        ],
+        0,
+      ),
+    ).toBe("Жидкости и ещё 2");
+    expect(
+      formatOrderCardTitle([{ category_name: "Жидкости" }], 2),
+    ).toBe("Жидкости и ещё 2");
+  });
+
+  it("formatOrderDetailTitle prefers purchase date", () => {
+    expect(formatOrderDetailTitle(null, null)).toBe("Покупка");
+    expect(
+      formatOrderDetailTitle("2026-06-19T12:00:00.000Z", "2026-06-18T10:00:00.000Z"),
+    ).toMatch(/19/);
+  });
+
+  it("formatOrderStatus uses pickup wording for issued orders", () => {
+    expect(formatOrderStatus("delivered", "pickup")).toBe("Выдан");
+    expect(formatOrderStatus("delivered", "delivery")).toBe("Доставлен");
+    expect(formatOrderStatus("in_progress")).toBe("Собран");
+  });
+
+  it("formatOrderHistoryTitle shows order number in card headline", () => {
+    expect(formatOrderHistoryTitle(1254)).toBe("Заказ № 1254");
+  });
+
+  it("formatOrderHistoryMeta shows status and issued time without order number", () => {
+    const meta = formatOrderHistoryMeta({
+      status: "delivered",
+      delivery_type: "pickup",
+      created_at: "2026-06-19T09:54:00.000Z",
+      completed_at: "2026-06-19T10:04:00.000Z",
+      fulfillment_milestones: {
+        submitted_at: "2026-06-19T09:54:00.000Z",
+        ready_at: "2026-06-19T09:56:00.000Z",
+        issued_at: "2026-06-19T10:04:00.000Z",
+        cancelled_at: null,
+      },
+    });
+
+    expect(meta).not.toContain("№");
+    expect(meta).toContain("Выдан");
+  });
+
+  it("buildFulfillmentTimelineLines exposes submitted, ready and issued steps", () => {
+    const lines = buildFulfillmentTimelineLines(
+      {
+        submitted_at: "2026-06-19T09:54:00.000Z",
+        ready_at: "2026-06-19T09:56:00.000Z",
+        issued_at: "2026-06-19T10:04:00.000Z",
+        cancelled_at: null,
+      },
+      "delivered",
+      "pickup",
+    );
+
+    expect(lines.map((line) => line.label)).toEqual(["Оформлен", "Собран", "Выдан"]);
+  });
+
+  it("buildOrderSummaryFromLines mirrors history card title and thumbs", () => {
+    const summary = buildOrderSummaryFromLines([
+      {
+        group_id: "grp1",
+        group_name: "Подонки",
+        category_id: "cat1",
+        category_name: "Жидкости",
+        group_cover_image: "/a.jpg",
+        category_cover_image: "/b.jpg",
+      },
+      {
+        group_id: "grp2",
+        group_name: "Другая",
+        category_id: "cat2",
+        category_name: "Расходники",
+        group_cover_image: null,
+        category_cover_image: "/c.jpg",
+      },
+      {
+        group_id: "grp3",
+        group_name: "Третья",
+        category_id: "cat3",
+        category_name: "Снюс",
+        group_cover_image: null,
+        category_cover_image: null,
+      },
+      {
+        group_id: "grp4",
+        group_name: "Четвёртая",
+        category_id: "cat4",
+        category_name: "Устройства",
+        group_cover_image: null,
+        category_cover_image: null,
+      },
+      {
+        group_id: "grp5",
+        group_name: "Пятая",
+        category_id: "cat5",
+        category_name: "Аксессуары",
+        group_cover_image: null,
+        category_cover_image: null,
+      },
+    ]);
+
+    expect(summary.title).toBe("Жидкости и ещё 4");
+    expect(summary.thumbs).toHaveLength(4);
+    expect(summary.overflow).toBe(1);
+    expect(summary.thumbs[0]?.image).toBe("/a.jpg");
   });
 });

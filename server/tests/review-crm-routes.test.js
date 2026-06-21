@@ -15,11 +15,13 @@ process.env.NODE_ENV = 'test';
 const { initDb, db } = await import('../db.js');
 const { issueToken } = await import('../auth.js');
 const { crmRouter } = await import('../routes/crm.js');
+const { publicRouter } = await import('../routes/public.js');
 
 initDb();
 
 const app = express();
 app.use(express.json());
+app.use(publicRouter);
 app.use(crmRouter);
 
 const server = await new Promise((resolve) => {
@@ -33,6 +35,13 @@ function authHeaders(extra = {}) {
     Authorization: `Bearer ${authToken}`,
     'Content-Type': 'application/json',
     ...extra,
+  };
+}
+
+function customerHeaders(id = '111', username = 'buyer1') {
+  return {
+    'Content-Type': 'application/json',
+    'x-test-telegram-auth': JSON.stringify({ id, username, first_name: 'Buyer' }),
   };
 }
 
@@ -201,6 +210,7 @@ console.log('\n--- R-API4: settings round-trip ---');
 
   const get = await requestJson('/api/admin/crm/review-settings', { headers: authHeaders() });
   ok(get.data.cooldown_days === 40, 'settings get matches');
+  ok(typeof get.data.manager_avatar_url === 'string', 'manager avatar url in settings');
 }
 
 console.log('\n--- A-API6: reject pending review ---');
@@ -255,6 +265,181 @@ console.log('\n--- R-API5: monthly draw run + duplicate blocked ---');
     body: JSON.stringify({}),
   });
   ok(dup.response.status === 409, 'duplicate draw 409');
+}
+
+console.log('\n--- R-API6: quick tags CRUD + public visibility ---');
+{
+  db.exec('DELETE FROM review_quick_tags;');
+  const create = await requestJson('/api/admin/crm/review-quick-tags', {
+    method: 'POST',
+    headers: authHeaders(),
+    body: JSON.stringify({
+      category_key: 'liquids',
+      star_rating: 5,
+      label: 'Сочный вкус',
+      insert_text: 'Очень сочный вкус.',
+      sort_order: 2,
+    }),
+  });
+  ok(create.response.status === 200, 'create quick tag 200');
+  const tagId = create.data?.id;
+  ok(tagId, 'tag id returned');
+
+  const list = await requestJson('/api/admin/crm/review-quick-tags', { headers: authHeaders() });
+  ok(list.data?.items?.some((item) => item.id === tagId), 'tag in admin list');
+
+  const publicTags = await requestJson(
+    '/api/reviews/quick-tags?category_key=liquids&star_rating=5',
+    { headers: customerHeaders() },
+  );
+  ok(publicTags.data?.items?.some((item) => item.id === tagId), 'active tag visible to customer');
+
+  const patch = await requestJson(`/api/admin/crm/review-quick-tags/${tagId}`, {
+    method: 'PATCH',
+    headers: authHeaders(),
+    body: JSON.stringify({ label: 'Обновлённый вкус', is_active: 0 }),
+  });
+  ok(patch.response.status === 200, 'patch quick tag 200');
+  ok(patch.data?.label === 'Обновлённый вкус', 'label updated');
+
+  const hidden = await requestJson(
+    '/api/reviews/quick-tags?category_key=liquids&star_rating=5',
+    { headers: customerHeaders() },
+  );
+  ok(!hidden.data?.items?.some((item) => item.id === tagId), 'inactive tag hidden from customer');
+
+  const del = await requestJson(`/api/admin/crm/review-quick-tags/${tagId}`, {
+    method: 'DELETE',
+    headers: authHeaders(),
+  });
+  ok(del.response.status === 200 && del.data?.ok === true, 'delete quick tag 200');
+}
+
+console.log('\n--- R-API7: approve makes review public ---');
+{
+  seedPendingReview();
+  db.prepare(
+    `UPDATE categories SET storefront_filters_profile = 'liquids' WHERE id = 'cat1'`,
+  ).run();
+  const approve = await requestJson('/api/admin/crm/product-reviews/rev1/approve', {
+    method: 'POST',
+    headers: authHeaders(),
+  });
+  ok(approve.response.status === 200, 'approve for public 200');
+
+  const publicReviews = await requestJson('/api/groups/grp1/reviews');
+  ok(publicReviews.data?.review_count === 1, 'approved review on public endpoint');
+}
+
+console.log('\n--- A-API9: reject approved review → 404 ---');
+{
+  seedPendingReview();
+  db.prepare(`UPDATE product_reviews SET status = 'approved', approved_at = DATETIME('now') WHERE id = 'rev1'`).run();
+  const reject = await requestJson('/api/admin/crm/product-reviews/rev1/reject', {
+    method: 'POST',
+    headers: authHeaders(),
+  });
+  ok(reject.response.status === 404, 'cannot reject approved review');
+}
+
+console.log('\n--- A-API10: reply to missing review → 404 ---');
+{
+  const reply = await requestJson('/api/admin/crm/product-reviews/missing/reply', {
+    method: 'POST',
+    headers: authHeaders(),
+    body: JSON.stringify({ reply: 'Спасибо!' }),
+  });
+  ok(reply.response.status === 404, 'reply missing review 404');
+}
+
+function seedExtraApprovedDrawCustomers() {
+  for (let i = 2; i <= 6; i += 1) {
+    db.prepare(
+      `INSERT INTO customers (id, telegram_id, telegram_username, first_name, created_at, updated_at)
+       VALUES (?, ?, ?, ?, DATETIME('now'), DATETIME('now'))`,
+    ).run(`cust${i}`, `${i}${i}${i}`, `buyer${i}`, `Buyer${i}`);
+    db.prepare(
+      `INSERT INTO orders (id, order_number, customer_id, status, total_amount, final_amount, created_at, updated_at)
+       VALUES (?, ?, ?, 'delivered', 10, 10, DATETIME('now'), DATETIME('now'))`,
+    ).run(`ord${i}`, 1000 + i, `cust${i}`);
+    db.prepare(
+      `INSERT INTO product_reviews (
+        id, customer_id, order_id, group_id, rating, body_text, quick_tag_ids,
+        status, created_at, updated_at, approved_at
+      ) VALUES (?, ?, ?, 'grp1', 5, ?, '[]', 'approved', DATETIME('now'), DATETIME('now'), DATETIME('now'))`,
+    ).run(`rev${i}`, `cust${i}`, `ord${i}`, `Отзыв ${i} для розыгрыша CRM тестов`);
+  }
+}
+
+console.log('\n--- R-API8: monthly draws list + reroll HTTP ---');
+{
+  seedPendingReview();
+  db.prepare(`UPDATE product_reviews SET status = 'approved', approved_at = DATETIME('now') WHERE id = 'rev1'`).run();
+  seedExtraApprovedDrawCustomers();
+
+  const draw = await requestJson('/api/admin/crm/review-monthly-draws/run', {
+    method: 'POST',
+    headers: authHeaders(),
+    body: JSON.stringify({}),
+  });
+  const drawId = draw.data?.draw?.id;
+  ok(drawId, 'draw id for reroll');
+
+  const list = await requestJson('/api/admin/crm/review-monthly-draws', { headers: authHeaders() });
+  ok(Array.isArray(list.data?.items) && list.data.items.length >= 1, 'draw list non-empty');
+
+  const reroll = await requestJson(`/api/admin/crm/review-monthly-draws/${drawId}/reroll`, {
+    method: 'POST',
+    headers: authHeaders(),
+    body: JSON.stringify({ seat_number: 1 }),
+  });
+  ok(reroll.response.status === 200, 'reroll seat 200');
+
+  const badSeat = await requestJson(`/api/admin/crm/review-monthly-draws/${drawId}/reroll`, {
+    method: 'POST',
+    headers: authHeaders(),
+    body: JSON.stringify({ seat_number: 9 }),
+  });
+  ok(badSeat.response.status === 400 && badSeat.data?.error === 'invalid_seat_number', 'invalid seat 400');
+}
+
+console.log('\n--- R-API5: QA settings + disable ---');
+{
+  const patch = await requestJson('/api/admin/crm/review-settings', {
+    method: 'PATCH',
+    headers: authHeaders(),
+    body: JSON.stringify({
+      qa_active: true,
+      qa_usernames: ['rk0ff', '@review_demo'],
+      dev_test_mode: false,
+    }),
+  });
+  ok(patch.response.status === 200, 'qa settings patch 200');
+  ok(patch.data.qa_active === true, 'qa_active persisted');
+  ok(Array.isArray(patch.data.qa_usernames) && patch.data.qa_usernames.includes('rk0ff'), 'qa usernames persisted');
+
+  const disable = await requestJson('/api/admin/crm/review-qa/disable', {
+    method: 'POST',
+    headers: authHeaders(),
+  });
+  ok(disable.response.status === 200, 'qa disable 200');
+  ok(disable.data.qa_active === false, 'qa_active off after disable');
+  ok(disable.data.dev_test_mode === false, 'dev_test_mode off after disable');
+}
+
+console.log('\n--- R-API6: QA user bypass on public route ---');
+{
+  seedPendingReview();
+  const { setReviewSetting } = await import('../utils/product-reviews.js');
+  setReviewSetting('dev_test_mode', '0');
+  setReviewSetting('qa_active', '1');
+  setReviewSetting('qa_usernames', JSON.stringify(['buyer1']));
+
+  const prompt = await requestJson('/api/reviews/prompt', { headers: customerHeaders('111', 'buyer1') });
+  ok(prompt.response.status === 200, 'qa user prompt 200');
+
+  setReviewSetting('qa_active', '0');
+  setReviewSetting('qa_usernames', '[]');
 }
 
 server.close();

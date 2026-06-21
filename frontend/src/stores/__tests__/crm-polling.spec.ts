@@ -71,4 +71,47 @@ describe("crm polling summary", () => {
     unsubscribe();
     crmStore.stopPolling();
   });
+
+  it("shows draw alert until manager acknowledges the latest monthly draw", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/low-stock-groups/summary")) {
+        return new Response(JSON.stringify({ hasAny: false, count: 0 }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      if (url.includes("/orders/poll-summary")) {
+        return new Response(JSON.stringify({
+          newOrderIds: [],
+          actionRequiredIds: [],
+          latestOrderActivityAt: null,
+          pendingReviewCount: 0,
+          latestMonthlyDraw: {
+            id: "draw_june",
+            period_key: "2026-06",
+            drawn_at: "2026-06-30 21:00:00",
+            winner_count: 5,
+          },
+        }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      throw new Error(`unexpected fetch ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const crmStore = useCrmStore();
+    crmStore.startPolling();
+    await vi.waitFor(() => {
+      expect(crmStore.hasUnseenDraw).toBe(true);
+      expect(crmStore.latestMonthlyDraw?.period_key).toBe("2026-06");
+    });
+
+    crmStore.markDrawAsSeen("draw_june");
+    expect(crmStore.hasUnseenDraw).toBe(false);
+
+    crmStore.stopPolling();
+  });
 });

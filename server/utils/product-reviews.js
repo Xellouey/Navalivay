@@ -19,9 +19,14 @@ export const REVIEW_STATUSES = Object.freeze({
 
 const COMPLETED_ORDER_STATUSES = new Set(['delivered', 'completed']);
 const MIN_REVIEW_BODY_LENGTH = 20;
+const MAX_REVIEW_BODY_LENGTH = 4000;
+
+export { MIN_REVIEW_BODY_LENGTH, MAX_REVIEW_BODY_LENGTH };
 
 export function normalizeTelegramUsername(value) {
-  return typeof value === 'string' ? value.trim().replace(/^@+/, '') : '';
+  return typeof value === 'string'
+    ? value.trim().replace(/^@+/, '').toLowerCase()
+    : '';
 }
 
 export function resolveReviewCategoryKey({ slug = '', storefrontFiltersProfile = '' } = {}) {
@@ -89,6 +94,89 @@ export function isDevTestModeEnabled() {
   return getReviewSetting('dev_test_mode', '0') === '1';
 }
 
+export const MAX_QA_USERNAMES = 20;
+
+export function parseQaUsernames(raw) {
+  if (!raw) return [];
+  if (Array.isArray(raw)) {
+    return raw
+      .map((entry) => normalizeTelegramUsername(entry))
+      .filter(Boolean)
+      .slice(0, MAX_QA_USERNAMES);
+  }
+  if (typeof raw === 'string') {
+    const trimmed = raw.trim();
+    if (!trimmed) return [];
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (Array.isArray(parsed)) {
+        return parsed
+          .map((entry) => normalizeTelegramUsername(entry))
+          .filter(Boolean)
+          .slice(0, MAX_QA_USERNAMES);
+      }
+    } catch {
+      // fall through to delimiter split
+    }
+    return trimmed
+      .split(/[\n,;]+/)
+      .map((entry) => normalizeTelegramUsername(entry))
+      .filter(Boolean)
+      .slice(0, MAX_QA_USERNAMES);
+  }
+  return [];
+}
+
+export function getQaUsernames() {
+  return parseQaUsernames(getReviewSetting('qa_usernames', '[]'));
+}
+
+export function isQaReviewModeActive() {
+  return getReviewSetting('qa_active', '0') === '1';
+}
+
+export function isQaReviewUser(customer) {
+  if (!customer || !isQaReviewModeActive()) return false;
+  const username = normalizeTelegramUsername(customer.telegram_username);
+  if (!username) return false;
+  return getQaUsernames().includes(username);
+}
+
+export function shouldDevBypassForCustomer(customer) {
+  return isDevTestModeEnabled() || isQaReviewUser(customer);
+}
+
+export function setQaUsernames(value) {
+  const usernames = parseQaUsernames(value);
+  setReviewSetting('qa_usernames', JSON.stringify(usernames));
+  return usernames;
+}
+
+export function disableReviewQaModes() {
+  setReviewSetting('qa_active', '0');
+  setReviewSetting('dev_test_mode', '0');
+}
+
+export function getReviewSettingsResponse() {
+  return {
+    cooldown_days: getCooldownDays(),
+    lottery_hint_text: getReviewSetting('lottery_hint_text', ''),
+    dev_test_mode: isDevTestModeEnabled(),
+    qa_active: isQaReviewModeActive(),
+    qa_usernames: getQaUsernames(),
+    manager_display_name: getReviewSetting('manager_display_name', 'Manager Rezonsky'),
+    manager_avatar_url: getReviewSetting('manager_avatar_url', '/favicon.png'),
+  };
+}
+
+export function getManagerReviewBlock() {
+  const avatarUrl = getReviewSetting('manager_avatar_url', '/favicon.png');
+  return {
+    display_name: getReviewSetting('manager_display_name', 'Manager Rezonsky'),
+    avatar_url: avatarUrl ? String(avatarUrl) : '/favicon.png',
+  };
+}
+
 export function validateReviewBodyText(bodyText) {
   const trimmed = String(bodyText || '').trim();
   if (trimmed.length < MIN_REVIEW_BODY_LENGTH) {
@@ -97,7 +185,20 @@ export function validateReviewBodyText(bodyText) {
     err.minLength = MIN_REVIEW_BODY_LENGTH;
     throw err;
   }
+  if (trimmed.length > MAX_REVIEW_BODY_LENGTH) {
+    const err = new Error('review_body_too_long');
+    err.code = 'review_body_too_long';
+    err.maxLength = MAX_REVIEW_BODY_LENGTH;
+    throw err;
+  }
   return trimmed;
+}
+
+function buildReviewPreferencesPayload(customer) {
+  return {
+    reviews_opt_out: Number(customer?.reviews_opt_out || 0) === 1,
+    reviews_prefer_anonymous: Number(customer?.reviews_prefer_anonymous || 0) === 1,
+  };
 }
 
 export function findCustomerByTelegram({ telegramId = '', telegramUsername = '' } = {}) {
@@ -365,6 +466,41 @@ function loadOrderStatusTimeline(orderId) {
   `).all(orderId);
 }
 
+function findStatusEnteredAt(timeline, status) {
+  for (const entry of timeline) {
+    if (entry.new_status === status) {
+      return entry.changed_at || null;
+    }
+  }
+  return null;
+}
+
+export function buildOrderFulfillmentMilestones(order, timeline = null) {
+  const history = timeline ?? loadOrderStatusTimeline(order.id);
+  const submittedAt = order.created_at || null;
+  const readyAt = findStatusEnteredAt(history, 'in_progress');
+  let issuedAt = order.completed_at || null;
+
+  if (!issuedAt && ['delivered', 'completed'].includes(order.status)) {
+    issuedAt =
+      findStatusEnteredAt(history, order.status) ||
+      findStatusEnteredAt(history, 'delivered') ||
+      findStatusEnteredAt(history, 'completed');
+  }
+
+  const cancelledAt =
+    order.status === 'cancelled'
+      ? findStatusEnteredAt(history, 'cancelled') || order.updated_at || null
+      : null;
+
+  return {
+    submitted_at: submittedAt,
+    ready_at: readyAt,
+    issued_at: issuedAt,
+    cancelled_at: cancelledAt,
+  };
+}
+
 function computeFulfillmentDuration(order, timeline) {
   const createdAt = order.created_at ? new Date(order.created_at) : null;
   const completedAt = order.completed_at
@@ -425,40 +561,49 @@ export function buildReviewableLinesForOrder(order, customerId, { devBypass = fa
     });
 }
 
-export function serializeOrderHistoryCard(order, customerId, { devBypass = false } = {}) {
-  const groups = loadOrderItemsGrouped(order.id);
-  const categoryIcons = [];
+export function buildOrderLineIconsFromGroups(groups, maxVisible = 4) {
+  const icons = [];
   const seen = new Set();
+
   for (const group of groups) {
-    const key = group.category_id || group.group_id;
+    const key = group.group_id || group.category_id;
     if (!key || seen.has(key)) continue;
     seen.add(key);
-    categoryIcons.push({
+    icons.push({
       category_id: group.category_id,
+      group_id: group.group_id,
       category_name: group.category_name,
-      image: group.category_cover_image || group.group_cover_image || null,
+      group_name: group.group_name,
+      image: group.group_cover_image || group.category_cover_image || null,
     });
   }
 
-  const reviewableLines = buildReviewableLinesForOrder(order, customerId, { devBypass });
-  const pendingReviewCount = reviewableLines.filter((line) => line.eligibility.canReview).length;
+  return {
+    icons: icons.slice(0, maxVisible),
+    overflow: Math.max(0, icons.length - maxVisible),
+  };
+}
+
+export function serializeOrderHistoryCard(order) {
+  const groups = loadOrderItemsGrouped(order.id);
+  const { icons: categoryIcons, overflow: categoryIconsOverflow } =
+    buildOrderLineIconsFromGroups(groups);
 
   return {
     id: order.id,
     order_number: order.order_number,
     status: order.status,
+    delivery_type: order.delivery_type || 'pickup',
     created_at: order.created_at,
     completed_at: order.completed_at || null,
     final_amount: Number(order.final_amount || 0),
-    category_icons: categoryIcons.slice(0, 4),
-    category_icons_overflow: Math.max(0, categoryIcons.length - 4),
-    pending_review_count: pendingReviewCount,
-    has_reviews: reviewableLines.some((line) => line.latest_review),
+    category_icons: categoryIcons,
+    category_icons_overflow: categoryIconsOverflow,
+    fulfillment_milestones: buildOrderFulfillmentMilestones(order),
   };
 }
 
 export function serializeOrderDetail(order, customerId, { devBypass = false } = {}) {
-  const timeline = loadOrderStatusTimeline(order.id);
   const reviewableLines = buildReviewableLinesForOrder(order, customerId, { devBypass });
 
   return {
@@ -476,8 +621,7 @@ export function serializeOrderDetail(order, customerId, { devBypass = false } = 
     created_at: order.created_at,
     updated_at: order.updated_at,
     completed_at: order.completed_at || null,
-    fulfillment: computeFulfillmentDuration(order, timeline),
-    status_timeline: timeline,
+    fulfillment_milestones: buildOrderFulfillmentMilestones(order),
     reviewable_lines: reviewableLines,
     lottery_hint_text: getReviewSetting('lottery_hint_text', ''),
   };
@@ -485,8 +629,9 @@ export function serializeOrderDetail(order, customerId, { devBypass = false } = 
 
 export function getReviewPromptForCustomer(customer, { devBypass = false } = {}) {
   if (!customer) return { show: false, reason: 'no_customer' };
+  const preferences = buildReviewPreferencesPayload(customer);
   if (Number(customer.reviews_opt_out || 0) === 1) {
-    return { show: false, reason: 'opt_out' };
+    return { show: false, reason: 'opt_out', preferences };
   }
 
   const orders = findOwnedOrders({
@@ -512,10 +657,11 @@ export function getReviewPromptForCustomer(customer, { devBypass = false } = {})
       purchased_variant_name: primary.purchased_variant_name,
       pending_review_count: pending.length,
       lottery_hint_text: getReviewSetting('lottery_hint_text', ''),
+      preferences,
     };
   }
 
-  return { show: false, reason: 'nothing_to_review' };
+  return { show: false, reason: 'nothing_to_review', preferences };
 }
 
 export function listQuickTags(categoryKey, starRating) {
@@ -594,12 +740,18 @@ export function createProductReview({
     throw err;
   }
 
-  const tagIds = Array.isArray(quickTagIds) ? quickTagIds.map(String) : [];
+  const tagIds = Array.isArray(quickTagIds) ? [...new Set(quickTagIds.map(String))] : [];
   if (tagIds.length > 0) {
+    const expectedCategoryKey = resolveReviewCategoryKey({
+      slug: groupMeta.slug,
+      storefrontFiltersProfile: groupMeta.storefront_filters_profile,
+    });
     const placeholders = tagIds.map(() => '?').join(', ');
     const found = db.prepare(
-      `SELECT id FROM review_quick_tags WHERE id IN (${placeholders}) AND is_active = 1`,
-    ).all(...tagIds);
+      `SELECT id FROM review_quick_tags
+       WHERE id IN (${placeholders}) AND is_active = 1
+         AND category_key = ? AND star_rating = ?`,
+    ).all(...tagIds, expectedCategoryKey, normalizedRating);
     if (found.length !== tagIds.length) {
       const err = new Error('invalid_quick_tags');
       err.code = 'invalid_quick_tags';
@@ -697,6 +849,7 @@ export function getPublicGroupReviews(groupId, { limit = 20, offset = 0 } = {}) 
     group_id: groupId,
     review_count: Number(summary?.review_count || 0),
     average_rating: summary?.average_rating ? Number(summary.average_rating) : null,
+    manager: getManagerReviewBlock(),
     items: rows.map((row) => {
       let quickTagLabels = [];
       try {

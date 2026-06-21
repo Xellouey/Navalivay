@@ -54,10 +54,17 @@
                     <component :is="link.icon" class="w-5 h-5" />
                     <!-- Badge for new orders -->
                     <span
-                      v-if="link.id === 'orders' && newOrdersCount > 0"
+                      v-if="link.id === 'crm-orders' && newOrdersCount > 0"
                       class="absolute -top-1.5 -right-1.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white shadow-lg"
                     >
                       {{ newOrdersCount > 99 ? '99+' : newOrdersCount }}
+                    </span>
+                    <!-- Badge for pending reviews -->
+                    <span
+                      v-if="link.id === 'crm-reviews' && pendingReviewCount > 0"
+                      class="absolute -top-1.5 -right-1.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white shadow-lg"
+                    >
+                      {{ pendingReviewCount > 99 ? '99+' : pendingReviewCount }}
                     </span>
                     <!-- Indicator for low-stock product lines (Закупки) -->
                     <span
@@ -115,7 +122,7 @@ const emit = defineEmits<{ (e: 'update:modelValue', v: string): void; (e: 'lock'
 
 const crmStore = useCrmStore()
 const adminStore = useAdminStore()
-const { newOrdersCount, lowStockHasAny, lowStockCount } = storeToRefs(crmStore)
+const { newOrdersCount, pendingReviewCount, lowStockHasAny, lowStockCount } = storeToRefs(crmStore)
 const { incompleteGroupsHasAny, incompleteGroupsCount } = storeToRefs(adminStore)
 
 const crmLinks = computed(() => props.crmLinks ?? [])

@@ -37,14 +37,12 @@
             <span class="group-line-price-amount">{{ formatPrice(firstProductPrice) }}</span>
             <span class="group-line-price-currency"> BYN</span>
           </span>
-          <button
+          <ReviewRatingLink
             v-if="reviewCount > 0"
-            type="button"
-            class="group-reviews-link"
-            @click.stop="openReviewsModal"
-          >
-            Посмотреть отзывы
-          </button>
+            :count="reviewCount"
+            :average-rating="averageRating"
+            @click="openReviewsModal"
+          />
         </span>
       </span>
 
@@ -119,6 +117,7 @@ import {
   ref,
 } from "vue";
 import GroupReviewsModal from "@/components/reviews/GroupReviewsModal.vue";
+import ReviewRatingLink from "@/components/reviews/ReviewRatingLink.vue";
 import { useCustomerOrders } from "@/composables/useCustomerOrders";
 import { ChevronDownIcon } from "@heroicons/vue/24/outline";
 import { useCatalogStore, type Product } from "@/stores/catalog";
@@ -164,6 +163,7 @@ const catalogStore = useCatalogStore();
 const { fetchGroupReviewSummary } = useCustomerOrders();
 const bodyWrapper = ref<HTMLElement | null>(null);
 const reviewCount = ref(0);
+const averageRating = ref<number | null>(null);
 const showReviewsModal = ref(false);
 const headerId = computed(() => `group-line-header-${props.node.id}`);
 const panelId = computed(() => `group-line-panel-${props.node.id}`);
@@ -340,8 +340,10 @@ onMounted(async () => {
   try {
     const summary = await fetchGroupReviewSummary(props.node.id);
     reviewCount.value = summary.review_count;
+    averageRating.value = summary.average_rating;
   } catch {
     reviewCount.value = 0;
+    averageRating.value = null;
   }
 });
 

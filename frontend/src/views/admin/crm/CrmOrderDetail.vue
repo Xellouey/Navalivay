@@ -519,14 +519,6 @@
           </div>
         </section>
 
-        <!-- Свободное сообщение клиенту через userbot (Business mode — fallback)
-             для брони вкуса, договорённости, ответа на вопрос. Авто-отправка
-             по смене статуса делается на бэке в PATCH /orders/:id. -->
-        <OrderBotNotifier
-          v-if="currentOrder?.id"
-          :order-id="currentOrder.id"
-        />
-
         <!-- История изменений статуса -->
         <section v-if="orderHistory.length" class="rounded-2xl bg-white p-6 shadow-sm">
           <h2 class="mb-4 text-lg font-semibold text-gray-900">История изменений</h2>
@@ -565,7 +557,6 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useCrmStore, type CrmProductSummary, type Order, type AutoNotificationResult } from '@/stores/crm'
 import ManagerActionSummary from '@/components/crm/ManagerActionSummary.vue'
-import OrderBotNotifier from '@/components/admin/OrderBotNotifier.vue'
 
 const props = defineProps<{ id: string }>()
 

@@ -1,41 +1,54 @@
 <template>
   <Transition name="review-dock">
-    <div
+    <button
       v-if="visible"
+      ref="dockRef"
+      type="button"
       class="review-prompt-dock"
-      role="region"
-      aria-label="Напоминание об отзыве"
+      :aria-label="dockAriaLabel"
+      @click="openOrderDetail"
     >
-      <div class="review-prompt-dock__copy">
-        <span class="review-prompt-dock__kicker">Оцените покупку</span>
-        <strong class="review-prompt-dock__title">
-          {{ prompt?.group_name || "Ваш заказ" }}
-        </strong>
-        <p v-if="variantLabel" class="review-prompt-dock__variant">{{ variantLabel }}</p>
-        <p v-if="lotteryHint" class="review-prompt-dock__hint">{{ lotteryHint }}</p>
-      </div>
+      <span class="review-prompt-dock__order">{{ orderLabel }}</span>
 
-      <div class="review-prompt-dock__stars" aria-label="Выберите оценку">
-        <button
-          v-for="star in 5"
-          :key="star"
-          type="button"
-          class="review-prompt-dock__star"
-          :aria-label="`${star} из 5`"
-          @click="openWithRating(star)"
-        >
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <span class="review-prompt-dock__cta">
+        <span class="review-prompt-dock__cta-text">Оцените заказ:</span>
+        <span class="review-prompt-dock__stars" aria-hidden="true">
+          <svg
+            v-for="star in 3"
+            :key="star"
+            class="review-prompt-dock__star"
+            width="20"
+            height="20"
+            viewBox="0 0 24 24"
+            fill="none"
+          >
             <path
               d="M12 3.5L14.9 9.3L21.2 10.2L16.6 14.6L17.8 21L12 18.1L6.2 21L7.4 14.6L2.8 10.2L9.1 9.3L12 3.5Z"
-              fill="transparent"
-              stroke="rgba(255,255,255,0.92)"
-              stroke-width="1.6"
+              fill="currentColor"
+              stroke="currentColor"
+              stroke-width="0.8"
               stroke-linejoin="round"
             />
           </svg>
-        </button>
-      </div>
-    </div>
+        </span>
+        <svg
+          class="review-prompt-dock__chevron"
+          width="14"
+          height="14"
+          viewBox="0 0 24 24"
+          fill="none"
+          aria-hidden="true"
+        >
+          <path
+            d="M9 6L15 12L9 18"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+        </svg>
+      </span>
+    </button>
   </Transition>
 </template>
 
@@ -43,6 +56,13 @@
 import { computed, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { useCustomerOrders } from "@/composables/useCustomerOrders";
+import {
+  TAB_BAR_NOTCH_FLOOR_CSS,
+  TAB_BAR_SHAPE_HEIGHT,
+  computeReviewDockExtrusion,
+  parseTabBarHeightCss,
+} from "@/utils/reviewDockGeometry";
+import { isReviewDockVisible } from "@/utils/reviewDockVisibility";
 
 const props = withDefaults(
   defineProps<{
@@ -54,26 +74,54 @@ const props = withDefaults(
 const route = useRoute();
 const router = useRouter();
 const { reviewPrompt, fetchReviewPrompt } = useCustomerOrders();
-const dockHeight = ref(0);
+const dockRef = ref<HTMLButtonElement | null>(null);
 
 const prompt = computed(() => reviewPrompt.value);
-const visible = computed(() => Boolean(prompt.value?.show && prompt.value.order_id));
+const visible = computed(() =>
+  isReviewDockVisible(
+    {
+      path: route.path,
+      name: route.name,
+      params: route.params,
+    },
+    prompt.value,
+  ),
+);
 
-const variantLabel = computed(() => {
-  const name = prompt.value?.purchased_variant_name?.trim();
-  return name || null;
+const orderLabel = computed(() => {
+  const orderNumber = prompt.value?.order_number;
+  return orderNumber ? `Заказ №${orderNumber}` : "Ваш заказ";
 });
 
-const lotteryHint = computed(() => {
-  const text = prompt.value?.lottery_hint_text?.trim();
-  if (text) return text;
-  if ((prompt.value?.pending_review_count || 0) > 1) {
-    return "Оставьте отзывы — участвуйте в розыгрыше";
+const dockAriaLabel = computed(() => `${orderLabel.value}. Оцените заказ`);
+
+function readTabBarHeight(): number {
+  if (typeof document === "undefined") return TAB_BAR_SHAPE_HEIGHT;
+  const raw = getComputedStyle(document.documentElement).getPropertyValue(
+    "--app-bottom-tab-bar-height",
+  );
+  return parseTabBarHeightCss(raw, TAB_BAR_SHAPE_HEIGHT);
+}
+
+function syncDockHeight(isVisible: boolean) {
+  if (typeof document === "undefined") return;
+
+  if (!isVisible || !dockRef.value) {
+    document.documentElement.style.setProperty("--app-review-dock-height", "0px");
+    return;
   }
-  return "Оставьте отзыв — участвуйте в розыгрыше";
-});
 
-function openWithRating(rating: number) {
+  const extrusion = computeReviewDockExtrusion(
+    dockRef.value.offsetHeight,
+    readTabBarHeight(),
+  );
+  document.documentElement.style.setProperty(
+    "--app-review-dock-height",
+    `${extrusion}px`,
+  );
+}
+
+function openOrderDetail() {
   const orderId = prompt.value?.order_id;
   const groupId = prompt.value?.group_id;
   if (!orderId) return;
@@ -81,22 +129,16 @@ function openWithRating(rating: number) {
   router.push({
     name: "order-detail",
     params: { orderId },
-    query: {
-      rating: String(rating),
-      ...(groupId ? { groupId } : {}),
-    },
+    query: groupId ? { groupId } : {},
   });
 }
 
-function syncDockHeight(isVisible: boolean) {
-  if (typeof document === "undefined") return;
-  document.documentElement.style.setProperty(
-    "--app-review-dock-height",
-    isVisible ? "72px" : "0px",
-  );
-}
-
 watch(visible, (isVisible) => syncDockHeight(isVisible), { immediate: true });
+
+watch(orderLabel, () => {
+  if (!visible.value) return;
+  requestAnimationFrame(() => syncDockHeight(true));
+});
 
 onMounted(async () => {
   if (!props.autoLoad) return;
@@ -121,107 +163,131 @@ watch(
   },
 );
 
-defineExpose({ dockHeight });
+defineExpose({ syncDockHeight, TAB_BAR_NOTCH_FLOOR_CSS });
 </script>
 
 <style scoped>
 .review-prompt-dock {
+  --review-dock-height: clamp(44px, calc(100vw * 48 / 393), 48px);
   position: fixed;
-  left: 16px;
-  right: 16px;
-  bottom: calc(var(--app-bottom-tab-bar-height, 130px) + 8px);
-  z-index: 95;
+  left: clamp(14px, calc(100vw * 16 / 393), 18px);
+  right: clamp(14px, calc(100vw * 16 / 393), 18px);
+  bottom: calc(v-bind(TAB_BAR_NOTCH_FLOOR_CSS) + env(safe-area-inset-bottom, 0px));
+  z-index: 99;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  min-height: 64px;
-  padding: 12px 14px;
-  border-radius: 20px;
-  background: linear-gradient(145deg, #191919 0%, #363636 100%);
-  color: #ffffff;
-  box-shadow: 0 8px 24px rgba(25, 25, 25, 0.18);
+  width: auto;
+  min-height: var(--review-dock-height);
+  padding: 10px clamp(14px, calc(100vw * 16 / 393), 18px);
+  border: none;
+  border-radius: 18px;
+  background: #ffffff;
+  box-shadow:
+    0 4px 18px rgba(15, 23, 42, 0.1),
+    0 1px 0 rgba(255, 255, 255, 0.9),
+    inset 0 0 0 0.5px rgba(15, 23, 42, 0.04);
+  color: #111827;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition:
+    transform 0.18s ease,
+    box-shadow 0.18s ease;
 }
 
-.review-prompt-dock__copy {
-  flex: 1 1 auto;
+.review-prompt-dock:active {
+  transform: translateY(1px) scale(0.995);
+  box-shadow:
+    0 2px 12px rgba(15, 23, 42, 0.08),
+    inset 0 0 0 0.5px rgba(15, 23, 42, 0.05);
+}
+
+.review-prompt-dock__order {
+  flex: 0 1 auto;
   min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.review-prompt-dock__kicker {
-  font-family: -apple-system, "SF Pro Display", sans-serif;
-  font-size: 11px;
-  line-height: 13px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: rgba(255, 255, 255, 0.58);
-}
-
-.review-prompt-dock__title {
   font-family: "Montserrat", sans-serif;
-  font-size: 15px;
-  line-height: 18px;
+  font-size: 13px;
+  line-height: 16px;
   font-weight: 700;
+  letter-spacing: -0.02em;
+  color: #0f172a;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.review-prompt-dock__variant,
-.review-prompt-dock__hint {
-  margin: 0;
+.review-prompt-dock__cta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  min-width: 0;
+}
+
+.review-prompt-dock__cta-text {
   font-family: -apple-system, "SF Pro Display", sans-serif;
   font-size: 12px;
   line-height: 15px;
-  color: rgba(255, 255, 255, 0.72);
+  font-weight: 500;
+  color: #64748b;
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .review-prompt-dock__stars {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 2px;
+  gap: 1px;
   flex-shrink: 0;
+  color: #e8b020;
 }
 
 .review-prompt-dock__star {
-  border: none;
-  background: transparent;
-  padding: 2px;
-  cursor: pointer;
-  line-height: 0;
-  -webkit-tap-highlight-color: transparent;
+  display: block;
+  width: 17px;
+  height: 17px;
+  filter: drop-shadow(0 1px 0 rgba(180, 120, 0, 0.1));
 }
 
-.review-prompt-dock__star:active {
-  transform: scale(0.94);
+.review-prompt-dock__chevron {
+  flex-shrink: 0;
+  color: #cbd5e1;
 }
 
 .review-dock-enter-active,
 .review-dock-leave-active {
-  transition: opacity 0.2s ease, transform 0.2s ease;
+  transition:
+    opacity 0.24s ease,
+    transform 0.28s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .review-dock-enter-from,
 .review-dock-leave-to {
   opacity: 0;
-  transform: translateY(8px);
+  transform: translateY(10px);
 }
 
 @media (max-width: 360px) {
   .review-prompt-dock {
     left: 12px;
     right: 12px;
-    padding: 10px 12px;
+    gap: 8px;
+    padding-inline: 12px;
   }
 
-  .review-prompt-dock__title {
-    font-size: 14px;
+  .review-prompt-dock__order,
+  .review-prompt-dock__cta-text {
+    font-size: 11px;
+  }
+
+  .review-prompt-dock__star {
+    width: 15px;
+    height: 15px;
+  }
+
+  .review-prompt-dock__chevron {
+    width: 12px;
+    height: 12px;
   }
 }
 </style>

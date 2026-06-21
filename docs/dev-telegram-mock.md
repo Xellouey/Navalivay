@@ -68,3 +68,42 @@ location.reload()
 Иными словами: открыли фронт без параметра — поведение ровно как в Mini App
 (или 401 от бэка, как и было). Параметр нужно передать один раз — дальше
 identity жива до закрытия вкладки или вызова `clearDevTelegramMock()`.
+
+## Отзывы на проде
+
+Для проверки после деплоя на production см. [`docs/review-qa-checklist.md`](review-qa-checklist.md) — whitelist юзернеймов в CRM и чеклист A–G.
+
+## Отзывы и «Мои заказы» (local dev)
+
+1. Поднять dev-стек: `npm run dev` (frontend + API).
+2. Создать смешанный демо-заказ (жидкости + расходники + снюс + устройства):
+
+```bash
+node server/scripts/seed-dev-reviews-demo.js
+```
+
+Карточка в «Мои заказы» покажет **«Жидкости и ещё 3»** и до 4 иконок категорий.
+Флаг `--simple` — только 2 линейки без микса категорий.
+
+3. Открыть с моком (один раз на вкладку):
+
+```
+http://localhost:5173/?telegram_id=900000001&username=review_demo&first_name=Review%20Demo
+```
+
+4. Проверить поток:
+   - dock со звёздами на главной;
+   - Профиль → «Мои заказы» → деталь заказа → форма отзыва;
+   - CRM → `/admin/crm/reviews` (модерация).
+
+Можно использовать реального клиента с `delivered`-заказом, например:
+
+```
+http://localhost:5173/?telegram_id=2035055116&username=rk0ff
+```
+
+Повторный демо-заказ для того же `telegram_id`:
+
+```bash
+node server/scripts/seed-dev-reviews-demo.js --telegram-id=900000001 --reset
+```

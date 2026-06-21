@@ -64,7 +64,15 @@
         <p class="group-reviews-modal__date">{{ formatOrderDateTime(review.created_at) }}</p>
 
         <div v-if="review.manager_reply" class="group-reviews-modal__reply">
-          <strong>Ответ магазина</strong>
+          <div class="group-reviews-modal__reply-head">
+            <img
+              v-if="managerBlock?.avatar_url"
+              :src="managerBlock.avatar_url"
+              :alt="managerBlock.display_name"
+              class="group-reviews-modal__reply-avatar"
+            />
+            <strong>{{ managerBlock?.display_name || "Ответ магазина" }}</strong>
+          </div>
           <p>{{ review.manager_reply }}</p>
         </div>
       </li>
@@ -79,6 +87,7 @@ import {
   formatOrderDateTime,
   useCustomerOrders,
   type GroupReviewItem,
+  type ManagerReviewBlock,
 } from "@/composables/useCustomerOrders";
 
 const props = defineProps<{
@@ -97,6 +106,7 @@ const loading = ref(false);
 const errorMessage = ref<string | null>(null);
 const items = ref<GroupReviewItem[]>([]);
 const reviewCount = ref(0);
+const managerBlock = ref<ManagerReviewBlock | null>(null);
 
 const modalTitle = computed(() => {
   const name = props.groupName?.trim();
@@ -115,6 +125,7 @@ async function loadReviews() {
     const data = await fetchGroupReviews(props.groupId, { limit: 30, offset: 0 });
     items.value = data.items;
     reviewCount.value = data.review_count;
+    managerBlock.value = data.manager || null;
   } catch (error: unknown) {
     errorMessage.value =
       error instanceof Error ? error.message : "Не удалось загрузить отзывы";
@@ -276,9 +287,22 @@ watch(
   background: #f5f7fa;
 }
 
-.group-reviews-modal__reply strong {
-  display: block;
+.group-reviews-modal__reply-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   margin-bottom: 4px;
+}
+
+.group-reviews-modal__reply-avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.group-reviews-modal__reply-head strong {
   font-family: "Montserrat", sans-serif;
   font-size: 13px;
   line-height: 16px;

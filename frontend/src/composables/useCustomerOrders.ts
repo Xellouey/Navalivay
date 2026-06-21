@@ -11,25 +11,35 @@ export interface ReviewPrompt {
   purchased_variant_name?: string | null;
   pending_review_count?: number;
   lottery_hint_text?: string;
+  preferences?: ReviewPreferences;
 }
 
 export interface OrderHistoryCategoryIcon {
   category_id: string | null;
+  group_id?: string | null;
   category_name: string | null;
+  group_name?: string | null;
   image: string | null;
+}
+
+export interface OrderFulfillmentMilestones {
+  submitted_at: string | null;
+  ready_at: string | null;
+  issued_at: string | null;
+  cancelled_at?: string | null;
 }
 
 export interface OrderHistoryItem {
   id: string;
   order_number: number;
   status: string;
+  delivery_type?: string | null;
   created_at: string;
   completed_at: string | null;
   final_amount: number;
   category_icons: OrderHistoryCategoryIcon[];
   category_icons_overflow: number;
-  pending_review_count: number;
-  has_reviews: boolean;
+  fulfillment_milestones?: OrderFulfillmentMilestones | null;
 }
 
 export interface OrderHistoryResponse {
@@ -87,19 +97,6 @@ export interface ReviewableLine {
   } | null;
 }
 
-export interface OrderStatusTimelineEntry {
-  previous_status: string | null;
-  new_status: string;
-  changed_at: string;
-  note: string | null;
-}
-
-export interface OrderFulfillment {
-  created_at: string;
-  completed_at: string;
-  duration_minutes: number;
-}
-
 export interface OrderDetail {
   id: string;
   order_number: number;
@@ -115,8 +112,7 @@ export interface OrderDetail {
   created_at: string;
   updated_at: string;
   completed_at: string | null;
-  fulfillment: OrderFulfillment | null;
-  status_timeline: OrderStatusTimelineEntry[];
+  fulfillment_milestones?: OrderFulfillmentMilestones | null;
   reviewable_lines: ReviewableLine[];
   lottery_hint_text: string;
 }
@@ -161,6 +157,11 @@ export interface GroupReviewReviewer {
   is_anonymous: boolean;
 }
 
+export interface ManagerReviewBlock {
+  display_name: string;
+  avatar_url: string;
+}
+
 export interface GroupReviewItem {
   id: string;
   rating: number;
@@ -178,6 +179,7 @@ export interface GroupReviewsResponse {
   group_id: string;
   review_count: number;
   average_rating: number | null;
+  manager: ManagerReviewBlock;
   items: GroupReviewItem[];
 }
 
@@ -212,7 +214,12 @@ export function useCustomerOrders() {
       const data = await parseJsonResponse<ReviewPrompt>(response);
       reviewPrompt.value = data;
 
-      if (data.reason === "opt_out") {
+      if (data.preferences) {
+        reviewPreferences.value = {
+          reviews_opt_out: Boolean(data.preferences.reviews_opt_out),
+          reviews_prefer_anonymous: Boolean(data.preferences.reviews_prefer_anonymous),
+        };
+      } else if (data.reason === "opt_out") {
         reviewPreferences.value = {
           ...reviewPreferences.value,
           reviews_opt_out: true,
@@ -353,44 +360,181 @@ export function useCustomerOrders() {
   };
 }
 
-export function formatOrderStatus(status: string): string {
-  const map: Record<string, string> = {
-    new: "Новый",
-    in_progress: "Готов к выдаче",
-    delivered: "Доставлен",
-    completed: "Завершён",
-    cancelled: "Отменён",
+export interface OrderSummaryThumb {
+  key: string;
+  image: string | null;
+  label: string | null;
+}
+
+export function buildOrderSummaryFromLines(
+  lines: Array<{
+    group_id: string;
+    group_name: string;
+    category_id: string | null;
+    category_name: string | null;
+    group_cover_image: string | null;
+    category_cover_image: string | null;
+  }>,
+  maxVisible = 4,
+): {
+  title: string;
+  thumbs: OrderSummaryThumb[];
+  overflow: number;
+} {
+  const seen = new Set<string>();
+  const thumbs: OrderSummaryThumb[] = [];
+
+  for (const line of lines) {
+    const categoryName = line.category_name?.trim();
+
+    const key = line.group_id || line.category_id;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    thumbs.push({
+      key,
+      image: line.group_cover_image || line.category_cover_image || null,
+      label: categoryName || line.group_name || null,
+    });
+  }
+
+  const overflow = Math.max(0, thumbs.length - maxVisible);
+  const visibleThumbs = thumbs.slice(0, maxVisible);
+
+  return {
+    title: formatOrderCardTitle(
+      visibleThumbs.map((thumb) => ({ category_name: thumb.label })),
+      overflow,
+    ),
+    thumbs: visibleThumbs,
+    overflow,
   };
-  return map[status] || status;
+}
+
+export function formatOrderCardTitle(
+  icons: Array<{ category_name?: string | null }>,
+  overflow = 0,
+): string {
+  const names = [
+    ...new Set(
+      icons
+        .map((icon) => icon.category_name?.trim())
+        .filter((name): name is string => Boolean(name)),
+    ),
+  ];
+  const totalCount = names.length + Math.max(0, overflow);
+
+  if (totalCount === 0) return "Покупка";
+  if (totalCount === 1) return names[0] || "Покупка";
+  if (totalCount === 2 && names.length >= 2) return `${names[0]} · ${names[1]}`;
+  return `${names[0] || "Покупка"} и ещё ${totalCount - 1}`;
+}
+
+export function formatOrderDetailTitle(
+  completedAt: string | null | undefined,
+  createdAt: string | null | undefined,
+): string {
+  const label = formatOrderDate(completedAt || createdAt);
+  return label === "—" ? "Покупка" : label;
+}
+
+const ORDER_TIME_ZONE = "Europe/Minsk";
+
+export function formatOrderStatus(
+  status: string,
+  deliveryType?: string | null,
+): string {
+  switch (status) {
+    case "new":
+      return "Новый";
+    case "in_progress":
+      return "Собран";
+    case "delivered":
+    case "completed":
+      return deliveryType === "delivery" ? "Доставлен" : "Выдан";
+    case "cancelled":
+      return "Отменён";
+    default:
+      return status;
+  }
 }
 
 export function formatOrderDate(value: string | null | undefined): string {
   if (!value) return "—";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "—";
-  return date.toLocaleDateString("ru-RU", {
+  return new Intl.DateTimeFormat("ru-RU", {
+    timeZone: ORDER_TIME_ZONE,
     day: "numeric",
     month: "long",
     year: "numeric",
-  });
+  }).format(date);
 }
 
 export function formatOrderDateTime(value: string | null | undefined): string {
   if (!value) return "—";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "—";
-  return date.toLocaleString("ru-RU", {
+  return new Intl.DateTimeFormat("ru-RU", {
+    timeZone: ORDER_TIME_ZONE,
     day: "numeric",
     month: "short",
     hour: "2-digit",
     minute: "2-digit",
-  });
+  }).format(date);
 }
 
-export function formatDurationMinutes(minutes: number): string {
-  if (minutes < 60) return `${minutes} мин`;
-  const hours = Math.floor(minutes / 60);
-  const rest = minutes % 60;
-  if (rest === 0) return `${hours} ч`;
-  return `${hours} ч ${rest} мин`;
+export function formatOrderHistoryTitle(orderNumber: number): string {
+  return `Заказ № ${orderNumber}`;
 }
+
+export function formatOrderHistoryMeta(order: {
+  status: string;
+  delivery_type?: string | null;
+  created_at: string;
+  completed_at?: string | null;
+  fulfillment_milestones?: OrderFulfillmentMilestones | null;
+}): string {
+  const statusLabel = formatOrderStatus(order.status, order.delivery_type);
+  const milestones = order.fulfillment_milestones;
+  const when =
+    order.status === "cancelled"
+      ? milestones?.cancelled_at || order.created_at
+      : milestones?.issued_at || order.completed_at || order.created_at;
+
+  return `${statusLabel} ${formatOrderDateTime(when)}`;
+}
+
+export function buildFulfillmentTimelineLines(
+  milestones: OrderFulfillmentMilestones | null | undefined,
+  status: string,
+  deliveryType?: string | null,
+): Array<{ key: string; label: string; at: string }> {
+  if (!milestones) return [];
+
+  if (status === "cancelled") {
+    const lines: Array<{ key: string; label: string; at: string }> = [];
+    if (milestones.submitted_at) {
+      lines.push({ key: "submitted", label: "Оформлен", at: milestones.submitted_at });
+    }
+    if (milestones.cancelled_at) {
+      lines.push({ key: "cancelled", label: "Отменён", at: milestones.cancelled_at });
+    }
+    return lines;
+  }
+
+  const issuedLabel = deliveryType === "delivery" ? "Доставлен" : "Выдан";
+  const lines: Array<{ key: string; label: string; at: string }> = [];
+
+  if (milestones.submitted_at) {
+    lines.push({ key: "submitted", label: "Оформлен", at: milestones.submitted_at });
+  }
+  if (milestones.ready_at) {
+    lines.push({ key: "ready", label: "Собран", at: milestones.ready_at });
+  }
+  if (milestones.issued_at) {
+    lines.push({ key: "issued", label: issuedLabel, at: milestones.issued_at });
+  }
+
+  return lines;
+}
+

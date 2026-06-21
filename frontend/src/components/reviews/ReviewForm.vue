@@ -24,61 +24,78 @@
       </button>
     </div>
 
-    <div v-if="rating > 0 && quickTags.length" class="review-form__tags">
-      <button
-        v-for="tag in quickTags"
-        :key="tag.id"
-        type="button"
-        class="review-form__tag"
-        :class="{ 'review-form__tag--used': usedTagIds.has(tag.id) }"
-        :disabled="disabled"
-        @click="appendTag(tag)"
+    <div class="review-form__body">
+      <label class="review-form__field">
+        <span class="review-form__label">Ваш отзыв</span>
+        <div class="review-form__textarea-wrap">
+          <textarea
+            v-model="bodyText"
+            class="review-form__textarea"
+            rows="3"
+            :disabled="disabled"
+            placeholder="Расскажите, что понравилось или не понравилось"
+            @input="emit('update:bodyText', bodyText)"
+          />
+          <span
+            class="review-form__counter"
+            :class="{ 'review-form__counter--ok': bodyText.trim().length >= 20 }"
+          >
+            {{ bodyText.trim().length }} / 20
+          </span>
+        </div>
+      </label>
+
+      <div
+        v-if="rating > 0 && quickTags.length"
+        class="review-form__extras"
       >
-        {{ tag.label }}
-      </button>
+        <span class="review-form__extras-label">Дополнительно</span>
+        <div class="review-form__tags-list" :class="tagsLayoutClass">
+          <button
+            v-for="tag in quickTags"
+            :key="tag.id"
+            type="button"
+            class="review-form__tag"
+            :class="{ 'review-form__tag--selected': isTagSelected(tag.id) }"
+            :aria-pressed="isTagSelected(tag.id)"
+            :disabled="disabled"
+            @click.stop="toggleTag(tag)"
+          >
+            {{ tag.label }}
+          </button>
+        </div>
+      </div>
     </div>
 
-    <label class="review-form__field">
-      <span class="review-form__label">Ваш отзыв</span>
-      <textarea
-        v-model="bodyText"
-        class="review-form__textarea"
-        rows="4"
-        :disabled="disabled"
-        placeholder="Расскажите, что понравилось или не понравилось"
-        @input="emit('update:bodyText', bodyText)"
-      />
-      <span class="review-form__counter" :class="{ 'review-form__counter--ok': bodyText.trim().length >= 20 }">
-        {{ bodyText.trim().length }} / 20
-      </span>
-    </label>
+    <footer class="review-form__footer">
+      <label class="review-form__anonymous">
+        <input
+          v-model="anonymous"
+          type="checkbox"
+          class="review-form__anonymous-input"
+          :disabled="disabled"
+          @change="emit('update:anonymous', anonymous)"
+        />
+        <span>Опубликовать анонимно</span>
+      </label>
 
-    <label class="review-form__anonymous">
-      <input
-        v-model="anonymous"
-        type="checkbox"
-        class="review-form__anonymous-input"
-        :disabled="disabled"
-        @change="emit('update:anonymous', anonymous)"
-      />
-      <span>Опубликовать анонимно</span>
-    </label>
+      <p v-if="errorMessage" class="review-form__error">{{ errorMessage }}</p>
 
-    <p v-if="errorMessage" class="review-form__error">{{ errorMessage }}</p>
-
-    <button
-      type="submit"
-      class="review-form__submit"
-      :disabled="disabled || !canSubmit"
-    >
-      {{ submitting ? "Отправляем…" : "Отправить отзыв" }}
-    </button>
+      <button
+        type="submit"
+        class="review-form__submit"
+        :disabled="disabled || !canSubmit"
+      >
+        {{ submitting ? "Отправляем…" : "Отправить отзыв" }}
+      </button>
+    </footer>
   </form>
 </template>
 
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import type { QuickTag } from "@/composables/useCustomerOrders";
+import { resolveQuickTagsLayout } from "@/utils/reviewQuickTagsLayout";
 
 const props = withDefaults(
   defineProps<{
@@ -118,11 +135,13 @@ const emit = defineEmits<{
 const rating = ref(props.initialRating);
 const bodyText = ref(props.initialBodyText);
 const anonymous = ref(props.initialAnonymous);
-const usedTagIds = ref<Set<string>>(new Set());
+const selectedTagIds = ref<string[]>([]);
 
 const canSubmit = computed(
   () => rating.value >= 1 && rating.value <= 5 && bodyText.value.trim().length >= 20,
 );
+
+const tagsLayoutClass = computed(() => resolveQuickTagsLayout(props.quickTags.length));
 
 watch(
   () => props.initialRating,
@@ -140,17 +159,20 @@ watch(
 
 function setRating(value: number) {
   rating.value = value;
+  selectedTagIds.value = [];
   emit("update:rating", value);
 }
 
-function appendTag(tag: QuickTag) {
-  const text = (tag.insert_text || tag.label || "").trim();
-  if (!text) return;
+function isTagSelected(tagId: string) {
+  return selectedTagIds.value.includes(tagId);
+}
 
-  const current = bodyText.value.trim();
-  bodyText.value = current ? `${current} ${text}` : text;
-  usedTagIds.value = new Set([...usedTagIds.value, tag.id]);
-  emit("update:bodyText", bodyText.value);
+function toggleTag(tag: QuickTag) {
+  if (isTagSelected(tag.id)) {
+    selectedTagIds.value = selectedTagIds.value.filter((id) => id !== tag.id);
+    return;
+  }
+  selectedTagIds.value = [...selectedTagIds.value, tag.id];
 }
 
 function handleSubmit() {
@@ -158,17 +180,18 @@ function handleSubmit() {
   emit("submit", {
     rating: rating.value,
     body_text: bodyText.value.trim(),
-    quick_tag_ids: [...usedTagIds.value],
+    quick_tag_ids: [...selectedTagIds.value],
     is_anonymous: anonymous.value,
   });
 }
+
 </script>
 
 <style scoped>
 .review-form {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
 }
 
 .review-form__stars {
@@ -190,38 +213,17 @@ function handleSubmit() {
   cursor: not-allowed;
 }
 
-.review-form__tags {
+.review-form__body {
   display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.review-form__tag {
-  border: none;
-  border-radius: 999px;
-  padding: 8px 12px;
-  background: #f5f7fa;
-  color: #191919;
-  font-family: -apple-system, "SF Pro Display", sans-serif;
-  font-size: 13px;
-  line-height: 16px;
-  cursor: pointer;
-}
-
-.review-form__tag--used {
-  background: rgba(245, 3, 2, 0.1);
-  color: #a90f0e;
-}
-
-.review-form__tag:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
+  flex-direction: column;
+  gap: 10px;
 }
 
 .review-form__field {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  margin: 0;
 }
 
 .review-form__label {
@@ -231,46 +233,158 @@ function handleSubmit() {
   color: #5c6470;
 }
 
+.review-form__textarea-wrap {
+  position: relative;
+}
+
 .review-form__textarea {
   width: 100%;
-  min-height: 96px;
-  border: 1px solid #e6e9ed;
-  border-radius: 16px;
-  padding: 12px 14px;
-  resize: vertical;
+  min-height: 76px;
+  max-height: 120px;
+  border: none;
+  border-radius: 14px;
+  padding: 10px 12px 28px;
+  resize: none;
   box-sizing: border-box;
   font-family: -apple-system, "SF Pro Display", sans-serif;
   font-size: 15px;
   line-height: 20px;
   color: #191919;
-  background: #ffffff;
+  background: #f3f5f8;
 }
 
 .review-form__textarea:focus {
-  outline: 2px solid rgba(245, 3, 2, 0.2);
-  border-color: rgba(245, 3, 2, 0.45);
+  outline: none;
+  background: #ffffff;
+  box-shadow: 0 0 0 2px rgba(245, 3, 2, 0.14);
 }
 
 .review-form__counter {
-  align-self: flex-end;
+  position: absolute;
+  right: 10px;
+  bottom: 8px;
   font-family: -apple-system, "SF Pro Display", sans-serif;
-  font-size: 12px;
-  line-height: 14px;
+  font-size: 11px;
+  line-height: 13px;
   color: #aab2bd;
+  pointer-events: none;
 }
 
 .review-form__counter--ok {
   color: #16a34a;
 }
 
+.review-form__extras {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.review-form__extras-label {
+  font-family: -apple-system, "SF Pro Display", sans-serif;
+  font-size: 12px;
+  line-height: 14px;
+  color: #8a93a0;
+}
+
+.review-form__tags-list {
+  display: grid;
+  gap: 6px;
+}
+
+.review-form__tags-list--grid-1 {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.review-form__tags-list--grid-2 {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.review-form__tags-list--grid-3 {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.review-form__tags-list--grid-4 {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.review-form__tags-list--scroll {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 8px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+
+.review-form__tags-list--scroll::-webkit-scrollbar {
+  display: none;
+}
+
+.review-form__tag {
+  border: none;
+  border-radius: 12px;
+  min-height: 32px;
+  padding: 6px 8px;
+  background: #eef1f5;
+  color: #3d4652;
+  font-family: -apple-system, "SF Pro Display", sans-serif;
+  font-size: 12px;
+  line-height: 14px;
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 0.15s ease, color 0.15s ease;
+  text-align: center;
+  white-space: normal;
+}
+
+.review-form__tags-list--grid-1 .review-form__tag,
+.review-form__tags-list--grid-2 .review-form__tag,
+.review-form__tags-list--grid-3 .review-form__tag,
+.review-form__tags-list--grid-4 .review-form__tag {
+  width: 100%;
+}
+
+.review-form__tags-list--scroll .review-form__tag {
+  flex: 0 0 auto;
+  border-radius: 999px;
+  min-height: 34px;
+  padding: 7px 14px;
+  font-size: 13px;
+  line-height: 16px;
+  white-space: nowrap;
+}
+
+.review-form__tag--selected {
+  background: rgba(245, 3, 2, 0.12);
+  color: #a90f0e;
+  font-weight: 600;
+}
+
+.review-form__tag:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.review-form__footer {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 2px;
+}
+
 .review-form__anonymous {
   display: inline-flex;
   align-items: center;
   gap: 8px;
+  margin: 0;
   font-family: -apple-system, "SF Pro Display", sans-serif;
-  font-size: 14px;
-  line-height: 17px;
-  color: #191919;
+  font-size: 13px;
+  line-height: 16px;
+  color: #5c6470;
 }
 
 .review-form__anonymous-input {
@@ -289,7 +403,7 @@ function handleSubmit() {
 
 .review-form__submit {
   width: 100%;
-  min-height: 52px;
+  min-height: 48px;
   border: none;
   border-radius: 999px;
   background: linear-gradient(106.76deg, #f50302 -2.64%, #a90f0e 85.78%);

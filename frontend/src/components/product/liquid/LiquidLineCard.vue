@@ -35,14 +35,12 @@
             <span class="liquid-line-price-amount">{{ minPriceLabel }}</span>
             <span class="liquid-line-price-currency"> BYN</span>
           </p>
-          <button
+          <ReviewRatingLink
             v-if="reviewCount > 0"
-            type="button"
-            class="liquid-reviews-link"
-            @click.stop="openReviewsModal"
-          >
-            Посмотреть отзывы
-          </button>
+            :count="reviewCount"
+            :average-rating="averageRating"
+            @click="openReviewsModal"
+          />
         </div>
       </div>
       <div class="liquid-line-side">
@@ -298,6 +296,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch, nextTick } from "vue";
 import GroupReviewsModal from "@/components/reviews/GroupReviewsModal.vue";
+import ReviewRatingLink from "@/components/reviews/ReviewRatingLink.vue";
 import { useCustomerOrders } from "@/composables/useCustomerOrders";
 import {
   ChevronDownIcon,
@@ -341,6 +340,7 @@ const catalogStore = useCatalogStore();
 const { fetchGroupReviewSummary } = useCustomerOrders();
 const bodyWrapper = ref<HTMLElement | null>(null);
 const reviewCount = ref(0);
+const averageRating = ref<number | null>(null);
 const showReviewsModal = ref(false);
 const expandedVariantProducts = ref<Record<string, boolean>>({});
 const failedImages = ref<Set<string>>(new Set());
@@ -537,8 +537,10 @@ onMounted(async () => {
   try {
     const summary = await fetchGroupReviewSummary(props.groupId);
     reviewCount.value = summary.review_count;
+    averageRating.value = summary.average_rating;
   } catch {
     reviewCount.value = 0;
+    averageRating.value = null;
   }
 });
 

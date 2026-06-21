@@ -18,6 +18,7 @@ import { promoRouter } from './routes/promo.js';
 import { loyaltyRouter } from './routes/loyalty.js';
 import { wheelRouter } from './routes/wheel.js';
 import { archiveOldDeliveredOrders, scheduleArchiving } from './cleanup-delivered-orders.js';
+import { scheduleReviewMonthlyDraw } from './utils/schedule-review-monthly-draw.js';
 import { DEV_BACKEND_PORT, PROD_BACKEND_PORT } from '../shared/runtime-ports.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -86,6 +87,9 @@ archiveOldDeliveredOrders();
 
 // Планируем ежедневную архивацию в полночь
 scheduleArchiving();
+
+// Авто-розыгрыш отзывов: последний день месяца в 21:00 по Минску
+scheduleReviewMonthlyDraw();
 
 // Middlewares
 app.use(morgan(':method :safe-url :status :response-time ms - :res[content-length]'));

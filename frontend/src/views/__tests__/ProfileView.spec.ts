@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createPinia, setActivePinia } from "pinia";
 import { flushPromises, mount } from "@vue/test-utils";
 import ProfileView from "@/views/ProfileView.vue";
+import { useCustomerOrders } from "@/composables/useCustomerOrders";
 
 function createJsonResponse(data: unknown, ok = true, status = 200) {
   return {
@@ -114,6 +115,11 @@ describe("ProfileView review preferences", () => {
   beforeEach(() => {
     setActivePinia(createPinia());
     sessionStorage.clear();
+    const { reviewPreferences } = useCustomerOrders();
+    reviewPreferences.value = {
+      reviews_opt_out: false,
+      reviews_prefer_anonymous: false,
+    };
 
     (window as any).Telegram = {
       WebApp: {
@@ -131,6 +137,11 @@ describe("ProfileView review preferences", () => {
   });
 
   function buildFetchMock(patchHandler = vi.fn()) {
+    const preferences = {
+      reviews_opt_out: false,
+      reviews_prefer_anonymous: false,
+    };
+
     return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       if (url.startsWith("/api/customer/me")) {
@@ -153,6 +164,7 @@ describe("ProfileView review preferences", () => {
           show: true,
           order_id: "ord1",
           pending_review_count: 1,
+          preferences: { ...preferences },
         });
       }
       if (url === "/api/wheel/state") {
@@ -165,10 +177,16 @@ describe("ProfileView review preferences", () => {
       if (url === "/api/profile/review-preferences" && init?.method === "PATCH") {
         const body = JSON.parse(String(init.body));
         patchHandler(body);
+        if (body.reviews_opt_out !== undefined) {
+          preferences.reviews_opt_out = Boolean(body.reviews_opt_out);
+        }
+        if (body.reviews_prefer_anonymous !== undefined) {
+          preferences.reviews_prefer_anonymous = Boolean(body.reviews_prefer_anonymous);
+        }
         return createJsonResponse({
           ok: true,
-          reviews_opt_out: Boolean(body.reviews_opt_out),
-          reviews_prefer_anonymous: Boolean(body.reviews_prefer_anonymous ?? false),
+          reviews_opt_out: preferences.reviews_opt_out,
+          reviews_prefer_anonymous: preferences.reviews_prefer_anonymous,
         });
       }
       throw new Error(`Unexpected fetch: ${url}`);
@@ -217,6 +235,60 @@ describe("ProfileView review preferences", () => {
 
     expect(patchHandler).toHaveBeenCalledWith({ reviews_opt_out: true });
     expect(switches[1].attributes("aria-checked")).toBe("false");
+
+    wrapper.unmount();
+  });
+
+  it("shows anonymous preference from prompt on first load", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.startsWith("/api/customer/me")) {
+        return createJsonResponse({
+          id: "customer-1",
+          telegram_id: "11",
+          telegram_username: "profile_user",
+          first_name: "Profile",
+          last_name: "User",
+          total_orders: 2,
+          total_spent: 30,
+          member_since: "2026-03-01T10:00:00.000Z",
+        });
+      }
+      if (url.startsWith("/api/loyalty/me")) {
+        return createJsonResponse({ found: false, categories: [] });
+      }
+      if (url === "/api/reviews/prompt") {
+        return createJsonResponse({
+          show: false,
+          reason: "nothing_to_review",
+          preferences: {
+            reviews_opt_out: false,
+            reviews_prefer_anonymous: true,
+          },
+        });
+      }
+      if (url === "/api/wheel/state") {
+        return createJsonResponse({
+          balance: 0,
+          feed_consent: false,
+          can_spin: false,
+        });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const wrapper = mount(ProfileView, {
+      global: {
+        stubs: {
+          LoyaltyBonusPopup: true,
+        },
+      },
+    });
+    await flushPromises();
+
+    const switches = wrapper.findAll("button.wheel-feed-toggle");
+    expect(switches[2].attributes("aria-checked")).toBe("true");
 
     wrapper.unmount();
   });

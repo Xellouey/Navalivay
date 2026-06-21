@@ -18,7 +18,16 @@ const {
   validateReviewBodyText,
   resolveReviewCategoryKey,
   getPublicGroupReviews,
+  buildOrderLineIconsFromGroups,
+  buildOrderFulfillmentMilestones,
+  serializeOrderHistoryCard,
+  parseQaUsernames,
+  isQaReviewUser,
+  shouldDevBypassForCustomer,
+  setReviewSetting,
+  setQaUsernames,
   REVIEW_STATUSES,
+  MAX_REVIEW_BODY_LENGTH,
 } = await import('../utils/product-reviews.js');
 
 initDb();
@@ -104,6 +113,19 @@ console.log('\n--- validateReviewBodyText ---');
       'Мне очень понравился вкус, беру ещё раз',
     'accepts long enough body',
   );
+
+  let tooLong = false;
+  try {
+    validateReviewBodyText('а'.repeat(MAX_REVIEW_BODY_LENGTH + 1));
+  } catch (error) {
+    tooLong = error.code === 'review_body_too_long';
+  }
+  ok(tooLong, 'rejects overly long body');
+
+  ok(
+    validateReviewBodyText('а'.repeat(MAX_REVIEW_BODY_LENGTH)).length === MAX_REVIEW_BODY_LENGTH,
+    'accepts body at max length',
+  );
 }
 
 console.log('\n--- eligibility ---');
@@ -172,6 +194,21 @@ console.log('\n--- review prompt ---');
     db.prepare('SELECT * FROM customers WHERE id = ?').get('cust1'),
   );
   ok(optedOut.show === false && optedOut.reason === 'opt_out', 'opt-out hides prompt');
+  ok(
+    optedOut.preferences?.reviews_opt_out === true,
+    'opt-out prompt includes preferences',
+  );
+
+  db.prepare(`UPDATE customers SET reviews_opt_out = 0, reviews_prefer_anonymous = 1 WHERE id = ?`).run(
+    'cust1',
+  );
+  const withPrefs = getReviewPromptForCustomer(
+    db.prepare('SELECT * FROM customers WHERE id = ?').get('cust1'),
+  );
+  ok(
+    withPrefs.preferences?.reviews_prefer_anonymous === true,
+    'prompt exposes prefer_anonymous preference',
+  );
 }
 
 console.log('\n--- public reviews ---');
@@ -194,6 +231,103 @@ console.log('\n--- public reviews ---');
   ok(publicReviews.review_count === 1, 'one public review');
   ok(publicReviews.items[0].reviewer.is_anonymous === true, 'anonymous mask');
   ok(publicReviews.items[0].purchased_variant_name === 'Ананасовая шипучка', 'variant in public review');
+}
+
+console.log('\n--- order history line icons ---');
+{
+  seedBase();
+  db.prepare(`UPDATE categories SET cover_image = ? WHERE id = ?`).run(
+    'data:image/webp;base64,CATEGORY_COVER',
+    'cat_liq',
+  );
+  db.prepare(`UPDATE category_groups SET cover_image = ? WHERE id = ?`).run(
+    'data:image/webp;base64,GROUP_ONE_COVER',
+    'grp1',
+  );
+  db.prepare(
+    `INSERT INTO category_groups (id, categoryId, slug, name, cover_image, [order], hide_empty, createdAt, updatedAt)
+     VALUES ('grp2', 'cat_liq', 'grp2', 'Другая линейка', 'data:image/webp;base64,GROUP_TWO_COVER', 2, 0, DATETIME('now'), DATETIME('now'))`,
+  ).run();
+  db.prepare(
+    `INSERT INTO products (id, categoryId, groupId, title, priceRub, description, stock, createdAt)
+     VALUES ('prod2', 'cat_liq', 'grp2', 'Манго', 12, '', 5, DATETIME('now'))`,
+  ).run();
+  db.prepare(
+    `INSERT INTO order_items (id, order_id, product_id, product_title, variant_name, quantity, price_per_unit, total_price, total_cost)
+     VALUES ('oi2', 'ord1', 'prod2', 'Манго', 'Манговая', 1, 12, 12, 5)`,
+  ).run();
+
+  const order = db.prepare('SELECT * FROM orders WHERE id = ?').get('ord1');
+  const card = serializeOrderHistoryCard(order);
+
+  ok(card.category_icons.length === 2, 'two line icons for two groups in one category');
+  ok(
+    card.category_icons.every((icon) => icon.image?.includes('GROUP_') && !icon.image?.includes('CATEGORY')),
+    'history thumbs prefer group cover, not parent category cover',
+  );
+  ok(card.category_icons[0].group_id === 'grp1', 'first icon is first product line');
+  ok(
+    buildOrderLineIconsFromGroups([
+      {
+        group_id: 'grp1',
+        category_id: 'cat_liq',
+        category_name: 'Жидкости',
+        group_name: 'Подонки',
+        group_cover_image: null,
+        category_cover_image: 'data:image/webp;base64,CATEGORY_ONLY',
+      },
+    ]).icons[0].image?.includes('CATEGORY_ONLY'),
+    'category cover is fallback when group cover is missing',
+  );
+}
+
+console.log('\n--- fulfillment milestones ---');
+{
+  seedBase();
+  const submittedAt = '2026-06-19T09:54:00.000Z';
+  const readyAt = '2026-06-19T09:56:00.000Z';
+  const issuedAt = '2026-06-19T10:04:00.000Z';
+  db.prepare(`UPDATE orders SET delivery_type = 'pickup', created_at = ?, completed_at = ? WHERE id = ?`).run(
+    submittedAt,
+    issuedAt,
+    'ord1',
+  );
+  db.prepare(
+    `INSERT INTO order_status_history (id, order_id, previous_status, new_status, changed_at)
+     VALUES ('osh1', 'ord1', NULL, 'new', ?), ('osh2', 'ord1', 'new', 'in_progress', ?), ('osh3', 'ord1', 'in_progress', 'delivered', ?)`,
+  ).run(submittedAt, readyAt, issuedAt);
+
+  const order = db.prepare('SELECT * FROM orders WHERE id = ?').get('ord1');
+  const milestones = buildOrderFulfillmentMilestones(order);
+  const card = serializeOrderHistoryCard(order);
+
+  ok(milestones.submitted_at === submittedAt, 'submitted milestone');
+  ok(milestones.ready_at === readyAt, 'ready milestone');
+  ok(milestones.issued_at === issuedAt, 'issued milestone');
+  ok(card.delivery_type === 'pickup', 'history card exposes delivery type');
+  ok(card.fulfillment_milestones.ready_at === readyAt, 'history card exposes milestones');
+  ok(!('pending_review_count' in card), 'history card omits pending_review_count');
+  ok(!('has_reviews' in card), 'history card omits has_reviews');
+}
+
+console.log('\n--- QA usernames: parse and bypass ---');
+{
+  setReviewSetting('dev_test_mode', '0');
+  setReviewSetting('qa_active', '0');
+  setQaUsernames(['rk0ff', '@Review_Demo']);
+
+  ok(parseQaUsernames('rk0ff, @demo\nfoo').join(',') === 'rk0ff,demo,foo', 'parse usernames');
+  ok(!shouldDevBypassForCustomer({ telegram_username: 'rk0ff' }), 'no bypass when qa inactive');
+
+  setReviewSetting('qa_active', '1');
+  ok(isQaReviewUser({ telegram_username: 'review_demo' }), 'qa user recognized');
+  ok(!isQaReviewUser({ telegram_username: 'stranger' }), 'non-qa user rejected');
+  ok(shouldDevBypassForCustomer({ telegram_username: 'review_demo' }), 'qa user bypass');
+
+  setReviewSetting('dev_test_mode', '1');
+  ok(shouldDevBypassForCustomer({ telegram_username: 'anyone' }), 'global dev mode bypass');
+  setReviewSetting('dev_test_mode', '0');
+  setReviewSetting('qa_active', '0');
 }
 
 console.log(`\nDone: ${results.passed} passed, ${results.failed} failed\n`);

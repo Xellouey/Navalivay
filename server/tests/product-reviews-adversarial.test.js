@@ -209,6 +209,52 @@ console.log('\n--- A5: invalid quick tag rejected ---');
   );
 }
 
+console.log('\n--- A5b: quick tag with wrong star rating rejected ---');
+{
+  seedWorld();
+  db.prepare(
+    `INSERT INTO review_quick_tags (id, category_key, star_rating, label, insert_text, sort_order, is_active, created_at, updated_at)
+     VALUES ('tag4', 'liquids', 4, 'Норм', 'Нормальный вкус.', 2, 1, DATETIME('now'), DATETIME('now'))`,
+  ).run();
+  expectThrows(
+    () =>
+      createProductReview({
+        customerId: 'cust1',
+        orderId: 'ord1',
+        groupId: 'grp1',
+        orderItemId: 'oi1',
+        rating: 5,
+        bodyText: 'Пытаюсь прикрепить тег от четырёх звёзд к пятёрке',
+        quickTagIds: ['tag4'],
+      }),
+    'invalid_quick_tags',
+    'wrong star rating tag rejected',
+  );
+}
+
+console.log('\n--- A5c: quick tag from another category rejected ---');
+{
+  seedWorld();
+  db.prepare(
+    `INSERT INTO review_quick_tags (id, category_key, star_rating, label, insert_text, sort_order, is_active, created_at, updated_at)
+     VALUES ('tag_snus', 'snus', 5, 'Крепко', 'Крепкий снюс.', 3, 1, DATETIME('now'), DATETIME('now'))`,
+  ).run();
+  expectThrows(
+    () =>
+      createProductReview({
+        customerId: 'cust1',
+        orderId: 'ord1',
+        groupId: 'grp1',
+        orderItemId: 'oi1',
+        rating: 5,
+        bodyText: 'Пытаюсь прикрепить тег от другой категории',
+        quickTagIds: ['tag_snus'],
+      }),
+    'invalid_quick_tags',
+    'wrong category tag rejected',
+  );
+}
+
 console.log('\n--- A6: rating bounds ---');
 {
   seedWorld();
@@ -365,7 +411,7 @@ console.log('\n--- R2: rejected review allows resubmit ---');
     orderId: 'ord1',
     groupId: 'grp1',
     orderItemId: 'oi1',
-    rating: 4,
+    rating: 5,
     bodyText: 'Исправленный отзыв после отклонения модерации',
     quickTagIds: ['tag1'],
   });
