@@ -107,6 +107,6 @@ const actionAriaLabel = computed(() => {
   font-size: 13px;
   line-height: 16px;
   font-weight: 500;
-  color: #f50302;
+  color: #de2b2b;
 }
 </style>
