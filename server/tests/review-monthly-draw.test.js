@@ -97,7 +97,35 @@ function seedApprovedReviews() {
 
 console.log('\n=== review-monthly-draw ===\n');
 
-console.log('--- weighted tickets ---');
+console.log('--- period key uses Minsk calendar month ---');
+{
+  const { getTimeZoneDateParts } = await import('../utils/business-time.js');
+  const juneEvening = new Date('2026-06-21T20:27:00+03:00');
+  const parts = getTimeZoneDateParts(juneEvening);
+  ok(parts.month === 6 && parts.year === 2026, 'fixture is June 21 2026 in Minsk');
+
+  const originalDate = Date;
+  global.Date = class extends originalDate {
+    constructor(...args) {
+      if (args.length === 0) {
+        super(juneEvening.getTime());
+        return;
+      }
+      super(...args);
+    }
+    static now() {
+      return juneEvening.getTime();
+    }
+  };
+
+  try {
+    ok(getReviewPeriodKey(0) === '2026-06', 'June evening maps to 2026-06, not previous month UTC');
+  } finally {
+    global.Date = originalDate;
+  }
+}
+
+console.log('\n--- weighted tickets ---');
 {
   seedApprovedReviews();
   const periodKey = getReviewPeriodKey(0);

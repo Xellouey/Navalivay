@@ -109,6 +109,55 @@ describe("ReviewLineCard", () => {
     wrapper.unmount();
   });
 
+  it("shows cooldown explanation on repeat LAST HAP purchase within admin cooldown", () => {
+    const wrapper = mount(ReviewLineCard, {
+      props: {
+        line: buildLine({
+          group_id: "grp_last_hap",
+          group_name: "PODONKI LAST HAP",
+          purchased_variant_name: "50 мг",
+          eligibility: {
+            canReview: false,
+            reason: "cooldown",
+            cooldownEndsAt: "2026-07-11T09:00:00.000Z",
+          },
+          latest_review: null,
+        }),
+        orderId: "ord_repeat",
+      },
+    });
+
+    expect(wrapper.text()).toContain("PODONKI LAST HAP");
+    expect(wrapper.text()).toContain("Отзыв уже оставлен");
+    expect(wrapper.text()).toContain("Следующий отзыв на эту линейку можно оставить");
+    expect(wrapper.find(".review-form").exists()).toBe(false);
+
+    wrapper.unmount();
+  });
+
+  it("blocks repeat purchase form while moderation is pending on the line", () => {
+    const wrapper = mount(ReviewLineCard, {
+      props: {
+        line: buildLine({
+          group_id: "grp_last_hap",
+          group_name: "PODONKI LAST HAP",
+          eligibility: {
+            canReview: false,
+            reason: "pending_moderation",
+            cooldownEndsAt: null,
+          },
+          latest_review: null,
+        }),
+        orderId: "ord_repeat",
+      },
+    });
+
+    expect(wrapper.find(".review-form").exists()).toBe(false);
+    expect(wrapper.text()).toContain("Отзыв отправлен");
+
+    wrapper.unmount();
+  });
+
   it("shows pending moderation state with rating stars", () => {
     const wrapper = mount(ReviewLineCard, {
       props: {

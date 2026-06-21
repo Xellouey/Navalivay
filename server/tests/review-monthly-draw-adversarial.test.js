@@ -17,7 +17,9 @@ const {
   runMonthlyReviewDraw,
   rerollDrawSeat,
   getReviewPeriodKey,
+  resolveDrawPeriodBounds,
 } = await import('../utils/review-monthly-draw.js');
+const { getTimeZoneDateParts } = await import('../utils/business-time.js');
 
 initDb();
 
@@ -40,6 +42,28 @@ function expectThrows(fn, code, msg) {
     thrown = error;
   }
   ok(thrown?.code === code, `${msg} — got ${thrown?.code || 'none'}`);
+}
+
+function withMockedNow(isoOrDate, fn) {
+  const fixed = isoOrDate instanceof Date ? isoOrDate : new Date(isoOrDate);
+  const OriginalDate = Date;
+  global.Date = class extends OriginalDate {
+    constructor(...args) {
+      if (args.length === 0) {
+        super(fixed.getTime());
+        return;
+      }
+      super(...args);
+    }
+    static now() {
+      return fixed.getTime();
+    }
+  };
+  try {
+    return fn();
+  } finally {
+    global.Date = OriginalDate;
+  }
 }
 
 function seedReviews({ reviewCountByCustomer = { cust1: 1 }, optOutCustomers = [] } = {}) {
@@ -155,6 +179,118 @@ console.log('--- R1: more reviews increases ticket weight not seat count ---');
   const draw = runMonthlyReviewDraw({ periodKey: `weight-${Date.now()}`, seatCount: 2, rng: () => 0 });
   const cust1Wins = draw.winners.filter((w) => w.customer_id === 'cust1').length;
   ok(cust1Wins <= 1, 'cust1 wins at most one seat');
+}
+
+console.log('--- A6: June 21 evening maps to 2026-06, not UTC May ---');
+{
+  const juneEvening = '2026-06-21T20:27:00+03:00';
+  withMockedNow(juneEvening, () => {
+    const parts = getTimeZoneDateParts(new Date());
+    ok(parts.month === 6 && parts.year === 2026, 'fixture is June in Minsk');
+    ok(getReviewPeriodKey(0) === '2026-06', 'manual launch on June 21 uses June period');
+  });
+}
+
+console.log('--- A7: June 1 midnight Minsk still maps to June ---');
+{
+  withMockedNow('2026-06-01T00:30:00+03:00', () => {
+    ok(getReviewPeriodKey(0) === '2026-06', 'month start edge uses Minsk calendar month');
+  });
+}
+
+console.log('--- A8: January and year rollover stay correct ---');
+{
+  withMockedNow('2026-01-15T12:00:00+03:00', () => {
+    ok(getReviewPeriodKey(0) === '2026-01', 'January period key');
+  });
+  withMockedNow('2025-12-31T23:30:00+03:00', () => {
+    ok(getReviewPeriodKey(0) === '2025-12', 'last minutes of December stay December');
+  });
+}
+
+console.log('--- A9: mid-month manual run stores current month, not previous ---');
+{
+  seedReviews({ reviewCountByCustomer: { cust1: 1 } });
+  withMockedNow('2026-06-21T20:27:00+03:00', () => {
+    const periodKey = getReviewPeriodKey(0);
+    const draw = runMonthlyReviewDraw({ periodKey, seatCount: 1, rng: () => 0 });
+    ok(draw.period_key === '2026-06', 'draw row stores June, not May');
+    ok(draw.winners.length === 1, 'June draw still picks winners');
+  });
+}
+
+console.log('--- A10: current-month pool excludes previous-month approved reviews ---');
+{
+  seedReviews({ reviewCountByCustomer: {} });
+  db.prepare(
+    `INSERT INTO customers (id, telegram_id, telegram_username, first_name, reviews_opt_out, created_at, updated_at)
+     VALUES ('may_only', '9001', 'may_only', 'May', 0, DATETIME('now'), DATETIME('now'))`,
+  ).run();
+  db.prepare(
+    `INSERT INTO orders (id, order_number, customer_id, status, total_amount, final_amount, completed_at, created_at, updated_at)
+     VALUES ('ord_may', 5001, 'may_only', 'delivered', 10, 10, DATETIME('now'), DATETIME('now'), DATETIME('now'))`,
+  ).run();
+  db.prepare(
+    `INSERT INTO product_reviews (
+      id, customer_id, order_id, group_id, rating, body_text, quick_tag_ids,
+      status, created_at, updated_at, approved_at
+    ) VALUES ('rev_may', 'may_only', 'ord_may', 'grp1', 5, 'Майский одобренный отзыв для границы', '[]', 'approved', '2026-05-20T10:00:00.000Z', '2026-05-20T10:00:00.000Z', '2026-05-20T10:00:00.000Z')`,
+  ).run();
+
+  withMockedNow('2026-06-21T20:27:00+03:00', () => {
+    const tickets = listEligibleDrawEntries(getReviewPeriodKey(0));
+    ok(tickets.length === 0, 'May-approved review excluded from June pool');
+    const bounds = resolveDrawPeriodBounds('2026-06');
+    ok(bounds.startIso < bounds.endIso, 'June bounds are ordered');
+  });
+}
+
+console.log('--- A11: pending and rejected reviews never enter draw pool ---');
+{
+  seedReviews({ reviewCountByCustomer: {} });
+  db.prepare(
+    `INSERT INTO customers (id, telegram_id, telegram_username, first_name, reviews_opt_out, created_at, updated_at)
+     VALUES ('mixed', '9002', 'mixed', 'Mixed', 0, DATETIME('now'), DATETIME('now'))`,
+  ).run();
+  db.prepare(
+    `INSERT INTO orders (id, order_number, customer_id, status, total_amount, final_amount, completed_at, created_at, updated_at)
+     VALUES ('ord_mix', 5002, 'mixed', 'delivered', 10, 10, DATETIME('now'), DATETIME('now'), DATETIME('now'))`,
+  ).run();
+  const nowIso = '2026-06-15T10:00:00.000Z';
+  db.prepare(
+    `INSERT INTO product_reviews (
+      id, customer_id, order_id, group_id, rating, body_text, quick_tag_ids,
+      status, created_at, updated_at, approved_at
+    ) VALUES ('rev_pending', 'mixed', 'ord_mix', 'grp1', 5, 'Отзыв на модерации не должен участвовать', '[]', 'pending', ?, ?, NULL)`,
+  ).run(nowIso, nowIso);
+  db.prepare(
+    `INSERT INTO product_reviews (
+      id, customer_id, order_id, group_id, rating, body_text, quick_tag_ids,
+      status, created_at, updated_at, approved_at
+    ) VALUES ('rev_rejected', 'mixed', 'ord_mix', 'grp1', 2, 'Отклонённый отзыв не должен участвовать', '[]', 'rejected', ?, ?, NULL)`,
+  ).run(nowIso, nowIso);
+
+  withMockedNow('2026-06-21T20:27:00+03:00', () => {
+    const tickets = listEligibleDrawEntries(getReviewPeriodKey(0));
+    ok(tickets.length === 0, 'pending/rejected reviews excluded from draw');
+  });
+}
+
+console.log('--- A12: historical May draw can still be resolved explicitly ---');
+{
+  seedReviews({ reviewCountByCustomer: { cust1: 1 } });
+  db.prepare(
+    `UPDATE product_reviews
+     SET approved_at = '2026-05-20T10:00:00.000Z', created_at = '2026-05-20T10:00:00.000Z'
+     WHERE customer_id = 'cust1'`,
+  ).run();
+
+  withMockedNow('2026-06-21T20:27:00+03:00', () => {
+    const mayTickets = listEligibleDrawEntries('2026-05');
+    ok(mayTickets.length === 1, 'explicit May period still finds May-approved review');
+    const juneTickets = listEligibleDrawEntries('2026-06');
+    ok(juneTickets.length === 0, 'same review not counted in June period');
+  });
 }
 
 console.log(`\nDone: ${results.passed} passed, ${results.failed} failed\n`);

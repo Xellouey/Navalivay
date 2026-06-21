@@ -17,6 +17,9 @@ const {
   getGroupReviewEligibility,
   getPublicGroupReviews,
   getReviewPromptForCustomer,
+  buildReviewableLinesForOrder,
+  serializeOrderDetail,
+  serializeOrderHistoryCard,
   setReviewSetting,
   validateReviewBodyText,
   REVIEW_STATUSES,
@@ -446,6 +449,149 @@ console.log('\n--- R2: rejected review allows resubmit ---');
     quickTagIds: ['tag1'],
   });
   ok(second?.status === REVIEW_STATUSES.PENDING, 'resubmit after reject allowed');
+}
+
+function seedRepeatPurchaseWorld() {
+  seedWorld();
+  setReviewSetting('cooldown_days', '30');
+
+  db.prepare(
+    `INSERT INTO orders (id, order_number, customer_id, status, total_amount, final_amount, completed_at, created_at, updated_at)
+     VALUES ('ord_old', 1002, 'cust1', 'delivered', 10, 10, DATETIME('now'), DATETIME('now'), DATETIME('now'))`,
+  ).run();
+  db.prepare(
+    `INSERT INTO order_items (id, order_id, product_id, product_title, variant_name, quantity, price_per_unit, total_price, total_cost)
+     VALUES ('oi_old', 'ord_old', 'prod1', 'Ананас', '50 мг', 1, 10, 10, 4)`,
+  ).run();
+
+  const approvedAt = new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString();
+  db.prepare(
+    `INSERT INTO product_reviews (
+      id, customer_id, order_id, order_item_id, group_id, category_id,
+      rating, body_text, status, is_anonymous, created_at, approved_at
+    ) VALUES ('rev_old', 'cust1', 'ord_old', 'oi_old', 'grp1', 'cat1', 5, 'Уже оценил эту линейку раньше', 'approved', 0, ?, ?)`,
+  ).run(approvedAt, approvedAt);
+
+  db.prepare(
+    `INSERT INTO orders (id, order_number, customer_id, status, total_amount, final_amount, completed_at, created_at, updated_at)
+     VALUES ('ord_repeat', 1003, 'cust1', 'delivered', 10, 10, DATETIME('now'), DATETIME('now'), DATETIME('now'))`,
+  ).run();
+  db.prepare(
+    `INSERT INTO order_items (id, order_id, product_id, product_title, variant_name, quantity, price_per_unit, total_price, total_cost)
+     VALUES ('oi_repeat', 'ord_repeat', 'prod1', 'Ананас', '50 мг', 1, 10, 10, 4)`,
+  ).run();
+}
+
+console.log('\n--- A12: repeat purchase within 30d cooldown cannot farm reviews ---');
+{
+  seedRepeatPurchaseWorld();
+  const blocked = getGroupReviewEligibility({
+    customerId: 'cust1',
+    groupId: 'grp1',
+    orderId: 'ord_repeat',
+    orderItemId: 'oi_repeat',
+  });
+  ok(blocked.canReview === false && blocked.reason === 'cooldown', '10d rebuy blocked by 30d cooldown');
+  ok(Boolean(blocked.cooldownEndsAt), 'cooldown end date exposed for order detail');
+}
+
+console.log('\n--- A13: cooldown hides dock when only repeat line exists ---');
+{
+  seedRepeatPurchaseWorld();
+  const customer = db.prepare('SELECT * FROM customers WHERE id = ?').get('cust1');
+  const prompt = getReviewPromptForCustomer(customer);
+  ok(prompt.show === false && prompt.reason === 'nothing_to_review', 'dock hidden on cooldown-only customer');
+}
+
+console.log('\n--- A14: order history stays silent about cooldown ---');
+{
+  seedRepeatPurchaseWorld();
+  const repeatOrder = db.prepare('SELECT * FROM orders WHERE id = ?').get('ord_repeat');
+  const card = serializeOrderHistoryCard(repeatOrder);
+  ok(!('pending_review_count' in card), 'history card has no pending_review_count');
+  ok(!('has_reviews' in card), 'history card has no has_reviews');
+  ok(!('cooldownEndsAt' in card), 'history card has no cooldown hint');
+}
+
+console.log('\n--- A15: order detail exposes cooldown explanation ---');
+{
+  seedRepeatPurchaseWorld();
+  const repeatOrder = db.prepare('SELECT * FROM orders WHERE id = ?').get('ord_repeat');
+  const detail = serializeOrderDetail(repeatOrder, 'cust1');
+  const line = detail.reviewable_lines.find((row) => row.group_id === 'grp1');
+  ok(line?.eligibility.reason === 'cooldown', 'detail line shows cooldown reason');
+  ok(line?.latest_review == null, 'repeat order has no scoped review row');
+}
+
+console.log('\n--- A16: pending moderation blocks repeat purchase duplicate ---');
+{
+  seedRepeatPurchaseWorld();
+  db.exec("DELETE FROM product_reviews WHERE id = 'rev_old'");
+  createProductReview({
+    customerId: 'cust1',
+    orderId: 'ord_old',
+    groupId: 'grp1',
+    orderItemId: 'oi_old',
+    rating: 5,
+    bodyText: 'Первый отзыв ещё на модерации, повтор нельзя',
+    quickTagIds: [],
+  });
+
+  expectThrows(
+    () =>
+      createProductReview({
+        customerId: 'cust1',
+        orderId: 'ord_repeat',
+        groupId: 'grp1',
+        orderItemId: 'oi_repeat',
+        rating: 4,
+        bodyText: 'Повторная покупка не должна дать второй отзыв',
+        quickTagIds: [],
+      }),
+    'pending_moderation',
+    'repeat purchase blocked while pending',
+  );
+}
+
+console.log('\n--- A17: cooldown on one line does not block another line ---');
+{
+  seedRepeatPurchaseWorld();
+  db.prepare(
+    `INSERT INTO orders (id, order_number, customer_id, status, total_amount, final_amount, completed_at, created_at, updated_at)
+     VALUES ('ord_mix', 1004, 'cust1', 'delivered', 20, 20, DATETIME('now'), DATETIME('now'), DATETIME('now'))`,
+  ).run();
+  db.prepare(
+    `INSERT INTO order_items (id, order_id, product_id, product_title, variant_name, quantity, price_per_unit, total_price, total_cost)
+     VALUES ('oi_mix1', 'ord_mix', 'prod1', 'Ананас', '50 мг', 1, 10, 10, 4),
+            ('oi_mix2', 'ord_mix', 'prod2', 'Манго', '40 мг', 1, 10, 10, 4)`,
+  ).run();
+
+  const lines = buildReviewableLinesForOrder(
+    db.prepare('SELECT * FROM orders WHERE id = ?').get('ord_mix'),
+    'cust1',
+  );
+  const grp1 = lines.find((line) => line.group_id === 'grp1');
+  const grp2 = lines.find((line) => line.group_id === 'grp2');
+  ok(grp1?.eligibility.reason === 'cooldown', 'first line stays on cooldown');
+  ok(grp2?.eligibility.canReview === true, 'fresh line still reviewable');
+
+  const prompt = getReviewPromptForCustomer(db.prepare('SELECT * FROM customers WHERE id = ?').get('cust1'));
+  ok(prompt.show === true && prompt.group_id === 'grp2', 'dock targets fresh line only');
+}
+
+console.log('\n--- A18: global dev_test_mode without devBypass still enforces cooldown ---');
+{
+  seedRepeatPurchaseWorld();
+  setReviewSetting('dev_test_mode', '1');
+  const blocked = getGroupReviewEligibility({
+    customerId: 'cust1',
+    groupId: 'grp1',
+    orderId: 'ord_repeat',
+    orderItemId: 'oi_repeat',
+    devBypass: false,
+  });
+  ok(blocked.canReview === false && blocked.reason === 'cooldown', 'cooldown enforced without explicit bypass flag');
+  setReviewSetting('dev_test_mode', '0');
 }
 
 console.log(`\nDone: ${results.passed} passed, ${results.failed} failed\n`);

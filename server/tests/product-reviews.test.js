@@ -177,6 +177,44 @@ function insertApprovedReview({
   );
 }
 
+function insertPendingReview({
+  reviewId,
+  customerId,
+  orderId,
+  orderItemId,
+  groupId,
+  createdAt,
+  rating = 5,
+}) {
+  db.prepare(
+    `INSERT INTO product_reviews (
+      id, customer_id, order_id, order_item_id, group_id, category_id,
+      rating, body_text, status, is_anonymous, created_at, approved_at
+    ) VALUES (?, ?, ?, ?, ?, 'cat_liq', ?, ?, ?, 0, ?, NULL)`,
+  ).run(
+    reviewId,
+    customerId,
+    orderId,
+    orderItemId,
+    groupId,
+    rating,
+    'Отличная линейка, жду публикации после модерации',
+    REVIEW_STATUSES.PENDING,
+    createdAt,
+  );
+}
+
+function seedZloyLine() {
+  db.prepare(
+    `INSERT INTO category_groups (id, categoryId, slug, name, [order], hide_empty, createdAt, updatedAt)
+     VALUES ('grp_zloy', 'cat_liq', 'grp_zloy', 'Жидкая злая', 4, 0, DATETIME('now'), DATETIME('now'))`,
+  ).run();
+  db.prepare(
+    `INSERT INTO products (id, categoryId, groupId, title, priceRub, description, stock, createdAt)
+     VALUES ('prod_zloy', 'cat_liq', 'grp_zloy', 'Жидкая злая', 14, '', 5, DATETIME('now'))`,
+  ).run();
+}
+
 console.log('\n=== product-reviews core ===\n');
 
 console.log('--- resolveReviewCategoryKey ---');
@@ -658,11 +696,243 @@ console.log('\n--- repeat purchase: mixed lines only prompts reviewable ones ---
   ok(otherLine?.eligibility.canReview === true, 'fresh line still has the form');
 }
 
+console.log('\n--- Konstantin: LAST HAP rebuy after 10d with 30d cooldown ---');
+{
+  seedBase();
+  clearDefaultSeedOrder();
+  setReviewSetting('cooldown_days', '30');
+  seedRepeatPurchaseGroup();
+
+  const approvedAt = new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString();
+  const firstOrder = createDeliveredOrder({
+    orderId: 'ord_konst_1',
+    orderNumber: 6001,
+    orderItemId: 'oi_konst_1',
+    createdAt: new Date(Date.now() - 15 * 24 * 60 * 60 * 1000).toISOString(),
+    completedAt: new Date(Date.now() - 15 * 24 * 60 * 60 * 1000).toISOString(),
+  });
+  insertApprovedReview({
+    reviewId: 'rev_konst_1',
+    customerId: 'cust1',
+    orderId: 'ord_konst_1',
+    orderItemId: 'oi_konst_1',
+    groupId: 'grp_last_hap',
+    createdAt: approvedAt,
+  });
+
+  const secondOrder = createDeliveredOrder({
+    orderId: 'ord_konst_2',
+    orderNumber: 6002,
+    orderItemId: 'oi_konst_2',
+    createdAt: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString(),
+    completedAt: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString(),
+  });
+
+  const blocked = getGroupReviewEligibility({
+    customerId: 'cust1',
+    groupId: 'grp_last_hap',
+    orderId: 'ord_konst_2',
+    orderItemId: 'oi_konst_2',
+  });
+  ok(blocked.canReview === false, '10d rebuy stays blocked under 30d cooldown');
+  ok(blocked.reason === 'cooldown', 'repeat purchase reason is cooldown');
+
+  const expectedCooldownEnd = new Date(
+    new Date(approvedAt).getTime() + 30 * 24 * 60 * 60 * 1000,
+  ).toISOString();
+  ok(blocked.cooldownEndsAt === expectedCooldownEnd, 'cooldown end date matches approved review + 30d');
+
+  const customer = db.prepare('SELECT * FROM customers WHERE id = ?').get('cust1');
+  const prompt = getReviewPromptForCustomer(customer);
+  ok(prompt.show === false, 'review dock hidden after 10d rebuy of reviewed line');
+  ok(prompt.reason === 'nothing_to_review', 'prompt reason is nothing_to_review');
+
+  const secondDetail = serializeOrderDetail(secondOrder, 'cust1');
+  ok(
+    secondDetail.reviewable_lines[0].eligibility.reason === 'cooldown',
+    'order detail explains cooldown on repeat purchase',
+  );
+  ok(secondDetail.reviewable_lines[0].latest_review == null, 'repeat order has no review on that order id');
+
+  const firstDetail = serializeOrderDetail(firstOrder, 'cust1');
+  ok(firstDetail.reviewable_lines[0].latest_review?.id === 'rev_konst_1', 'first order keeps approved review');
+
+  const historyCard = serializeOrderHistoryCard(secondOrder);
+  ok(!('pending_review_count' in historyCard), 'history list stays silent about cooldown');
+  ok(!('has_reviews' in historyCard), 'history list has no review badges');
+}
+
+console.log('\n--- Dmitriy hole: pending moderation blocks repeat purchase dock ---');
+{
+  seedBase();
+  clearDefaultSeedOrder();
+  setReviewSetting('cooldown_days', '30');
+  seedRepeatPurchaseGroup();
+
+  createDeliveredOrder({
+    orderId: 'ord_pending_1',
+    orderNumber: 7001,
+    orderItemId: 'oi_pending_1',
+    createdAt: new Date(Date.now() - 20 * 24 * 60 * 60 * 1000).toISOString(),
+    completedAt: new Date(Date.now() - 20 * 24 * 60 * 60 * 1000).toISOString(),
+  });
+  insertPendingReview({
+    reviewId: 'rev_pending_1',
+    customerId: 'cust1',
+    orderId: 'ord_pending_1',
+    orderItemId: 'oi_pending_1',
+    groupId: 'grp_last_hap',
+    createdAt: new Date(Date.now() - 19 * 24 * 60 * 60 * 1000).toISOString(),
+  });
+
+  const repeatOrder = createDeliveredOrder({
+    orderId: 'ord_pending_2',
+    orderNumber: 7002,
+    orderItemId: 'oi_pending_2',
+    createdAt: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString(),
+    completedAt: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString(),
+  });
+
+  const blocked = getGroupReviewEligibility({
+    customerId: 'cust1',
+    groupId: 'grp_last_hap',
+    orderId: 'ord_pending_2',
+    orderItemId: 'oi_pending_2',
+  });
+  ok(blocked.canReview === false, 'pending moderation blocks repeat purchase review');
+  ok(blocked.reason === 'pending_moderation', 'repeat purchase reason is pending_moderation');
+  ok(!blocked.cooldownEndsAt, 'pending review does not expose cooldown end date');
+
+  const prompt = getReviewPromptForCustomer(
+    db.prepare('SELECT * FROM customers WHERE id = ?').get('cust1'),
+  );
+  ok(prompt.show === false, 'review dock hidden while same line is on moderation');
+
+  const repeatLines = buildReviewableLinesForOrder(repeatOrder, 'cust1');
+  ok(repeatLines[0].eligibility.reason === 'pending_moderation', 'repeat order detail blocks duplicate review');
+  ok(repeatLines[0].latest_review == null, 'repeat order has no scoped review row');
+
+  let duplicateRejected = false;
+  try {
+    createProductReview({
+      customerId: 'cust1',
+      orderId: 'ord_pending_2',
+      groupId: 'grp_last_hap',
+      orderItemId: 'oi_pending_2',
+      rating: 4,
+      bodyText: 'Повторный отзыв на ту же линейку после повторной покупки',
+      quickTagIds: [],
+    });
+  } catch (error) {
+    duplicateRejected = error.code === 'pending_moderation';
+  }
+  ok(duplicateRejected, 'API rejects second review while first is pending');
+}
+
+console.log('\n--- Konstantin: pending on LAST HAP, fresh Zloy in repeat order ---');
+{
+  seedBase();
+  clearDefaultSeedOrder();
+  setReviewSetting('cooldown_days', '30');
+  seedRepeatPurchaseGroup();
+  seedZloyLine();
+
+  createDeliveredOrder({
+    orderId: 'ord_mix_pending_old',
+    orderNumber: 8001,
+    orderItemId: 'oi_mix_pending_old',
+  });
+  insertPendingReview({
+    reviewId: 'rev_mix_pending',
+    customerId: 'cust1',
+    orderId: 'ord_mix_pending_old',
+    orderItemId: 'oi_mix_pending_old',
+    groupId: 'grp_last_hap',
+    createdAt: new Date().toISOString(),
+  });
+
+  db.prepare(
+    `INSERT INTO orders (id, order_number, customer_id, status, total_amount, final_amount, completed_at, created_at, updated_at)
+     VALUES ('ord_mix_pending_new', 8002, 'cust1', 'delivered', 29, 29, DATETIME('now'), DATETIME('now'), DATETIME('now'))`,
+  ).run();
+  db.prepare(
+    `INSERT INTO order_items (id, order_id, product_id, product_title, group_name, variant_name, quantity, price_per_unit, total_price, total_cost)
+     VALUES ('oi_mix_pending_repeat', 'ord_mix_pending_new', 'prod_last_hap', 'PODONKI LAST HAP', 'PODONKI LAST HAP', '50 мг', 1, 15, 15, 6)`,
+  ).run();
+  db.prepare(
+    `INSERT INTO order_items (id, order_id, product_id, product_title, group_name, variant_name, quantity, price_per_unit, total_price, total_cost)
+     VALUES ('oi_mix_pending_zloy', 'ord_mix_pending_new', 'prod_zloy', 'Жидкая злая', 'Жидкая злая', '45 мг', 1, 14, 14, 5)`,
+  ).run();
+
+  const prompt = getReviewPromptForCustomer(
+    db.prepare('SELECT * FROM customers WHERE id = ?').get('cust1'),
+  );
+  ok(prompt.show === true, 'dock appears when another line is still reviewable');
+  ok(prompt.group_id === 'grp_zloy', 'dock targets the never-reviewed line');
+  ok(prompt.group_name === 'Жидкая злая', 'dock names the fresh line');
+
+  const lines = buildReviewableLinesForOrder(
+    db.prepare('SELECT * FROM orders WHERE id = ?').get('ord_mix_pending_new'),
+    'cust1',
+  );
+  const lastHapLine = lines.find((line) => line.group_id === 'grp_last_hap');
+  const zloyLine = lines.find((line) => line.group_id === 'grp_zloy');
+  ok(lastHapLine?.eligibility.reason === 'pending_moderation', 'LAST HAP stays blocked by pending review');
+  ok(zloyLine?.eligibility.canReview === true, 'Жидкая злая remains reviewable');
+}
+
+console.log('\n--- per-line cooldown does not block other lines ---');
+{
+  seedBase();
+  clearDefaultSeedOrder();
+  setReviewSetting('cooldown_days', '30');
+  seedRepeatPurchaseGroup();
+  seedZloyLine();
+
+  createDeliveredOrder({
+    orderId: 'ord_iso_old',
+    orderNumber: 9001,
+    orderItemId: 'oi_iso_old',
+  });
+  insertApprovedReview({
+    reviewId: 'rev_iso_old',
+    customerId: 'cust1',
+    orderId: 'ord_iso_old',
+    orderItemId: 'oi_iso_old',
+    groupId: 'grp_last_hap',
+    createdAt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString(),
+  });
+
+  const zloyOrder = createDeliveredOrder({
+    orderId: 'ord_iso_zloy',
+    orderNumber: 9002,
+    orderItemId: 'oi_iso_zloy',
+    productId: 'prod_zloy',
+    groupId: 'grp_zloy',
+    groupName: 'Жидкая злая',
+  });
+
+  const zloyEligible = getGroupReviewEligibility({
+    customerId: 'cust1',
+    groupId: 'grp_zloy',
+    orderId: 'ord_iso_zloy',
+    orderItemId: 'oi_iso_zloy',
+  });
+  ok(zloyEligible.canReview === true, 'cooldown on LAST HAP does not block Zloy');
+  ok(
+    buildReviewableLinesForOrder(zloyOrder, 'cust1')[0].eligibility.canReview === true,
+    'Zloy order detail exposes review form',
+  );
+}
+
 console.log('\n--- cooldown setting ---');
 {
   seedBase();
   setReviewSetting('cooldown_days', '90');
   ok(getCooldownDays() === 90, 'default cooldown is 90 days');
+
+  setReviewSetting('cooldown_days', '30');
+  ok(getCooldownDays() === 30, 'admin cooldown_days=30 is respected');
 }
 
 console.log('\n--- QA usernames: parse and bypass ---');

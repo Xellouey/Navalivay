@@ -4,9 +4,9 @@ import { getBusinessPeriodRange, toSqliteUtcString } from './business-time.js';
 import { REVIEW_STATUSES } from './product-reviews.js';
 
 export function getReviewPeriodKey(monthOffset = 0) {
-  const { start } = getBusinessPeriodRange('month', monthOffset);
-  const year = start.getUTCFullYear();
-  const month = String(start.getUTCMonth() + 1).padStart(2, '0');
+  const { calendarStart } = getBusinessPeriodRange('month', monthOffset);
+  const year = calendarStart.year;
+  const month = String(calendarStart.month).padStart(2, '0');
   return `${year}-${month}`;
 }
 
@@ -23,9 +23,9 @@ export function resolveDrawPeriodBounds(periodKey) {
     return { startIso: toSqliteUtcString(start), endIso: toSqliteUtcString(end) };
   }
 
-  const nowParts = getBusinessPeriodRange('month', 0).start;
-  const nowYear = nowParts.getUTCFullYear();
-  const nowMonth = nowParts.getUTCMonth() + 1;
+  const nowCalendar = getBusinessPeriodRange('month', 0).calendarStart;
+  const nowYear = nowCalendar.year;
+  const nowMonth = nowCalendar.month;
   const monthOffset = (year - nowYear) * 12 + (month - nowMonth);
   const { start, end } = getBusinessPeriodRange('month', monthOffset);
   return { startIso: toSqliteUtcString(start), endIso: toSqliteUtcString(end) };

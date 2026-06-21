@@ -190,6 +190,24 @@ describe("ReviewPromptDock", () => {
     wrapper.unmount();
   });
 
+  it("hides dock when prompt show is false (cooldown / nothing to review)", async () => {
+    reviewPromptState.value = {
+      ...reviewPromptState.value,
+      show: false,
+      order_id: "ord_repeat",
+    };
+
+    const wrapper = mount(ReviewPromptDock, { props: { autoLoad: false } });
+    await flushPromises();
+
+    expect(wrapper.find(".review-prompt-dock").exists()).toBe(false);
+    expect(
+      document.documentElement.style.getPropertyValue("--app-review-dock-height"),
+    ).toBe("0px");
+
+    wrapper.unmount();
+  });
+
   it("hides dock on order history page", async () => {
     routeState.path = "/profile/orders";
     routeState.fullPath = "/profile/orders";
