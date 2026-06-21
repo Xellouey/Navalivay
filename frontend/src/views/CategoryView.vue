@@ -383,6 +383,7 @@ const {
   topActive: filterTopActive,
   strengthTier: filterStrengthTier,
   topSalesLoading: filterTopSalesLoading,
+  topSales: filterTopSales,
   toggleTopFilter,
   toggleStrengthFilter,
 } = categoryFilters;
@@ -520,6 +521,46 @@ async function prefetchChildGroupImages(groupId: string) {
   }
 
   await catalogStore.loadGroupImagesForCategory(categoryId, groupId);
+}
+
+function collectVisibleGroupIds(groups: Array<{ id: string; children?: Array<{ id: string }> }>): string[] {
+  const ids: string[] = [];
+  const walk = (group: { id: string; children?: Array<{ id: string }> }) => {
+    ids.push(group.id);
+    (group.children ?? []).forEach((child) => walk(child));
+  };
+  groups.forEach((group) => walk(group));
+  return ids;
+}
+
+async function prefetchTopFilterGroupImages() {
+  if (!filterTopActive.value) {
+    return;
+  }
+
+  const categoryId = selectedCategory.value?.id;
+  if (!categoryId) {
+    return;
+  }
+
+  const ids = new Set<string>();
+  filterTopSales.value.forEach((item) => {
+    if (item.groupId) {
+      ids.add(String(item.groupId));
+    }
+  });
+
+  if (showLiquidShowcase.value) {
+    collectVisibleGroupIds(filteredLiquidGroups.value).forEach((groupId) => ids.add(groupId));
+  } else {
+    collectVisibleGroupIds(filteredGroupCards.value).forEach((groupId) => ids.add(groupId));
+  }
+
+  if (!ids.size) {
+    return;
+  }
+
+  await catalogStore.loadGroupImages([...ids]);
 }
 
 const resolvedDisplayMode = computed<"default" | "liquid" | "visual">(() =>
@@ -805,6 +846,24 @@ watch(
     }
   },
   { immediate: true },
+);
+
+watch(
+  () => filterTopActive.value,
+  (isActive) => {
+    if (isActive) {
+      void prefetchTopFilterGroupImages();
+    }
+  },
+);
+
+watch(
+  () => filterTopSales.value.map((item) => item.groupId).join(","),
+  () => {
+    if (filterTopActive.value) {
+      void prefetchTopFilterGroupImages();
+    }
+  },
 );
 
 const crossSellItems = computed<Product[]>(() => {

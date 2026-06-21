@@ -258,7 +258,7 @@ export const useCatalogStore = defineStore('catalog', () => {
       if (!response.ok) return null
       const data = await response.json()
       if (data.image) {
-        groupImageCache.value.set(groupId, data.image)
+        updateGroupCoverImage(groupId, data.image)
         return data.image
       }
       return null
@@ -287,6 +287,28 @@ export const useCatalogStore = defineStore('catalog', () => {
       ...categories.value[categoryIndex],
       coverImage: image
     }
+  }
+
+  function updateGroupCoverImage(groupId: string, image: string) {
+    groupImageCache.value.set(groupId, image)
+
+    categories.value = categories.value.map((category) => {
+      const groupIndex = category.groups.findIndex((group) => group.id === groupId)
+      if (groupIndex === -1) {
+        return category
+      }
+
+      const groups = [...category.groups]
+      groups[groupIndex] = {
+        ...groups[groupIndex],
+        coverImage: image,
+      }
+
+      return {
+        ...category,
+        groups,
+      }
+    })
   }
 
   // Actions
