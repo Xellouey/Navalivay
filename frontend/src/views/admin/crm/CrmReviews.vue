@@ -9,38 +9,6 @@
       </div>
 
       <div
-        v-if="reviewTestingActive"
-        class="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900"
-        role="status"
-      >
-        <p class="font-semibold">Проверка отзывов включена</p>
-        <p v-if="settings.qa_active && qaTestingAccountsBannerText" class="mt-1">
-          {{ qaTestingAccountsBannerText }}
-        </p>
-        <p v-if="settings.dev_test_mode" class="mt-1 font-medium">
-          Отзывы без ограничений для всех клиентов
-        </p>
-        <div class="mt-3 flex flex-wrap items-center gap-3">
-          <CrmButton
-            variant="secondary"
-            size="sm"
-            :loading="disablingTesting"
-            loading-label="Выключаем проверку..."
-            @click="disableReviewTesting"
-          >
-            Выключить проверку
-          </CrmButton>
-          <button
-            type="button"
-            class="text-sm font-medium text-amber-800 underline decoration-amber-300 underline-offset-2 hover:text-amber-950"
-            @click="openTestingSettings"
-          >
-            Открыть настройки проверки
-          </button>
-        </div>
-      </div>
-
-      <div
         class="flex gap-2 overflow-x-auto pb-1"
         role="tablist"
         aria-label="Разделы отзывов"
@@ -62,12 +30,6 @@
           @click="requestTabChange(tab.id)"
         >
           {{ tab.label }}
-          <span
-            v-if="tab.id === 'settings' && reviewTestingActive"
-            class="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-800"
-          >
-            Проверка
-          </span>
           <span
             v-if="tab.id === 'moderation' && pendingCount"
             class="rounded-full bg-red-100 px-2 py-0.5 text-xs font-semibold text-red-700"
@@ -605,12 +567,6 @@
             </p>
           </div>
           <div class="flex flex-wrap items-center gap-2">
-            <span
-              v-if="reviewTestingActive"
-              class="inline-flex rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-800"
-            >
-              Проверка включена
-            </span>
             <CrmButton
               variant="secondary"
               size="sm"
@@ -650,7 +606,7 @@
                   <span class="text-slate-500">дней</span>
                 </div>
                 <span class="mt-1 block text-xs text-slate-500">
-                  Один отзыв на линейку товара. На аккаунты из списка проверки не распространяется.
+                  Один отзыв на линейку товара.
                 </span>
                 <span v-if="settingsValidationErrors.cooldown_days" class="mt-1 block text-xs text-red-600">
                   {{ settingsValidationErrors.cooldown_days }}
@@ -722,137 +678,6 @@
                 </label>
               </div>
             </section>
-
-            <details
-              id="reviews-settings-testing"
-              class="rounded-xl border border-slate-200 bg-slate-50/50 p-4"
-              :open="reviewDetailsOpen"
-            >
-              <summary class="cursor-pointer list-none text-sm font-semibold text-slate-900 [&::-webkit-details-marker]:hidden">
-                <div class="flex items-start justify-between gap-3">
-                  <div>
-                    <span>Проверка отзывов</span>
-                    <p class="mt-1 text-xs font-normal text-slate-500">
-                      Ослабить паузу и проверку покупки для выбранных аккаунтов или для всех.
-                    </p>
-                  </div>
-                  <span
-                    v-if="reviewTestingActive"
-                    class="shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-800"
-                  >
-                    {{ settings.dev_test_mode ? "Для всех" : "Включено" }}
-                  </span>
-                </div>
-              </summary>
-
-              <div class="mt-4 space-y-4 border-t border-slate-200/60 pt-4">
-                <section class="rounded-xl border border-amber-200 bg-amber-50/40 p-4">
-                  <h4 class="text-sm font-semibold text-slate-900">Проверка для выбранных аккаунтов</h4>
-                  <p class="mt-1 text-xs text-slate-500">
-                    Эти люди смогут оставлять отзывы в Telegram без паузы и без проверки покупки.
-                  </p>
-
-                  <div
-                    v-if="settings.qa_active && qaUsernameChips.length"
-                    class="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-200 bg-white/80 px-3 py-2"
-                  >
-                    <p class="text-xs text-amber-900">
-                      Сейчас действует для:
-                      <span
-                        v-for="username in qaUsernameChips"
-                        :key="username"
-                        class="ml-1 inline-flex rounded-full bg-amber-100 px-2 py-0.5 font-medium"
-                      >
-                        @{{ username }}
-                      </span>
-                    </p>
-                    <CrmButton
-                      variant="secondary"
-                      size="sm"
-                      :loading="disablingTesting"
-                      loading-label="Выключаем проверку..."
-                      @click="disableReviewTesting"
-                    >
-                      Выключить проверку
-                    </CrmButton>
-                  </div>
-
-                  <label class="mt-4 flex items-start justify-between gap-4">
-                    <span class="text-sm">
-                      <span class="font-medium text-slate-700">Разрешить проверку выбранным аккаунтам</span>
-                      <span class="mt-1 block text-xs font-normal text-slate-500">
-                        Выбранные аккаунты смогут оставлять отзывы снова, без паузы и без проверки покупки.
-                      </span>
-                    </span>
-                    <span class="settings-toggle">
-                      <input v-model="settings.qa_active" type="checkbox" role="switch" />
-                      <span aria-hidden="true" />
-                    </span>
-                  </label>
-
-                  <label class="mt-4 block text-sm">
-                    <span class="font-medium text-slate-700">Аккаунты Telegram для проверки</span>
-                    <textarea
-                      v-model="qaUsernamesText"
-                      rows="4"
-                      :disabled="!settings.qa_active"
-                      placeholder="kostya_shop&#10;review_demo"
-                      class="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2.5 font-mono text-sm disabled:cursor-not-allowed disabled:bg-slate-100"
-                      :class="settingsValidationErrors.qa_usernames ? 'border-red-300' : ''"
-                    />
-                    <span class="mt-1 block text-xs text-slate-500">
-                      По одному на строку или через запятую, без символа @. Не больше 20 аккаунтов.
-                    </span>
-                    <span v-if="settingsValidationErrors.qa_usernames" class="mt-1 block text-xs text-red-600">
-                      {{ settingsValidationErrors.qa_usernames }}
-                    </span>
-                    <div v-if="qaUsernameChips.length" class="mt-2 flex flex-wrap gap-1.5">
-                      <span
-                        v-for="username in qaUsernameChips"
-                        :key="`chip-${username}`"
-                        class="inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-900"
-                      >
-                        @{{ username }}
-                      </span>
-                    </div>
-                  </label>
-                </section>
-
-                <section class="rounded-xl border border-slate-200 bg-white p-4">
-                  <h4 class="text-sm font-semibold text-slate-900">Без ограничений для всех клиентов</h4>
-                  <p class="mt-1 text-xs text-slate-500">
-                    Снимает паузу и проверку покупки у всех клиентов.
-                  </p>
-
-                  <label class="mt-4 flex items-start justify-between gap-4">
-                    <span class="text-sm">
-                      <span class="font-medium text-slate-700">Отзывы без ограничений для всех</span>
-                      <span class="mt-1 block text-xs font-normal text-slate-500">
-                        Снимает паузу и проверку покупки у всех. Для одного человека используйте список аккаунтов выше.
-                      </span>
-                    </span>
-                    <span class="settings-toggle settings-toggle--danger">
-                      <input v-model="settings.dev_test_mode" type="checkbox" role="switch" />
-                      <span aria-hidden="true" />
-                    </span>
-                  </label>
-
-                  <p
-                    v-if="settings.dev_test_mode"
-                    class="mt-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800"
-                  >
-                    Сейчас любой клиент может оставить отзыв без паузы и без проверки покупки.
-                  </p>
-
-                  <p
-                    v-if="settings.dev_test_mode && settings.qa_active"
-                    class="mt-3 text-xs text-slate-500"
-                  >
-                    Список выбранных аккаунтов сохранится, но режим «для всех» действует сильнее.
-                  </p>
-                </section>
-              </div>
-            </details>
           </div>
 
           <aside class="mt-6 hidden lg:block">
@@ -1053,71 +878,6 @@
             </CrmButton>
             <CrmButton variant="primary" size="sm" @click="refreshRepliesConfirmed">
               Обновить список
-            </CrmButton>
-          </div>
-        </div>
-      </div>
-    </Transition>
-
-    <!-- Confirm: включить проверку для выбранных -->
-    <Transition name="modal-fade">
-      <div
-        v-if="confirmEnableQa"
-        class="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4"
-        @click.self="confirmEnableQa = false"
-      >
-        <div
-          class="w-full max-w-sm rounded-2xl bg-white p-5 shadow-2xl"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="reviews-confirm-enable-qa-title"
-          @keydown.esc="confirmEnableQa = false"
-        >
-          <h3 id="reviews-confirm-enable-qa-title" class="mb-2 text-base font-semibold text-slate-900">
-            Включить проверку для выбранных аккаунтов?
-          </h3>
-          <p class="mb-4 text-sm text-slate-600">
-            {{ pendingQaUsernameCount }} аккаунтов из списка смогут оставлять отзывы без паузы.
-            Остальные клиенты - по обычным правилам.
-          </p>
-          <div class="flex justify-end gap-2">
-            <CrmButton variant="ghost" size="sm" @click="cancelEnableQa">
-              Отмена
-            </CrmButton>
-            <CrmButton variant="primary" size="sm" @click="enableQaConfirmed">
-              Включить проверку
-            </CrmButton>
-          </div>
-        </div>
-      </div>
-    </Transition>
-
-    <!-- Confirm: отзывы без ограничений для всех -->
-    <Transition name="modal-fade">
-      <div
-        v-if="confirmEnableDevTest"
-        class="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4"
-        @click.self="confirmEnableDevTest = false"
-      >
-        <div
-          class="w-full max-w-sm rounded-2xl bg-white p-5 shadow-2xl"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="reviews-confirm-enable-dev-test-title"
-          @keydown.esc="confirmEnableDevTest = false"
-        >
-          <h3 id="reviews-confirm-enable-dev-test-title" class="mb-2 text-base font-semibold text-slate-900">
-            Включить отзывы без ограничений для всех?
-          </h3>
-          <p class="mb-4 text-sm text-slate-600">
-            Любой клиент сможет оставить отзыв без паузы и без проверки покупки.
-          </p>
-          <div class="flex justify-end gap-2">
-            <CrmButton variant="ghost" size="sm" @click="cancelEnableDevTest">
-              Отмена
-            </CrmButton>
-            <CrmButton variant="primary" size="sm" @click="enableDevTestConfirmed">
-              Включить для всех клиентов
             </CrmButton>
           </div>
         </div>
@@ -1339,9 +1099,7 @@ const quickTagsLoading = ref(false);
 const savingSettings = ref(false);
 const settingsLoading = ref(false);
 const settingsLoaded = ref(false);
-const disablingTesting = ref(false);
 const avatarPreviewError = ref(false);
-const reviewDetailsOpen = ref(false);
 const creatingTag = ref(false);
 const runningDraw = ref(false);
 const drawsLoading = ref(false);
@@ -1363,9 +1121,6 @@ const categoryKeys = Object.keys(CATEGORY_LABELS);
 interface ReviewSettingsState {
   cooldown_days: number;
   lottery_hint_text: string;
-  dev_test_mode: boolean;
-  qa_active: boolean;
-  qa_usernames: string[];
   manager_display_name: string;
   manager_avatar_url: string;
 }
@@ -1373,14 +1128,10 @@ interface ReviewSettingsState {
 const settings = ref<ReviewSettingsState>({
   cooldown_days: 90,
   lottery_hint_text: "",
-  dev_test_mode: false,
-  qa_active: false,
-  qa_usernames: [],
   manager_display_name: "",
   manager_avatar_url: "/favicon.png",
 });
 const settingsBaseline = ref<ReviewSettingsState>({ ...settings.value });
-const qaUsernamesText = ref("");
 const newTag = ref({
   category_key: "liquids",
   star_rating: 5,
@@ -1396,8 +1147,6 @@ const confirmRunDraw = ref(false);
 const confirmReroll = ref<{ drawId: string; seatNumber: number; periodLabel: string } | null>(null);
 const confirmDeleteTag = ref<QuickTag | null>(null);
 const confirmRefreshReplies = ref(false);
-const confirmEnableQa = ref(false);
-const confirmEnableDevTest = ref(false);
 const confirmLeaveSettings = ref(false);
 const confirmRefreshSettings = ref(false);
 const pendingTabChange = ref<ReviewTabId | null>(null);
@@ -1424,24 +1173,6 @@ const currentPeriodDrawn = computed(() =>
 const canCreateTag = computed(
   () => Boolean(newTag.value.label.trim() && newTag.value.insert_text.trim()),
 );
-
-const reviewTestingActive = computed(
-  () => Boolean(settings.value.qa_active || settings.value.dev_test_mode),
-);
-
-const qaUsernameChips = computed(() => normalizeQaUsernamesText(qaUsernamesText.value));
-
-const pendingQaUsernameCount = computed(() => qaUsernameChips.value.length);
-
-const qaTestingAccountsBannerText = computed(() => {
-  const usernames = settings.value.qa_usernames;
-  if (!usernames.length) return "";
-  const shown = usernames.slice(0, 3).map((name) => `@${name}`).join(", ");
-  const rest = usernames.length - 3;
-  return rest > 0
-    ? `Тестовые аккаунты: ${shown} и ещё ${rest}`
-    : `Тестовые аккаунты: ${shown}`;
-});
 
 const previewDockTitle = computed(() => buildReviewDockTitle("Ваш заказ"));
 
@@ -1470,33 +1201,18 @@ function isValidAvatarUrl(value: string) {
   return /^https?:\/\/.+/i.test(trimmed);
 }
 
-function serializeSettingsSnapshot(source: {
-  cooldown_days: number;
-  lottery_hint_text: string;
-  dev_test_mode: boolean;
-  qa_active: boolean;
-  qa_usernames: string[];
-  manager_display_name: string;
-  manager_avatar_url: string;
-}) {
+function serializeSettingsSnapshot(source: ReviewSettingsState) {
   return JSON.stringify({
     cooldown_days: Number(source.cooldown_days) || 90,
     lottery_hint_text: source.lottery_hint_text.trim(),
-    dev_test_mode: Boolean(source.dev_test_mode),
-    qa_active: Boolean(source.qa_active),
-    qa_usernames: [...source.qa_usernames].sort(),
     manager_display_name: source.manager_display_name.trim(),
     manager_avatar_url: source.manager_avatar_url.trim(),
   });
 }
 
-const settingsDirty = computed(() => {
-  const current = {
-    ...settings.value,
-    qa_usernames: normalizeQaUsernamesText(qaUsernamesText.value),
-  };
-  return serializeSettingsSnapshot(current) !== serializeSettingsSnapshot(settingsBaseline.value);
-});
+const settingsDirty = computed(
+  () => serializeSettingsSnapshot(settings.value) !== serializeSettingsSnapshot(settingsBaseline.value),
+);
 
 const settingsValidationErrors = computed(() => ({
   cooldown_days:
@@ -1510,26 +1226,11 @@ const settingsValidationErrors = computed(() => ({
   manager_avatar_url: isValidAvatarUrl(settings.value.manager_avatar_url)
     ? ""
     : "Укажите путь вида /favicon.png или ссылку, начинающуюся с https://",
-  qa_usernames:
-    settings.value.qa_active && !qaUsernameChips.value.length
-      ? "Укажите хотя бы один аккаунт Telegram"
-      : "",
 }));
 
 const hasValidationErrors = computed(() =>
   Object.values(settingsValidationErrors.value).some(Boolean),
 );
-
-function syncSettingsDetailsOpen() {
-  reviewDetailsOpen.value = Boolean(settings.value.qa_active || settings.value.dev_test_mode);
-}
-
-function openTestingSettings() {
-  if (activeTab.value !== "settings") {
-    requestTabChange("settings");
-  }
-  reviewDetailsOpen.value = true;
-}
 
 function requestTabChange(tabId: ReviewTabId) {
   if (activeTab.value === "settings" && settingsDirty.value && tabId !== "settings") {
@@ -1558,28 +1259,15 @@ function resetSettingsToBaseline() {
   applySettingsPayload(settingsBaseline.value);
 }
 
-function normalizeQaUsernamesText(raw: string) {
-  return raw
-    .split(/[\n,;]+/)
-    .map((entry) => entry.trim().replace(/^@+/, "").toLowerCase())
-    .filter(Boolean)
-    .slice(0, 20);
-}
-
-function applySettingsPayload(payload: ReviewSettingsState) {
+function applySettingsPayload(payload: Partial<ReviewSettingsState> & Record<string, unknown>) {
   settings.value = {
     cooldown_days: Number(payload.cooldown_days) || 90,
     lottery_hint_text: payload.lottery_hint_text || "",
-    dev_test_mode: Boolean(payload.dev_test_mode),
-    qa_active: Boolean(payload.qa_active),
-    qa_usernames: Array.isArray(payload.qa_usernames) ? payload.qa_usernames : [],
     manager_display_name: payload.manager_display_name || "",
     manager_avatar_url: payload.manager_avatar_url || "/favicon.png",
   };
-  settingsBaseline.value = { ...settings.value, qa_usernames: [...settings.value.qa_usernames] };
-  qaUsernamesText.value = settings.value.qa_usernames.join("\n");
+  settingsBaseline.value = { ...settings.value };
   avatarPreviewError.value = false;
-  syncSettingsDetailsOpen();
 }
 
 function categoryLabel(key: string) {
@@ -1738,10 +1426,7 @@ async function refreshSettingsConfirmed() {
 }
 
 function buildSettingsPatchBody() {
-  return {
-    ...settings.value,
-    qa_usernames: normalizeQaUsernamesText(qaUsernamesText.value),
-  };
+  return { ...settings.value };
 }
 
 async function performSaveSettings() {
@@ -1769,61 +1454,7 @@ async function performSaveSettings() {
 }
 
 async function saveSettings() {
-  if (hasValidationErrors.value) {
-    showToast("error", "Сначала поправь ошибки в форме.");
-    return;
-  }
-
-  const nextQaActive = settings.value.qa_active;
-  const nextDevTest = settings.value.dev_test_mode;
-
-  if (nextQaActive && !settingsBaseline.value.qa_active) {
-    confirmEnableQa.value = true;
-    return;
-  }
-  if (nextDevTest && !settingsBaseline.value.dev_test_mode) {
-    confirmEnableDevTest.value = true;
-    return;
-  }
   await performSaveSettings();
-}
-
-function cancelEnableQa() {
-  confirmEnableQa.value = false;
-  settings.value.qa_active = settingsBaseline.value.qa_active;
-}
-
-async function enableQaConfirmed() {
-  confirmEnableQa.value = false;
-  await performSaveSettings();
-}
-
-function cancelEnableDevTest() {
-  confirmEnableDevTest.value = false;
-  settings.value.dev_test_mode = settingsBaseline.value.dev_test_mode;
-}
-
-async function enableDevTestConfirmed() {
-  confirmEnableDevTest.value = false;
-  await performSaveSettings();
-}
-
-async function disableReviewTesting() {
-  disablingTesting.value = true;
-  try {
-    const response = await fetch("/api/admin/crm/review-qa/disable", {
-      method: "POST",
-      headers: authHeaders(),
-    });
-    if (!response.ok) {
-      showToast("error", await parseApiError(response, "Не удалось выключить проверку. Попробуйте ещё раз."));
-      return;
-    }
-    applySettingsPayload(await response.json());
-    showToast("success", "Проверка отзывов выключена.");
-  } finally {
-    disablingTesting.value = false;
-  }
 }
 
 async function loadReviews() {
@@ -2128,62 +1759,5 @@ onUnmounted(() => {
   transform: translateY(12px);
 }
 
-.settings-toggle {
-  position: relative;
-  display: inline-flex;
-  flex-shrink: 0;
-  align-items: center;
-}
 
-.settings-toggle input {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip: rect(0, 0, 0, 0);
-  white-space: nowrap;
-  border: 0;
-}
-
-.settings-toggle span {
-  position: relative;
-  display: inline-block;
-  width: 2.75rem;
-  height: 1.5rem;
-  border-radius: 9999px;
-  background: #cbd5e1;
-  transition: background-color 0.2s ease;
-}
-
-.settings-toggle span::after {
-  content: "";
-  position: absolute;
-  top: 0.125rem;
-  left: 0.125rem;
-  width: 1.25rem;
-  height: 1.25rem;
-  border-radius: 9999px;
-  background: #fff;
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.15);
-  transition: transform 0.2s ease;
-}
-
-.settings-toggle input:checked + span {
-  background: #f59e0b;
-}
-
-.settings-toggle input:checked + span::after {
-  transform: translateX(1.25rem);
-}
-
-.settings-toggle input:focus-visible + span {
-  outline: 2px solid #3b82f6;
-  outline-offset: 2px;
-}
-
-.settings-toggle--danger input:checked + span {
-  background: #ef4444;
-}
 </style>
