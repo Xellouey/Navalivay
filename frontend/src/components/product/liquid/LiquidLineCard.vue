@@ -36,7 +36,7 @@
             <span class="liquid-line-price-currency"> BYN</span>
           </p>
           <ReviewRatingLink
-            v-if="reviewCount > 0"
+            :ready="reviewsLoaded"
             :count="reviewCount"
             :average-rating="averageRating"
             @click="openReviewsModal"
@@ -341,6 +341,7 @@ const { fetchGroupReviewSummary } = useCustomerOrders();
 const bodyWrapper = ref<HTMLElement | null>(null);
 const reviewCount = ref(0);
 const averageRating = ref<number | null>(null);
+const reviewsLoaded = ref(false);
 const showReviewsModal = ref(false);
 const expandedVariantProducts = ref<Record<string, boolean>>({});
 const failedImages = ref<Set<string>>(new Set());
@@ -541,6 +542,8 @@ onMounted(async () => {
   } catch {
     reviewCount.value = 0;
     averageRating.value = null;
+  } finally {
+    reviewsLoaded.value = true;
   }
 });
 

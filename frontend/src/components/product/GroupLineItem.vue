@@ -38,7 +38,7 @@
             <span class="group-line-price-currency"> BYN</span>
           </span>
           <ReviewRatingLink
-            v-if="reviewCount > 0"
+            :ready="reviewsLoaded"
             :count="reviewCount"
             :average-rating="averageRating"
             @click="openReviewsModal"
@@ -164,6 +164,7 @@ const { fetchGroupReviewSummary } = useCustomerOrders();
 const bodyWrapper = ref<HTMLElement | null>(null);
 const reviewCount = ref(0);
 const averageRating = ref<number | null>(null);
+const reviewsLoaded = ref(false);
 const showReviewsModal = ref(false);
 const headerId = computed(() => `group-line-header-${props.node.id}`);
 const panelId = computed(() => `group-line-panel-${props.node.id}`);
@@ -344,6 +345,8 @@ onMounted(async () => {
   } catch {
     reviewCount.value = 0;
     averageRating.value = null;
+  } finally {
+    reviewsLoaded.value = true;
   }
 });
 
