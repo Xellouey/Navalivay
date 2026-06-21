@@ -324,6 +324,25 @@ console.log('\n--- QA usernames: parse and bypass ---');
   ok(!isQaReviewUser({ telegram_username: 'stranger' }), 'non-qa user rejected');
   ok(shouldDevBypassForCustomer({ telegram_username: 'review_demo' }), 'qa user bypass');
 
+  seedBase();
+  createProductReview({
+    customerId: 'cust1',
+    orderId: 'ord1',
+    groupId: 'grp1',
+    orderItemId: 'oi1',
+    rating: 5,
+    bodyText: 'QA отзыв на линейку, всё отлично',
+    quickTagIds: [],
+    devBypass: true,
+  });
+  const qaBlocked = getGroupReviewEligibility({
+    customerId: 'cust1',
+    groupId: 'grp1',
+    orderId: 'ord1',
+    devBypass: true,
+  });
+  ok(qaBlocked.canReview === false && qaBlocked.reason === 'pending_moderation', 'qa bypass still blocks duplicate pending');
+
   setReviewSetting('dev_test_mode', '1');
   ok(shouldDevBypassForCustomer({ telegram_username: 'anyone' }), 'global dev mode bypass');
   setReviewSetting('dev_test_mode', '0');

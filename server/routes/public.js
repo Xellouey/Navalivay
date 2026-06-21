@@ -46,6 +46,7 @@ import {
   findCustomerByTelegram,
   findOwnedOrders,
   getPublicGroupReviews,
+  getReviewErrorMessage,
   getReviewPromptForCustomer,
   shouldDevBypassForCustomer,
   listQuickTags,
@@ -2058,7 +2059,7 @@ publicRouter.post(
 
       return res.status(status).json({
         error: code,
-        message: error.message,
+        message: error.message || getReviewErrorMessage(code),
         details: error.details || null,
       });
     }

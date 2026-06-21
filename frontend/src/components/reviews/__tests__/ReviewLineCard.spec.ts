@@ -40,7 +40,17 @@ describe("ReviewLineCard", () => {
     fetchQuickTagsMock.mockResolvedValue([
       { id: "tag1", label: "Вкусно", insert_text: "Вкусно" },
     ]);
-    submitReviewMock.mockResolvedValue({ ok: true });
+    submitReviewMock.mockResolvedValue({
+      ok: true,
+      review: {
+        id: "rev1",
+        status: "pending",
+        rating: 5,
+        body_text: "Достаточно длинный текст отзыва",
+        is_anonymous: 0,
+        created_at: "2026-06-21T20:16:00.000Z",
+      },
+    });
   });
 
   it("does not pass lottery hint into review form", async () => {
@@ -121,7 +131,7 @@ describe("ReviewLineCard", () => {
       },
     });
 
-    expect(wrapper.text()).toContain("Отзыв на модерации");
+    expect(wrapper.text()).toContain("Отзыв отправлен");
     expect(wrapper.findAll(".review-line-card__rating-star")).toHaveLength(5);
 
     wrapper.unmount();
@@ -157,6 +167,32 @@ describe("ReviewLineCard", () => {
       is_anonymous: true,
     });
     expect(wrapper.emitted("submitted")).toHaveLength(1);
+
+    wrapper.unmount();
+  });
+
+  it("shows pending success state immediately after submit", async () => {
+    const wrapper = mount(ReviewLineCard, {
+      props: {
+        line: buildLine(),
+        orderId: "ord1",
+        initialRating: 5,
+      },
+    });
+    await flushPromises();
+
+    const form = wrapper.findComponent(ReviewForm);
+    await form.vm.$emit("submit", {
+      rating: 5,
+      body_text: "Достаточно длинный текст отзыва",
+      quick_tag_ids: [],
+      is_anonymous: false,
+    });
+    await flushPromises();
+
+    expect(wrapper.find(".review-form").exists()).toBe(false);
+    expect(wrapper.text()).toContain("Отзыв отправлен");
+    expect(wrapper.text()).toContain("розыгрыше подарков");
 
     wrapper.unmount();
   });

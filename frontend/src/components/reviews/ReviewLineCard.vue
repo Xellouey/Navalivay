@@ -50,17 +50,17 @@
     </div>
 
     <div v-else-if="state === 'pending'" class="review-line-card__state">
-      <p class="review-line-card__state-title">Отзыв на модерации</p>
+      <p class="review-line-card__state-title">Отзыв отправлен</p>
       <p class="review-line-card__state-text">
-        Мы проверим ваш отзыв и опубликуем его после одобления.
+        Мы проверим его и опубликуем после одобрения. Участие в розыгрыше подарков засчитаем автоматически.
       </p>
-      <div v-if="line.latest_review" class="review-line-card__rating" aria-hidden="true">
+      <div v-if="effectiveLine.latest_review" class="review-line-card__rating" aria-hidden="true">
         <span v-for="star in 5" :key="star" class="review-line-card__rating-star">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
             <path
               d="M12 3.5L14.9 9.3L21.2 10.2L16.6 14.6L17.8 21L12 18.1L6.2 21L7.4 14.6L2.8 10.2L9.1 9.3L12 3.5Z"
-              :fill="star <= line.latest_review.rating ? '#F50302' : 'transparent'"
-              :stroke="star <= line.latest_review.rating ? '#F50302' : '#D8DDE4'"
+              :fill="star <= effectiveLine.latest_review.rating ? '#F50302' : 'transparent'"
+              :stroke="star <= effectiveLine.latest_review.rating ? '#F50302' : '#D8DDE4'"
               stroke-width="1.4"
             />
           </svg>
@@ -73,13 +73,13 @@
       <p class="review-line-card__state-text">
         Ваш отзыв учтён. Он помогает другим покупателям выбрать товар.
       </p>
-      <div v-if="line.latest_review" class="review-line-card__rating" aria-hidden="true">
+      <div v-if="effectiveLine.latest_review" class="review-line-card__rating" aria-hidden="true">
         <span v-for="star in 5" :key="star" class="review-line-card__rating-star">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
             <path
               d="M12 3.5L14.9 9.3L21.2 10.2L16.6 14.6L17.8 21L12 18.1L6.2 21L7.4 14.6L2.8 10.2L9.1 9.3L12 3.5Z"
-              :fill="star <= line.latest_review.rating ? '#F50302' : 'transparent'"
-              :stroke="star <= line.latest_review.rating ? '#F50302' : '#D8DDE4'"
+              :fill="star <= effectiveLine.latest_review.rating ? '#F50302' : 'transparent'"
+              :stroke="star <= effectiveLine.latest_review.rating ? '#F50302' : '#D8DDE4'"
               stroke-width="1.4"
             />
           </svg>
@@ -129,6 +129,20 @@ const quickTags = ref<QuickTag[]>([]);
 const activeRating = ref(props.initialRating);
 const submitting = ref(false);
 const errorMessage = ref<string | null>(null);
+const localLatestReview = ref<ReviewableLine["latest_review"]>(null);
+
+const effectiveLine = computed(() => {
+  if (!localLatestReview.value) return props.line;
+  return {
+    ...props.line,
+    eligibility: {
+      ...props.line.eligibility,
+      canReview: false,
+      reason: "pending_moderation",
+    },
+    latest_review: localLatestReview.value,
+  };
+});
 
 const anchorId = computed(() => `review-line-${props.line.group_id}`);
 const coverImage = computed(
@@ -139,12 +153,13 @@ const lineTotal = computed(() =>
 );
 
 const state = computed(() => {
-  if (props.line.eligibility.canReview) return "form";
-  if (props.line.eligibility.reason === "cooldown") return "cooldown";
-  if (props.line.eligibility.reason === "pending_moderation") return "pending";
+  const line = effectiveLine.value;
+  if (line.eligibility.canReview) return "form";
+  if (line.eligibility.reason === "cooldown") return "cooldown";
+  if (line.eligibility.reason === "pending_moderation") return "pending";
   if (
-    props.line.latest_review?.status === "approved" ||
-    props.line.latest_review?.status === "rejected"
+    line.latest_review?.status === "approved" ||
+    line.latest_review?.status === "rejected"
   ) {
     return "done";
   }
@@ -154,11 +169,20 @@ const state = computed(() => {
 const showForm = computed(() => state.value === "form");
 
 const unavailableCopy = computed(() => {
-  if (props.line.eligibility.reason === "not_purchased") {
+  if (effectiveLine.value.eligibility.reason === "not_purchased") {
     return "Отзыв можно оставить только на купленные товары.";
   }
   return "Сейчас нельзя оставить отзыв на эту позицию.";
 });
+
+watch(
+  () => props.line.latest_review,
+  (latestReview) => {
+    if (latestReview?.status === "pending") {
+      localLatestReview.value = null;
+    }
+  },
+);
 
 watch(
   () => props.initialRating,
@@ -205,7 +229,7 @@ async function handleSubmit(payload: {
   errorMessage.value = null;
 
   try {
-    await submitReview({
+    const result = await submitReview({
       order_id: props.orderId,
       group_id: props.line.group_id,
       order_item_id: props.line.order_item_id,
@@ -214,6 +238,12 @@ async function handleSubmit(payload: {
       quick_tag_ids: payload.quick_tag_ids,
       is_anonymous: payload.is_anonymous,
     });
+    localLatestReview.value = {
+      id: result.review.id,
+      status: result.review.status,
+      rating: result.review.rating,
+      created_at: result.review.created_at,
+    };
     emit("submitted");
   } catch (error: unknown) {
     errorMessage.value =

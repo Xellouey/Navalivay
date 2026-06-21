@@ -23,6 +23,32 @@ const MAX_REVIEW_BODY_LENGTH = 4000;
 
 export { MIN_REVIEW_BODY_LENGTH, MAX_REVIEW_BODY_LENGTH };
 
+export const REVIEW_ERROR_MESSAGES = Object.freeze({
+  pending_moderation:
+    'Вы уже отправили отзыв на эту линейку. Мы проверим его и опубликуем после одобрения.',
+  cooldown: 'Недавно вы уже оставляли отзыв на эту линейку. Подождите, прежде чем писать снова.',
+  not_purchased: 'Отзыв можно оставить только на товары, которые вы уже покупали.',
+  order_not_reviewable: 'Отзыв можно оставить только после выдачи заказа.',
+  review_body_too_short: 'Напишите отзыв подробнее - минимум 20 символов.',
+  review_body_too_long: 'Слишком длинный отзыв. Сократите текст и попробуйте снова.',
+  invalid_rating: 'Поставьте оценку от 1 до 5 звёзд.',
+  invalid_quick_tags: 'Не удалось добавить выбранные теги. Обновите страницу и попробуйте снова.',
+  not_eligible: 'Сейчас нельзя оставить отзыв на эту позицию.',
+  order_not_found: 'Заказ не найден. Обновите страницу и попробуйте снова.',
+  group_not_found: 'Линейка не найдена. Обновите страницу и попробуйте снова.',
+});
+
+export function getReviewErrorMessage(code, fallback = 'Не удалось отправить отзыв') {
+  return REVIEW_ERROR_MESSAGES[code] || fallback;
+}
+
+export function createReviewError(code, details = null) {
+  const err = new Error(getReviewErrorMessage(code, code));
+  err.code = code;
+  if (details) err.details = details;
+  return err;
+}
+
 export function normalizeTelegramUsername(value) {
   return typeof value === 'string'
     ? value.trim().replace(/^@+/, '').toLowerCase()
@@ -309,6 +335,100 @@ function getLatestReviewForGroup(customerId, groupId) {
   `).get(customerId, groupId);
 }
 
+function resolvePendingModerationBlock({ customerId, groupId, orderId = null }) {
+  if (orderId) {
+    const scoped = db.prepare(`
+      SELECT *
+      FROM product_reviews
+      WHERE customer_id = ? AND group_id = ? AND order_id = ? AND status = ?
+      ORDER BY created_at DESC
+      LIMIT 1
+    `).get(customerId, groupId, orderId, REVIEW_STATUSES.PENDING);
+
+    if (scoped) {
+      return {
+        canReview: false,
+        reason: 'pending_moderation',
+        reviewId: scoped.id,
+        existingReview: scoped,
+      };
+    }
+  }
+
+  const latest = getLatestReviewForGroup(customerId, groupId);
+  if (latest?.status === REVIEW_STATUSES.PENDING) {
+    return {
+      canReview: false,
+      reason: 'pending_moderation',
+      reviewId: latest.id,
+      existingReview: latest,
+    };
+  }
+
+  return null;
+}
+
+function resolveDevBypassEligibility({
+  customerId,
+  groupId,
+  orderId = null,
+  orderItemId = null,
+}) {
+  let scopedOrderId = orderId;
+  let scopedItem = null;
+
+  if (orderId) {
+    scopedItem = orderItemId
+      ? db.prepare(`
+          SELECT oi.id, oi.variant_id, oi.variant_name
+          FROM order_items oi
+          INNER JOIN products p ON p.id = oi.product_id
+          WHERE oi.id = ? AND oi.order_id = ? AND p.groupId = ?
+        `).get(orderItemId, orderId, groupId)
+      : db.prepare(`
+          SELECT oi.id, oi.variant_id, oi.variant_name
+          FROM order_items oi
+          INNER JOIN products p ON p.id = oi.product_id
+          WHERE oi.order_id = ? AND p.groupId = ?
+          ORDER BY oi.rowid ASC
+          LIMIT 1
+        `).get(orderId, groupId);
+  } else {
+    const purchase = db.prepare(`
+      SELECT
+        oi.id AS order_item_id,
+        oi.order_id,
+        oi.variant_id,
+        oi.variant_name
+      FROM order_items oi
+      INNER JOIN orders o ON o.id = oi.order_id
+      INNER JOIN products p ON p.id = oi.product_id
+      WHERE o.customer_id = ?
+        AND p.groupId = ?
+      ORDER BY COALESCE(o.completed_at, o.updated_at, o.created_at) DESC
+      LIMIT 1
+    `).get(customerId, groupId);
+
+    if (purchase) {
+      scopedOrderId = purchase.order_id;
+      scopedItem = {
+        id: purchase.order_item_id,
+        variant_id: purchase.variant_id,
+        variant_name: purchase.variant_name,
+      };
+    }
+  }
+
+  return {
+    canReview: true,
+    reason: 'dev_test_mode',
+    orderId: scopedOrderId,
+    orderItemId: scopedItem?.id || orderItemId || null,
+    purchasedVariantId: scopedItem?.variant_id || null,
+    purchasedVariantName: scopedItem?.variant_name || null,
+  };
+}
+
 export function getGroupReviewEligibility({
   customerId,
   groupId,
@@ -320,8 +440,11 @@ export function getGroupReviewEligibility({
     return { canReview: false, reason: 'missing_context' };
   }
 
+  const pendingBlock = resolvePendingModerationBlock({ customerId, groupId, orderId });
+  if (pendingBlock) return pendingBlock;
+
   if (devBypass) {
-    return { canReview: true, reason: 'dev_test_mode' };
+    return resolveDevBypassEligibility({ customerId, groupId, orderId, orderItemId });
   }
 
   const purchase = db.prepare(`
@@ -351,15 +474,6 @@ export function getGroupReviewEligibility({
 
   const latest = getLatestReviewForGroup(customerId, groupId);
   if (latest) {
-    if (latest.status === REVIEW_STATUSES.PENDING) {
-      return {
-        canReview: false,
-        reason: 'pending_moderation',
-        reviewId: latest.id,
-        existingReview: latest,
-      };
-    }
-
     if (latest.status === REVIEW_STATUSES.APPROVED) {
       const cooldownDays = getCooldownDays();
       const createdAt = new Date(latest.created_at);
@@ -721,10 +835,7 @@ export function createProductReview({
   });
 
   if (!eligibility.canReview) {
-    const err = new Error(eligibility.reason || 'not_eligible');
-    err.code = eligibility.reason || 'not_eligible';
-    err.details = eligibility;
-    throw err;
+    throw createReviewError(eligibility.reason || 'not_eligible', eligibility);
   }
 
   const groupMeta = db.prepare(`

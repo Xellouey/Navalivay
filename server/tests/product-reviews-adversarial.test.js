@@ -166,6 +166,36 @@ console.log('\n--- A3: duplicate pending blocks second review ---');
   );
 }
 
+console.log('\n--- A3b: qa/dev bypass still blocks duplicate pending ---');
+{
+  seedWorld();
+  createProductReview({
+    customerId: 'cust1',
+    orderId: 'ord1',
+    groupId: 'grp1',
+    orderItemId: 'oi1',
+    rating: 5,
+    bodyText: 'Первый QA-отзыв на линейку, всё отлично',
+    quickTagIds: [],
+    devBypass: true,
+  });
+  expectThrows(
+    () =>
+      createProductReview({
+        customerId: 'cust1',
+        orderId: 'ord1',
+        groupId: 'grp1',
+        orderItemId: 'oi1',
+        rating: 4,
+        bodyText: 'Повторная отправка в QA-режиме, спам попытка',
+        quickTagIds: [],
+        devBypass: true,
+      }),
+    'pending_moderation',
+    'qa duplicate pending blocked',
+  );
+}
+
 console.log('\n--- A4: cooldown after approved review ---');
 {
   seedWorld();
