@@ -3,18 +3,19 @@
     <div v-if="chips.length" class="category-filter-rows" aria-label="Быстрые фильтры">
       <div
         v-if="topChip"
-        class="category-filter-row"
+        class="category-filter-row category-filter-row--top"
         role="group"
         aria-label="Популярные линейки"
       >
         <button
           type="button"
-          class="category-filter-chip"
+          class="category-filter-chip category-filter-chip--top"
           :class="{ 'is-active': topChip.active, 'is-loading': topChip.loading }"
           :disabled="topChip.loading"
+          :aria-pressed="topChip.active"
+          aria-label="Показать популярные линейки"
           @click="topChip.onClick"
         >
-          <span v-if="topChip.rankIcon" class="category-filter-chip-rank">{{ topChip.rankIcon }}</span>
           <span>{{ topChip.label }}</span>
         </button>
       </div>
@@ -29,8 +30,9 @@
           v-for="chip in strengthChips"
           :key="chip.id"
           type="button"
-          class="category-filter-chip"
+          class="category-filter-chip category-filter-chip--strength"
           :class="{ 'is-active': chip.active }"
+          :aria-pressed="chip.active"
           @click="chip.onClick"
         >
           <span>{{ chip.label }}</span>
@@ -79,7 +81,6 @@ type ChipItem = {
   label: string;
   active: boolean;
   loading?: boolean;
-  rankIcon?: string;
   onClick: () => void;
 };
 
@@ -89,10 +90,9 @@ const chips = computed<ChipItem[]>(() => {
   if (showTop.value) {
     list.push({
       id: "top",
-      label: "Чаще берут",
+      label: "Чаще всего берут",
       active: props.topActive,
       loading: props.topLoading,
-      rankIcon: "★",
       onClick: () => emit("toggle-top"),
     });
   }
@@ -126,7 +126,7 @@ const strengthChips = computed(() =>
 .category-filter-rows {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
 }
 
 .category-filter-row {
@@ -135,17 +135,22 @@ const strengthChips = computed(() =>
   gap: 8px;
 }
 
+.category-filter-row--top {
+  width: 100%;
+}
+
 .category-filter-row--strength {
+  width: 100%;
+  justify-content: stretch;
   flex-wrap: nowrap;
-  overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
-  overscroll-behavior-x: contain;
+  gap: 8px;
 }
 
 .category-filter-chip {
   display: inline-flex;
   flex-shrink: 0;
   align-items: center;
+  justify-content: center;
   gap: 6px;
   min-height: 36px;
   white-space: nowrap;
@@ -162,6 +167,28 @@ const strengthChips = computed(() =>
   transition: all 0.2s ease;
   -webkit-tap-highlight-color: transparent;
   touch-action: manipulation;
+}
+
+.category-filter-chip--top {
+  width: 100%;
+  min-height: 44px;
+  padding: 0 16px;
+  font-size: 14px;
+}
+
+.category-filter-chip--strength {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 44px;
+  padding: 0 10px;
+  font-size: 13px;
+}
+
+@media (max-width: 360px) {
+  .category-filter-chip--strength {
+    padding: 0 6px;
+    font-size: 12px;
+  }
 }
 
 @media (hover: hover) and (pointer: fine) {
@@ -182,10 +209,5 @@ const strengthChips = computed(() =>
 .category-filter-chip.is-loading {
   opacity: 0.7;
   cursor: wait;
-}
-
-.category-filter-chip-rank {
-  font-size: 12px;
-  line-height: 1;
 }
 </style>
