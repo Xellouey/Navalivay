@@ -5,6 +5,7 @@ import {
   TAB_BAR_NOTCH_DEPTH_RATIO,
   TAB_BAR_NOTCH_FLOOR_CSS,
   TAB_BAR_SHAPE_HEIGHT,
+  computeReviewDockCartClearance,
   computeReviewDockExtrusion,
 } from "@/utils/reviewDockGeometry";
 
@@ -52,6 +53,7 @@ describe("ReviewPromptDock", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     document.documentElement.style.removeProperty("--app-review-dock-height");
+    document.documentElement.style.removeProperty("--app-review-dock-clearance");
     document.documentElement.style.setProperty("--app-bottom-tab-bar-height", "130px");
     fetchReviewPromptMock.mockResolvedValue({ show: true });
     routeState.path = "/";
@@ -103,7 +105,7 @@ describe("ReviewPromptDock", () => {
     wrapper.unmount();
   });
 
-  it("sets review dock extrusion css variable when visible", async () => {
+  it("sets review dock layout css variables when visible", async () => {
     const wrapper = mount(ReviewPromptDock);
     await flushPromises();
 
@@ -111,6 +113,11 @@ describe("ReviewPromptDock", () => {
     const expected = computeReviewDockExtrusion(dock.offsetHeight, TAB_BAR_SHAPE_HEIGHT);
     const dockHeight = document.documentElement.style.getPropertyValue("--app-review-dock-height");
     expect(dockHeight).toBe(`${expected}px`);
+
+    const rect = dock.getBoundingClientRect();
+    const expectedClearance = computeReviewDockCartClearance(rect.top, window.innerHeight);
+    const dockClearance = document.documentElement.style.getPropertyValue("--app-review-dock-clearance");
+    expect(dockClearance).toBe(`${expectedClearance}px`);
 
     wrapper.unmount();
   });

@@ -3,6 +3,7 @@ import {
   TAB_BAR_NOTCH_DEPTH_RATIO,
   TAB_BAR_NOTCH_FLOOR_CSS,
   TAB_BAR_SHAPE_HEIGHT,
+  computeReviewDockCartClearance,
   computeReviewDockExtrusion,
   parseTabBarHeightCss,
 } from "@/utils/reviewDockGeometry";
@@ -51,6 +52,18 @@ describe("reviewDockGeometry", () => {
       expect(computeReviewDockExtrusion(48, 108)).toBe(
         Math.ceil(48 - 108 * TAB_BAR_NOTCH_DEPTH_RATIO),
       );
+    });
+  });
+
+  describe("computeReviewDockCartClearance", () => {
+    it("measures dock top from viewport bottom with gap", () => {
+      expect(computeReviewDockCartClearance(700, 800, 10)).toBe(110);
+    });
+
+    it("never returns negative clearance", () => {
+      expect(computeReviewDockCartClearance(900, 800, 10)).toBe(0);
+      expect(computeReviewDockCartClearance(Number.NaN, 800, 10)).toBe(0);
+      expect(computeReviewDockCartClearance(700, 0, 10)).toBe(0);
     });
   });
 

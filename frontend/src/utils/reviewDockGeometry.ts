@@ -26,3 +26,19 @@ export function computeReviewDockExtrusion(
   const notchOverlap = tabBarHeight * TAB_BAR_NOTCH_DEPTH_RATIO;
   return Math.max(0, Math.ceil(dockHeight - notchOverlap));
 }
+
+/** Bottom offset for floating cart controls above the visible review dock. */
+export function computeReviewDockCartClearance(
+  dockTopViewportY: number,
+  viewportHeight: number,
+  gapPx = 10,
+): number {
+  if (!Number.isFinite(dockTopViewportY) || !Number.isFinite(viewportHeight)) {
+    return 0;
+  }
+  if (viewportHeight <= 0) return 0;
+
+  const dockTopFromBottom = viewportHeight - dockTopViewportY;
+  if (!Number.isFinite(dockTopFromBottom) || dockTopFromBottom <= 0) return 0;
+  return Math.ceil(dockTopFromBottom + gapPx);
+}

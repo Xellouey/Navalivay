@@ -53,12 +53,13 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { useCustomerOrders } from "@/composables/useCustomerOrders";
 import {
   TAB_BAR_NOTCH_FLOOR_CSS,
   TAB_BAR_SHAPE_HEIGHT,
+  computeReviewDockCartClearance,
   computeReviewDockExtrusion,
   parseTabBarHeightCss,
 } from "@/utils/reviewDockGeometry";
@@ -103,22 +104,45 @@ function readTabBarHeight(): number {
   return parseTabBarHeightCss(raw, TAB_BAR_SHAPE_HEIGHT);
 }
 
+function resetDockLayoutVars() {
+  if (typeof document === "undefined") return;
+  document.documentElement.style.setProperty("--app-review-dock-height", "0px");
+  document.documentElement.style.setProperty("--app-review-dock-clearance", "0px");
+}
+
 function syncDockHeight(isVisible: boolean) {
   if (typeof document === "undefined") return;
 
-  if (!isVisible || !dockRef.value) {
-    document.documentElement.style.setProperty("--app-review-dock-height", "0px");
+  if (!isVisible) {
+    resetDockLayoutVars();
     return;
   }
 
+  if (!dockRef.value) return;
+
+  const dockElement = dockRef.value;
   const extrusion = computeReviewDockExtrusion(
-    dockRef.value.offsetHeight,
+    dockElement.offsetHeight,
     readTabBarHeight(),
   );
+  const clearance = computeReviewDockCartClearance(
+    dockElement.getBoundingClientRect().top,
+    window.innerHeight,
+  );
+
   document.documentElement.style.setProperty(
     "--app-review-dock-height",
     `${extrusion}px`,
   );
+  document.documentElement.style.setProperty(
+    "--app-review-dock-clearance",
+    `${clearance}px`,
+  );
+}
+
+function scheduleDockLayoutSync() {
+  if (!visible.value) return;
+  requestAnimationFrame(() => syncDockHeight(true));
 }
 
 function openOrderDetail() {
@@ -133,14 +157,33 @@ function openOrderDetail() {
   });
 }
 
-watch(visible, (isVisible) => syncDockHeight(isVisible), { immediate: true });
+let dockResizeObserver: ResizeObserver | null = null;
+
+function ensureDockResizeObserver() {
+  if (typeof ResizeObserver === "undefined" || !dockRef.value) return;
+  if (!dockResizeObserver) {
+    dockResizeObserver = new ResizeObserver(() => scheduleDockLayoutSync());
+  }
+  dockResizeObserver.observe(dockRef.value);
+}
+
+watch(visible, async (isVisible) => {
+  if (!isVisible) {
+    syncDockHeight(false);
+    return;
+  }
+  await nextTick();
+  syncDockHeight(true);
+  ensureDockResizeObserver();
+}, { immediate: true });
 
 watch(orderLabel, () => {
-  if (!visible.value) return;
-  requestAnimationFrame(() => syncDockHeight(true));
+  scheduleDockLayoutSync();
 });
 
 onMounted(async () => {
+  window.addEventListener("resize", scheduleDockLayoutSync);
+
   if (!props.autoLoad) return;
   if (route.path.startsWith("/profile/orders")) return;
   try {
@@ -148,6 +191,13 @@ onMounted(async () => {
   } catch (error) {
     console.warn("[review-dock] prompt fetch failed", error);
   }
+});
+
+onBeforeUnmount(() => {
+  dockResizeObserver?.disconnect();
+  dockResizeObserver = null;
+  window.removeEventListener("resize", scheduleDockLayoutSync);
+  resetDockLayoutVars();
 });
 
 watch(
