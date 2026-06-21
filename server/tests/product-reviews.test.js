@@ -20,7 +20,10 @@ const {
   getPublicGroupReviews,
   buildOrderLineIconsFromGroups,
   buildOrderFulfillmentMilestones,
+  buildReviewableLinesForOrder,
+  serializeOrderDetail,
   serializeOrderHistoryCard,
+  getCooldownDays,
   parseQaUsernames,
   isQaReviewUser,
   shouldDevBypassForCustomer,
@@ -82,6 +85,96 @@ function seedBase() {
     `INSERT INTO order_items (id, order_id, product_id, product_title, variant_name, quantity, price_per_unit, total_price, total_cost)
      VALUES ('oi1', 'ord1', 'prod1', 'Ананас', 'Ананасовая шипучка', 1, 10, 10, 4)`,
   ).run();
+}
+
+function seedRepeatPurchaseGroup({
+  groupId = 'grp_last_hap',
+  groupName = 'PODONKI LAST HAP',
+  productId = 'prod_last_hap',
+} = {}) {
+  db.prepare(
+    `INSERT INTO category_groups (id, categoryId, slug, name, [order], hide_empty, createdAt, updatedAt)
+     VALUES (?, 'cat_liq', ?, ?, 2, 0, DATETIME('now'), DATETIME('now'))`,
+  ).run(groupId, groupId, groupName);
+
+  db.prepare(
+    `INSERT INTO products (id, categoryId, groupId, title, priceRub, description, stock, createdAt)
+     VALUES (?, 'cat_liq', ?, ?, 15, '', 5, DATETIME('now'))`,
+  ).run(productId, groupId, groupName);
+
+  return { groupId, groupName, productId };
+}
+
+function createDeliveredOrder({
+  orderId,
+  orderNumber,
+  customerId = 'cust1',
+  productId = 'prod_last_hap',
+  groupId = 'grp_last_hap',
+  groupName = 'PODONKI LAST HAP',
+  orderItemId,
+  variantName = '50 мг',
+  createdAt,
+  completedAt,
+}) {
+  db.prepare(
+    `INSERT INTO orders (id, order_number, customer_id, status, total_amount, final_amount, completed_at, created_at, updated_at)
+     VALUES (?, ?, ?, 'delivered', 15, 15, ?, ?, ?)`,
+  ).run(
+    orderId,
+    orderNumber,
+    customerId,
+    completedAt || createdAt || "DATETIME('now')",
+    createdAt || "DATETIME('now')",
+    createdAt || "DATETIME('now')",
+  );
+
+  db.prepare(
+    `INSERT INTO order_items (id, order_id, product_id, product_title, group_name, variant_name, quantity, price_per_unit, total_price, total_cost)
+     VALUES (?, ?, ?, ?, ?, ?, 1, 15, 15, 6)`,
+  ).run(
+    orderItemId,
+    orderId,
+    productId,
+    groupName,
+    groupName,
+    variantName,
+  );
+
+  return db.prepare('SELECT * FROM orders WHERE id = ?').get(orderId);
+}
+
+function clearDefaultSeedOrder() {
+  db.exec("DELETE FROM order_items WHERE order_id = 'ord1'");
+  db.exec("DELETE FROM orders WHERE id = 'ord1'");
+}
+
+function insertApprovedReview({
+  reviewId,
+  customerId,
+  orderId,
+  orderItemId,
+  groupId,
+  createdAt,
+  rating = 5,
+}) {
+  db.prepare(
+    `INSERT INTO product_reviews (
+      id, customer_id, order_id, order_item_id, group_id, category_id,
+      rating, body_text, status, is_anonymous, created_at, approved_at
+    ) VALUES (?, ?, ?, ?, ?, 'cat_liq', ?, ?, ?, 0, ?, ?)`,
+  ).run(
+    reviewId,
+    customerId,
+    orderId,
+    orderItemId,
+    groupId,
+    rating,
+    'Отличная линейка, вкус насыщенный и держится долго',
+    REVIEW_STATUSES.APPROVED,
+    createdAt,
+    createdAt,
+  );
 }
 
 console.log('\n=== product-reviews core ===\n');
@@ -344,6 +437,232 @@ console.log('\n--- fulfillment milestones ---');
   ok(card.fulfillment_milestones.ready_at === readyAt, 'history card exposes milestones');
   ok(!('pending_review_count' in card), 'history card omits pending_review_count');
   ok(!('has_reviews' in card), 'history card omits has_reviews');
+}
+
+console.log('\n--- repeat purchase: same line within cooldown ---');
+{
+  seedBase();
+  clearDefaultSeedOrder();
+  setReviewSetting('cooldown_days', '90');
+  seedRepeatPurchaseGroup();
+
+  const firstCreatedAt = new Date(Date.now() - 20 * 24 * 60 * 60 * 1000).toISOString();
+  const firstOrder = createDeliveredOrder({
+    orderId: 'ord_last_hap_1',
+    orderNumber: 2001,
+    orderItemId: 'oi_last_hap_1',
+    createdAt: firstCreatedAt,
+    completedAt: firstCreatedAt,
+  });
+  insertApprovedReview({
+    reviewId: 'rev_last_hap_1',
+    customerId: 'cust1',
+    orderId: 'ord_last_hap_1',
+    orderItemId: 'oi_last_hap_1',
+    groupId: 'grp_last_hap',
+    createdAt: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString(),
+  });
+
+  const secondCreatedAt = new Date().toISOString();
+  const secondOrder = createDeliveredOrder({
+    orderId: 'ord_last_hap_2',
+    orderNumber: 2002,
+    orderItemId: 'oi_last_hap_2',
+    createdAt: secondCreatedAt,
+    completedAt: secondCreatedAt,
+  });
+
+  const blocked = getGroupReviewEligibility({
+    customerId: 'cust1',
+    groupId: 'grp_last_hap',
+    orderId: 'ord_last_hap_2',
+    orderItemId: 'oi_last_hap_2',
+  });
+  ok(blocked.canReview === false, 'second purchase within 90d cooldown is not reviewable');
+  ok(blocked.reason === 'cooldown', 'repeat purchase reason is cooldown');
+  ok(Boolean(blocked.cooldownEndsAt), 'cooldown end date is exposed');
+
+  const customer = db.prepare('SELECT * FROM customers WHERE id = ?').get('cust1');
+  const prompt = getReviewPromptForCustomer(customer);
+  ok(prompt.show === false, 'review dock hidden when only repeat line is on cooldown');
+  ok(prompt.reason === 'nothing_to_review', 'prompt reason is nothing_to_review');
+
+  const firstOrderLines = buildReviewableLinesForOrder(firstOrder, 'cust1');
+  ok(firstOrderLines.length === 1, 'first order exposes one reviewable line');
+  ok(firstOrderLines[0].latest_review?.id === 'rev_last_hap_1', 'first order keeps its own review');
+  ok(firstOrderLines[0].eligibility.reason === 'cooldown', 'first order line is also in cooldown window');
+
+  const secondOrderLines = buildReviewableLinesForOrder(secondOrder, 'cust1');
+  ok(secondOrderLines.length === 1, 'second order exposes one reviewable line');
+  ok(secondOrderLines[0].latest_review == null, 'second order has no review tied to that order id');
+  ok(secondOrderLines[0].eligibility.reason === 'cooldown', 'second order UI gets cooldown state');
+
+  const secondDetail = serializeOrderDetail(secondOrder, 'cust1');
+  ok(secondDetail.reviewable_lines[0].eligibility.canReview === false, 'order detail blocks repeat review');
+  ok(
+    !('pending_review_count' in serializeOrderHistoryCard(secondOrder)),
+    'history card stays compact without review badges',
+  );
+}
+
+console.log('\n--- repeat purchase: same line after cooldown expires ---');
+{
+  seedBase();
+  clearDefaultSeedOrder();
+  setReviewSetting('cooldown_days', '90');
+  seedRepeatPurchaseGroup();
+
+  const firstCreatedAt = new Date(Date.now() - 120 * 24 * 60 * 60 * 1000).toISOString();
+  createDeliveredOrder({
+    orderId: 'ord_old',
+    orderNumber: 3001,
+    orderItemId: 'oi_old',
+    createdAt: firstCreatedAt,
+    completedAt: firstCreatedAt,
+  });
+  insertApprovedReview({
+    reviewId: 'rev_old',
+    customerId: 'cust1',
+    orderId: 'ord_old',
+    orderItemId: 'oi_old',
+    groupId: 'grp_last_hap',
+    createdAt: new Date(Date.now() - 100 * 24 * 60 * 60 * 1000).toISOString(),
+  });
+
+  const freshOrder = createDeliveredOrder({
+    orderId: 'ord_fresh',
+    orderNumber: 3002,
+    orderItemId: 'oi_fresh',
+  });
+
+  const eligible = getGroupReviewEligibility({
+    customerId: 'cust1',
+    groupId: 'grp_last_hap',
+    orderId: 'ord_fresh',
+    orderItemId: 'oi_fresh',
+  });
+  ok(eligible.canReview === true, 'repeat purchase after cooldown can be reviewed again');
+  ok(eligible.orderId === 'ord_fresh', 'eligibility binds to the newest delivered order');
+
+  const prompt = getReviewPromptForCustomer(
+    db.prepare('SELECT * FROM customers WHERE id = ?').get('cust1'),
+  );
+  ok(prompt.show === true, 'review dock appears for post-cooldown repeat purchase');
+  ok(prompt.order_id === 'ord_fresh', 'dock points to the newest eligible order');
+  ok(prompt.group_id === 'grp_last_hap', 'dock points to the repeat line');
+}
+
+console.log('\n--- repeat purchase: rejected review does not start cooldown ---');
+{
+  seedBase();
+  clearDefaultSeedOrder();
+  setReviewSetting('cooldown_days', '90');
+  seedRepeatPurchaseGroup();
+
+  createDeliveredOrder({
+    orderId: 'ord_reject_1',
+    orderNumber: 4001,
+    orderItemId: 'oi_reject_1',
+  });
+  const rejected = createProductReview({
+    customerId: 'cust1',
+    orderId: 'ord_reject_1',
+    groupId: 'grp_last_hap',
+    orderItemId: 'oi_reject_1',
+    rating: 2,
+    bodyText: 'Не зашло, вкус странный и быстро надоедает',
+    quickTagIds: [],
+  });
+  db.prepare(`UPDATE product_reviews SET status = ? WHERE id = ?`).run(
+    REVIEW_STATUSES.REJECTED,
+    rejected.id,
+  );
+
+  const repeatOrder = createDeliveredOrder({
+    orderId: 'ord_reject_2',
+    orderNumber: 4002,
+    orderItemId: 'oi_reject_2',
+  });
+
+  const eligible = getGroupReviewEligibility({
+    customerId: 'cust1',
+    groupId: 'grp_last_hap',
+    orderId: 'ord_reject_2',
+    orderItemId: 'oi_reject_2',
+  });
+  ok(eligible.canReview === true, 'rejected review does not block a new attempt');
+  ok(
+    buildReviewableLinesForOrder(repeatOrder, 'cust1')[0].eligibility.canReview === true,
+    'repeat order detail shows review form after rejection',
+  );
+}
+
+console.log('\n--- repeat purchase: mixed lines only prompts reviewable ones ---');
+{
+  seedBase();
+  clearDefaultSeedOrder();
+  setReviewSetting('cooldown_days', '90');
+  seedRepeatPurchaseGroup();
+
+  db.prepare(
+    `INSERT INTO category_groups (id, categoryId, slug, name, [order], hide_empty, createdAt, updatedAt)
+     VALUES ('grp_other', 'cat_liq', 'grp_other', 'PODONKI OTHER', 3, 0, DATETIME('now'), DATETIME('now'))`,
+  ).run();
+  db.prepare(
+    `INSERT INTO products (id, categoryId, groupId, title, priceRub, description, stock, createdAt)
+     VALUES ('prod_other', 'cat_liq', 'grp_other', 'PODONKI OTHER', 12, '', 5, DATETIME('now'))`,
+  ).run();
+
+  createDeliveredOrder({
+    orderId: 'ord_mix_old',
+    orderNumber: 5001,
+    orderItemId: 'oi_mix_old',
+  });
+  insertApprovedReview({
+    reviewId: 'rev_mix_old',
+    customerId: 'cust1',
+    orderId: 'ord_mix_old',
+    orderItemId: 'oi_mix_old',
+    groupId: 'grp_last_hap',
+    createdAt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString(),
+  });
+
+  db.prepare(
+    `INSERT INTO orders (id, order_number, customer_id, status, total_amount, final_amount, completed_at, created_at, updated_at)
+     VALUES ('ord_mix_new', 5002, 'cust1', 'delivered', 27, 27, DATETIME('now'), DATETIME('now'), DATETIME('now'))`,
+  ).run();
+  db.prepare(
+    `INSERT INTO order_items (id, order_id, product_id, product_title, group_name, variant_name, quantity, price_per_unit, total_price, total_cost)
+     VALUES ('oi_mix_repeat', 'ord_mix_new', 'prod_last_hap', 'PODONKI LAST HAP', 'PODONKI LAST HAP', '50 мг', 1, 15, 15, 6)`,
+  ).run();
+  db.prepare(
+    `INSERT INTO order_items (id, order_id, product_id, product_title, group_name, variant_name, quantity, price_per_unit, total_price, total_cost)
+     VALUES ('oi_mix_other', 'ord_mix_new', 'prod_other', 'PODONKI OTHER', 'PODONKI OTHER', '40 мг', 1, 12, 12, 5)`,
+  ).run();
+
+  const prompt = getReviewPromptForCustomer(
+    db.prepare('SELECT * FROM customers WHERE id = ?').get('cust1'),
+  );
+  ok(prompt.show === true, 'dock still appears when another line in the order is reviewable');
+  ok(prompt.group_id === 'grp_other', 'dock targets the still-reviewable line');
+  ok(prompt.pending_review_count === 1, 'only one pending line is counted');
+
+  const lines = buildReviewableLinesForOrder(
+    db.prepare('SELECT * FROM orders WHERE id = ?').get('ord_mix_new'),
+    'cust1',
+  );
+  ok(lines.length === 2, 'mixed order exposes both lines');
+  const repeatLine = lines.find((line) => line.group_id === 'grp_last_hap');
+  const otherLine = lines.find((line) => line.group_id === 'grp_other');
+  ok(repeatLine?.eligibility.reason === 'cooldown', 'repeat line stays on cooldown');
+  ok(otherLine?.eligibility.canReview === true, 'fresh line still has the form');
+}
+
+console.log('\n--- cooldown setting ---');
+{
+  seedBase();
+  setReviewSetting('cooldown_days', '90');
+  ok(getCooldownDays() === 90, 'default cooldown is 90 days');
 }
 
 console.log('\n--- QA usernames: parse and bypass ---');
