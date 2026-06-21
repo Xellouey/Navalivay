@@ -109,6 +109,48 @@ describe("useCategoryFilters", () => {
     expect(filtered.every((group) => (group.children ?? []).length === 0)).toBe(true);
   });
 
+  it("hides top rank badges until the top filter is active", () => {
+    const { topSales, getTopRank } = useCategoryFilters();
+    topSales.value = [{ groupId: "leaf", rank: 1 }];
+
+    expect(getTopRank("leaf")).toBeNull();
+  });
+
+  it("top filter flattens snus-style three-level hierarchy to ranked root rows", () => {
+    const { topActive, topSales, filterGroupTree, getTopRank } = useCategoryFilters();
+    topActive.value = true;
+    topSales.value = [
+      { groupId: "cg_drymost_200", rank: 1 },
+      { groupId: "cg_iceberg_150", rank: 5 },
+    ];
+
+    const groups = [
+      makeGroup({
+        id: "cg_snus_root",
+        name: "СНЮС",
+        children: [
+          makeGroup({
+            id: "cg_iceberg_brand",
+            name: "Снюс ICEBERG",
+            children: [makeGroup({ id: "cg_iceberg_150", name: "Снюс ICEBERG 150MG" })],
+          }),
+          makeGroup({
+            id: "cg_drymost_brand",
+            name: "Снюс DRYMOST",
+            children: [makeGroup({ id: "cg_drymost_200", name: "Снюс DRYMOST 200MG" })],
+          }),
+        ],
+      }),
+    ];
+
+    const filtered = filterGroupTree(groups);
+    expect(filtered.map((group) => group.id)).toEqual(["cg_drymost_200", "cg_iceberg_150"]);
+    expect(filtered.every((group) => (group.children ?? []).length === 0)).toBe(true);
+    expect(getTopRank("cg_drymost_200")).toBe(1);
+    expect(getTopRank("cg_iceberg_150")).toBe(5);
+    expect(getTopRank("cg_snus_root")).toBeNull();
+  });
+
   it("uses server-provided ranks after OOS groups are skipped", () => {
     const { topActive, topSales, filterGroupTree, getTopRank } = useCategoryFilters();
     topActive.value = true;

@@ -196,6 +196,7 @@ export function useCategoryFilters() {
   }
 
   function getTopRank(groupId: string): number | null {
+    if (!topActive.value) return null;
     return topRankByGroupId.value.get(String(groupId)) ?? null;
   }
 
