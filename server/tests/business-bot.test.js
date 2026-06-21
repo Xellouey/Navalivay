@@ -10,6 +10,7 @@
  *  - Лог: log + list с фильтром chat_id
  *  - prepareStatusNotification: ok/various reasons
  *  - handleIncomingBusinessMessage: master off → null, owner echo → null, match → reply
+ *  - handleIncomingBusinessMessage: новый клиент → null, постоянный → reply
  *
  * Запуск: node server/tests/business-bot.test.js
  */
@@ -51,6 +52,7 @@ const {
   getRecentLogCount,
   prepareStatusNotification,
   handleIncomingBusinessMessage,
+  isReturningCustomerForQuickReply,
   normalizeForMatch,
 } = await import('../utils/business-bot.js');
 
@@ -305,7 +307,11 @@ function runTests() {
   });
   assertEq(ownerEcho, null, 'на свои сообщения не отвечает');
 
-  console.log('\n=== Test 25: handleIncomingBusinessMessage — match ===');
+  console.log('\n=== Test 25: handleIncomingBusinessMessage — match (постоянный клиент) ===');
+  db.prepare(`
+    INSERT INTO orders (id, order_number, customer_id, status, delivery_type, total_amount, final_amount, created_at, updated_at)
+    VALUES ('o_return_888', 5001, 'cust_v2', 'delivered', 'pickup', 50, 50, DATETIME('now'), DATETIME('now'))
+  `).run();
   const replyResult = handleIncomingBusinessMessage({
     businessConnectionId: 'bc_test_1',
     fromUserId: '888',
@@ -314,6 +320,51 @@ function runTests() {
   });
   assert(replyResult, 'есть ответ');
   assertEq(replyResult.text, 'Работаем с 12:00 до 23:00', 'текст из qr1');
+
+  console.log('\n=== Test 25b: новый клиент (только new) → quick reply не шлём ===');
+  db.prepare(`
+    INSERT INTO customers (id, telegram_id, telegram_username, first_name, total_orders, total_spent, created_at, updated_at)
+    VALUES ('cust_new_qr', '91001', 'newbie_qr', 'Новый', 1, 100, DATETIME('now'), DATETIME('now'))
+  `).run();
+  db.prepare(`
+    INSERT INTO orders (id, order_number, customer_id, status, delivery_type, total_amount, final_amount, created_at, updated_at)
+    VALUES ('o_newbie_qr', 9101, 'cust_new_qr', 'new', 'pickup', 100, 100, DATETIME('now'), DATETIME('now'))
+  `).run();
+  assertEq(isReturningCustomerForQuickReply('91001'), false, 'новый клиент не returning');
+  const newCustomerReply = handleIncomingBusinessMessage({
+    businessConnectionId: 'bc_test_1',
+    fromUserId: '91001',
+    ownerUserId: '123456789',
+    text: 'часы работы',
+  });
+  assertEq(newCustomerReply, null, 'новому клиенту quick reply не уходит');
+
+  console.log('\n=== Test 25c: in_progress без выданных — тоже null ===');
+  db.prepare(`
+    INSERT INTO customers (id, telegram_id, telegram_username, first_name, total_orders, total_spent, created_at, updated_at)
+    VALUES ('cust_prog_qr', '91002', 'progress_qr', 'Собирают', 1, 50, DATETIME('now'), DATETIME('now'))
+  `).run();
+  db.prepare(`
+    INSERT INTO orders (id, order_number, customer_id, status, delivery_type, total_amount, final_amount, created_at, updated_at)
+    VALUES ('o_prog_qr', 9102, 'cust_prog_qr', 'in_progress', 'pickup', 50, 50, DATETIME('now'), DATETIME('now'))
+  `).run();
+  const inProgressReply = handleIncomingBusinessMessage({
+    businessConnectionId: 'bc_test_1',
+    fromUserId: '91002',
+    ownerUserId: '123456789',
+    text: 'часы работы',
+  });
+  assertEq(inProgressReply, null, 'клиент с заказом in_progress без истории — null');
+
+  console.log('\n=== Test 25d: неизвестный telegram_id → FAQ quick reply разрешён ===');
+  const strangerReply = handleIncomingBusinessMessage({
+    businessConnectionId: 'bc_test_1',
+    fromUserId: '91999',
+    ownerUserId: '123456789',
+    text: 'часы работы',
+  });
+  assert(strangerReply, 'до первого заказа FAQ отвечает');
+  assertEq(strangerReply.text, 'Работаем с 12:00 до 23:00', 'текст из qr1');
 
   console.log('\n=== Test 26: handleIncomingBusinessMessage — нет матча ===');
   const noMatch = handleIncomingBusinessMessage({

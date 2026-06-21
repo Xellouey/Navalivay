@@ -14,6 +14,9 @@
  *  - Master switch: isAutoReplyEnabled / setAutoReplyEnabled
  *  - Variables: buildOrderVariables(order) для шаблонов статусов
  *  - Высокоуровневые: handleIncomingBusinessMessage, prepareStatusNotification
+ *
+ * Быстрые ответы не уходят «новым» клиентам (нет выданного/завершённого заказа) —
+ * тот же принцип, что и order_accepted в auto-notify.js.
  */
 import crypto from 'crypto';
 import { db } from '../db.js';
@@ -796,6 +799,26 @@ export function prepareStatusNotification({ orderId, event, storeName } = {}) {
 }
 
 /**
+ * Постоянный клиент для quick reply: есть хотя бы один completed/delivered заказ.
+ * Неизвестный telegram_id (ещё нет в customers) — FAQ до первого заказа разрешён.
+ */
+export function isReturningCustomerForQuickReply(telegramId) {
+  const customer = db
+    .prepare(`SELECT id FROM customers WHERE telegram_id = ?`)
+    .get(String(telegramId));
+  if (!customer) return true;
+  const prior = db
+    .prepare(
+      `SELECT 1 FROM orders
+        WHERE customer_id = ?
+          AND status IN ('completed', 'delivered')
+        LIMIT 1`,
+    )
+    .get(customer.id);
+  return Boolean(prior);
+}
+
+/**
  * Бизнес-логика обработки входящего business_message: возвращает payload для
  * автоответа (или null, если отвечать не нужно). bot.js берёт payload и
  * отправляет в Telegram.
@@ -803,6 +826,7 @@ export function prepareStatusNotification({ orderId, event, storeName } = {}) {
  * Решает:
  *   - master switch выключен → null
  *   - сообщение от самого менеджера (не от клиента) → null
+ *   - новый клиент в БД без выданных заказов → null
  *   - матч quick reply → payload с текстом
  *   - нет матча → null (но input уже залогирован вызывающей стороной)
  */
@@ -817,6 +841,7 @@ export function handleIncomingBusinessMessage({
   // Если сообщение от самого владельца аккаунта (менеджера) — это исходящее
   // от него, не от клиента. Бот не должен отвечать на свои же сообщения.
   if (String(fromUserId) === String(ownerUserId)) return null;
+  if (!isReturningCustomerForQuickReply(fromUserId)) return null;
 
   const reply = matchQuickReply(text);
   if (!reply) return null;
