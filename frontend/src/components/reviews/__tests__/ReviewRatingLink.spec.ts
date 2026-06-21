@@ -13,13 +13,32 @@ describe("ReviewRatingLink", () => {
     expect(wrapper.text()).toContain("посмотреть отзывы");
   });
 
-  it("shows empty state when there are no reviews", () => {
+  it("shows empty state when there are no reviews on leaf lines", () => {
     const wrapper = mount(ReviewRatingLink, {
-      props: { count: 0, averageRating: null },
+      props: { count: 0, averageRating: null, mode: "leaf" },
     });
 
     expect(wrapper.text()).toContain("нет отзывов");
     expect(wrapper.find(".review-rating-row__action").exists()).toBe(false);
+  });
+
+  it("shows neutral parent hint when parent row has no direct reviews", () => {
+    const wrapper = mount(ReviewRatingLink, {
+      props: { count: 0, averageRating: null, mode: "parent" },
+    });
+
+    expect(wrapper.text()).toContain("отзывы у линеек ниже");
+    expect(wrapper.text()).not.toContain("нет отзывов");
+    expect(wrapper.find(".review-rating-row__action").exists()).toBe(false);
+  });
+
+  it("shows rating on parent rows that have their own reviews", () => {
+    const wrapper = mount(ReviewRatingLink, {
+      props: { count: 2, averageRating: 4.5, mode: "parent" },
+    });
+
+    expect(wrapper.text()).toContain("4.5");
+    expect(wrapper.text()).toContain("посмотреть отзывы");
   });
 
   it("hides row until review summary is ready", () => {

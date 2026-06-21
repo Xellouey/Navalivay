@@ -17,9 +17,8 @@ export function isReviewSubmissionGroup(node: GroupReviewTreeNode): boolean {
 }
 
 /**
- * Show review summary on both parent and leaf rows:
- * parents usually have zero direct reviews but signal that the brand row itself
- * has no published feedback yet; leaves show the actual line rating.
+ * Show review summary on both parent and leaf rows.
+ * Parents without direct reviews get a neutral hint; leaves show rating or red empty state.
  */
 export function shouldShowGroupReviewSummary(_node: GroupReviewTreeNode): boolean {
   return true;

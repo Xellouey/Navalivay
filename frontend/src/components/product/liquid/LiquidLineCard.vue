@@ -40,6 +40,7 @@
             :ready="reviewsLoaded"
             :count="reviewCount"
             :average-rating="averageRating"
+            :mode="reviewDisplayMode"
             @click="openReviewsModal"
           />
         </div>
@@ -299,7 +300,10 @@ import { computed, onBeforeUnmount, onMounted, ref, watch, nextTick } from "vue"
 import GroupReviewsModal from "@/components/reviews/GroupReviewsModal.vue";
 import ReviewRatingLink from "@/components/reviews/ReviewRatingLink.vue";
 import { useCustomerOrders } from "@/composables/useCustomerOrders";
-import { shouldShowGroupReviewSummary } from "@/utils/groupReviewDisplay";
+import {
+  isParentGroupLine,
+  shouldShowGroupReviewSummary,
+} from "@/utils/groupReviewDisplay";
 import {
   ChevronDownIcon,
   PlusIcon,
@@ -345,11 +349,15 @@ const reviewCount = ref(0);
 const averageRating = ref<number | null>(null);
 const reviewsLoaded = ref(false);
 const showReviewsModal = ref(false);
+const reviewTreeNode = computed(() => ({
+  id: props.groupId,
+  children: props.subgroups ?? [],
+}));
 const showReviewSummary = computed(() =>
-  shouldShowGroupReviewSummary({
-    id: props.groupId,
-    children: props.subgroups ?? [],
-  }),
+  shouldShowGroupReviewSummary(reviewTreeNode.value),
+);
+const reviewDisplayMode = computed(() =>
+  isParentGroupLine(reviewTreeNode.value) ? "parent" : "leaf",
 );
 const expandedVariantProducts = ref<Record<string, boolean>>({});
 const failedImages = ref<Set<string>>(new Set());

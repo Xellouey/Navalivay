@@ -70,7 +70,7 @@ describe("GroupLineItem", () => {
     return wrapper;
   }
 
-  it("shows empty review state on parent group rows without a view button", async () => {
+  it("shows neutral parent hint on group rows with children and no direct reviews", async () => {
     const wrapper = await mountLine({
       ...baseNode,
       id: "brand",
@@ -90,7 +90,8 @@ describe("GroupLineItem", () => {
     });
 
     expect(fetchGroupReviewSummaryMock).toHaveBeenCalledWith("brand");
-    expect(wrapper.text().toLowerCase()).toContain("нет отзывов");
+    expect(wrapper.text().toLowerCase()).toContain("отзывы у линеек ниже");
+    expect(wrapper.text().toLowerCase()).not.toContain("нет отзывов");
     expect(wrapper.text().toLowerCase()).not.toContain("посмотреть отзывы");
   });
 

@@ -42,6 +42,7 @@
             :ready="reviewsLoaded"
             :count="reviewCount"
             :average-rating="averageRating"
+            :mode="reviewDisplayMode"
             @click="openReviewsModal"
           />
         </span>
@@ -119,7 +120,10 @@ import {
 } from "vue";
 import GroupReviewsModal from "@/components/reviews/GroupReviewsModal.vue";
 import ReviewRatingLink from "@/components/reviews/ReviewRatingLink.vue";
-import { shouldShowGroupReviewSummary } from "@/utils/groupReviewDisplay";
+import {
+  isParentGroupLine,
+  shouldShowGroupReviewSummary,
+} from "@/utils/groupReviewDisplay";
 import { useCustomerOrders } from "@/composables/useCustomerOrders";
 import { ChevronDownIcon } from "@heroicons/vue/24/outline";
 import { useCatalogStore, type Product } from "@/stores/catalog";
@@ -169,6 +173,9 @@ const averageRating = ref<number | null>(null);
 const reviewsLoaded = ref(false);
 const showReviewsModal = ref(false);
 const showReviewSummary = computed(() => shouldShowGroupReviewSummary(props.node));
+const reviewDisplayMode = computed(() =>
+  isParentGroupLine(props.node) ? "parent" : "leaf",
+);
 const headerId = computed(() => `group-line-header-${props.node.id}`);
 const panelId = computed(() => `group-line-panel-${props.node.id}`);
 const isExpanded = computed(() => props.expandedGroups[props.node.id] ?? false);

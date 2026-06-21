@@ -15,6 +15,9 @@
         посмотреть отзывы
       </button>
     </template>
+    <p v-else-if="mode === 'parent'" class="review-rating-row__parent-hint">
+      отзывы у линеек ниже
+    </p>
     <p v-else class="review-rating-row__empty">нет отзывов</p>
   </div>
 </template>
@@ -27,8 +30,10 @@ const props = withDefaults(
     count: number;
     averageRating: number | null;
     ready?: boolean;
+    /** Parent rows aggregate child lines; empty state is a neutral hint, not an error. */
+    mode?: "leaf" | "parent";
   }>(),
-  { ready: true },
+  { ready: true, mode: "leaf" },
 );
 
 const emit = defineEmits<{
@@ -89,16 +94,25 @@ const actionAriaLabel = computed(() => {
   font-family: -apple-system, "SF Pro Display", sans-serif;
   font-size: 13px;
   line-height: 16px;
-  font-weight: 500;
-  color: #2f6fed;
-  text-decoration: underline;
-  text-underline-offset: 2px;
+  font-weight: 400;
+  color: #0273f5;
+  text-decoration: none;
   cursor: pointer;
+  transition: opacity 0.2s ease;
   -webkit-tap-highlight-color: transparent;
 }
 
 .review-rating-row__action:active {
   opacity: 0.72;
+}
+
+.review-rating-row__parent-hint {
+  margin: 0;
+  font-family: -apple-system, "SF Pro Display", sans-serif;
+  font-size: 13px;
+  line-height: 16px;
+  font-weight: 400;
+  color: #8a93a0;
 }
 
 .review-rating-row__empty {
