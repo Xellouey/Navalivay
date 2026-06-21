@@ -1,8 +1,16 @@
-import { beforeEach, describe, expect, it } from "vitest";
-import { mount } from "@vue/test-utils";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { flushPromises, mount } from "@vue/test-utils";
 import { createPinia, setActivePinia } from "pinia";
 import GroupLineItem from "@/components/product/GroupLineItem.vue";
 import type { Product } from "@/stores/catalog";
+
+const fetchGroupReviewSummaryMock = vi.hoisted(() => vi.fn());
+
+vi.mock("@/composables/useCustomerOrders", () => ({
+  useCustomerOrders: () => ({
+    fetchGroupReviewSummary: fetchGroupReviewSummaryMock,
+  }),
+}));
 
 const makeProduct = (overrides: Partial<Product> = {}): Product => ({
   id: "p-1",
@@ -21,6 +29,97 @@ describe("GroupLineItem", () => {
   beforeEach(() => {
     pinia = createPinia();
     setActivePinia(pinia);
+    fetchGroupReviewSummaryMock.mockReset();
+    fetchGroupReviewSummaryMock.mockResolvedValue({
+      review_count: 0,
+      average_rating: null,
+    });
+  });
+
+  const baseNode = {
+    slug: "line",
+    order: 0,
+    productCount: 1,
+    totalProductCount: 1,
+    depth: 0,
+    parentId: null,
+    metaLabel: null,
+    metaValue: null,
+    children: [] as Array<Record<string, unknown>>,
+    products: [makeProduct()],
+  };
+
+  async function mountLine(node: Record<string, unknown>) {
+    const wrapper = mount(GroupLineItem, {
+      global: {
+        plugins: [pinia],
+        stubs: {
+          Transition: false,
+          GroupLineItemContent: true,
+          GroupReviewsModal: true,
+          ChevronDownIcon: true,
+        },
+      },
+      props: {
+        categoryImage: null,
+        expandedGroups: {},
+        node,
+      },
+    });
+    await flushPromises();
+    return wrapper;
+  }
+
+  it("shows empty review state on parent group rows without a view button", async () => {
+    const wrapper = await mountLine({
+      ...baseNode,
+      id: "brand",
+      name: "PODONKI",
+      children: [
+        {
+          ...baseNode,
+          id: "line",
+          name: "PODONKI PODGON",
+          parentId: "brand",
+          depth: 1,
+        },
+      ],
+      products: [],
+      productCount: 0,
+      totalProductCount: 2,
+    });
+
+    expect(fetchGroupReviewSummaryMock).toHaveBeenCalledWith("brand");
+    expect(wrapper.text().toLowerCase()).toContain("нет отзывов");
+    expect(wrapper.text().toLowerCase()).not.toContain("посмотреть отзывы");
+  });
+
+  it("shows rating and view-reviews action on leaf lines with reviews", async () => {
+    fetchGroupReviewSummaryMock.mockResolvedValueOnce({
+      review_count: 1,
+      average_rating: 5,
+    });
+
+    const wrapper = await mountLine({
+      ...baseNode,
+      id: "blood",
+      name: "PODONKI BLOOD",
+    });
+
+    expect(fetchGroupReviewSummaryMock).toHaveBeenCalledWith("blood");
+    expect(wrapper.text()).toContain("5");
+    expect(wrapper.text().toLowerCase()).toContain("посмотреть отзывы");
+  });
+
+  it("shows empty review state on leaf lines without reviews", async () => {
+    const wrapper = await mountLine({
+      ...baseNode,
+      id: "critical",
+      name: "PODONKI CRITICAL",
+    });
+
+    expect(wrapper.text().toLowerCase()).toContain("нет отзывов");
+    expect(wrapper.text().toLowerCase()).not.toContain("посмотреть отзывы");
   });
 
   it("does not show group price even when nested child products have prices", () => {

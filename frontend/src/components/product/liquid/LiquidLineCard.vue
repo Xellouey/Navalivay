@@ -36,6 +36,7 @@
             <span class="liquid-line-price-currency"> BYN</span>
           </p>
           <ReviewRatingLink
+            v-if="showReviewSummary"
             :ready="reviewsLoaded"
             :count="reviewCount"
             :average-rating="averageRating"
@@ -298,6 +299,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch, nextTick } from "vue"
 import GroupReviewsModal from "@/components/reviews/GroupReviewsModal.vue";
 import ReviewRatingLink from "@/components/reviews/ReviewRatingLink.vue";
 import { useCustomerOrders } from "@/composables/useCustomerOrders";
+import { shouldShowGroupReviewSummary } from "@/utils/groupReviewDisplay";
 import {
   ChevronDownIcon,
   PlusIcon,
@@ -343,6 +345,12 @@ const reviewCount = ref(0);
 const averageRating = ref<number | null>(null);
 const reviewsLoaded = ref(false);
 const showReviewsModal = ref(false);
+const showReviewSummary = computed(() =>
+  shouldShowGroupReviewSummary({
+    id: props.groupId,
+    children: props.subgroups ?? [],
+  }),
+);
 const expandedVariantProducts = ref<Record<string, boolean>>({});
 const failedImages = ref<Set<string>>(new Set());
 let transitionTimer: ReturnType<typeof setTimeout> | null = null;

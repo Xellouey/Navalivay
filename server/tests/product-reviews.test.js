@@ -211,6 +211,42 @@ console.log('\n--- review prompt ---');
   );
 }
 
+console.log('\n--- parent vs child public review summaries ---');
+{
+  seedBase();
+  db.prepare(
+    `INSERT INTO category_groups (id, categoryId, parent_group_id, slug, name, [order], hide_empty, createdAt, updatedAt)
+     VALUES ('grp_parent', 'cat_liq', NULL, 'podonki', 'PODONKI', 0, 0, DATETIME('now'), DATETIME('now'))`,
+  ).run();
+  db.prepare(
+    `INSERT INTO category_groups (id, categoryId, parent_group_id, slug, name, [order], hide_empty, createdAt, updatedAt)
+     VALUES ('grp_child', 'cat_liq', 'grp_parent', 'podonki-podgon', 'PODONKI PODGON', 1, 0, DATETIME('now'), DATETIME('now'))`,
+  ).run();
+  db.prepare(`UPDATE products SET groupId = 'grp_child' WHERE id = 'prod1'`).run();
+
+  createProductReview({
+    customerId: 'cust1',
+    orderId: 'ord1',
+    groupId: 'grp_child',
+    orderItemId: 'oi1',
+    rating: 5,
+    bodyText: 'Отличная линейка, беру не первый раз',
+    quickTagIds: [],
+    isAnonymous: false,
+  });
+  const childReviewId = db.prepare('SELECT id FROM product_reviews LIMIT 1').get().id;
+  db.prepare(`UPDATE product_reviews SET status = 'approved', approved_at = DATETIME('now') WHERE id = ?`).run(
+    childReviewId,
+  );
+
+  const parentSummary = getPublicGroupReviews('grp_parent', { limit: 1, offset: 0 });
+  const childSummary = getPublicGroupReviews('grp_child', { limit: 1, offset: 0 });
+
+  ok(parentSummary.review_count === 0, 'parent group summary stays empty');
+  ok(childSummary.review_count === 1, 'child line keeps published review');
+  ok(childSummary.average_rating === 5, 'child line average rating is exposed');
+}
+
 console.log('\n--- public reviews ---');
 {
   seedBase();
