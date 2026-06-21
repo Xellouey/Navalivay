@@ -126,10 +126,41 @@ export function useCategoryFilters() {
     return (a.name || "").localeCompare(b.name || "", "ru");
   }
 
+  function collectTopMatches<T extends FilterableGroup>(
+    groups: T[],
+    query: string,
+    tier: StrengthTier | null,
+  ): T[] {
+    const collected: T[] = [];
+
+    const walk = (group: T) => {
+      (group.children ?? []).forEach((child) => walk(child as T));
+
+      const selfMatches =
+        groupMatchesSearch(group, query) &&
+        groupMatchesStrength(group, tier) &&
+        groupMatchesTop(group, true);
+
+      if (!selfMatches) return;
+
+      collected.push({
+        ...group,
+        children: [],
+      });
+    };
+
+    groups.forEach((group) => walk(group));
+    return [...collected].sort(compareByTopRank);
+  }
+
   function filterGroupTree<T extends FilterableGroup>(groups: T[]): T[] {
     const query = normalizeSearch(searchQuery.value);
     const useTop = topActive.value;
     const tier = strengthTier.value;
+
+    if (useTop) {
+      return collectTopMatches(groups, query, tier);
+    }
 
     const walk = (group: T): T | null => {
       const filteredChildren = (group.children ?? [])
@@ -159,15 +190,9 @@ export function useCategoryFilters() {
       return null;
     };
 
-    let result = groups
+    return groups
       .map((group) => walk(group))
       .filter((group): group is T => group !== null);
-
-    if (useTop) {
-      result = [...result].sort(compareByTopRank);
-    }
-
-    return result;
   }
 
   function getTopRank(groupId: string): number | null {

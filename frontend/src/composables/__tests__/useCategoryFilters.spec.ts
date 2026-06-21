@@ -61,7 +61,7 @@ describe("useCategoryFilters", () => {
     expect(filterGroupTree(groups).map((g) => g.id)).toEqual(["g1"]);
   });
 
-  it("top filter keeps parent when matching child remains", () => {
+  it("top filter flattens matching child lines to root without parent wrapper", () => {
     const { topActive, topSales, toggleTopFilter, filterGroupTree } =
       useCategoryFilters();
     topSales.value = [{ groupId: "child", rank: 1, groupName: "Child" }];
@@ -79,8 +79,34 @@ describe("useCategoryFilters", () => {
 
     const filtered = filterGroupTree(groups);
     expect(filtered).toHaveLength(1);
-    expect(filtered[0].id).toBe("parent");
-    expect(filtered[0].children?.map((c) => c.id)).toEqual(["child"]);
+    expect(filtered[0].id).toBe("child");
+    expect(filtered[0].children).toEqual([]);
+  });
+
+  it("top filter returns nested top lines sorted by rank ascending", () => {
+    const { topActive, topSales, filterGroupTree } = useCategoryFilters();
+    topActive.value = true;
+    topSales.value = [
+      { groupId: "line-b", rank: 2 },
+      { groupId: "line-a", rank: 1 },
+      { groupId: "line-c", rank: 3 },
+    ];
+
+    const groups = [
+      makeGroup({
+        id: "brand",
+        name: "Brand",
+        children: [
+          makeGroup({ id: "line-b", name: "Line B" }),
+          makeGroup({ id: "line-a", name: "Line A" }),
+        ],
+      }),
+      makeGroup({ id: "solo", name: "Solo", children: [makeGroup({ id: "line-c", name: "Line C" })] }),
+    ];
+
+    const filtered = filterGroupTree(groups);
+    expect(filtered.map((group) => group.id)).toEqual(["line-a", "line-b", "line-c"]);
+    expect(filtered.every((group) => (group.children ?? []).length === 0)).toBe(true);
   });
 
   it("uses server-provided ranks after OOS groups are skipped", () => {
