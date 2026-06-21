@@ -5,6 +5,9 @@ export const TAB_BAR_NOTCH_DEPTH_RATIO = TAB_BAR_NOTCH_FLOOR_Y / TAB_BAR_SHAPE_H
 export const TAB_BAR_NOTCH_FLOOR_CSS =
   "clamp(92px, calc(100vw * 95.74 / 393), 96px)";
 
+/** Extra breathing room between review dock top and floating cart button. */
+export const REVIEW_DOCK_CART_GAP_PX = 18;
+
 export function parseTabBarHeightCss(
   raw: string,
   fallback = TAB_BAR_SHAPE_HEIGHT,
@@ -31,7 +34,7 @@ export function computeReviewDockExtrusion(
 export function computeReviewDockCartClearance(
   dockTopViewportY: number,
   viewportHeight: number,
-  gapPx = 10,
+  gapPx = REVIEW_DOCK_CART_GAP_PX,
 ): number {
   if (!Number.isFinite(dockTopViewportY) || !Number.isFinite(viewportHeight)) {
     return 0;

@@ -59,6 +59,7 @@ import { useCustomerOrders } from "@/composables/useCustomerOrders";
 import {
   TAB_BAR_NOTCH_FLOOR_CSS,
   TAB_BAR_SHAPE_HEIGHT,
+  REVIEW_DOCK_CART_GAP_PX,
   computeReviewDockCartClearance,
   computeReviewDockExtrusion,
   parseTabBarHeightCss,
@@ -128,6 +129,7 @@ function syncDockHeight(isVisible: boolean) {
   const clearance = computeReviewDockCartClearance(
     dockElement.getBoundingClientRect().top,
     window.innerHeight,
+    REVIEW_DOCK_CART_GAP_PX,
   );
 
   document.documentElement.style.setProperty(

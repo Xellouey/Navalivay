@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   TAB_BAR_NOTCH_DEPTH_RATIO,
+  REVIEW_DOCK_CART_GAP_PX,
   TAB_BAR_NOTCH_FLOOR_CSS,
   TAB_BAR_SHAPE_HEIGHT,
   computeReviewDockCartClearance,
@@ -57,7 +58,9 @@ describe("reviewDockGeometry", () => {
 
   describe("computeReviewDockCartClearance", () => {
     it("measures dock top from viewport bottom with gap", () => {
-      expect(computeReviewDockCartClearance(700, 800, 10)).toBe(110);
+      expect(computeReviewDockCartClearance(700, 800, REVIEW_DOCK_CART_GAP_PX)).toBe(
+        800 - 700 + REVIEW_DOCK_CART_GAP_PX,
+      );
     });
 
     it("never returns negative clearance", () => {
