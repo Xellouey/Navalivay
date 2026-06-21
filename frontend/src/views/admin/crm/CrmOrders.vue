@@ -371,11 +371,10 @@
               </span>
               <div>
                 <p class="font-semibold text-violet-900">
-                  Определены победители розыгрыша за {{ crmStore.latestMonthlyDraw.period_key }}
+                  Розыгрыш за {{ drawPeriodLabel }}
                 </p>
                 <p class="mt-1 text-sm text-violet-800/90">
-                  {{ drawWinnerCountLabel }}.
-                  Свяжитесь с ними в Telegram, сообщите об условиях и выдайте промокоды или подарки.
+                  {{ drawWinnerCountLabel }}
                 </p>
               </div>
             </div>
@@ -385,7 +384,7 @@
                 class="rounded-lg bg-violet-600 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-violet-700"
                 @click="openReviews"
               >
-                Открыть розыгрыш
+                Список победителей
               </button>
               <button
                 type="button"
@@ -1502,11 +1501,32 @@ const {
 
 const router = useRouter();
 
+const DRAW_MONTH_LABELS = [
+  "январь", "февраль", "март", "апрель", "май", "июнь",
+  "июль", "август", "сентябрь", "октябрь", "ноябрь", "декабрь",
+];
+
+const drawPeriodLabel = computed(() => {
+  const periodKey = crmStore.latestMonthlyDraw?.period_key || "";
+  const match = /^(\d{4})-(\d{2})$/.exec(periodKey);
+  if (!match) return periodKey;
+  const month = DRAW_MONTH_LABELS[Number(match[2]) - 1];
+  return month ? `${month} ${match[1]}` : periodKey;
+});
+
+function formatDrawWinnerCount(count: number) {
+  const mod10 = count % 10;
+  const mod100 = count % 100;
+  if (mod10 === 1 && mod100 !== 11) return `${count} победитель`;
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) {
+    return `${count} победителя`;
+  }
+  return `${count} победителей`;
+}
+
 const drawWinnerCountLabel = computed(() => {
   const count = crmStore.latestMonthlyDraw?.winner_count || 0;
-  if (count === 1) return "Выбран 1 победитель";
-  if (count >= 2 && count <= 4) return `Выбрано ${count} победителя`;
-  return `Выбрано ${count} победителей`;
+  return count > 0 ? formatDrawWinnerCount(count) : "Победители не выбраны";
 });
 
 function openReviews() {

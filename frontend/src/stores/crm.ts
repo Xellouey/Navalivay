@@ -806,14 +806,14 @@ export const useCrmStore = defineStore("crm", () => {
     const { isActionRequired = false, isReview = false, isMonthlyDraw = false } = options;
     // Always show in-app toast (works in Safari and all browsers)
     const toastMessage = isMonthlyDraw
-      ? "Определены победители розыгрыша!"
+      ? "Розыгрыш отзывов"
       : isReview
         ? (count === 1 ? "Новый отзыв!" : `Новых отзывов: ${count}`)
         : isActionRequired
           ? (count === 1 ? "Заказ требует действий!" : `Заказов требует действий: ${count}`)
           : (count === 1 ? "Новый заказ!" : `Новых заказов: ${count}`);
     const toastHint = isMonthlyDraw
-      ? "Свяжитесь с победителями и выдайте промокоды"
+      ? "Список в разделе Отзывы"
       : isReview
         ? "Откройте раздел «Отзывы» для модерации"
         : "Проверьте колонку «Новые»";
@@ -837,7 +837,7 @@ export const useCrmStore = defineStore("crm", () => {
           ? (count === 1 ? "Требует действий" : `Требует действий: ${count}`)
           : (count === 1 ? "Новый заказ" : `Новых заказов: ${count}`);
     const body = isMonthlyDraw
-      ? "Определены победители. Свяжитесь с ними и выдайте промокоды."
+      ? "Появился список победителей."
       : isReview
         ? (count === 1
             ? "Появился отзыв на модерации."
