@@ -70,6 +70,68 @@ describe("ReviewLineCard", () => {
     wrapper.unmount();
   });
 
+  it("shows device variant line total from stored order_items", () => {
+    const wrapper = mount(ReviewLineCard, {
+      props: {
+        line: buildLine({
+          group_id: "grp_xros",
+          group_name: "XROS 5 MINI",
+          purchased_variant_name: "Rose red",
+          items: [{ total_price: 75 }],
+          eligibility: {
+            canReview: false,
+            reason: "pending_moderation",
+            cooldownEndsAt: null,
+          },
+        }),
+        orderId: "ord_device",
+      },
+    });
+
+    expect(wrapper.text()).toContain("75 BYN");
+    expect(wrapper.text()).toContain("Rose red");
+
+    wrapper.unmount();
+  });
+
+  it("shows 0 BYN when legacy order_items stored zero device price", () => {
+    const wrapper = mount(ReviewLineCard, {
+      props: {
+        line: buildLine({
+          group_id: "grp_xros",
+          group_name: "XROS 5 MINI",
+          purchased_variant_name: "Rose red",
+          items: [{ total_price: 0 }],
+          eligibility: {
+            canReview: false,
+            reason: "pending_moderation",
+            cooldownEndsAt: null,
+          },
+        }),
+        orderId: "ord_device_bad",
+      },
+    });
+
+    expect(wrapper.text()).toContain("0 BYN");
+
+    wrapper.unmount();
+  });
+
+  it("sums multiple items in the same review group", () => {
+    const wrapper = mount(ReviewLineCard, {
+      props: {
+        line: buildLine({
+          items: [{ total_price: 10 }, { total_price: 20 }],
+        }),
+        orderId: "ord_multi",
+      },
+    });
+
+    expect(wrapper.text()).toContain("30 BYN");
+
+    wrapper.unmount();
+  });
+
   it("renders review form when line is eligible", async () => {
     const wrapper = mount(ReviewLineCard, {
       props: {

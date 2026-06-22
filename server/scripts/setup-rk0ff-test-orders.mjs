@@ -8,6 +8,7 @@
  */
 import { initDb, db } from '../db.js';
 import { migrateProductReviews } from '../migrations/add_product_reviews.js';
+import { resolveOrderLinePrice } from '../utils/order-line-pricing.js';
 import { setQaUsernames, setReviewSetting } from '../utils/product-reviews.js';
 
 const RK_TELEGRAM_ID = '2035055116';
@@ -54,7 +55,6 @@ function loadProduct(productId, { variantId = null, variantName = null } = {}) {
     SELECT
       p.id AS product_id,
       p.title AS product_title,
-      p.priceRub AS price_rub,
       cg.id AS group_id,
       cg.name AS group_name,
       c.name AS category_name,
@@ -69,41 +69,13 @@ function loadProduct(productId, { variantId = null, variantName = null } = {}) {
     throw new Error(`Товар не найден: ${productId}`);
   }
 
-  let resolvedVariantId = variantId || null;
-  let resolvedVariantName = variantName || null;
-  let priceRub = Number(row.price_rub || 0);
-
-  if (resolvedVariantId || resolvedVariantName) {
-    const variant = resolvedVariantId
-      ? db.prepare(`
-          SELECT id, name, price_rub
-          FROM product_variants
-          WHERE id = ? AND product_id = ?
-        `).get(resolvedVariantId, productId)
-      : db.prepare(`
-          SELECT id, name, price_rub
-          FROM product_variants
-          WHERE product_id = ? AND name = ?
-        `).get(productId, resolvedVariantName);
-
-    if (!variant) {
-      throw new Error(
-        `Вариант не найден для ${productId}: ${resolvedVariantId || resolvedVariantName}`,
-      );
-    }
-
-    resolvedVariantId = variant.id;
-    resolvedVariantName = variant.name;
-    if (Number(variant.price_rub) > 0) {
-      priceRub = Number(variant.price_rub);
-    }
-  }
+  const pricing = resolveOrderLinePrice(db, productId, { variantId, variantName });
 
   return {
     ...row,
-    price_rub: priceRub,
-    variant_id: resolvedVariantId,
-    variant_name: resolvedVariantName,
+    price_rub: pricing.price_rub,
+    variant_id: pricing.variant_id,
+    variant_name: pricing.variant_name,
   };
 }
 

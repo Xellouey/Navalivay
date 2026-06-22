@@ -1029,6 +1029,137 @@ console.log('\n--- cooldown setting ---');
   ok(getCooldownDays() === 30, 'admin cooldown_days=30 is respected');
 }
 
+function seedSnusAndDeviceCatalog() {
+  db.prepare(
+    `INSERT INTO categories (id, slug, name, [order], hide_empty, storefront_filters_profile)
+     VALUES ('cat_snus', 'snus', 'Снюс', 2, 0, 'snus')`,
+  ).run();
+  db.prepare(
+    `INSERT INTO categories (id, slug, name, [order], hide_empty, storefront_filters_profile)
+     VALUES ('cat_dev', 'devices', 'Устройства', 3, 0, 'devices')`,
+  ).run();
+  db.prepare(
+    `INSERT INTO category_groups (id, categoryId, slug, name, [order], hide_empty, createdAt, updatedAt)
+     VALUES ('grp_snus', 'cat_snus', 'iceberg', 'ICEBERG 150', 1, 0, DATETIME('now'), DATETIME('now'))`,
+  ).run();
+  db.prepare(
+    `INSERT INTO category_groups (id, categoryId, slug, name, [order], hide_empty, createdAt, updatedAt)
+     VALUES ('grp_xros', 'cat_dev', 'xros5', 'XROS 5 MINI', 1, 0, DATETIME('now'), DATETIME('now'))`,
+  ).run();
+  db.prepare(
+    `INSERT INTO products (id, categoryId, groupId, title, priceRub, description, stock, has_variants, createdAt)
+     VALUES ('prod_snus', 'cat_snus', 'grp_snus', 'Хвоя', 15, '', 5, 0, DATETIME('now')),
+            ('prod_xros', 'cat_dev', 'grp_xros', 'XROS 5 MINI', 0, '', 5, 1, DATETIME('now'))`,
+  ).run();
+  db.prepare(
+    `INSERT INTO product_variants (id, product_id, name, price_rub, stock, position, created_at)
+     VALUES ('var_xros_red', 'prod_xros', 'Rose red', 75, 3, 0, DATETIME('now'))`,
+  ).run();
+}
+
+function insertMixedDeliveredOrder({
+  orderId,
+  orderNumber,
+  snusTotal = 15,
+  deviceTotal = 75,
+  notes = null,
+}) {
+  const finalAmount = snusTotal + deviceTotal;
+  db.prepare(
+    `INSERT INTO orders (id, order_number, customer_id, status, total_amount, final_amount, notes, completed_at, created_at, updated_at)
+     VALUES (?, ?, 'cust1', 'delivered', ?, ?, ?, DATETIME('now'), DATETIME('now'), DATETIME('now'))`,
+  ).run(orderId, orderNumber, finalAmount, finalAmount, notes);
+
+  db.prepare(
+    `INSERT INTO order_items (id, order_id, product_id, product_title, group_name, variant_id, variant_name, quantity, price_per_unit, total_price, total_cost)
+     VALUES ('oi_snus', ?, 'prod_snus', 'Хвоя', 'ICEBERG 150', NULL, 'Хвоя', 1, ?, ?, 6)`,
+  ).run(orderId, snusTotal, snusTotal);
+
+  db.prepare(
+    `INSERT INTO order_items (id, order_id, product_id, product_title, group_name, variant_id, variant_name, quantity, price_per_unit, total_price, total_cost)
+     VALUES ('oi_xros', ?, 'prod_xros', 'XROS 5 MINI', 'XROS 5 MINI', 'var_xros_red', 'Rose red', 1, ?, ?, 30)`,
+  ).run(orderId, deviceTotal, deviceTotal);
+
+  return db.prepare('SELECT * FROM orders WHERE id = ?').get(orderId);
+}
+
+console.log('\n--- review line totals: mixed snus + device order ---');
+{
+  seedBase();
+  clearDefaultSeedOrder();
+  seedSnusAndDeviceCatalog();
+
+  const order = insertMixedDeliveredOrder({
+    orderId: 'ord_mix_snus_dev',
+    orderNumber: 9116,
+    snusTotal: 15,
+    deviceTotal: 75,
+    notes: '[rk0ff-test-orders]',
+  });
+
+  const detail = serializeOrderDetail(order, 'cust1');
+  ok(detail.final_amount === 90, 'mixed order final_amount is 90');
+  ok(detail.reviewable_lines.length === 2, 'mixed order exposes two review lines');
+
+  const snusLine = detail.reviewable_lines.find((line) => line.group_id === 'grp_snus');
+  const deviceLine = detail.reviewable_lines.find((line) => line.group_id === 'grp_xros');
+  ok(
+    snusLine?.items.reduce((sum, item) => sum + item.total_price, 0) === 15,
+    'snus review line total is 15',
+  );
+  ok(
+    deviceLine?.items.reduce((sum, item) => sum + item.total_price, 0) === 75,
+    'device review line total is 75',
+  );
+  ok(deviceLine?.purchased_variant_name === 'Rose red', 'device line keeps variant label');
+}
+
+console.log('\n--- review line totals: legacy zero-priced device row (rk0ff artifact) ---');
+{
+  seedBase();
+  clearDefaultSeedOrder();
+  seedSnusAndDeviceCatalog();
+
+  const order = insertMixedDeliveredOrder({
+    orderId: 'ord_mix_bad_device',
+    orderNumber: 9117,
+    snusTotal: 15,
+    deviceTotal: 0,
+  });
+
+  const detail = serializeOrderDetail(order, 'cust1');
+  const deviceLine = detail.reviewable_lines.find((line) => line.group_id === 'grp_xros');
+  ok(
+    deviceLine?.items[0]?.total_price === 0,
+    'legacy bad device row still serializes as 0 BYN',
+  );
+  ok(detail.final_amount === 15, 'order total can disagree with real retail when device row is zero');
+}
+
+console.log('\n--- review line totals: multiple items in one group ---');
+{
+  seedBase();
+  clearDefaultSeedOrder();
+
+  db.prepare(
+    `INSERT INTO orders (id, order_number, customer_id, status, total_amount, final_amount, completed_at, created_at, updated_at)
+     VALUES ('ord_multi_qty', 9118, 'cust1', 'delivered', 30, 30, DATETIME('now'), DATETIME('now'), DATETIME('now'))`,
+  ).run();
+  db.prepare(
+    `INSERT INTO order_items (id, order_id, product_id, product_title, group_name, variant_name, quantity, price_per_unit, total_price, total_cost)
+     VALUES ('oi_multi_1', 'ord_multi_qty', 'prod1', 'Ананас', 'Подонки', 'Вкус 1', 1, 10, 10, 4),
+            ('oi_multi_2', 'ord_multi_qty', 'prod1', 'Ананас', 'Подонки', 'Вкус 2', 1, 20, 20, 8)`,
+  ).run();
+
+  const order = db.prepare('SELECT * FROM orders WHERE id = ?').get('ord_multi_qty');
+  const lines = buildReviewableLinesForOrder(order, 'cust1');
+  ok(lines.length === 1, 'same group collapses to one review line');
+  ok(
+    lines[0].items.reduce((sum, item) => sum + item.total_price, 0) === 30,
+    'group line total sums all order_items',
+  );
+}
+
 console.log('\n--- QA usernames: parse and bypass ---');
 {
   setReviewSetting('dev_test_mode', '0');
