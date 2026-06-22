@@ -34,9 +34,6 @@
             </div>
             <div>
               <strong>{{ review.reviewer.display_name }}</strong>
-              <p v-if="review.purchased_variant_name" class="group-reviews-modal__variant">
-                {{ review.purchased_variant_name }}
-              </p>
             </div>
           </div>
           <div class="group-reviews-modal__stars" aria-hidden="true">
@@ -52,6 +49,10 @@
             </span>
           </div>
         </div>
+
+        <p v-if="review.purchased_variant_name" class="group-reviews-modal__variant">
+          {{ review.purchased_variant_name }}
+        </p>
 
         <p class="group-reviews-modal__body">{{ review.body_text }}</p>
 
@@ -234,11 +235,11 @@ watch(
 }
 
 .group-reviews-modal__variant {
-  margin: 2px 0 0;
+  margin: 8px 0 0;
   font-family: -apple-system, "SF Pro Display", sans-serif;
-  font-size: 12px;
-  line-height: 15px;
-  color: #8a93a0;
+  font-size: 13px;
+  line-height: 16px;
+  color: #5c6470;
 }
 
 .group-reviews-modal__stars {

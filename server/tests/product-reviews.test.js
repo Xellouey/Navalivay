@@ -18,6 +18,7 @@ const {
   validateReviewBodyText,
   resolveReviewCategoryKey,
   getPublicGroupReviews,
+  resolvePurchasedVariantName,
   buildOrderLineIconsFromGroups,
   buildOrderFulfillmentMilestones,
   buildReviewableLinesForOrder,
@@ -378,6 +379,37 @@ console.log('\n--- parent vs child public review summaries ---');
   ok(childSummary.average_rating === 5, 'child line average rating is exposed');
 }
 
+console.log('\n--- resolve purchased variant name ---');
+{
+  ok(
+    resolvePurchasedVariantName({ variantName: 'Rose red' }) === 'Rose red',
+    'prefers explicit variant_name',
+  );
+  ok(
+    resolvePurchasedVariantName({
+      productTitle: 'Сладкая мята',
+      groupName: 'Снюс DRYMOST 75MG',
+    }) === 'Сладкая мята',
+    'uses product title as flavor when variant is missing',
+  );
+  ok(
+    resolvePurchasedVariantName({
+      productTitle: 'XROS 5 MINI - Rose red',
+      baseProductTitle: 'XROS 5 MINI',
+      groupName: 'XROS 5 MINI',
+    }) === 'Rose red',
+    'extracts device color from composite title',
+  );
+  ok(
+    resolvePurchasedVariantName({
+      productTitle: 'XROS 5 MINI',
+      baseProductTitle: 'XROS 5 MINI',
+      groupName: 'XROS 5 MINI',
+    }) === null,
+    'skips variant label when only base device title is present',
+  );
+}
+
 console.log('\n--- public reviews ---');
 {
   seedBase();
@@ -398,6 +430,64 @@ console.log('\n--- public reviews ---');
   ok(publicReviews.review_count === 1, 'one public review');
   ok(publicReviews.items[0].reviewer.is_anonymous === true, 'anonymous mask');
   ok(publicReviews.items[0].purchased_variant_name === 'Ананасовая шипучка', 'variant in public review');
+}
+
+console.log('\n--- public reviews backfill flavor from order item ---');
+{
+  db.exec('DELETE FROM product_reviews;');
+  db.exec('DELETE FROM order_items;');
+  db.exec('DELETE FROM orders;');
+  db.exec('DELETE FROM products;');
+  db.exec('DELETE FROM category_groups;');
+  db.exec('DELETE FROM categories;');
+
+  db.prepare(
+    `INSERT INTO categories (id, slug, name, [order], hide_empty, storefront_filters_profile)
+     VALUES ('cat_snus', 'snus', 'Снюс', 1, 0, 'snus_plates')`,
+  ).run();
+  db.prepare(
+    `INSERT INTO category_groups (id, categoryId, slug, name, [order], hide_empty, createdAt, updatedAt)
+     VALUES ('grp_snus', 'cat_snus', 'grp_snus', 'Снюс DRYMOST 75MG', 1, 0, DATETIME('now'), DATETIME('now'))`,
+  ).run();
+  db.prepare(
+    `INSERT INTO products (id, categoryId, groupId, title, priceRub, description, stock, createdAt)
+     VALUES ('prod_snus', 'cat_snus', 'grp_snus', 'Сладкая мята', 8, '', 5, DATETIME('now'))`,
+  ).run();
+  db.prepare(
+    `INSERT INTO orders (id, order_number, customer_id, status, total_amount, final_amount, completed_at, created_at, updated_at)
+     VALUES ('ord_snus', 2001, 'cust1', 'delivered', 8, 8, DATETIME('now'), DATETIME('now'), DATETIME('now'))`,
+  ).run();
+  db.prepare(
+    `INSERT INTO order_items (
+      id, order_id, product_id, product_title, group_name, base_product_title, variant_name,
+      quantity, price_per_unit, total_price, total_cost
+    ) VALUES ('oi_snus', 'ord_snus', 'prod_snus', 'Сладкая мята', 'Снюс DRYMOST 75MG', 'Сладкая мята', NULL, 1, 8, 8, 4)`,
+  ).run();
+
+  createProductReview({
+    customerId: 'cust1',
+    orderId: 'ord_snus',
+    groupId: 'grp_snus',
+    orderItemId: 'oi_snus',
+    rating: 5,
+    bodyText: 'Все отлично, и по цене одно из лучших предложений',
+    quickTagIds: [],
+    isAnonymous: false,
+  });
+
+  const reviewId = db.prepare('SELECT id FROM product_reviews LIMIT 1').get().id;
+  db.prepare(
+    `UPDATE product_reviews
+     SET status = 'approved', approved_at = DATETIME('now'), purchased_variant_name = NULL
+     WHERE id = ?`,
+  ).run(reviewId);
+
+  const publicReviews = getPublicGroupReviews('grp_snus');
+  ok(publicReviews.review_count === 1, 'one snus public review');
+  ok(
+    publicReviews.items[0].purchased_variant_name === 'Сладкая мята',
+    'public review backfills flavor from order item',
+  );
 }
 
 console.log('\n--- order history line icons ---');

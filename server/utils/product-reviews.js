@@ -99,6 +99,66 @@ export function resolveReviewCategoryKey({ slug = '', storefrontFiltersProfile =
   return REVIEW_CATEGORY_KEYS.OTHER;
 }
 
+function normalizePurchasedVariantToken(value) {
+  return String(value || '').trim().toLocaleLowerCase('ru-RU');
+}
+
+/**
+ * Resolves the customer-facing flavor/color label for reviews and order detail.
+ * Uses variant_name when present; otherwise falls back to flavor-as-product titles.
+ */
+export function resolvePurchasedVariantName({
+  variantName = null,
+  productTitle = null,
+  baseProductTitle = null,
+  groupName = null,
+} = {}) {
+  const variant = String(variantName || '').trim();
+  if (variant) return variant;
+
+  const title = String(productTitle || '').trim();
+  const base = String(baseProductTitle || '').trim();
+  const group = String(groupName || '').trim();
+  if (!title) return null;
+
+  const normalizedTitle = normalizePurchasedVariantToken(title);
+  const normalizedBase = normalizePurchasedVariantToken(base);
+  const normalizedGroup = normalizePurchasedVariantToken(group);
+
+  if (base && normalizedTitle !== normalizedBase) {
+    const dashPrefix = `${base} - `;
+    if (title.startsWith(dashPrefix)) {
+      const extracted = title.slice(dashPrefix.length).trim();
+      if (extracted) return extracted;
+    }
+    const parenPrefix = `${base} (`;
+    if (title.startsWith(parenPrefix) && title.endsWith(')')) {
+      const extracted = title.slice(parenPrefix.length, -1).trim();
+      if (extracted) return extracted;
+    }
+  }
+
+  if (group && normalizedTitle !== normalizedGroup) {
+    return title;
+  }
+
+  if (base && normalizedTitle === normalizedBase) {
+    return null;
+  }
+
+  return null;
+}
+
+function resolvePurchasedVariantFromOrderItem(row, groupName = null) {
+  if (!row) return null;
+  return resolvePurchasedVariantName({
+    variantName: row.variant_name,
+    productTitle: row.product_title,
+    baseProductTitle: row.base_product_title,
+    groupName: row.group_name || groupName,
+  });
+}
+
 export function getReviewSetting(key, fallback = null) {
   const row = db.prepare('SELECT value FROM review_settings WHERE key = ?').get(key);
   return row?.value ?? fallback;
@@ -380,13 +440,25 @@ function resolveDevBypassEligibility({
   if (orderId) {
     scopedItem = orderItemId
       ? db.prepare(`
-          SELECT oi.id, oi.variant_id, oi.variant_name
+          SELECT
+            oi.id,
+            oi.variant_id,
+            oi.variant_name,
+            oi.product_title,
+            oi.group_name,
+            oi.base_product_title
           FROM order_items oi
           INNER JOIN products p ON p.id = oi.product_id
           WHERE oi.id = ? AND oi.order_id = ? AND p.groupId = ?
         `).get(orderItemId, orderId, groupId)
       : db.prepare(`
-          SELECT oi.id, oi.variant_id, oi.variant_name
+          SELECT
+            oi.id,
+            oi.variant_id,
+            oi.variant_name,
+            oi.product_title,
+            oi.group_name,
+            oi.base_product_title
           FROM order_items oi
           INNER JOIN products p ON p.id = oi.product_id
           WHERE oi.order_id = ? AND p.groupId = ?
@@ -399,7 +471,10 @@ function resolveDevBypassEligibility({
         oi.id AS order_item_id,
         oi.order_id,
         oi.variant_id,
-        oi.variant_name
+        oi.variant_name,
+        oi.product_title,
+        oi.group_name,
+        oi.base_product_title
       FROM order_items oi
       INNER JOIN orders o ON o.id = oi.order_id
       INNER JOIN products p ON p.id = oi.product_id
@@ -415,9 +490,14 @@ function resolveDevBypassEligibility({
         id: purchase.order_item_id,
         variant_id: purchase.variant_id,
         variant_name: purchase.variant_name,
+        product_title: purchase.product_title,
+        group_name: purchase.group_name,
+        base_product_title: purchase.base_product_title,
       };
     }
   }
+
+  const groupName = db.prepare('SELECT name FROM category_groups WHERE id = ?').get(groupId)?.name || null;
 
   return {
     canReview: true,
@@ -425,7 +505,7 @@ function resolveDevBypassEligibility({
     orderId: scopedOrderId,
     orderItemId: scopedItem?.id || orderItemId || null,
     purchasedVariantId: scopedItem?.variant_id || null,
-    purchasedVariantName: scopedItem?.variant_name || null,
+    purchasedVariantName: resolvePurchasedVariantFromOrderItem(scopedItem, groupName),
   };
 }
 
@@ -453,6 +533,9 @@ export function getGroupReviewEligibility({
       oi.order_id,
       oi.variant_id,
       oi.variant_name,
+      oi.product_title,
+      oi.group_name,
+      oi.base_product_title,
       o.id AS order_id_ref,
       o.status,
       o.completed_at,
@@ -493,13 +576,25 @@ export function getGroupReviewEligibility({
   const scopedOrderId = orderId || purchase.order_id;
   const scopedItem = orderItemId
     ? db.prepare(`
-        SELECT oi.id, oi.variant_id, oi.variant_name
+        SELECT
+          oi.id,
+          oi.variant_id,
+          oi.variant_name,
+          oi.product_title,
+          oi.group_name,
+          oi.base_product_title
         FROM order_items oi
         INNER JOIN products p ON p.id = oi.product_id
         WHERE oi.id = ? AND oi.order_id = ? AND p.groupId = ?
       `).get(orderItemId, scopedOrderId, groupId)
     : db.prepare(`
-        SELECT oi.id, oi.variant_id, oi.variant_name
+        SELECT
+          oi.id,
+          oi.variant_id,
+          oi.variant_name,
+          oi.product_title,
+          oi.group_name,
+          oi.base_product_title
         FROM order_items oi
         INNER JOIN products p ON p.id = oi.product_id
         WHERE oi.order_id = ? AND p.groupId = ?
@@ -507,13 +602,16 @@ export function getGroupReviewEligibility({
         LIMIT 1
       `).get(scopedOrderId, groupId);
 
+  const itemForVariant = scopedItem || purchase;
+  const groupName = db.prepare('SELECT name FROM category_groups WHERE id = ?').get(groupId)?.name || null;
+
   return {
     canReview: true,
     reason: 'eligible',
     orderId: scopedOrderId,
     orderItemId: scopedItem?.id || purchase.order_item_id,
     purchasedVariantId: scopedItem?.variant_id || purchase.variant_id || null,
-    purchasedVariantName: scopedItem?.variant_name || purchase.variant_name || null,
+    purchasedVariantName: resolvePurchasedVariantFromOrderItem(itemForVariant, groupName),
   };
 }
 
@@ -561,6 +659,7 @@ function loadOrderItemsGrouped(orderId) {
       product_id: row.product_id,
       product_title: row.product_title,
       base_product_title: row.base_product_title || row.product_title,
+      group_name: row.group_name || row.resolved_group_name || null,
       variant_id: row.variant_id || null,
       variant_name: row.variant_name || null,
       quantity: Number(row.quantity || 0),
@@ -667,7 +766,7 @@ export function buildReviewableLinesForOrder(order, customerId, { devBypass = fa
         review_category_key: group.review_category_key,
         order_item_id: primaryItem?.id || null,
         purchased_variant_id: primaryItem?.variant_id || null,
-        purchased_variant_name: primaryItem?.variant_name || null,
+        purchased_variant_name: resolvePurchasedVariantFromOrderItem(primaryItem, group.group_name),
         items: group.items,
         eligibility,
         latest_review: latestReview || null,
@@ -961,14 +1060,21 @@ export function getPublicGroupReviews(groupId, { limit = 20, offset = 0 } = {}) 
     WHERE group_id = ? AND status = ?
   `).get(groupId, REVIEW_STATUSES.APPROVED);
 
+  const groupName = db.prepare('SELECT name FROM category_groups WHERE id = ?').get(groupId)?.name || null;
+
   const rows = db.prepare(`
     SELECT
       pr.*,
       c.first_name,
       c.last_name,
-      c.photo_url
+      c.photo_url,
+      oi.variant_name AS order_item_variant_name,
+      oi.product_title AS order_item_product_title,
+      oi.group_name AS order_item_group_name,
+      oi.base_product_title AS order_item_base_product_title
     FROM product_reviews pr
     LEFT JOIN customers c ON c.id = pr.customer_id
+    LEFT JOIN order_items oi ON oi.id = pr.order_item_id
     WHERE pr.group_id = ? AND pr.status = ?
     ORDER BY pr.approved_at DESC, pr.created_at DESC
     LIMIT ? OFFSET ?
@@ -1011,11 +1117,20 @@ export function getPublicGroupReviews(groupId, { limit = 20, offset = 0 } = {}) 
         quickTagLabels = [];
       }
 
+      const purchasedVariantName =
+        row.purchased_variant_name
+        || resolvePurchasedVariantName({
+          variantName: row.order_item_variant_name,
+          productTitle: row.order_item_product_title,
+          baseProductTitle: row.order_item_base_product_title,
+          groupName: row.order_item_group_name || groupName,
+        });
+
       return {
         id: row.id,
         rating: row.rating,
         body_text: row.body_text,
-        purchased_variant_name: row.purchased_variant_name || null,
+        purchased_variant_name: purchasedVariantName || null,
         quick_tag_labels: quickTagLabels,
         reviewer: maskReviewer(
           { first_name: row.first_name, last_name: row.last_name, photo_url: row.photo_url },
