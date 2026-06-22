@@ -62,6 +62,30 @@ describe("useUserStore", () => {
     );
   });
 
+  it("uses WebApp photo_url when API returns no cached photo", async () => {
+    (window as any).Telegram.WebApp.initDataUnsafe.user.photo_url =
+      "https://t.me/i/userpic/320/fallback.jpg";
+
+    const fetchMock = vi.fn(async () =>
+      createJsonResponse({
+        id: "cust-42",
+        telegram_id: "42",
+        telegram_username: "buyer42",
+        first_name: "Иван",
+        last_name: "Петров",
+        photo_url: null,
+        total_orders: 0,
+        total_spent: 0,
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const store = useUserStore();
+    await store.fetchProfile("42");
+
+    expect(store.photoUrl).toBe("https://t.me/i/userpic/320/fallback.jpg");
+  });
+
   it("falls back to Telegram initDataUnsafe when API fails", async () => {
     vi.stubGlobal(
       "fetch",

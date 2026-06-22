@@ -22,6 +22,10 @@ import {
 } from "../wholesale-service.js";
 import { activatePendingNotesForCustomer } from '../utils/customer-notes.js';
 import {
+  resolveCustomerPhotoRefresh,
+  shouldRefreshCustomerPhoto,
+} from "../utils/customer-photo.js";
+import {
   activatePendingBansForCustomer,
   getActiveBlockForTelegramId,
   getPendingBanForUsername,
@@ -1763,33 +1767,43 @@ publicRouter.get(
       }
 
       let photoUrl = customer.photo_url || null;
-      const photoAge = customer.photo_updated_at
-        ? Date.now() - new Date(customer.photo_updated_at).getTime()
-        : Infinity;
-      const PHOTO_CACHE_MS = 24 * 60 * 60 * 1000;
 
-      if (telegramId && photoAge > PHOTO_CACHE_MS && TELEGRAM_BOT_TOKEN) {
+      if (
+        telegramId
+        && TELEGRAM_BOT_TOKEN
+        && shouldRefreshCustomerPhoto({
+          photoUrl,
+          photoUpdatedAt: customer.photo_updated_at,
+        })
+      ) {
         try {
           const chat = await fetchTelegramChat(telegramId);
+          let fileData = null;
+
           if (chat?.photo?.big_file_id) {
             const fileResp = await fetch(
               `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getFile?file_id=${encodeURIComponent(chat.photo.big_file_id)}`,
             );
-            const fileData = await fileResp.json();
-            if (fileData?.ok && fileData.result?.file_path) {
-              photoUrl = `https://api.telegram.org/file/bot${TELEGRAM_BOT_TOKEN}/${fileData.result.file_path}`;
-            }
-          } else {
-            photoUrl = null;
+            fileData = await fileResp.json();
           }
 
-          db.prepare(`
-            UPDATE customers
-            SET photo_url = ?,
-                photo_updated_at = DATETIME('now'),
-                updated_at = DATETIME('now')
-            WHERE id = ?
-          `).run(photoUrl, customer.id);
+          const refresh = resolveCustomerPhotoRefresh({
+            cachedPhotoUrl: photoUrl,
+            chat,
+            fileData,
+            token: TELEGRAM_BOT_TOKEN,
+          });
+          photoUrl = refresh.photoUrl;
+
+          if (refresh.shouldPersist) {
+            db.prepare(`
+              UPDATE customers
+              SET photo_url = ?,
+                  photo_updated_at = DATETIME('now'),
+                  updated_at = DATETIME('now')
+              WHERE id = ?
+            `).run(photoUrl, customer.id);
+          }
         } catch (photoError) {
           console.warn("[public] Failed to fetch Telegram photo:", photoError.message);
         }

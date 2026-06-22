@@ -312,6 +312,13 @@ const loyaltyStore = useLoyaltyStore();
 const wholesaleStore = useWholesaleStore();
 const wheelStore = useWheelStore();
 const avatarError = ref(false);
+
+watch(
+  () => userStore.photoUrl,
+  () => {
+    avatarError.value = false;
+  },
+);
 const activeLoyaltyKey = ref<string | null>(null);
 const showRulesModal = ref(false);
 const showLoyaltyPopup = ref(false);
