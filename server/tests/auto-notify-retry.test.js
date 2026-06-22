@@ -211,7 +211,7 @@ const orderRow = db.prepare(`SELECT * FROM orders WHERE id = ?`).get(enrichOrder
 const enriched = enrichOrdersWithRelations(db, [orderRow]);
 assertEq(enriched[0]?.auto_notification?.status, 'pending_retry', 'status=pending_retry');
 assert(
-  enriched[0]?.auto_notification?.error?.includes('автоматически'),
+  enriched[0]?.auto_notification?.error?.includes('очереди'),
   'friendly pending message',
 );
 

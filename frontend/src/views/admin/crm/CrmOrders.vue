@@ -7,7 +7,7 @@
         role="status"
       >
         <span class="font-semibold">Автоуведомления отложены:</span>
-        userbot не подключён к Telegram. Сообщения клиентам будут отправлены автоматически, когда связь восстановится.
+        нет связи с Telegram. Отправим клиентам, когда канал восстановится.
       </div>
       <div class="flex items-center justify-between gap-4">
         <div
@@ -635,7 +635,7 @@
                     <span
                       v-else-if="order.auto_notification?.status === 'pending_retry'"
                       class="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-800"
-                      :title="order.auto_notification?.error || 'Уведомление будет отправлено автоматически'"
+                      :title="order.auto_notification?.error || 'Нет связи с Telegram, уведомление в очереди'"
                     >Отложено</span>
                     <span
                       v-else-if="order.auto_notification?.status === 'failed'"
@@ -746,7 +746,7 @@
                     class="rounded-md border border-amber-200 bg-amber-50 px-2 py-1.5 text-[11px] font-medium text-amber-800"
                     :title="order.auto_notification?.error || ''"
                   >
-                    Уведомление отложено — отправится автоматически, когда userbot восстановится
+                    Отправим клиенту, когда восстановится связь с Telegram
                   </div>
                   <!-- Авто-уведомление клиенту не дошло. Менеджер должен
                        написать вручную через кнопку «Написать» выше. -->

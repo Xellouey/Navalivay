@@ -52,7 +52,7 @@ export function buildAutoNotifyToast(
   if (notify.pending || notify.reason === 'retry_scheduled') {
     return {
       kind: 'info',
-      message: `${base}. Userbot временно недоступен — уведомление отправится автоматически.`,
+      message: `${base}. Отправка отложена, уведомление уйдёт, когда восстановится связь с Telegram.`,
     }
   }
   if (notify.sent) {
@@ -100,7 +100,7 @@ export function describeSkipReason(reason: string | undefined): string {
     case 'userbot_unavailable':
     case 'userbot_unreachable':
     case 'retry_scheduled':
-      return 'Userbot временно недоступен. Уведомление будет отправлено автоматически.'
+      return 'Нет связи с Telegram. Уведомление в очереди.'
     case 'userbot_ambiguous':
       return 'Не дождались ответа от Telegram. Проверьте чат с клиентом перед повторной отправкой.'
     case 'new_customer_no_dialog':

@@ -17,6 +17,6 @@ describe("buildAutoNotifyToast", () => {
       { actionDescription: "Заказ #9074: собран" },
     );
     expect(toast.kind).toBe("info");
-    expect(toast.message).toContain("автоматически");
+    expect(toast.message).toContain("Отправка отложена");
   });
 });

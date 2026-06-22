@@ -24,7 +24,7 @@ export function describeAutoNotifyReason(reason, error) {
     case 'userbot_unavailable':
     case 'userbot_unreachable':
     case 'retry_scheduled':
-      return 'Userbot временно недоступен. Уведомление будет отправлено автоматически.';
+      return 'Нет связи с Telegram. Уведомление в очереди.';
     case 'no_active_connection':
       return 'Бот не подключён к Telegram. Проверьте подключение в настройках.';
     case 'client_inactive_over_24h':
