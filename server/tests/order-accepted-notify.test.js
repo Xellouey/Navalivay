@@ -44,6 +44,7 @@ function assert(cond, msg) {
 }
 
 function resetDb() {
+  db.exec(`DELETE FROM pending_notifications;`);
   db.exec(`DELETE FROM bot_message_log;`);
   db.exec(`DELETE FROM customer_blocks;`);
   db.exec(`DELETE FROM customers;`);
@@ -221,8 +222,8 @@ try {
   _resetHealthCacheForTests();
 }
 
-// --- T6: userbot unavailable ---
-console.log('\n=== T6: userbot /health fail → userbot_unavailable ===');
+// --- T6: userbot unavailable → retry scheduled ---
+console.log('\n=== T6: userbot /health fail → retry_scheduled ===');
 resetDb();
 makeReturningCustomer({ telegramId: '666' });
 _resetHealthCacheForTests();
@@ -235,10 +236,13 @@ globalThis.fetch = async (url) => {
 };
 try {
   const result = await autoNotifyOrderAccepted({ orderId: 'o_new' });
-  assertEq(result.reason, 'userbot_unavailable', 'userbot_unavailable');
+  assertEq(result.reason, 'retry_scheduled', 'retry_scheduled');
+  assertEq(result.pending, true, 'pending=true');
+  const pending = db.prepare(`SELECT COUNT(*) AS n FROM pending_notifications`).get().n;
+  assertEq(pending, 1, 'pending row');
   const logRows = db.prepare(`SELECT meta FROM bot_message_log ORDER BY id DESC LIMIT 1`).all();
   const meta = JSON.parse(logRows[0]?.meta || '{}');
-  assertEq(meta.reason, 'userbot_unavailable', 'logged skipped');
+  assertEq(meta.outcome, 'retry_scheduled', 'logged retry_scheduled');
 } finally {
   globalThis.fetch = origFetch;
   _resetHealthCacheForTests();
@@ -289,20 +293,17 @@ resetDb();
   }
 }
 
-// --- T9: retry after userbot_unavailable — skip log не блокирует ---
-console.log('\n=== T9: retry after userbot_unavailable → second call sends ===');
+// --- T9: worker retry after userbot_unavailable ---
+console.log('\n=== T9: worker retry after userbot_unavailable → sends ===');
 resetDb();
 makeReturningCustomer({ telegramId: '901' });
+const { processPendingAutoNotifyRetries } = await import('../utils/auto-notify-retry.js');
+const { executeAutoNotify } = await import('../utils/auto-notify.js');
 let t9SendCount = 0;
-let t9HealthFailsLeft = 1;
 globalThis.fetch = async (url) => {
   const u = String(url);
   if (u.includes('/health')) {
-    if (t9HealthFailsLeft > 0) {
-      t9HealthFailsLeft -= 1;
-      return { ok: false, status: 503, async json() { return {}; } };
-    }
-    return { ok: true, async json() { return { ok: true, connected: true }; } };
+    return { ok: false, status: 503, async json() { return {}; } };
   }
   if (u.includes('/send-message')) {
     t9SendCount++;
@@ -312,11 +313,25 @@ globalThis.fetch = async (url) => {
 };
 try {
   const first = await autoNotifyOrderAccepted({ orderId: 'o_new' });
-  assertEq(first.reason, 'userbot_unavailable', 'first=userbot_unavailable');
+  assertEq(first.reason, 'retry_scheduled', 'first=retry_scheduled');
+  db.prepare(
+    `UPDATE pending_notifications SET next_retry_at = DATETIME('now', '-1 minute') WHERE order_id = 'o_new'`,
+  ).run();
   _resetHealthCacheForTests();
-  const second = await autoNotifyOrderAccepted({ orderId: 'o_new' });
-  assertEq(second.sent, true, 'retry sent=true');
-  assertEq(t9SendCount, 1, 'один send после retry');
+  globalThis.fetch = async (url) => {
+    const u = String(url);
+    if (u.includes('/health')) {
+      return { ok: true, async json() { return { ok: true, connected: true }; } };
+    }
+    if (u.includes('/send-message')) {
+      t9SendCount++;
+      return { ok: true, async json() { return { ok: true, telegram_message_id: 901 }; } };
+    }
+    throw new Error(`unexpected ${u}`);
+  };
+  const summary = await processPendingAutoNotifyRetries({ executeAutoNotify });
+  assertEq(summary.sent, 1, 'worker sent=1');
+  assertEq(t9SendCount, 1, 'один send после worker retry');
 } finally {
   globalThis.fetch = origFetch;
   _resetHealthCacheForTests();
@@ -521,8 +536,8 @@ const afterSecond = db
   .get();
 assertEq(afterSecond.body, bodyBefore, 'повторная миграция не перезаписывает');
 
-// --- R2: enrichOrdersWithRelations — failed badge на skip log ---
-console.log('\n=== R2: enrichOrdersWithRelations shows failed for skip log ===');
+// --- R2: enrichOrdersWithRelations — pending_retry на retry log + queue ---
+console.log('\n=== R2: enrichOrdersWithRelations shows pending_retry ===');
 resetDb();
 const enrichCase = makeReturningCustomer({ telegramId: '908' });
 db.prepare(
@@ -533,14 +548,22 @@ db.prepare(
   JSON.stringify({
     order_id: enrichCase.orderId,
     auto: 1,
-    outcome: 'skipped',
+    outcome: 'retry_scheduled',
     reason: 'userbot_unavailable',
   }),
 );
+db.prepare(
+  `INSERT INTO pending_notifications
+    (order_id, template_event, reason, attempt, max_attempts, next_retry_at, status)
+   VALUES (?, 'order_accepted', 'userbot_unavailable', 0, 15, DATETIME('now', '+1 minute'), 'pending')`,
+).run(enrichCase.orderId);
 const orderRow = db.prepare(`SELECT * FROM orders WHERE id = ?`).get(enrichCase.orderId);
 const enriched = enrichOrdersWithRelations(db, [orderRow]);
-assertEq(enriched[0]?.auto_notification?.status, 'failed', 'status=failed');
-assertEq(enriched[0]?.auto_notification?.error, 'userbot_unavailable', 'error из reason');
+assertEq(enriched[0]?.auto_notification?.status, 'pending_retry', 'status=pending_retry');
+assert(
+  enriched[0]?.auto_notification?.error?.includes('автоматически'),
+  'friendly retry message',
+);
 assertEq(enriched[0]?.is_returning_customer, true, 'returning badge');
 
 console.log(`\n=== Total: ${results.passed} passed, ${results.failed} failed ===`);

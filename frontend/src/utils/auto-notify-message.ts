@@ -43,10 +43,16 @@ export function buildAutoNotifyToast(
   if (!notify) {
     return { kind: 'info', message: base }
   }
-  if (notify.pending) {
+  if (notify.pending && notify.reason !== 'retry_scheduled') {
     return {
       kind: 'info',
       message: `${base}. Уведомление клиенту отправляется в фоне.`,
+    }
+  }
+  if (notify.pending || notify.reason === 'retry_scheduled') {
+    return {
+      kind: 'info',
+      message: `${base}. Userbot временно недоступен — уведомление отправится автоматически.`,
     }
   }
   if (notify.sent) {
@@ -92,7 +98,9 @@ export function describeSkipReason(reason: string | undefined): string {
     case 'template_empty':
       return 'Шаблон пустой. Заполните его в настройках бота.'
     case 'userbot_unavailable':
-      return 'Userbot не отвечает. Попробуйте через минуту.'
+    case 'userbot_unreachable':
+    case 'retry_scheduled':
+      return 'Userbot временно недоступен. Уведомление будет отправлено автоматически.'
     case 'userbot_ambiguous':
       return 'Не дождались ответа от Telegram. Проверьте чат с клиентом перед повторной отправкой.'
     case 'new_customer_no_dialog':

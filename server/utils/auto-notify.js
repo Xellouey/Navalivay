@@ -19,6 +19,10 @@ import {
 } from './business-bot.js';
 import { sendViaUserbot, isUserbotAvailable } from './userbot-client.js';
 import { getActiveBlockForCustomerId } from './customer-blocks.js';
+import {
+  scheduleAutoNotifyRetry,
+  hasAutoNotifyBeenSent,
+} from './auto-notify-retry.js';
 import { db } from '../db.js';
 
 export const ORDER_ACCEPTED_EVENT = 'order_accepted';
@@ -118,12 +122,27 @@ function releaseOrderAcceptedClaim(orderId) {
   ).run(ORDER_ACCEPTED_EVENT, String(orderId));
 }
 
+function buildRetryScheduledResult({ event, reason = 'userbot_unavailable' }) {
+  return {
+    sent: false,
+    skipped: false,
+    pending: true,
+    reason: 'retry_scheduled',
+    retry_reason: reason,
+    event,
+  };
+}
+
 /**
  * @param {object} args
  * @param {string} args.orderId
  * @param {string} args.event
+ * @param {boolean} [args.fromRetry=false]
  */
-async function executeAutoNotify({ orderId, event }) {
+export async function executeAutoNotify({ orderId, event, fromRetry = false } = {}) {
+  if (hasAutoNotifyBeenSent(orderId, event)) {
+    return { sent: true, event, already_sent: true };
+  }
   const prepared = prepareStatusNotification({ orderId, event });
   if (!prepared.ok) {
     return { sent: false, skipped: true, reason: prepared.reason, event };
@@ -169,7 +188,20 @@ async function executeAutoNotify({ orderId, event }) {
   }
 
   if (!(await isUserbotAvailable())) {
-    safeLog({ outcome: 'skipped', reason: 'userbot_unavailable' });
+    const schedule = scheduleAutoNotifyRetry({
+      orderId,
+      event,
+      reason: 'userbot_unavailable',
+    });
+    safeLog({
+      outcome: schedule.scheduled ? 'retry_scheduled' : 'skipped',
+      reason: 'userbot_unavailable',
+      retry_attempt: schedule.attempt ?? null,
+      next_retry_at: schedule.next_retry_at ?? null,
+    });
+    if (schedule.scheduled) {
+      return buildRetryScheduledResult({ event, reason: 'userbot_unavailable' });
+    }
     return { sent: false, skipped: true, reason: 'userbot_unavailable', event };
   }
 
@@ -211,6 +243,24 @@ async function executeAutoNotify({ orderId, event }) {
       event,
       via: 'userbot',
     };
+  }
+
+  if (ubResult.outcome === 'unreachable') {
+    const schedule = scheduleAutoNotifyRetry({
+      orderId,
+      event,
+      reason: 'userbot_unreachable',
+    });
+    safeLog({
+      outcome: schedule.scheduled ? 'retry_scheduled' : 'skipped',
+      reason: 'userbot_unreachable',
+      error: ubResult.error,
+      retry_attempt: schedule.attempt ?? null,
+      next_retry_at: schedule.next_retry_at ?? null,
+    });
+    if (schedule.scheduled) {
+      return buildRetryScheduledResult({ event, reason: 'userbot_unreachable' });
+    }
   }
 
   console.warn(`[auto-notify] userbot ${ubResult.outcome}:`, ubResult.error);
@@ -280,7 +330,7 @@ export async function autoNotifyOrderAccepted({ orderId } = {}) {
 
   try {
     const result = await executeAutoNotify({ orderId, event: ORDER_ACCEPTED_EVENT });
-    if (!result.sent) {
+    if (!result.sent && !result.pending && result.reason !== 'retry_scheduled') {
       releaseOrderAcceptedClaim(orderId);
     }
     return result;

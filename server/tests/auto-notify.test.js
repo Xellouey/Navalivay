@@ -43,6 +43,7 @@ function assert(cond, msg) {
 }
 
 function resetDb() {
+  db.exec(`DELETE FROM pending_notifications;`);
   db.exec(`DELETE FROM bot_message_log;`);
   db.exec(`DELETE FROM business_connections;`);
   db.exec(`DELETE FROM customers;`);
@@ -219,10 +220,8 @@ upsertStatusTemplate('order_assembled', {
   assertEq(result.reason, 'template_inactive_or_missing', 'reason=template_inactive_or_missing');
 }
 
-// --- TEST 8: userbot недоступен → skip + лог skipped -----------------------
-// Костя 10.05.2026 «бизнес-мод вырезаем» — userbot единственный канал.
-// Если он недоступен (PM2 не запустил или /health=fail), отправлять некуда.
-console.log('\n=== Test 8: userbot недоступен → skip + лог skipped ===');
+// --- TEST 8: userbot недоступен → retry_scheduled + pending row ------------
+console.log('\n=== Test 8: userbot недоступен → retry_scheduled ===');
 resetDb();
 makeOrderAndCustomer({ telegramId: '444', verified: true });
 _resetHealthCacheForTests();
@@ -241,12 +240,14 @@ try {
     previousStatus: 'new',
   });
   assertEq(result.sent, false, 'sent=false');
-  assertEq(result.skipped, true, 'skipped=true');
-  assertEq(result.reason, 'userbot_unavailable', 'reason=userbot_unavailable');
+  assertEq(result.pending, true, 'pending=true');
+  assertEq(result.reason, 'retry_scheduled', 'reason=retry_scheduled');
+  const pendingCount = db.prepare(`SELECT COUNT(*) AS n FROM pending_notifications`).get().n;
+  assertEq(pendingCount, 1, 'pending_notifications row created');
   const logRows = db.prepare(`SELECT meta FROM bot_message_log ORDER BY id DESC LIMIT 1`).all();
-  assertEq(logRows.length, 1, 'запись skipped попала в bot_message_log');
+  assertEq(logRows.length, 1, 'запись retry попала в bot_message_log');
   const meta = JSON.parse(logRows[0].meta || '{}');
-  assertEq(meta.outcome, 'skipped', 'meta.outcome=skipped');
+  assertEq(meta.outcome, 'retry_scheduled', 'meta.outcome=retry_scheduled');
   assertEq(meta.reason, 'userbot_unavailable', 'meta.reason=userbot_unavailable');
   assertEq(meta.auto, true, 'meta.auto=true');
 } finally {
@@ -462,10 +463,9 @@ try {
     newStatus: 'in_progress',
     previousStatus: 'new',
   });
-  // userbot не доступен — auto-notify возвращает skipped=userbot_unavailable.
   assertEq(result.sent, false, 'sent=false');
-  assertEq(result.skipped, true, 'skipped=true');
-  assertEq(result.reason, 'userbot_unavailable', 'reason=userbot_unavailable');
+  assertEq(result.pending, true, 'pending=true');
+  assertEq(result.reason, 'retry_scheduled', 'reason=retry_scheduled');
   assertEq(userbotHits14, 0, '/send-message НЕ дёрнулся (health=fail отсёк)');
 } finally {
   globalThis.fetch = originalFetch;

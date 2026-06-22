@@ -21,6 +21,10 @@ export function describeAutoNotifyReason(reason, error) {
       return 'Клиент ещё не подтвердил Telegram. Пусть нажмёт /start в боте.';
     case 'userbot_ambiguous':
       return 'Telegram не ответил вовремя. Проверьте чат с клиентом перед повторной отправкой.';
+    case 'userbot_unavailable':
+    case 'userbot_unreachable':
+    case 'retry_scheduled':
+      return 'Userbot временно недоступен. Уведомление будет отправлено автоматически.';
     case 'no_active_connection':
       return 'Бот не подключён к Telegram. Проверьте подключение в настройках.';
     case 'client_inactive_over_24h':
@@ -79,8 +83,12 @@ export function enrichOrdersWithRelations(db, orders) {
     } catch {
       /* noop */
     }
+    const isPendingRetry =
+      parsed.outcome === 'retry_scheduled' ||
+      (parsed.outcome === 'skipped' &&
+        (parsed.reason === 'userbot_unavailable' || parsed.reason === 'userbot_unreachable'));
     notifyByOrder.set(row.order_id, {
-      status: parsed.outcome === 'sent' ? 'sent' : 'failed',
+      status: parsed.outcome === 'sent' ? 'sent' : isPendingRetry ? 'pending_retry' : 'failed',
       error: describeAutoNotifyReason(parsed.reason, parsed.error),
       via: parsed.via || parsed.source || null,
       via_attempt: parsed.via_attempt || null,
@@ -88,6 +96,35 @@ export function enrichOrdersWithRelations(db, orders) {
         parsed.via_attempt === 2 && parsed.outcome === 'sent'
           ? 'Отправлено, но могло не дойти. У клиента, вероятно, включена приватность Telegram «Кто может писать: только контакты».'
           : null,
+    });
+  }
+
+  const pendingRetryRows = db
+    .prepare(
+      `SELECT order_id, template_event, reason, attempt, next_retry_at
+         FROM pending_notifications
+        WHERE status = 'pending'
+          AND order_id IN (${placeholders})`,
+    )
+    .all(...orderIds);
+
+  const pendingRetryByOrder = new Map();
+  for (const row of pendingRetryRows) {
+    if (!pendingRetryByOrder.has(row.order_id)) {
+      pendingRetryByOrder.set(row.order_id, row);
+    }
+  }
+
+  for (const [orderId, pendingRow] of pendingRetryByOrder) {
+    const current = notifyByOrder.get(orderId);
+    if (current?.status === 'sent') continue;
+    notifyByOrder.set(orderId, {
+      status: 'pending_retry',
+      error: describeAutoNotifyReason(pendingRow.reason, null),
+      via: null,
+      via_attempt: pendingRow.attempt ?? null,
+      warn: null,
+      next_retry_at: pendingRow.next_retry_at ?? null,
     });
   }
 

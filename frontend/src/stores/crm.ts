@@ -139,11 +139,12 @@ export interface Order {
   // если для этого заказа auto-notify ещё не запускался. Используется для
   // подсветки красной рамкой в карточке заказа когда сообщение не дошло.
   auto_notification?: {
-    status: 'sent' | 'failed';
+    status: 'sent' | 'failed' | 'pending_retry';
     error?: string | null;
     via?: string | null;
     via_attempt?: number | null;
     warn?: string | null;
+    next_retry_at?: string | null;
   } | null;
   // true = у клиента уже были завершённые заказы (постоянный), false/undefined = первый заказ
   is_returning_customer?: boolean;

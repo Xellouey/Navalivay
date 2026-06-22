@@ -1,6 +1,14 @@
 <template>
   <div class="min-h-screen bg-gray-50 px-4 py-6 sm:px-6 lg:px-8">
     <div class="mx-auto w-full max-w-7xl space-y-6">
+      <div
+        v-if="userbotDisconnected"
+        class="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900"
+        role="status"
+      >
+        <span class="font-semibold">Автоуведомления отложены:</span>
+        userbot не подключён к Telegram. Сообщения клиентам будут отправлены автоматически, когда связь восстановится.
+      </div>
       <div class="flex items-center justify-between gap-4">
         <div
           class="flex w-full flex-nowrap items-center justify-start gap-1.5 sm:gap-2 sm:w-auto sm:justify-end"
@@ -599,6 +607,9 @@
                   order.needs_manager_action && order.manager_action_type === 'modified'
                     ? 'ring-2 ring-orange-400 border-orange-300 bg-orange-50/30'
                     : '',
+                  order.auto_notification?.status === 'pending_retry' && !order.needs_manager_action
+                    ? 'ring-2 ring-amber-300 border-amber-200 bg-amber-50/40'
+                    : '',
                   order.auto_notification?.status === 'failed' && !order.needs_manager_action
                     ? 'ring-2 ring-red-400 border-red-300 bg-red-50/30'
                     : '',
@@ -621,6 +632,11 @@
                       v-else-if="order.needs_manager_action && order.manager_action_type === 'cancelled_by_customer'"
                       class="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold text-red-700"
                     >Отменен покупателем</span>
+                    <span
+                      v-else-if="order.auto_notification?.status === 'pending_retry'"
+                      class="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-800"
+                      :title="order.auto_notification?.error || 'Уведомление будет отправлено автоматически'"
+                    >Отложено</span>
                     <span
                       v-else-if="order.auto_notification?.status === 'failed'"
                       class="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold text-red-700"
@@ -725,10 +741,17 @@
                       }}</span>
                     </button>
                   </div>
+                  <div
+                    v-if="order.auto_notification?.status === 'pending_retry'"
+                    class="rounded-md border border-amber-200 bg-amber-50 px-2 py-1.5 text-[11px] font-medium text-amber-800"
+                    :title="order.auto_notification?.error || ''"
+                  >
+                    Уведомление отложено — отправится автоматически, когда userbot восстановится
+                  </div>
                   <!-- Авто-уведомление клиенту не дошло. Менеджер должен
                        написать вручную через кнопку «Написать» выше. -->
                   <div
-                    v-if="order.auto_notification?.status === 'failed'"
+                    v-else-if="order.auto_notification?.status === 'failed'"
                     class="rounded-md border border-red-200 bg-red-50 px-2 py-1.5 text-[11px] font-medium text-red-700"
                     :title="order.auto_notification?.error || ''"
                   >
@@ -1770,6 +1793,19 @@ const passwordInput = ref("");
 const passwordError = ref("");
 const verifyingPassword = computed(() => verifyingProfitAccess.value);
 const generatingMessageForOrder = ref<string | null>(null);
+const userbotDisconnected = ref(false);
+let userbotStatusTimer: ReturnType<typeof setInterval> | null = null;
+
+async function refreshUserbotStatus() {
+  try {
+    const response = await fetch('/api/admin/crm/bot/status', { credentials: 'include' });
+    if (!response.ok) return;
+    const data = await response.json();
+    userbotDisconnected.value = data?.userbot_connected === false;
+  } catch {
+    // Не блокируем доску, если статус бота временно недоступен.
+  }
+}
 
 // Discount modal state
 const discountModalOpen = ref(false);
@@ -2287,6 +2323,10 @@ async function contactClient(orderId: string) {
 }
 
 onMounted(async () => {
+  void refreshUserbotStatus();
+  userbotStatusTimer = setInterval(() => {
+    void refreshUserbotStatus();
+  }, 30_000);
   await refreshOrders({ skipNotify: true, trigger: 'initial', showBoardLoader: true });
   if (cashAccounts.value.length === 0) {
     await crmStore.fetchCashAccounts();
@@ -2317,6 +2357,10 @@ onMounted(async () => {
 });
 
 onUnmounted(() => {
+  if (userbotStatusTimer) {
+    clearInterval(userbotStatusTimer);
+    userbotStatusTimer = null;
+  }
   if (unsubscribeOrderActivity) {
     unsubscribeOrderActivity();
     unsubscribeOrderActivity = null;

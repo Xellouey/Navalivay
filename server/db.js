@@ -61,6 +61,7 @@ import { migratePendingCustomerNotes } from './migrations/add_pending_customer_n
 import { migrateCategoryGroupCompletenessWaivers } from './migrations/add_category_group_completeness_waivers.js';
 import { migrateStorefrontFilters } from './migrations/add_storefront_filters.js';
 import { migrateProductReviews } from './migrations/add_product_reviews.js';
+import { migratePendingNotifications } from './migrations/add_pending_notifications.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -221,6 +222,7 @@ export function initDb() {
   migrateCategoryGroupCompletenessWaivers();
   migrateStorefrontFilters();
   migrateProductReviews();
+  migratePendingNotifications();
 
   seedIfEmpty();
   seedDefaultLoyaltyData();
