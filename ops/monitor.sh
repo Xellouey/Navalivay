@@ -13,6 +13,16 @@ echo -e "${BLUE}╔════════════════════�
 echo -e "${BLUE}║   NAVALIVAY Статус системы             ║${NC}"
 echo -e "${BLUE}╚════════════════════════════════════════╝${NC}\n"
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ -x "${SCRIPT_DIR}/check-prod-runtime.sh" ]; then
+    echo -e "${YELLOW}[0] Runtime topology (docs/DEPLOY_REBUILD_RESTART.md):${NC}"
+    if "${SCRIPT_DIR}/check-prod-runtime.sh"; then
+        echo ""
+    else
+        echo -e "  ${RED}Есть расхождения — см. выше${NC}\n"
+    fi
+fi
+
 # 1. Статус systemd сервисов
 echo -e "${YELLOW}[1] Systemd сервисы:${NC}"
 for service in navalivay-server navalivay-bot; do
@@ -120,8 +130,10 @@ echo -e "  Активных соединений на порту 8082: ${connect
 
 echo -e "\n${BLUE}════════════════════════════════════════${NC}"
 echo -e "${GREEN}Полезные команды:${NC}"
-echo -e "  Логи сервера: ${YELLOW}sudo journalctl -u navalivay-server -f${NC}"
-echo -e "  Логи бота:    ${YELLOW}sudo journalctl -u navalivay-bot -f${NC}"
-echo -e "  Рестарт:      ${YELLOW}sudo systemctl restart navalivay-server navalivay-bot${NC}"
+echo -e "  Логи API:     ${YELLOW}journalctl -u navalivay-server -f${NC}"
+echo -e "  Логи бота:    ${YELLOW}pm2 logs navalivay-bot${NC}"
+echo -e "  Рестарт API:  ${YELLOW}systemctl restart navalivay-server${NC}"
+echo -e "  Рестарт бота: ${YELLOW}pm2 restart navalivay-bot${NC}"
+echo -e "  Runtime check:${YELLOW}./ops/check-prod-runtime.sh${NC}"
 echo -e "  Деплой:       ${YELLOW}docs/DEPLOY_REBUILD_RESTART.md${NC}"
 echo -e "  Бэкап:        ${YELLOW}./ops/backup.sh${NC}"

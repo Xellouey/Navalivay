@@ -99,6 +99,32 @@ journalctl -u navalivay-server -n 100 --no-pager
 
 Если API не стартует после смены Node — см. [`docs/prod-hotfix-playbook.md`](prod-hotfix-playbook.md) (native modules / `better-sqlite3`).
 
+## Почему systemd + PM2 вместе
+
+Это **не баг**, а **гибрид после миграции**:
+
+- API перевели на **systemd** (стабильный рестарт, `ExecStartPre` для `better-sqlite3`, владелец `:8082`).
+- **Бот** и **userbot** остались в **PM2** (long polling, proxychains, отдельные рестарты).
+
+Ненормально другое: **два способа запуска одного и того же** — например PM2 `navalivay-api` + systemd API, или `systemctl start navalivay-bot` при живом PM2-боте. Такое накапливается, если после смены схемы не почистили старые процессы.
+
+### Как ловить расхождения
+
+На сервере (после деплоя или по cron):
+
+```bash
+./ops/check-prod-runtime.sh
+```
+
+Скрипт проверяет: `:8082` = systemd MainPID, бот/userbot в PM2, userbot `connected`, нет активного дубля `navalivay-bot.service`, предупреждает про зомби `navalivay-api`.
+
+Рекомендуемая разовая уборка на prod:
+
+```bash
+pm2 delete navalivay-api
+pm2 save
+```
+
 ## Прочее
 
 - Mini App / опт: [`docs/telegram-mini-app.md`](telegram-mini-app.md)

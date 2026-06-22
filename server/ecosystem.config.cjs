@@ -1,14 +1,14 @@
 /**
  * PM2 ecosystem для NAVALIVAY.
  *
- * Важно: основной production runtime в текущем проекте — systemd.
- * Этот файл остаётся запасным вариантом только для окружений, где
- * процессы уже осознанно подняты через PM2.
+ * Production на NavalivayNew (2026-06):
+ *   - navalivay-api      → systemd (navalivay-server.service), НЕ PM2
+ *   - navalivay-bot      → PM2
+ *   - navalivay-userbot  → PM2
  *
- * В PM2-окружении поднимаются три процесса:
- *   - navalivay-api      Express, http://127.0.0.1:8082
- *   - navalivay-bot      Telegraf bot (long polling / business mode)
- *   - navalivay-userbot  GramJS userbot, http://127.0.0.1:8083 (через proxychains4)
+ * navalivay-api в этом файле — для dev / полностью PM2-окружений.
+ * На prod не делать pm2 startOrReload всего ecosystem — поднимется
+ * лишний API. Проверка: ./ops/check-prod-runtime.sh
  *
  * Деплой:
  *   pm2 startOrReload server/ecosystem.config.cjs --env production
