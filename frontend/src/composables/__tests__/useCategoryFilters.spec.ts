@@ -61,6 +61,27 @@ describe("useCategoryFilters", () => {
     expect(filterGroupTree(groups).map((g) => g.id)).toEqual(["g1"]);
   });
 
+  it("strength filter flattens matching child lines without parent wrapper", () => {
+    const { strengthTier, filterGroupTree } = useCategoryFilters();
+    strengthTier.value = "light";
+
+    const groups = [
+      makeGroup({
+        id: "parent",
+        name: "ЗЛАЯ МОНАШКА",
+        children: [
+          makeGroup({ id: "child-light", name: "Light Line", strengthTier: "light" }),
+          makeGroup({ id: "child-strong", name: "Strong Line", strengthTier: "strong" }),
+        ],
+      }),
+    ];
+
+    const filtered = filterGroupTree(groups);
+    expect(filtered).toHaveLength(1);
+    expect(filtered[0].id).toBe("child-light");
+    expect(filtered[0].children).toEqual([]);
+  });
+
   it("top filter flattens matching child lines to root without parent wrapper", () => {
     const { topActive, topSales, toggleTopFilter, filterGroupTree } =
       useCategoryFilters();

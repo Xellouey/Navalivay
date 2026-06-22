@@ -11,7 +11,8 @@ import {
 /**
  * Контроль заполненности линеек для админки «Категории» (п.3).
  *
- * Линейка проверяется по трём полям (в т.ч. родительские без прямых товаров):
+ * Линейка проверяется по полям описания, остатка, опта и (для жидкостей) крепости.
+ * Родительские «главные» группы без прямых товаров (контейнеры для дочерних линеек) пропускаются.
  *   - meta_value (описание / крепость)
  *   - min_stock_threshold (> 0)
  *   - оптовые цены для всех активных tier
@@ -96,7 +97,8 @@ function selectAllGroups() {
          (g.cover_image IS NOT NULL AND g.cover_image != '') AS has_cover_image,
          c.name AS category_name,
          c.storefront_filters_profile AS storefront_filters_profile,
-         COUNT(p.id) AS product_count
+         COUNT(p.id) AS product_count,
+         (SELECT COUNT(*) FROM category_groups child WHERE child.parent_group_id = g.id) AS child_count
        FROM category_groups g
        LEFT JOIN categories c ON c.id = g.categoryId
        LEFT JOIN products p ON p.groupId = g.id
@@ -179,6 +181,12 @@ export function computeIncompleteGroups() {
 
   const items = [];
   for (const row of rows) {
+    const productCount = Number(row.product_count ?? 0);
+    const childCount = Number(row.child_count ?? 0);
+    if (productCount === 0 && childCount > 0) {
+      continue;
+    }
+
     const evaluation = evaluateGroupCompleteness(row, tiers, priceMapByGroup);
     if (!evaluation.isComplete) {
       items.push(buildIncompleteItem(row, evaluation));

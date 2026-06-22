@@ -58,6 +58,8 @@
                 'order-detail-overview__step--last': index === fulfillmentLines.length - 1,
                 'order-detail-overview__step--success':
                   index === fulfillmentLines.length - 1 && isFulfilledStatus,
+                'order-detail-overview__step--cancelled':
+                  index === fulfillmentLines.length - 1 && order.status === 'cancelled',
               }"
             >
               <span class="order-detail-overview__dot" aria-hidden="true" />
@@ -370,8 +372,8 @@ onMounted(async () => {
 }
 
 .order-detail-overview__status--cancelled {
-  background: #f0f2f5;
-  color: #8a93a0;
+  background: #fdeaea;
+  color: #a90f0e;
 }
 
 .order-detail-overview__timeline {
@@ -422,6 +424,15 @@ onMounted(async () => {
 .order-detail-overview__step--success .order-detail-overview__dot {
   background: #22a06b;
   box-shadow: 0 0 0 4px rgba(34, 197, 94, 0.14);
+}
+
+.order-detail-overview__step--cancelled .order-detail-overview__dot {
+  background: #a90f0e;
+  box-shadow: 0 0 0 4px rgba(169, 15, 14, 0.14);
+}
+
+.order-detail-overview__step--cancelled .order-detail-overview__step-label {
+  color: #a90f0e;
 }
 
 .order-detail-overview__step-body {

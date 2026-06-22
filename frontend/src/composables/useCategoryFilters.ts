@@ -126,10 +126,11 @@ export function useCategoryFilters() {
     return (a.name || "").localeCompare(b.name || "", "ru");
   }
 
-  function collectTopMatches<T extends FilterableGroup>(
+  function collectFlatMatches<T extends FilterableGroup>(
     groups: T[],
     query: string,
     tier: StrengthTier | null,
+    useTop: boolean,
   ): T[] {
     const collected: T[] = [];
 
@@ -139,7 +140,7 @@ export function useCategoryFilters() {
       const selfMatches =
         groupMatchesSearch(group, query) &&
         groupMatchesStrength(group, tier) &&
-        groupMatchesTop(group, true);
+        groupMatchesTop(group, useTop);
 
       if (!selfMatches) return;
 
@@ -150,7 +151,14 @@ export function useCategoryFilters() {
     };
 
     groups.forEach((group) => walk(group));
-    return [...collected].sort(compareByTopRank);
+
+    if (useTop) {
+      return [...collected].sort(compareByTopRank);
+    }
+
+    return [...collected].sort((a, b) =>
+      (a.name || "").localeCompare(b.name || "", "ru"),
+    );
   }
 
   function filterGroupTree<T extends FilterableGroup>(groups: T[]): T[] {
@@ -158,8 +166,8 @@ export function useCategoryFilters() {
     const useTop = topActive.value;
     const tier = strengthTier.value;
 
-    if (useTop) {
-      return collectTopMatches(groups, query, tier);
+    if (useTop || tier) {
+      return collectFlatMatches(groups, query, tier, useTop);
     }
 
     const walk = (group: T): T | null => {

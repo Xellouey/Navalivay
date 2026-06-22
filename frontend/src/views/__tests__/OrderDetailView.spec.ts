@@ -148,6 +148,31 @@ describe("OrderDetailView", () => {
     wrapper.unmount();
   });
 
+  it("renders cancelled status badge in red", async () => {
+    fetchOrderDetailMock.mockResolvedValue({
+      ...orderDetail,
+      status: "cancelled",
+      fulfillment_milestones: {
+        submitted_at: "2026-06-16T08:24:00.000Z",
+        ready_at: null,
+        issued_at: null,
+        cancelled_at: "2026-06-16T09:13:00.000Z",
+      },
+      reviewable_lines: [],
+      lottery_hint_text: null,
+    });
+
+    const wrapper = mount(OrderDetailView, {
+      global: { stubs: { ReviewLineCard: true } },
+    });
+    await flushPromises();
+
+    expect(wrapper.find(".order-detail-overview__status--cancelled").exists()).toBe(true);
+    expect(wrapper.find(".order-detail-overview__step--cancelled").exists()).toBe(true);
+
+    wrapper.unmount();
+  });
+
   it("navigates back to order history", async () => {
     const wrapper = mount(OrderDetailView, {
       global: { stubs: { ReviewLineCard: true } },

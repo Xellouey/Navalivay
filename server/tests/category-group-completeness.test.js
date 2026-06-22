@@ -338,7 +338,7 @@ console.log('\n=== A7: invalid waiver type → invalid_waiver_value ===');
   assertEq(threw, true, 'invalid_waiver_value thrown');
 }
 
-console.log('\n=== A8: продукт только на дочерней — parent тоже в списке с 0 товаров ===');
+console.log('\n=== A8: продукт только на дочерней — parent-контейнер не в списке ===');
 {
   resetTables();
   seedCategory();
@@ -348,8 +348,7 @@ console.log('\n=== A8: продукт только на дочерней — par
   seedProduct('p_child', 'g_child');
   const byId = new Map(computeIncompleteGroups().map((i) => [i.id, i]));
   assertEq(byId.has('g_child'), true, 'child with product listed');
-  assertEq(byId.has('g_parent'), true, 'parent without direct products listed');
-  assertEq(byId.get('g_parent')?.productCount, 0, 'parent productCount 0');
+  assertEq(byId.has('g_parent'), false, 'parent container without direct products skipped');
 }
 
 console.log('\n=== A9: liquids profile requires strength_tier ===');
