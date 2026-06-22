@@ -16,18 +16,69 @@
 - Проверка живости API выполняется по `http://127.0.0.1:8082/api/health`.
 - Конфиг [`server/ecosystem.config.cjs`](../server/ecosystem.config.cjs) и `PM2` здесь считать локальным/dev-инструментом или вариантом для отдельных нестандартных окружений. На текущем production-сервере PM2 не является источником истины для CRM API.
 
+## Полный деплой с `git pull`
+
+Рабочий каталог на production: `/var/www/NAVALIVAY`. SSH-хост: `NavalivayNew` (обычно root-shell — `sudo` не нужен).
+
+```bash
+cd /var/www/NAVALIVAY
+git pull
+
+# Зависимости — только если менялись package-lock.json
+npm --prefix frontend ci
+npm --prefix server ci --omit=dev
+
+# Frontend (обязательно при UI-изменениях)
+npm --prefix frontend run build-only
+
+# API (systemd — источник истины для :8082)
+systemctl restart navalivay-server
+
+# Опциональный Telegraf-бот, если unit установлен
+if systemctl list-unit-files --type=service --no-legend | awk '{print $1}' | grep -qx 'navalivay-bot.service'; then
+  systemctl restart navalivay-bot
+fi
+
+# Userbot (MTProto) — отдельный PM2-процесс, рестарт только при изменениях в server/userbot/
+if pm2 jlist 2>/dev/null | grep -q 'navalivay-userbot'; then
+  pm2 restart navalivay-userbot
+fi
+```
+
+### Проверка после деплоя
+
+```bash
+curl -fsS http://127.0.0.1:8082/api/health
+curl -fsS http://127.0.0.1:8083/health   # ожидается "connected":true
+journalctl -u navalivay-server -n 30 --no-pager | grep -E 'listening|migration|auto-notify'
+```
+
+Ожидаемо:
+- `/api/health` → `{"ok":true,...}`
+- userbot `/health` → `"connected":true`
+- в логах API при первом старте с миграцией — `[migration] Created ...`
+- при деплое с retry-очередью — `[auto-notify-retry] Worker started`
+
+### Частичный деплой
+
+| Что менялось | Достаточно |
+|--------------|------------|
+| Только `.vue` / frontend | `git pull` → `npm --prefix frontend ci` → `build-only` (рестарт API не нужен) |
+| Только `server/` без миграций | `git pull` → `npm --prefix server ci --omit=dev` → `systemctl restart navalivay-server` |
+| `server/userbot/` | `git pull` → `pm2 restart navalivay-userbot` |
+| `package-lock.json` | `ci` в затронутой части (`frontend` и/или `server`) |
+
 ## Правильная процедура после `git pull`
 
 ### 1. Обновить зависимости при необходимости
 Из корня проекта `/var/www/NAVALIVAY`:
 
 ```bash
-npm install
-npm --prefix frontend install
-npm --prefix server install
+npm --prefix frontend ci
+npm --prefix server ci --omit=dev
 ```
 
-Если lock-файлы не менялись, обычно достаточно обновить зависимости только в нужной части проекта.
+Если lock-файлы не менялись, этот шаг можно пропустить.
 
 ### 2. Собрать frontend
 Рабочая production-сборка:
@@ -136,10 +187,20 @@ npm --prefix frontend run build-only && sudo systemctl restart navalivay-server 
 ```
 
 ### Если работаешь из root-shell
-Можно выполнить те же команды без `sudo`.
+На `NavalivayNew` SSH обычно идёт под root — выполняйте команды без `sudo`. Если зашли под обычным пользователем с sudo, добавьте `sudo` перед `systemctl` и `journalctl`.
 
 ## Когда использовать PM2
-PM2 не является основным production-механизмом на текущем сервере. По сути, здесь он относится к локалке/dev-сценариям или отдельным нестандартным инсталляциям.
+PM2 **не** обслуживает CRM API на текущем production-сервере (`8082` держит `navalivay-server.service`).
+
+Исключение: **`navalivay-userbot`** — MTProto-клиент на `:8083`, обычно в PM2. После правок в `server/userbot/`:
+
+```bash
+pm2 restart navalivay-userbot
+pm2 logs navalivay-userbot --lines 30
+curl -fsS http://127.0.0.1:8083/health
+```
+
+Остальной PM2 (`navalivay-api`, `navalivay-bot`) — локалка/dev или устаревшие записи; на prod не использовать для рестарта API.
 
 Использовать команды из [`server/ecosystem.config.cjs`](../server/ecosystem.config.cjs) имеет смысл только если:
 1. на конкретном сервере приложения действительно были подняты через PM2,

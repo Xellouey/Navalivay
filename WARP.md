@@ -77,17 +77,18 @@ npm run build:server
 5. Verify health
 
 ### Production deploy
-See [`docs/DEPLOY_REBUILD_RESTART.md`](docs/DEPLOY_REBUILD_RESTART.md). Typical flow from `/var/www/NAVALIVAY`:
+Full procedure: [`docs/DEPLOY_REBUILD_RESTART.md`](docs/DEPLOY_REBUILD_RESTART.md) (section «Полный деплой с git pull»).
+
+Short version from `/var/www/NAVALIVAY` on `NavalivayNew`:
 
 ```bash
 git pull
 npm --prefix frontend ci && npm --prefix frontend run build-only
 npm --prefix server ci --omit=dev
-sudo systemctl restart navalivay-server
+systemctl restart navalivay-server
 curl -fsS http://127.0.0.1:8082/api/health
+curl -fsS http://127.0.0.1:8083/health
 ```
-
-From a root shell, drop `sudo`.
 
 ## Production Process Management
 
