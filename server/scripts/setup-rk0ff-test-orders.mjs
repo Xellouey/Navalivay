@@ -4,7 +4,7 @@
  * Usage:
  *   node server/scripts/setup-rk0ff-test-orders.mjs
  *   node server/scripts/setup-rk0ff-test-orders.mjs --dry-run
- *   node server/scripts/setup-rk0ff-test-orders.mjs --no-qa
+ *   node server/scripts/setup-rk0ff-test-orders.mjs --qa   # включить обход кулдауна (только для отладки формы)
  */
 import { initDb, db } from '../db.js';
 import { migrateProductReviews } from '../migrations/add_product_reviews.js';
@@ -144,7 +144,7 @@ initDb();
 migrateProductReviews();
 
 const dryRun = hasFlag('dry-run');
-const enableQa = !hasFlag('no-qa');
+const enableQa = hasFlag('qa');
 const now = new Date().toISOString();
 
 const customer = db.prepare(`

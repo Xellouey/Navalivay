@@ -114,17 +114,7 @@ const result = db.transaction(() => {
   let drawsDeleted = 0;
   let ordersDeleted = 0;
 
-  if (qaUsernames.length) {
-    const usernamePlaceholders = qaUsernames.map(() => '?').join(', ');
-    reviewsDeleted += db
-      .prepare(
-        `DELETE FROM product_reviews
-         WHERE customer_id IN (
-           SELECT id FROM customers WHERE LOWER(telegram_username) IN (${usernamePlaceholders})
-         )`,
-      )
-      .run(...qaUsernames).changes;
-  }
+  // QA usernames are cleared below; do not delete their prod reviews here.
 
   if (testOrderIds.length) {
     const orderPlaceholders = testOrderIds.map(() => '?').join(', ');
