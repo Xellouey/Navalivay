@@ -123,12 +123,6 @@ export function migrateProductReviews() {
 
     ensureColumn('customers', 'reviews_opt_out', 'INTEGER NOT NULL DEFAULT 0');
     ensureColumn('customers', 'reviews_prefer_anonymous', 'INTEGER NOT NULL DEFAULT 0');
-
-    db.exec(`
-      CREATE UNIQUE INDEX IF NOT EXISTS idx_product_reviews_pending_per_line
-      ON product_reviews(customer_id, order_id, group_id)
-      WHERE status = 'pending';
-    `);
   } catch (error) {
     console.error('[migration] Product reviews migration failed:', error);
     throw error;

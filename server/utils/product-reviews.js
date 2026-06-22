@@ -36,8 +36,6 @@ export const REVIEW_ERROR_MESSAGES = Object.freeze({
   not_eligible: 'Сейчас нельзя оставить отзыв на эту позицию.',
   order_not_found: 'Заказ не найден. Обновите страницу и попробуйте снова.',
   group_not_found: 'Линейка не найдена. Обновите страницу и попробуйте снова.',
-  duplicate_order_review:
-    'Такой отзыв по этому заказу уже отправлен. Для другой линейки напишите другой текст или дождитесь модерации.',
 });
 
 export function getReviewErrorMessage(code, fallback = 'Не удалось отправить отзыв') {
@@ -324,43 +322,6 @@ export function findOwnedOrders({
   const candidates = db.prepare(sql).all(...params);
   return candidates.filter((order) =>
     orderBelongsToCustomer(order, { telegramId, telegramUsername }),
-  );
-}
-
-export function normalizeReviewBodyForDedup(bodyText) {
-  return String(bodyText ?? '')
-    .trim()
-    .toLowerCase()
-    .normalize('NFKC')
-    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-function findDuplicatePendingReviewOnOrder({
-  customerId,
-  orderId,
-  groupId,
-  rating,
-  bodyText,
-}) {
-  const normalizedBody = normalizeReviewBodyForDedup(bodyText);
-  const pendingRows = db.prepare(`
-    SELECT id, group_id, body_text, rating
-    FROM product_reviews
-    WHERE customer_id = ? AND order_id = ? AND status = ?
-  `).all(customerId, orderId, REVIEW_STATUSES.PENDING);
-
-  return (
-    pendingRows.find((row) => {
-      if (String(row.group_id) === String(groupId)) {
-        return false;
-      }
-      return (
-        Number(row.rating) === Number(rating) &&
-        normalizeReviewBodyForDedup(row.body_text) === normalizedBody
-      );
-    }) || null
   );
 }
 
@@ -933,54 +894,33 @@ export function createProductReview({
     }
   }
 
-  const duplicateOnOrder = findDuplicatePendingReviewOnOrder({
-    customerId,
-    orderId,
-    groupId,
-    rating: normalizedRating,
-    bodyText: trimmedBody,
-  });
-  if (duplicateOnOrder) {
-    throw createReviewError('duplicate_order_review', {
-      existingReviewId: duplicateOnOrder.id,
-      existingGroupId: duplicateOnOrder.group_id,
-    });
-  }
-
   const reviewId = randomUUID();
   const now = new Date().toISOString();
 
-  try {
-    db.prepare(`
-      INSERT INTO product_reviews (
-        id, customer_id, order_id, order_item_id, group_id, category_id,
-        purchased_variant_id, purchased_variant_name,
-        rating, body_text, quick_tag_ids, status, is_anonymous,
-        created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      reviewId,
-      customerId,
-      orderId,
-      eligibility.orderItemId || orderItemId || null,
-      groupId,
-      groupMeta.category_id || null,
-      eligibility.purchasedVariantId || null,
-      eligibility.purchasedVariantName || null,
-      normalizedRating,
-      trimmedBody,
-      JSON.stringify(tagIds),
-      REVIEW_STATUSES.PENDING,
-      isAnonymous ? 1 : 0,
-      now,
-      now,
-    );
-  } catch (error) {
-    if (error?.code === 'SQLITE_CONSTRAINT_UNIQUE') {
-      throw createReviewError('pending_moderation');
-    }
-    throw error;
-  }
+  db.prepare(`
+    INSERT INTO product_reviews (
+      id, customer_id, order_id, order_item_id, group_id, category_id,
+      purchased_variant_id, purchased_variant_name,
+      rating, body_text, quick_tag_ids, status, is_anonymous,
+      created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    reviewId,
+    customerId,
+    orderId,
+    eligibility.orderItemId || orderItemId || null,
+    groupId,
+    groupMeta.category_id || null,
+    eligibility.purchasedVariantId || null,
+    eligibility.purchasedVariantName || null,
+    normalizedRating,
+    trimmedBody,
+    JSON.stringify(tagIds),
+    REVIEW_STATUSES.PENDING,
+    isAnonymous ? 1 : 0,
+    now,
+    now,
+  );
 
   return db.prepare('SELECT * FROM product_reviews WHERE id = ?').get(reviewId);
 }

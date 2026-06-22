@@ -2046,7 +2046,6 @@ publicRouter.post(
         code === "not_eligible" ||
         code === "cooldown" ||
         code === "pending_moderation" ||
-        code === "duplicate_order_review" ||
         code === "not_purchased" ||
         code === "order_not_reviewable"
           ? 400

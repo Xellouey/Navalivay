@@ -169,51 +169,6 @@ console.log('\n--- A3: duplicate pending blocks second review ---');
   );
 }
 
-console.log('\n--- A3a: duplicate equivalent text on another line in same order ---');
-{
-  seedWorld();
-  db.prepare(
-    `INSERT INTO order_items (id, order_id, product_id, product_title, variant_name, quantity, price_per_unit, total_price, total_cost)
-     VALUES ('oi2', 'ord1', 'prod2', 'Манго', 'Манговый', 1, 10, 10, 4)`,
-  ).run();
-
-  createProductReview({
-    customerId: 'cust1',
-    orderId: 'ord1',
-    groupId: 'grp1',
-    orderItemId: 'oi1',
-    rating: 5,
-    bodyText: 'Все чётко быстро. Спасибо за заказ',
-    quickTagIds: [],
-  });
-
-  expectThrows(
-    () =>
-      createProductReview({
-        customerId: 'cust1',
-        orderId: 'ord1',
-        groupId: 'grp2',
-        orderItemId: 'oi2',
-        rating: 5,
-        bodyText: 'Все чётко быстро . Спасибо за заказ',
-        quickTagIds: [],
-      }),
-    'duplicate_order_review',
-    'equivalent order review blocked on another line',
-  );
-
-  const different = createProductReview({
-    customerId: 'cust1',
-    orderId: 'ord1',
-    groupId: 'grp2',
-    orderItemId: 'oi2',
-    rating: 4,
-    bodyText: 'Другая линейка понравилась чуть меньше, но тоже хорошо',
-    quickTagIds: [],
-  });
-  ok(Boolean(different?.id), 'different text on second line is allowed');
-}
-
 console.log('\n--- A3b: qa/dev bypass still blocks duplicate pending ---');
 {
   seedWorld();
