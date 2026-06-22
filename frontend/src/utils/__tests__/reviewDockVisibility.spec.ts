@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   isReviewDockSuppressed,
   isReviewDockVisible,
+  isReviewPromptModalVisible,
 } from "@/utils/reviewDockVisibility";
 
 const activePrompt = {
@@ -63,6 +64,25 @@ describe("reviewDockVisibility", () => {
     ).toBe(false);
     expect(
       isReviewDockVisible({ path: "/", name: "home" }, { show: true }),
+    ).toBe(false);
+  });
+
+  it("shows review prompt modal only on home when prompt is active", () => {
+    expect(
+      isReviewPromptModalVisible({ path: "/", name: "home" }, activePrompt),
+    ).toBe(true);
+    expect(
+      isReviewPromptModalVisible({ path: "/profile", name: "profile" }, activePrompt),
+    ).toBe(false);
+  });
+
+  it("hides review prompt modal when dismissed", () => {
+    expect(
+      isReviewPromptModalVisible(
+        { path: "/", name: "home" },
+        activePrompt,
+        { dismissed: true },
+      ),
     ).toBe(false);
   });
 });

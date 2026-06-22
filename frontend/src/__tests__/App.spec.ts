@@ -34,7 +34,7 @@ describe("App shell visibility", () => {
         stubs: {
           VapeSmoke: true,
           BottomTabBar: true,
-          ReviewPromptDock: true,
+          ReviewPromptModal: true,
           WheelHomeWidget: true,
           BlockedScreen: true,
         },
@@ -42,11 +42,11 @@ describe("App shell visibility", () => {
     });
   }
 
-  it("shows review dock and wheel widget on home", async () => {
+  it("shows review prompt modal host and wheel widget on home", async () => {
     const wrapper = mountApp();
     await flushPromises();
 
-    expect(wrapper.find("review-prompt-dock-stub").exists()).toBe(true);
+    expect(wrapper.find("review-prompt-modal-stub").exists()).toBe(true);
     expect(wrapper.find("wheel-home-widget-stub").exists()).toBe(true);
 
     wrapper.unmount();
@@ -72,13 +72,13 @@ describe("App shell visibility", () => {
     wrapper.unmount();
   });
 
-  it("hides review dock when tab bar is hidden", async () => {
+  it("hides review prompt modal host when tab bar is hidden", async () => {
     for (const hiddenPath of ["/checkout", "/my-order", "/admin/crm/orders"]) {
       routePath.value = hiddenPath;
       const wrapper = mountApp();
       await flushPromises();
 
-      expect(wrapper.find("review-prompt-dock-stub").exists()).toBe(false);
+      expect(wrapper.find("review-prompt-modal-stub").exists()).toBe(false);
       wrapper.unmount();
     }
   });

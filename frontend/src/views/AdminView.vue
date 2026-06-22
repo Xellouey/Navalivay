@@ -356,8 +356,8 @@
                           <div class="flex items-center gap-3 min-w-0">
                             <div class="flex h-12 w-12 flex-shrink-0 items-center justify-center overflow-hidden rounded-xl border border-gray-200 bg-gray-50">
                               <img
-                                v-if="group.cover_image"
-                                :src="group.cover_image"
+                                v-if="topGroupCoverImages[group.group_id]"
+                                :src="topGroupCoverImages[group.group_id]"
                                 :alt="group.group_name || ''"
                                 class="h-full w-full object-cover"
                                 loading="lazy"
@@ -1825,6 +1825,47 @@ const topGroupsMaxValue = computed(() => {
   const values = topGroups.value.map((g: any) => Number(g?.[field] ?? 0))
   return values.length ? Math.max(...values) : 0
 })
+
+const topGroupCoverImages = reactive<Record<string, string>>({})
+const topGroupCoverFetchInFlight = new Set<string>()
+
+async function loadTopGroupCoverImage(groupId: string) {
+  if (!groupId || topGroupCoverImages[groupId] || topGroupCoverFetchInFlight.has(groupId)) return
+  topGroupCoverFetchInFlight.add(groupId)
+  try {
+    const response = await fetch(
+      `/api/admin/category-groups/${encodeURIComponent(groupId)}/image`,
+      { credentials: 'include' },
+    )
+    if (!response.ok) return
+    const data = await response.json() as { cover_image?: string | null }
+    if (data?.cover_image) {
+      topGroupCoverImages[groupId] = data.cover_image
+    }
+  } catch (error) {
+    console.warn('[AdminView] failed to load top group cover for', groupId, error)
+  } finally {
+    topGroupCoverFetchInFlight.delete(groupId)
+  }
+}
+
+watch(
+  topGroups,
+  (groups) => {
+    for (const group of groups) {
+      if (group.group_id && group.has_cover_image) {
+        void loadTopGroupCoverImage(group.group_id)
+      }
+    }
+    const liveIds = new Set(groups.map((group) => group.group_id))
+    for (const id of Object.keys(topGroupCoverImages)) {
+      if (!liveIds.has(id)) {
+        delete topGroupCoverImages[id]
+      }
+    }
+  },
+  { immediate: true },
+)
 
 const groupCounts = computed<Record<string, number>>(() => {
   const counts: Record<string, number> = {}

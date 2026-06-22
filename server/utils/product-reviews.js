@@ -785,6 +785,17 @@ export function getReviewPromptForCustomer(customer, { devBypass = false } = {})
     if (pending.length === 0) continue;
 
     const primary = pending[0];
+    const pendingGroups = pending.map((line) => ({
+      group_id: line.group_id,
+      category_id: line.category_id,
+      category_name: line.category_name,
+      group_name: line.group_name,
+      group_cover_image: line.group_cover_image,
+      category_cover_image: line.category_cover_image,
+    }));
+    const { icons: previewIcons, overflow: previewIconsOverflow } =
+      buildOrderLineIconsFromGroups(pendingGroups, 5);
+
     return {
       show: true,
       reason: 'pending_reviews',
@@ -794,6 +805,8 @@ export function getReviewPromptForCustomer(customer, { devBypass = false } = {})
       group_name: primary.group_name,
       purchased_variant_name: primary.purchased_variant_name,
       pending_review_count: pending.length,
+      preview_icons: previewIcons,
+      preview_icons_overflow: previewIconsOverflow,
       lottery_hint_text: getReviewSetting('lottery_hint_text', ''),
       preferences,
     };

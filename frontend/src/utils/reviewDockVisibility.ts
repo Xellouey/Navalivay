@@ -41,3 +41,13 @@ export function isReviewDockVisible(
   if (!prompt?.show || !prompt.order_id) return false;
   return !isReviewDockSuppressed(route, prompt);
 }
+
+export function isReviewPromptModalVisible(
+  route: ReviewDockRouteContext,
+  prompt?: ReviewDockPromptContext | null,
+  options?: { dismissed?: boolean },
+): boolean {
+  if (options?.dismissed) return false;
+  if (route.path !== "/") return false;
+  return isReviewDockVisible(route, prompt);
+}

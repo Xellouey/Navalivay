@@ -255,7 +255,8 @@ function dismiss() {
      vh is a safe fallback for older browsers. */
   top: 25dvh;
   top: 25vh;
-  z-index: 100;
+  /* Ниже customer-модалок (CustomerModalShell = 80), но выше cart bar (~50). */
+  z-index: 70;
   width: 120px;
   height: 78px;
   padding: 0;

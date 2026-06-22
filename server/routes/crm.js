@@ -200,7 +200,7 @@ crmRouter.get('/api/admin/crm/dashboard', authMiddleware, (req, res) => {
     const topProducts = topItems.map((item) => ({
       group_id: item.groupId,
       group_name: item.groupName,
-      cover_image: item.hasCoverImage ? 1 : null,
+      has_cover_image: item.hasCoverImage,
       total_quantity: item.totalQuantity,
       total_revenue: item.totalRevenue,
       total_profit: item.totalProfit,

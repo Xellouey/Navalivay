@@ -10,6 +10,8 @@ export interface ReviewPrompt {
   group_name?: string;
   purchased_variant_name?: string | null;
   pending_review_count?: number;
+  preview_icons?: OrderHistoryCategoryIcon[];
+  preview_icons_overflow?: number;
   lottery_hint_text?: string;
   preferences?: ReviewPreferences;
 }

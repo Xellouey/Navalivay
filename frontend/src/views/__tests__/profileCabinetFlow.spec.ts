@@ -4,7 +4,7 @@ import { createPinia, setActivePinia } from "pinia";
 import { flushPromises, mount } from "@vue/test-utils";
 import ProfileView from "@/views/ProfileView.vue";
 import OrderHistoryView from "@/views/OrderHistoryView.vue";
-import ReviewPromptDock from "@/components/reviews/ReviewPromptDock.vue";
+import ReviewPromptModal from "@/components/reviews/ReviewPromptModal.vue";
 
 const fetchOrderHistoryMock = vi.hoisted(() => vi.fn());
 const promptFetchCount = vi.hoisted(() => ({ value: 0 }));
@@ -148,7 +148,7 @@ describe("profile cabinet flow", () => {
     await router.isReady();
 
     const profileWrapper = mount(
-      { components: { ReviewPromptDock }, template: "<router-view /><ReviewPromptDock />" },
+      { components: { ReviewPromptModal }, template: "<router-view /><ReviewPromptModal />" },
       {
         global: {
           plugins: [router],
@@ -165,7 +165,7 @@ describe("profile cabinet flow", () => {
     await flushPromises();
 
     expect(fetchOrderHistoryMock).toHaveBeenCalled();
-    expect(profileWrapper.find(".review-prompt-dock").exists()).toBe(false);
+    expect(profileWrapper.find(".customer-modal-overlay").exists()).toBe(false);
     expect(promptFetchCount.value).toBe(profilePromptCalls);
 
     profileWrapper.unmount();

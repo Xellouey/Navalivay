@@ -512,7 +512,7 @@ export interface DashboardStats {
   topProducts: Array<{
     group_id: string;
     group_name: string;
-    cover_image: string | null;
+    has_cover_image: boolean;
     total_quantity: number;
     total_revenue: number;
     total_profit: number;
