@@ -1,247 +1,106 @@
-# Пересборка и штатный перезапуск NAVALIVAY
+# Деплой и перезапуск NAVALIVAY (production)
 
-## Что важно знать
+Документ сверен с `NavalivayNew` (2026-06-22). Если поведение сервера изменилось — сначала проверьте факты командами из раздела «Как устроен prod».
 
-- Источник истины для production API на текущем сервере — `systemd` unit `navalivay-server.service`, а не PM2.
-- `nginx` проксирует `/api` на `127.0.0.1:8082`, поэтому любые проверки и рестарты надо привязывать именно к сервису, который держит `8082`.
-- Если одновременно держать API и в PM2, и в systemd, можно получить тихую деградацию: новый код будет перезапускаться не там, а боевой трафик останется на старом процессе.
-- После изменений CRM orders/search полезно дополнительно проверять `GET /api/admin/crm/orders/poll-summary`: рабочий сервер должен отдавать `401 Unauthorized` без токена, а не `404 not_found`.
+## Как устроен prod сейчас
 
-- Telegram Mini App и оптовые ссылки: переменные `TELEGRAM_BOT_USERNAME`, `TELEGRAM_MINI_APP_SHORT_NAME`, публичные поля `/api/settings` и поведение бота описаны в [`docs/telegram-mini-app.md`](telegram-mini-app.md). После изменения `.env` перезапустите и API, и бота (если он зависит от тех же переменных).
-- Прод-сборка frontend берётся из [`frontend/package.json`](../frontend/package.json) через скрипт `build-only`.
-- Полный `npm run build` из корня проекта вызывает frontend type-check и может падать из-за TypeScript-диагностики, даже если production bundle собирается нормально.
-- Штатный production-запуск на текущем сервере выполняется через systemd, а не через PM2.
-- Основной backend-сервис — `navalivay-server.service`.
-- Сервис `navalivay-bot.service` является опциональным и может отсутствовать на конкретном сервере.
-- Проверка живости API выполняется по `http://127.0.0.1:8082/api/health`.
-- Конфиг [`server/ecosystem.config.cjs`](../server/ecosystem.config.cjs) и `PM2` здесь считать локальным/dev-инструментом или вариантом для отдельных нестандартных окружений. На текущем production-сервере PM2 не является источником истины для CRM API.
+| Компонент | Кто запускает | Порт | Штатный рестарт |
+|-----------|---------------|------|-----------------|
+| API + CRM | `systemd` → `navalivay-server.service` | `8082` | `systemctl restart navalivay-server` |
+| nginx `/api` | прокси на `127.0.0.1:8082` | 443/80 | — |
+| Telegraf-бот (`bot.js`) | **PM2** → `navalivay-bot` | — | `pm2 restart navalivay-bot` |
+| Userbot MTProto | **PM2** → `navalivay-userbot` | `8083` | `pm2 restart navalivay-userbot` |
 
-## Полный деплой с `git pull`
+SSH: `NavalivayNew`, пользователь `root`, каталог `/var/www/NAVALIVAY`, Node `/usr/bin/node` (v22).
 
-Рабочий каталог на production: `/var/www/NAVALIVAY`. SSH-хост: `NavalivayNew` (обычно root-shell — `sudo` не нужен).
+**Важно:**
+- `8082` обслуживает **только** systemd-процесс (`MainPID` = владелец порта).
+- В PM2 может висеть `navalivay-api` — он **не** слушает `8082`. Не рестартовать для деплоя API; лучше удалить: `pm2 delete navalivay-api`.
+- Unit `navalivay-bot.service` на сервере **есть**, но `disabled` / `inactive`. Бот реально работает в PM2. **`systemctl restart navalivay-bot` не использовать** — можно поднять второй экземпляр.
+
+### Быстрая проверка фактов на сервере
+
+```bash
+ss -ltnp 'sport = :8082'                    # владелец :8082
+systemctl show navalivay-server -p MainPID --value
+pm2 list                                    # navalivay-bot, navalivay-userbot
+curl -fsS http://127.0.0.1:8082/api/health
+curl -fsS http://127.0.0.1:8083/health      # "connected":true
+```
+
+## Штатный деплой
+
+Типичный сценарий после `git pull` (frontend + backend, как при обычном релизе):
 
 ```bash
 cd /var/www/NAVALIVAY
 git pull
 
-# Зависимости — только если менялись package-lock.json
 npm --prefix frontend ci
-npm --prefix server ci --omit=dev
-
-# Frontend (обязательно при UI-изменениях)
 npm --prefix frontend run build-only
 
-# API (systemd — источник истины для :8082)
+npm --prefix server ci --omit=dev
 systemctl restart navalivay-server
 
-# Опциональный Telegraf-бот, если unit установлен
-if systemctl list-unit-files --type=service --no-legend | awk '{print $1}' | grep -qx 'navalivay-bot.service'; then
-  systemctl restart navalivay-bot
-fi
-
-# Userbot (MTProto) — отдельный PM2-процесс, рестарт только при изменениях в server/userbot/
-if pm2 jlist 2>/dev/null | grep -q 'navalivay-userbot'; then
-  pm2 restart navalivay-userbot
-fi
-```
-
-### Проверка после деплоя
-
-```bash
 curl -fsS http://127.0.0.1:8082/api/health
-curl -fsS http://127.0.0.1:8083/health   # ожидается "connected":true
-journalctl -u navalivay-server -n 30 --no-pager | grep -E 'listening|migration|auto-notify'
-```
-
-Ожидаемо:
-- `/api/health` → `{"ok":true,...}`
-- userbot `/health` → `"connected":true`
-- в логах API при первом старте с миграцией — `[migration] Created ...`
-- при деплое с retry-очередью — `[auto-notify-retry] Worker started`
-
-### Частичный деплой
-
-| Что менялось | Достаточно |
-|--------------|------------|
-| Только `.vue` / frontend | `git pull` → `npm --prefix frontend ci` → `build-only` (рестарт API не нужен) |
-| Только `server/` без миграций | `git pull` → `npm --prefix server ci --omit=dev` → `systemctl restart navalivay-server` |
-| `server/userbot/` | `git pull` → `pm2 restart navalivay-userbot` |
-| `package-lock.json` | `ci` в затронутой части (`frontend` и/или `server`) |
-
-## Правильная процедура после `git pull`
-
-### 1. Обновить зависимости при необходимости
-Из корня проекта `/var/www/NAVALIVAY`:
-
-```bash
-npm --prefix frontend ci
-npm --prefix server ci --omit=dev
-```
-
-Если lock-файлы не менялись, этот шаг можно пропустить.
-
-### 2. Собрать frontend
-Рабочая production-сборка:
-
-```bash
-npm --prefix frontend run build-only
-```
-
-Почему именно так:
-- `npm run build` из корня вызывает frontend build со встроенным type-check,
-- из-за этого сборка может завершиться ошибкой на TypeScript-проверке,
-- при этом production bundle сам по себе может собираться корректно.
-
-Пока type-check полностью не приведён в порядок, для деплоя использовать именно:
-
-```bash
-npm --prefix frontend run build-only
-```
-
-### 3. Штатно перезапустить backend через systemd
-Основная команда:
-
-```bash
-sudo systemctl restart navalivay-server
-```
-
-Если на сервере установлен bot service, перезапустить и его:
-
-```bash
-if systemctl list-unit-files --type=service --no-legend | awk '{print $1}' | grep -qx 'navalivay-bot.service'; then
-  sudo systemctl restart navalivay-bot
-fi
-```
-
-Безопасный универсальный one-liner:
-
-```bash
-sudo systemctl restart navalivay-server && if systemctl list-unit-files --type=service --no-legend | awk '{print $1}' | grep -qx 'navalivay-bot.service'; then sudo systemctl restart navalivay-bot; fi
-```
-
-### 4. Проверить статус после рестарта
-
-```bash
-sudo systemctl status navalivay-server --no-pager -n 20
-if systemctl list-unit-files --type=service --no-legend | awk '{print $1}' | grep -qx 'navalivay-bot.service'; then
-  sudo systemctl status navalivay-bot --no-pager -n 20
-fi
-curl -fsS http://127.0.0.1:8082/api/health
-```
-
-Ожидаемый результат:
-- `navalivay-server.service` находится в статусе `active (running)`,
-- при наличии bot service он тоже находится в статусе `active (running)`,
-- healthcheck на `8082` отвечает успешно.
-
-## Правильные команды
-
-### Как понять, какой процесс реально обслуживает API
-
-Перед любым спорным рестартом проверь именно владельца `8082`:
-
-```bash
-ss -ltnp 'sport = :8082'
-systemctl status navalivay-server --no-pager -n 20
-```
-
-Ожидаемо в production:
-- `8082` слушает процесс из `navalivay-server.service`,
-- PM2 не должен держать отдельный `navalivay-api` на том же порту.
-
-### Правильный рестарт CRM/API
-
-Использовать только так:
-
-```bash
-sudo systemctl restart navalivay-server
-sleep 2
-curl -i -s http://127.0.0.1:8082/api/health
-curl -i -s http://127.0.0.1:8082/api/admin/crm/orders/poll-summary
-```
-
-Ожидаемо:
-- `/api/health` отвечает `200`,
-- `/api/admin/crm/orders/poll-summary` без токена отвечает `401`,
-- ответ `404` означает, что поднят не тот код или не тот процесс.
-
-### Чего нельзя делать
-
-Нельзя использовать `pm2 restart navalivay-api` как штатный production-рестарт CRM API на текущем сервере.
-Если в PM2 осталась старая запись `navalivay-api`, её нужно удалить, чтобы не было путаницы и конфликта по `8082`.
-
-```bash
-pm2 delete navalivay-api
-```
-
-### Только перезапуск API
-
-```bash
-sudo systemctl restart navalivay-server && sleep 2 && curl -fsS http://127.0.0.1:8082/api/health
-```
-
-### Полный штатный сценарий после пересборки frontend
-
-```bash
-npm --prefix frontend run build-only && sudo systemctl restart navalivay-server && if systemctl list-unit-files --type=service --no-legend | awk '{print $1}' | grep -qx 'navalivay-bot.service'; then sudo systemctl restart navalivay-bot; fi && sleep 2 && curl -fsS http://127.0.0.1:8082/api/health
-```
-
-### Если работаешь из root-shell
-На `NavalivayNew` SSH обычно идёт под root — выполняйте команды без `sudo`. Если зашли под обычным пользователем с sudo, добавьте `sudo` перед `systemctl` и `journalctl`.
-
-## Когда использовать PM2
-PM2 **не** обслуживает CRM API на текущем production-сервере (`8082` держит `navalivay-server.service`).
-
-Исключение: **`navalivay-userbot`** — MTProto-клиент на `:8083`, обычно в PM2. После правок в `server/userbot/`:
-
-```bash
-pm2 restart navalivay-userbot
-pm2 logs navalivay-userbot --lines 30
 curl -fsS http://127.0.0.1:8083/health
 ```
 
-Остальной PM2 (`navalivay-api`, `navalivay-bot`) — локалка/dev или устаревшие записи; на prod не использовать для рестарта API.
+`npm … ci` можно пропустить, если в коммите не менялись `package-lock.json` в `frontend/` или `server/`.
 
-Использовать команды из [`server/ecosystem.config.cjs`](../server/ecosystem.config.cjs) имеет смысл только если:
-1. на конкретном сервере приложения действительно были подняты через PM2,
-2. это осознанно выбранное окружение,
-3. в `pm2 status` уже видны соответствующие процессы.
+Для сборки frontend использовать **`build-only`**, не `npm run build` из корня (type-check может упасть при рабочем bundle).
 
-Если этих условий нет, не использовать:
+### Что ещё рестартить
 
-```bash
-pm2 restart navalivay-api navalivay-bot --update-env
-```
+| Менялось | Дополнительно |
+|----------|----------------|
+| `server/bot.js`, `.env` с `BOT_TOKEN` | `pm2 restart navalivay-bot` |
+| `server/userbot/` | `pm2 restart navalivay-userbot` |
+| Только `frontend/` | рестарт API **не нужен** |
+| Только `server/` (API) | достаточно `systemctl restart navalivay-server` |
 
-как штатную команду перезапуска.
-
-## Если после рестарта что-то всё равно работает не так
-
-### Проверить статус сервиса и последние логи
+## Проверка после деплоя
 
 ```bash
-sudo systemctl status navalivay-server --no-pager -n 50
-sudo journalctl -u navalivay-server -n 100 --no-pager
+systemctl is-active navalivay-server          # active
+curl -fsS http://127.0.0.1:8082/api/health   # {"ok":true,...}
+curl -fsS http://127.0.0.1:8083/health       # "connected":true
+curl -s -o /dev/null -w "%{http_code}\n" http://127.0.0.1:8082/api/admin/crm/orders/poll-summary
+# ожидается 401 без токена (404 = не тот код/процесс на :8082)
 ```
 
-Если установлен bot service:
+Логи API:
 
 ```bash
-sudo systemctl status navalivay-bot --no-pager -n 50
-sudo journalctl -u navalivay-bot -n 100 --no-pager
+journalctl -u navalivay-server -n 50 --no-pager
 ```
 
-### Проверить, кто слушает порт `8082`
+Логи бота / userbot:
+
+```bash
+pm2 logs navalivay-bot --lines 30 --nostream
+pm2 logs navalivay-userbot --lines 30 --nostream
+```
+
+## Чего не делать
+
+```bash
+pm2 restart navalivay-api      # API на prod не в PM2; трафик не обновится
+systemctl restart navalivay-bot # бот на prod в PM2; риск дубля
+```
+
+## Если что-то сломалось
 
 ```bash
 ss -ltnp | grep 8082
+systemctl status navalivay-server --no-pager -n 30
+journalctl -u navalivay-server -n 100 --no-pager
 ```
 
-### Быстрый рабочий чек-лист
-Из корня проекта:
+Если API не стартует после смены Node — см. [`docs/prod-hotfix-playbook.md`](prod-hotfix-playbook.md) (native modules / `better-sqlite3`).
 
-```bash
-npm --prefix frontend run build-only
-sudo systemctl restart navalivay-server
-curl -fsS http://127.0.0.1:8082/api/health
-```
+## Прочее
+
+- Mini App / опт: [`docs/telegram-mini-app.md`](telegram-mini-app.md)
+- PM2 ecosystem: [`server/ecosystem.config.cjs`](../server/ecosystem.config.cjs) — для dev или нестандартных инсталляций, не шаблон для API на текущем prod
+- Мониторинг: `./ops/monitor.sh`
