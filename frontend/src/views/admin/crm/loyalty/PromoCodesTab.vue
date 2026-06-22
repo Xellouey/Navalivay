@@ -1,7 +1,7 @@
 <template>
-  <div class="space-y-5">
+  <div class="flex min-h-0 flex-1 flex-col gap-5">
     <!-- Toolbar -->
-    <div class="flex flex-wrap items-center gap-3">
+    <div class="flex shrink-0 flex-wrap items-center gap-3">
       <div class="inline-flex items-center gap-0.5 rounded-[10px] border border-slate-200 bg-slate-50 p-[3px]">
         <button
           v-for="option in sourceOptions"
@@ -57,10 +57,15 @@
     </div>
 
     <!-- Table -->
-    <div class="rounded-2xl border border-slate-200/60 bg-white shadow-sm overflow-hidden">
-      <div class="overflow-x-auto">
+    <div class="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-slate-200/60 bg-white shadow-sm">
+      <div
+        class="min-h-0 flex-1 overflow-auto"
+        role="region"
+        aria-label="Список промокодов"
+      >
+        <div class="overflow-x-auto">
         <table class="w-full">
-          <thead class="bg-slate-50/80 border-b border-slate-200/60">
+          <thead class="sticky top-0 z-10 border-b border-slate-200/60 bg-slate-50/95 backdrop-blur-sm">
             <tr>
               <th class="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Код</th>
               <th class="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Описание</th>
@@ -191,6 +196,25 @@
             </tr>
           </tbody>
         </table>
+        </div>
+      </div>
+
+      <div
+        v-if="promoCodesTotal > 0"
+        class="flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-slate-200/60 bg-slate-50/60 px-4 py-2.5"
+      >
+        <p class="text-xs text-slate-500">
+          Показано {{ promoCodes.length }} из {{ promoCodesTotal }}
+        </p>
+        <button
+          v-if="hasMorePromos"
+          type="button"
+          class="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 transition-colors hover:border-slate-300 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+          :disabled="loadingMore"
+          @click="loadMore"
+        >
+          {{ loadingMore ? 'Загрузка...' : 'Показать ещё' }}
+        </button>
       </div>
     </div>
 
@@ -419,7 +443,7 @@
             Загрузка...
           </div>
           <div v-else-if="!usageList.length" class="py-10 text-center text-slate-400">
-            Промокод еще не использовался
+            Промокод ещё не использовался
           </div>
           <div v-else class="rounded-xl border border-slate-200/60 overflow-hidden">
             <table class="w-full">
@@ -463,6 +487,10 @@ import { useCrmStore, type PromoCode, type PromoUsage } from '@/stores/crm'
 
 const crmStore = useCrmStore()
 const promoCodes = computed(() => crmStore.promoCodes)
+const promoCodesTotal = computed(() => crmStore.promoCodesTotal)
+const PROMO_PAGE_SIZE = 100
+const loadingMore = ref(false)
+const hasMorePromos = computed(() => promoCodes.value.length < promoCodesTotal.value)
 
 type PromoSourceFilter = 'regular' | 'wheel' | 'all'
 const sourceOptions: Array<{ value: PromoSourceFilter; label: string }> = [
@@ -517,7 +545,26 @@ async function loadPromoCodes() {
     search: search.value || undefined,
     filter: filter.value || undefined,
     source: sourceFilter.value,
+    limit: PROMO_PAGE_SIZE,
+    offset: 0,
   })
+}
+
+async function loadMore() {
+  if (!hasMorePromos.value || loadingMore.value) return
+  loadingMore.value = true
+  try {
+    await crmStore.fetchPromoCodes({
+      search: search.value || undefined,
+      filter: filter.value || undefined,
+      source: sourceFilter.value,
+      limit: PROMO_PAGE_SIZE,
+      offset: promoCodes.value.length,
+      append: true,
+    })
+  } finally {
+    loadingMore.value = false
+  }
 }
 
 function setSourceFilter(source: PromoSourceFilter) {
@@ -714,7 +761,7 @@ function getSourceBadgeClass(): string {
 
 const emptyStateText = computed(() => {
   if (sourceFilter.value === 'regular') return 'Нет обычных промокодов'
-  if (sourceFilter.value === 'wheel') return 'В рулетке нет промокодов'
+  if (sourceFilter.value === 'wheel') return 'Нет промокодов рулетки'
   return 'Нет промокодов'
 })
 

@@ -1,11 +1,11 @@
 <template>
-  <div class="min-h-screen bg-gray-50 px-4 py-6 sm:px-6 lg:px-8">
-    <div class="mx-auto w-full max-w-7xl space-y-6">
-      <div class="flex flex-col sm:flex-row sm:items-center gap-4">
+  <div class="flex min-h-0 flex-1 flex-col px-4 py-6 sm:px-6 lg:px-8">
+    <div class="mx-auto flex w-full max-w-7xl min-h-0 flex-1 flex-col gap-6">
+      <div class="flex shrink-0 flex-col gap-4 sm:flex-row sm:items-center">
         <h1 class="text-2xl font-bold text-gray-900 sm:text-3xl shrink-0">Бонусы и промокоды</h1>
       </div>
 
-      <div class="flex gap-2">
+      <div class="flex shrink-0 gap-2">
         <button
           v-for="tab in tabs"
           :key="tab.id"
@@ -20,8 +20,8 @@
         </button>
       </div>
 
-      <PromoCodesTab v-if="activeTab === 'promos'" />
-      <BonusSystemTab v-else />
+      <PromoCodesTab v-if="activeTab === 'promos'" class="min-h-0 flex-1" />
+      <BonusSystemTab v-else class="min-h-0 flex-1" />
     </div>
   </div>
 </template>

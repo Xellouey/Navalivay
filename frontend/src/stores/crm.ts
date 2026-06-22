@@ -2368,7 +2368,14 @@ export const useCrmStore = defineStore("crm", () => {
   const promoCodesLoading = ref(false);
   const promoCodesTotal = ref(0);
 
-  async function fetchPromoCodes(params?: { search?: string; filter?: string; source?: 'regular' | 'wheel' | 'all'; limit?: number; offset?: number }) {
+  async function fetchPromoCodes(params?: {
+    search?: string;
+    filter?: string;
+    source?: 'regular' | 'wheel' | 'all';
+    limit?: number;
+    offset?: number;
+    append?: boolean;
+  }) {
     promoCodesLoading.value = true;
     try {
       const query = new URLSearchParams();
@@ -2379,7 +2386,13 @@ export const useCrmStore = defineStore("crm", () => {
       if (params?.offset) query.set('offset', String(params.offset));
       const qs = query.toString();
       const data = await fetchAPI<{ promo_codes: PromoCode[]; total: number }>(`${API_BASE}/promo-codes${qs ? `?${qs}` : ''}`);
-      promoCodes.value = data.promo_codes;
+      if (params?.append) {
+        const existingIds = new Set(promoCodes.value.map((promo) => promo.id));
+        const nextPromos = data.promo_codes.filter((promo) => !existingIds.has(promo.id));
+        promoCodes.value = [...promoCodes.value, ...nextPromos];
+      } else {
+        promoCodes.value = data.promo_codes;
+      }
       promoCodesTotal.value = data.total;
       return data;
     } finally {

@@ -7,11 +7,19 @@ const createPromoCodeMock = vi.fn();
 const updatePromoCodeMock = vi.fn();
 const deletePromoCodeMock = vi.fn();
 const fetchPromoUsageMock = vi.fn();
-const promoCodesMock = vi.hoisted(() => [] as any[]);
+const promoStoreState = vi.hoisted(() => ({
+  promoCodes: [] as any[],
+  promoCodesTotal: 0,
+}));
 
 vi.mock("@/stores/crm", () => ({
   useCrmStore: () => ({
-    promoCodes: promoCodesMock,
+    get promoCodes() {
+      return promoStoreState.promoCodes;
+    },
+    get promoCodesTotal() {
+      return promoStoreState.promoCodesTotal;
+    },
     promoCodesLoading: false,
     fetchPromoCodes: fetchPromoCodesMock,
     createPromoCode: createPromoCodeMock,
@@ -24,7 +32,8 @@ vi.mock("@/stores/crm", () => ({
 describe("PromoCodesTab zero-discount gift handling", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
-    promoCodesMock.splice(0);
+    promoStoreState.promoCodes.splice(0);
+    promoStoreState.promoCodesTotal = 0;
     fetchPromoCodesMock.mockResolvedValue(undefined);
     createPromoCodeMock.mockResolvedValue({ id: "promo-gift-zero" });
     updatePromoCodeMock.mockResolvedValue(undefined);
@@ -37,19 +46,68 @@ describe("PromoCodesTab zero-discount gift handling", () => {
     await flushPromises();
 
     expect(fetchPromoCodesMock).toHaveBeenCalledWith(
-      expect.objectContaining({ source: "regular" }),
+      expect.objectContaining({
+        source: "regular",
+        limit: 100,
+        offset: 0,
+      }),
     );
 
     await wrapper.findAll("button").find((item) => item.text().includes("Рулетка"))!.trigger("click");
     await flushPromises();
 
     expect(fetchPromoCodesMock).toHaveBeenLastCalledWith(
-      expect.objectContaining({ source: "wheel" }),
+      expect.objectContaining({
+        source: "wheel",
+        limit: 100,
+        offset: 0,
+      }),
+    );
+  });
+
+  it("shows list summary and loads more promos when total exceeds loaded count", async () => {
+    promoStoreState.promoCodes.push(
+      {
+        id: "promo-1",
+        code: "SAVE1",
+        description: "Promo 1",
+        customer_description: "Promo 1",
+        manager_description: null,
+        has_gift: 0,
+        is_wheel_template: 0,
+        discount_type: "fixed",
+        discount_value: 5,
+        min_order_amount: 0,
+        max_uses: 1,
+        current_uses: 0,
+        valid_from: null,
+        valid_until: null,
+        active: 1,
+        created_at: "2026-06-01",
+      },
+    );
+    promoStoreState.promoCodesTotal = 3;
+
+    const wrapper = mount(PromoCodesTab);
+    await flushPromises();
+
+    expect(wrapper.text()).toContain("Показано 1 из 3");
+
+    fetchPromoCodesMock.mockClear();
+    await wrapper.findAll("button").find((item) => item.text() === "Показать ещё")!.trigger("click");
+    await flushPromises();
+
+    expect(fetchPromoCodesMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        limit: 100,
+        offset: 1,
+        append: true,
+      }),
     );
   });
 
   it("marks only wheel promo templates with a badge", async () => {
-    promoCodesMock.push(
+    promoStoreState.promoCodes.push(
       {
         id: "template-1",
         code: "SPIN-TEMPLATE",
