@@ -384,6 +384,7 @@ const {
   strengthTier: filterStrengthTier,
   topSalesLoading: filterTopSalesLoading,
   topSales: filterTopSales,
+  hasActiveFilters: filterHasActiveFilters,
   toggleTopFilter,
   toggleStrengthFilter,
 } = categoryFilters;
@@ -533,8 +534,8 @@ function collectVisibleGroupIds(groups: Array<{ id: string; children?: Array<{ i
   return ids;
 }
 
-async function prefetchTopFilterGroupImages() {
-  if (!filterTopActive.value) {
+async function prefetchVisibleFilterGroupImages() {
+  if (!filterHasActiveFilters.value) {
     return;
   }
 
@@ -544,11 +545,13 @@ async function prefetchTopFilterGroupImages() {
   }
 
   const ids = new Set<string>();
-  filterTopSales.value.forEach((item) => {
-    if (item.groupId) {
-      ids.add(String(item.groupId));
-    }
-  });
+  if (filterTopActive.value) {
+    filterTopSales.value.forEach((item) => {
+      if (item.groupId) {
+        ids.add(String(item.groupId));
+      }
+    });
+  }
 
   if (showLiquidShowcase.value) {
     collectVisibleGroupIds(filteredLiquidGroups.value).forEach((groupId) => ids.add(groupId));
@@ -849,20 +852,21 @@ watch(
 );
 
 watch(
-  () => filterTopActive.value,
-  (isActive) => {
-    if (isActive) {
-      void prefetchTopFilterGroupImages();
-    }
-  },
-);
-
-watch(
-  () => filterTopSales.value.map((item) => item.groupId).join(","),
+  () =>
+    [
+      filterHasActiveFilters.value,
+      filterTopActive.value,
+      filterStrengthTier.value,
+      filterTopSales.value.map((item) => item.groupId).join(","),
+      showLiquidShowcase.value
+        ? collectVisibleGroupIds(filteredLiquidGroups.value).join(",")
+        : collectVisibleGroupIds(filteredGroupCards.value).join(","),
+    ].join("|"),
   () => {
-    if (filterTopActive.value) {
-      void prefetchTopFilterGroupImages();
+    if (!filterHasActiveFilters.value) {
+      return;
     }
+    void prefetchVisibleFilterGroupImages();
   },
 );
 
