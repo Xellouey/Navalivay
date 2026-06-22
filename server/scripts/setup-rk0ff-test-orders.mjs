@@ -49,7 +49,7 @@ function nextOrderNumber() {
   return Number(row?.n || 1);
 }
 
-function loadProduct(productId) {
+function loadProduct(productId, { variantId = null, variantName = null } = {}) {
   const row = db.prepare(`
     SELECT
       p.id AS product_id,
@@ -68,7 +68,43 @@ function loadProduct(productId) {
   if (!row) {
     throw new Error(`Товар не найден: ${productId}`);
   }
-  return row;
+
+  let resolvedVariantId = variantId || null;
+  let resolvedVariantName = variantName || null;
+  let priceRub = Number(row.price_rub || 0);
+
+  if (resolvedVariantId || resolvedVariantName) {
+    const variant = resolvedVariantId
+      ? db.prepare(`
+          SELECT id, name, price_rub
+          FROM product_variants
+          WHERE id = ? AND product_id = ?
+        `).get(resolvedVariantId, productId)
+      : db.prepare(`
+          SELECT id, name, price_rub
+          FROM product_variants
+          WHERE product_id = ? AND name = ?
+        `).get(productId, resolvedVariantName);
+
+    if (!variant) {
+      throw new Error(
+        `Вариант не найден для ${productId}: ${resolvedVariantId || resolvedVariantName}`,
+      );
+    }
+
+    resolvedVariantId = variant.id;
+    resolvedVariantName = variant.name;
+    if (Number(variant.price_rub) > 0) {
+      priceRub = Number(variant.price_rub);
+    }
+  }
+
+  return {
+    ...row,
+    price_rub: priceRub,
+    variant_id: resolvedVariantId,
+    variant_name: resolvedVariantName,
+  };
 }
 
 function resetDemoOrders(customerId) {
@@ -111,8 +147,8 @@ function createDeliveredOrder({ orderId, customerId, lines, now, issuedMinutesAg
 
   const insertItem = db.prepare(`
     INSERT INTO order_items (
-      id, order_id, product_id, product_title, variant_name, quantity, price_per_unit, total_price, total_cost
-    ) VALUES (?, ?, ?, ?, ?, 1, ?, ?, 0)
+      id, order_id, product_id, product_title, variant_id, variant_name, quantity, price_per_unit, total_price, total_cost
+    ) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, 0)
   `);
 
   const orderItems = [];
@@ -125,6 +161,7 @@ function createDeliveredOrder({ orderId, customerId, lines, now, issuedMinutesAg
       orderId,
       line.product_id,
       line.product_title,
+      line.variant_id || null,
       variantName,
       Number(line.price_rub || 0),
       Number(line.price_rub || 0),
@@ -160,12 +197,16 @@ if (!customer) {
 const previewOrders = ORDER_SPECS.map((spec) => ({
   label: spec.label,
   items: spec.items.map((item) => {
-    const product = loadProduct(item.productId);
+    const product = loadProduct(item.productId, {
+      variantId: item.variantId || null,
+      variantName: item.variantName || null,
+    });
     return {
       category: product.category_name,
       group: product.group_name,
       product: product.product_title,
-      variant: item.variantName || product.product_title,
+      variant: product.variant_name || item.variantName || product.product_title,
+      price_rub: product.price_rub,
     };
   }),
 }));
@@ -190,14 +231,10 @@ const result = db.transaction(() => {
 
   ORDER_SPECS.forEach((spec, index) => {
     const orderId = `order_rk0ff_test_${Date.now()}_${index}`;
-    const lines = spec.items.map((item) => {
-      const product = loadProduct(item.productId);
-      return {
-        ...product,
-        variant_name: item.variantName,
-        variant_id: item.variantId || null,
-      };
-    });
+    const lines = spec.items.map((item) => loadProduct(item.productId, {
+      variantId: item.variantId || null,
+      variantName: item.variantName || null,
+    }));
 
     const created = createDeliveredOrder({
       orderId,
