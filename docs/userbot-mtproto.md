@@ -282,6 +282,5 @@ pm2 start navalivay-userbot
 - `npm ci --production` — детерминированно, по lock-файлу
 - `pm2 startOrReload ecosystem.config.cjs` — idempotent, hot-reload api/bot,
   graceful restart userbot (SIGTERM → 10с на disconnect → SIGKILL)
-- Smoke-test в `ops/deploy.sh` ждёт `connected:true` до 30с после рестарта,
-  при таймауте предупреждает но не валит деплой (auto-notify фоллбэкается
-  на Business mode, и это OK)
+- После рестарта проверьте `curl -fsS http://127.0.0.1:8083/health` — ожидается
+  `"connected":true`. Если userbot не поднялся, auto-notify уйдёт в очередь retry.

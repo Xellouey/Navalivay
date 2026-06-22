@@ -76,19 +76,18 @@ npm run build:server
 4. Restart production services
 5. Verify health
 
-### Deployment helper
-From the project root:
+### Production deploy
+See [`docs/DEPLOY_REBUILD_RESTART.md`](docs/DEPLOY_REBUILD_RESTART.md). Typical flow from `/var/www/NAVALIVAY`:
+
 ```bash
-./ops/deploy.sh
+git pull
+npm --prefix frontend ci && npm --prefix frontend run build-only
+npm --prefix server ci --omit=dev
+sudo systemctl restart navalivay-server
+curl -fsS http://127.0.0.1:8082/api/health
 ```
 
-The deploy script:
-- pulls latest code when git is available,
-- installs production dependencies,
-- checks configuration,
-- ensures required directories exist,
-- restarts systemd services,
-- validates API health.
+From a root shell, drop `sudo`.
 
 ## Production Process Management
 
@@ -145,7 +144,6 @@ NAVALIVAY/
 ├── frontend/          # Vue.js frontend application
 ├── server/            # Node.js backend and bot
 ├── ops/               # Deployment and operations
-│   ├── deploy.sh      # Production deployment script
 │   ├── backup.sh      # Database backup script
 │   └── monitor.sh     # Health monitoring script
 ├── deploy/            # Optional samples (e.g. systemd unit for bot)
