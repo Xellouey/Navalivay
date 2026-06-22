@@ -51,6 +51,7 @@ describe("OrderHistoryView", () => {
     expect(wrapper.text()).toContain("Заказ № 1001");
     expect(wrapper.text()).not.toContain("Жидкости");
     expect(wrapper.text()).toContain("Выдан");
+    expect(wrapper.find(".order-history-card__meta--fulfilled").exists()).toBe(true);
     expect(wrapper.text()).not.toContain("Оценить");
     expect(wrapper.text()).toContain("42 BYN");
 

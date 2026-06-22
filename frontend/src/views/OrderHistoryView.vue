@@ -82,7 +82,13 @@
               </div>
 
               <div class="order-history-card__meta-wrap">
-                <p class="order-history-card__meta">
+                <p
+                  class="order-history-card__meta"
+                  :class="{
+                    'order-history-card__meta--fulfilled':
+                      order.status === 'delivered' || order.status === 'completed',
+                  }"
+                >
                   {{ formatOrderHistoryMeta(order) }}
                 </p>
                 <p v-if="order.review_hint" class="order-history-card__hint">
@@ -422,6 +428,10 @@ onMounted(() => {
   font-size: 13px;
   line-height: 16px;
   color: #8a93a0;
+}
+
+.order-history-card__meta--fulfilled {
+  color: #1d7a4b;
 }
 
 .order-history-card__hint {
