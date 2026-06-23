@@ -26,6 +26,7 @@ import {
 import { activatePendingNotesForCustomer } from '../utils/customer-notes.js';
 import { resolvePublicCustomerPhotoUrl } from "../utils/customer-photo.js";
 import { hasCustomerPhotoOnDisk } from "../utils/customer-photo-disk.js";
+import { applyTelegramHttpProxy } from "../utils/telegram-http-proxy.js";
 import {
   cacheCustomerPhotoToDisk,
   fetchCustomerPhotoBytes,
@@ -145,7 +146,10 @@ async function fetchTelegramChat(telegramId) {
     return null;
   }
 
-  const response = await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getChat?chat_id=${encodeURIComponent(String(telegramId))}`);
+  const response = await fetch(
+    `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getChat?chat_id=${encodeURIComponent(String(telegramId))}`,
+    applyTelegramHttpProxy(),
+  );
   const payload = await response.json();
 
   if (!response.ok || !payload?.ok) {
