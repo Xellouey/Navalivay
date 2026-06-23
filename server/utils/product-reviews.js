@@ -333,6 +333,8 @@ function orderBelongsToCustomer(order, { telegramId = '', telegramUsername = '' 
 }
 
 function loadOwnedOrdersBaseSql() {
+  // `archived` hides delivered orders from the CRM kanban only.
+  // Customer history, order detail, and review eligibility must still see them.
   return `
     SELECT
       o.*,
@@ -342,7 +344,7 @@ function loadOwnedOrdersBaseSql() {
       COALESCE(o.telegram_username, c.telegram_username) AS resolved_telegram_username
     FROM orders o
     LEFT JOIN customers c ON c.id = o.customer_id
-    WHERE COALESCE(o.archived, 0) = 0
+    WHERE 1 = 1
   `;
 }
 
@@ -546,7 +548,6 @@ export function getGroupReviewEligibility({
     WHERE o.customer_id = ?
       AND p.groupId = ?
       AND o.status IN ('delivered', 'completed')
-      AND COALESCE(o.archived, 0) = 0
     ORDER BY COALESCE(o.completed_at, o.updated_at, o.created_at) DESC
     LIMIT 1
   `).get(customerId, groupId);

@@ -14,6 +14,7 @@ process.env.NODE_ENV = 'test';
 const { initDb, db } = await import('../db.js');
 const {
   createProductReview,
+  findOwnedOrders,
   getGroupReviewEligibility,
   getPublicGroupReviews,
   getReviewPromptForCustomer,
@@ -593,6 +594,133 @@ console.log('\n--- A18: global dev_test_mode without devBypass still enforces co
   });
   ok(blocked.canReview === false && blocked.reason === 'cooldown', 'cooldown enforced without explicit bypass flag');
   setReviewSetting('dev_test_mode', '0');
+}
+
+console.log('\n--- A19: archived delivered order stays in customer history ---');
+{
+  seedWorld();
+  db.prepare(`UPDATE orders SET archived = 1 WHERE id = 'ord1'`).run();
+
+  const owned = findOwnedOrders({
+    telegramId: '111',
+    telegramUsername: 'buyer1',
+    statuses: ['delivered', 'completed', 'cancelled'],
+    orderId: 'ord1',
+    limit: 1,
+  });
+  ok(owned.length === 1 && owned[0].archived === 1, 'archived delivered order is owned');
+
+  const order = owned[0];
+  const card = serializeOrderHistoryCard(order, 'cust1');
+  ok(card.id === 'ord1' && card.order_number === 1001, 'archived order serializes for history card');
+}
+
+console.log('\n--- A20: archived order with rejected reviews allows resubmit and prompt ---');
+{
+  seedWorld();
+  db.prepare(`UPDATE orders SET archived = 1 WHERE id = 'ord1'`).run();
+
+  const first = createProductReview({
+    customerId: 'cust1',
+    orderId: 'ord1',
+    groupId: 'grp1',
+    orderItemId: 'oi1',
+    rating: 5,
+    bodyText: 'Первый отзыв отклонён после ночной архивации',
+    quickTagIds: [],
+  });
+  db.prepare(`UPDATE product_reviews SET status = ? WHERE id = ?`).run(
+    REVIEW_STATUSES.REJECTED,
+    first.id,
+  );
+
+  const eligible = getGroupReviewEligibility({
+    customerId: 'cust1',
+    groupId: 'grp1',
+    orderId: 'ord1',
+    orderItemId: 'oi1',
+  });
+  ok(eligible.canReview === true, 'archived order line is reviewable after rejection');
+
+  const second = createProductReview({
+    customerId: 'cust1',
+    orderId: 'ord1',
+    groupId: 'grp1',
+    orderItemId: 'oi1',
+    rating: 4,
+    bodyText: 'Исправленный отзыв на архивный заказ после отклонения',
+    quickTagIds: [],
+  });
+  ok(second?.status === REVIEW_STATUSES.PENDING, 'resubmit on archived order allowed');
+
+  const customer = db.prepare('SELECT * FROM customers WHERE id = ?').get('cust1');
+  const prompt = getReviewPromptForCustomer(customer);
+  ok(prompt.show === false, 'prompt hidden while resubmit pending');
+}
+
+console.log('\n--- A21: Maffsim-like multi-line archived order with all reviews rejected ---');
+{
+  seedWorld();
+  db.prepare(
+    `INSERT INTO category_groups (id, categoryId, slug, name, [order], hide_empty, createdAt, updatedAt)
+     VALUES ('grp3', 'cat1', 'grp3', 'Третья', 3, 0, DATETIME('now'), DATETIME('now')),
+            ('grp4', 'cat1', 'grp4', 'Четвёртая', 4, 0, DATETIME('now'), DATETIME('now')),
+            ('grp5', 'cat1', 'grp5', 'Пятая', 5, 0, DATETIME('now'), DATETIME('now'))`,
+  ).run();
+  db.prepare(
+    `INSERT INTO products (id, categoryId, groupId, title, priceRub, description, stock, createdAt)
+     VALUES ('prod3', 'cat1', 'grp3', 'Линия 3', 10, '', 5, DATETIME('now')),
+            ('prod4', 'cat1', 'grp4', 'Линия 4', 10, '', 5, DATETIME('now')),
+            ('prod5', 'cat1', 'grp5', 'Линия 5', 10, '', 5, DATETIME('now'))`,
+  ).run();
+  db.prepare(
+    `INSERT INTO order_items (id, order_id, product_id, product_title, variant_name, quantity, price_per_unit, total_price, total_cost)
+     VALUES ('oi2', 'ord1', 'prod2', 'Манго', 'Манговая', 1, 10, 10, 4),
+            ('oi3', 'ord1', 'prod3', 'Линия 3', 'Вкус 3', 1, 10, 10, 4),
+            ('oi4', 'ord1', 'prod4', 'Линия 4', 'Вкус 4', 1, 10, 10, 4),
+            ('oi5', 'ord1', 'prod5', 'Линия 5', 'Вкус 5', 1, 10, 10, 4)`,
+  ).run();
+  db.prepare(`UPDATE orders SET archived = 1, order_number = 9086 WHERE id = 'ord1'`).run();
+  db.prepare(`UPDATE customers SET telegram_username = 'Maffsim' WHERE id = 'cust1'`).run();
+
+  for (const [groupId, itemId, suffix] of [
+    ['grp1', 'oi1', '1'],
+    ['grp2', 'oi2', '2'],
+    ['grp3', 'oi3', '3'],
+    ['grp4', 'oi4', '4'],
+    ['grp5', 'oi5', '5'],
+  ]) {
+    const review = createProductReview({
+      customerId: 'cust1',
+      orderId: 'ord1',
+      groupId,
+      orderItemId: itemId,
+      rating: 5,
+      bodyText: `Все чётко быстро. Спасибо за линейку ${suffix}`,
+      quickTagIds: [],
+    });
+    db.prepare(`UPDATE product_reviews SET status = ? WHERE id = ?`).run(
+      REVIEW_STATUSES.REJECTED,
+      review.id,
+    );
+  }
+
+  const owned = findOwnedOrders({
+    telegramId: '111',
+    telegramUsername: 'Maffsim',
+    statuses: ['delivered', 'completed', 'cancelled'],
+    orderId: 'ord1',
+    limit: 1,
+  });
+  ok(owned.length === 1, 'Maffsim archived order visible in owned orders');
+
+  const lines = buildReviewableLinesForOrder(owned[0], 'cust1');
+  const reviewable = lines.filter((line) => line.eligibility.canReview);
+  ok(reviewable.length === lines.length, 'all rejected lines become reviewable again');
+
+  const customer = db.prepare('SELECT * FROM customers WHERE id = ?').get('cust1');
+  const prompt = getReviewPromptForCustomer(customer);
+  ok(prompt.show === true && prompt.order_id === 'ord1', 'review dock returns for archived rejected order');
 }
 
 console.log(`\nDone: ${results.passed} passed, ${results.failed} failed\n`);

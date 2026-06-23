@@ -328,6 +328,58 @@ console.log('\n--- REG13: pending moderation blocks duplicate review on repeat p
   ok(create.data?.error === 'pending_moderation', 'error code is pending_moderation');
 }
 
+console.log('\n--- REG14: archived delivered order visible in history and reviewable after reject ---');
+{
+  seedDeliveredOrder();
+  db.prepare(`UPDATE orders SET archived = 1, order_number = 9086 WHERE id = 'ord1'`).run();
+  db.prepare(`UPDATE customers SET telegram_username = 'Maffsim' WHERE id = 'cust1'`).run();
+
+  const history = await requestJson('/api/orders/my-history', {
+    headers: authHeaders('111', 'Maffsim'),
+  });
+  ok(history.response.status === 200, 'history 200 for archived order');
+  ok(history.data?.items?.some((item) => item.id === 'ord1'), 'archived order appears in my-history');
+
+  const detail = await requestJson('/api/orders/ord1/detail', {
+    headers: authHeaders('111', 'Maffsim'),
+  });
+  ok(detail.response.status === 200, 'archived order detail 200');
+  ok(detail.data?.reviewable_lines?.[0]?.eligibility?.canReview === true, 'archived line reviewable');
+
+  const rejected = await requestJson('/api/reviews', {
+    method: 'POST',
+    headers: authHeaders('111', 'Maffsim'),
+    body: JSON.stringify({
+      order_id: 'ord1',
+      group_id: 'grp1',
+      order_item_id: 'oi1',
+      rating: 2,
+      body_text: 'Первый отзыв на архивный заказ, потом отклоним',
+      quick_tag_ids: [],
+    }),
+  });
+  ok(rejected.response.status === 201, 'first review created on archived order');
+  db.prepare(`UPDATE product_reviews SET status = ? WHERE id = ?`).run(
+    REVIEW_STATUSES.REJECTED,
+    rejected.data.review.id,
+  );
+
+  const resubmit = await requestJson('/api/reviews', {
+    method: 'POST',
+    headers: authHeaders('111', 'Maffsim'),
+    body: JSON.stringify({
+      order_id: 'ord1',
+      group_id: 'grp1',
+      order_item_id: 'oi1',
+      rating: 5,
+      body_text: 'Исправленный отзыв после отклонения на архивном заказе',
+      quick_tag_ids: [],
+    }),
+  });
+  ok(resubmit.response.status === 201, 'resubmit allowed on archived order after reject');
+  ok(resubmit.data?.review?.status === REVIEW_STATUSES.PENDING, 'resubmit is pending');
+}
+
 server.close();
 console.log(`\nDone: ${results.passed} passed, ${results.failed} failed\n`);
 process.exit(results.failed > 0 ? 1 : 0);
