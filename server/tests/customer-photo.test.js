@@ -5,6 +5,8 @@ import {
   shouldRefreshCustomerPhoto,
   resolveCustomerPhotoRefresh,
   buildTelegramPhotoUrl,
+  buildCustomerPhotoProxyUrl,
+  resolvePublicCustomerPhotoUrl,
 } from '../utils/customer-photo.js';
 
 const NOW = Date.parse('2026-06-22T12:00:00.000Z');
@@ -131,6 +133,33 @@ console.log('=== customer photo: buildTelegramPhotoUrl ===');
 assert.equal(
   buildTelegramPhotoUrl('TOKEN', 'photos/file.jpg'),
   'https://api.telegram.org/file/botTOKEN/photos/file.jpg',
+);
+
+console.log('=== customer photo: public proxy url ===');
+assert.equal(
+  buildCustomerPhotoProxyUrl('cust_123'),
+  '/api/customer-photo/cust_123',
+);
+assert.equal(
+  resolvePublicCustomerPhotoUrl({
+    id: 'cust_123',
+    photo_url: 'https://api.telegram.org/file/botTOKEN/photos/file.jpg',
+  }),
+  '/api/customer-photo/cust_123',
+);
+assert.equal(
+  resolvePublicCustomerPhotoUrl({ id: 'cust_123', photo_url: null }),
+  null,
+);
+assert.equal(
+  JSON.stringify(
+    resolvePublicCustomerPhotoUrl({
+      id: 'cust_123',
+      photo_url: 'https://api.telegram.org/file/botSECRET/photos/file.jpg',
+    }),
+  ).includes('SECRET'),
+  false,
+  'public photo url must not expose telegram bot token',
 );
 
 console.log(`PHOTO_CACHE_MS=${PHOTO_CACHE_MS}, PHOTO_RETRY_WHEN_NULL_MS=${PHOTO_RETRY_WHEN_NULL_MS}`);

@@ -432,6 +432,33 @@ console.log('\n--- public reviews ---');
   ok(publicReviews.items[0].purchased_variant_name === 'Ананасовая шипучка', 'variant in public review');
 }
 
+console.log('\n--- public reviews expose proxied reviewer avatar ---');
+{
+  seedBase();
+  db.prepare(
+    `UPDATE customers
+     SET photo_url = 'https://api.telegram.org/file/botSECRET_TOKEN/photos/file.jpg'
+     WHERE id = 'cust1'`,
+  ).run();
+  const review = createProductReview({
+    customerId: 'cust1',
+    orderId: 'ord1',
+    groupId: 'grp1',
+    orderItemId: 'oi1',
+    rating: 5,
+    bodyText: 'Отличная жидкость, вкус держится долго и приятный',
+    quickTagIds: [],
+    isAnonymous: false,
+  });
+  db.prepare(`UPDATE product_reviews SET status = 'approved', approved_at = DATETIME('now') WHERE id = ?`).run(
+    review.id,
+  );
+
+  const publicReviews = getPublicGroupReviews('grp1');
+  ok(publicReviews.items[0].reviewer.photo_url === '/api/customer-photo/cust1', 'reviewer photo uses proxy url');
+  ok(!JSON.stringify(publicReviews.items[0]).includes('SECRET_TOKEN'), 'review payload hides bot token');
+}
+
 console.log('\n--- public reviews backfill flavor from order item ---');
 {
   db.exec('DELETE FROM product_reviews;');

@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { db } from '../db.js';
+import { resolvePublicCustomerPhotoUrl } from './customer-photo.js';
 import { getBusinessPeriodRange, getUtcDateForTimeZoneLocalTime } from './business-time.js';
 
 /** First day the customer order history + reviews cabinet went live on prod. */
@@ -1138,7 +1139,7 @@ function maskReviewer(customer, review) {
   const lastName = customer?.last_name ? `${customer.last_name.charAt(0)}.` : '';
   return {
     display_name: `${firstName}${lastName ? ` ${lastName}` : ''}`.trim(),
-    photo_url: customer?.photo_url || null,
+    photo_url: resolvePublicCustomerPhotoUrl(customer),
     is_anonymous: false,
   };
 }
@@ -1157,6 +1158,7 @@ export function getPublicGroupReviews(groupId, { limit = 20, offset = 0 } = {}) 
   const rows = db.prepare(`
     SELECT
       pr.*,
+      c.id AS customer_id_ref,
       c.first_name,
       c.last_name,
       c.photo_url,
@@ -1225,7 +1227,12 @@ export function getPublicGroupReviews(groupId, { limit = 20, offset = 0 } = {}) 
         purchased_variant_name: purchasedVariantName || null,
         quick_tag_labels: quickTagLabels,
         reviewer: maskReviewer(
-          { first_name: row.first_name, last_name: row.last_name, photo_url: row.photo_url },
+          {
+            id: row.customer_id_ref,
+            first_name: row.first_name,
+            last_name: row.last_name,
+            photo_url: row.photo_url,
+          },
           row,
         ),
         manager_reply: row.manager_reply || null,

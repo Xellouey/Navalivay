@@ -21,10 +21,11 @@ import {
   validateWholesaleMinimum,
 } from "../wholesale-service.js";
 import { activatePendingNotesForCustomer } from '../utils/customer-notes.js';
+import { resolvePublicCustomerPhotoUrl } from "../utils/customer-photo.js";
 import {
-  resolveCustomerPhotoRefresh,
-  shouldRefreshCustomerPhoto,
-} from "../utils/customer-photo.js";
+  fetchCustomerPhotoBytes,
+  refreshCustomerPhotoIfStale,
+} from "../utils/customer-photo-refresh.js";
 import {
   activatePendingBansForCustomer,
   getActiveBlockForTelegramId,
@@ -1722,6 +1723,57 @@ publicRouter.get("/api/telegram/username-status", async (req, res) => {
 });
 
 publicRouter.get(
+  "/api/customer-photo/:customerId",
+  publicMiniAppReadLimiter,
+  async (req, res) => {
+    try {
+      const customerId = String(req.params.customerId || "").trim();
+      if (!customerId) {
+        return res.status(404).end();
+      }
+
+      const customer = db.prepare(`
+        SELECT id, telegram_id, photo_url, photo_updated_at
+        FROM customers
+        WHERE id = ?
+      `).get(customerId);
+
+      if (!customer) {
+        return res.status(404).end();
+      }
+
+      let photoUrl = await refreshCustomerPhotoIfStale(customer, {
+        token: TELEGRAM_BOT_TOKEN,
+        fetchTelegramChat,
+        db,
+      });
+
+      let payload = photoUrl ? await fetchCustomerPhotoBytes(photoUrl) : null;
+      if (!payload && customer.telegram_id && TELEGRAM_BOT_TOKEN) {
+        photoUrl = await refreshCustomerPhotoIfStale(customer, {
+          token: TELEGRAM_BOT_TOKEN,
+          fetchTelegramChat,
+          db,
+          forceRefresh: true,
+        });
+        payload = photoUrl ? await fetchCustomerPhotoBytes(photoUrl) : null;
+      }
+
+      if (!payload) {
+        return res.status(404).end();
+      }
+
+      res.setHeader("Cache-Control", "private, max-age=3600");
+      res.setHeader("Content-Type", payload.contentType);
+      return res.send(payload.body);
+    } catch (error) {
+      console.error("[public] Failed to proxy customer photo:", error);
+      return res.status(502).end();
+    }
+  },
+);
+
+publicRouter.get(
   "/api/customer/me",
   publicMiniAppReadLimiter,
   requireTelegramMiniAppAuth({ allowInsecureFallback: allowInsecureTelegramFallback }),
@@ -1766,48 +1818,11 @@ publicRouter.get(
         });
       }
 
-      let photoUrl = customer.photo_url || null;
-
-      if (
-        telegramId
-        && TELEGRAM_BOT_TOKEN
-        && shouldRefreshCustomerPhoto({
-          photoUrl,
-          photoUpdatedAt: customer.photo_updated_at,
-        })
-      ) {
-        try {
-          const chat = await fetchTelegramChat(telegramId);
-          let fileData = null;
-
-          if (chat?.photo?.big_file_id) {
-            const fileResp = await fetch(
-              `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getFile?file_id=${encodeURIComponent(chat.photo.big_file_id)}`,
-            );
-            fileData = await fileResp.json();
-          }
-
-          const refresh = resolveCustomerPhotoRefresh({
-            cachedPhotoUrl: photoUrl,
-            chat,
-            fileData,
-            token: TELEGRAM_BOT_TOKEN,
-          });
-          photoUrl = refresh.photoUrl;
-
-          if (refresh.shouldPersist) {
-            db.prepare(`
-              UPDATE customers
-              SET photo_url = ?,
-                  photo_updated_at = DATETIME('now'),
-                  updated_at = DATETIME('now')
-              WHERE id = ?
-            `).run(photoUrl, customer.id);
-          }
-        } catch (photoError) {
-          console.warn("[public] Failed to fetch Telegram photo:", photoError.message);
-        }
-      }
+      const photoUrl = await refreshCustomerPhotoIfStale(customer, {
+        token: TELEGRAM_BOT_TOKEN,
+        fetchTelegramChat,
+        db,
+      });
 
       // bot_verified: клиент считается верифицированным, если у него есть
       // bot_verified_at либо хотя бы один заказ (старые клиенты). Используем
@@ -1822,7 +1837,7 @@ publicRouter.get(
         telegram_username: customer.telegram_username || null,
         first_name: customer.first_name || null,
         last_name: customer.last_name || null,
-        photo_url: photoUrl,
+        photo_url: resolvePublicCustomerPhotoUrl({ id: customer.id, photo_url: photoUrl }),
         total_orders: customer.total_orders || 0,
         total_spent: customer.total_spent || 0,
         member_since: customer.created_at || null,

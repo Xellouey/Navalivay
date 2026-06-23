@@ -20,6 +20,21 @@ export function buildTelegramPhotoUrl(token, filePath) {
   return `https://api.telegram.org/file/bot${token}/${filePath}`;
 }
 
+/** Public URL for mini-app img tags — never expose bot token in the client. */
+export function buildCustomerPhotoProxyUrl(customerId) {
+  if (!customerId) {
+    return null;
+  }
+  return `/api/customer-photo/${encodeURIComponent(String(customerId))}`;
+}
+
+export function resolvePublicCustomerPhotoUrl(customer) {
+  if (!customer?.id || !customer?.photo_url) {
+    return null;
+  }
+  return buildCustomerPhotoProxyUrl(customer.id);
+}
+
 /**
  * Decide whether to persist a refreshed avatar URL after Bot API calls.
  * Keeps the cached URL when Telegram returns an ambiguous or failed refresh.

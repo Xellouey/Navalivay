@@ -24,10 +24,11 @@
         <div class="group-reviews-modal__item-head">
           <div class="group-reviews-modal__reviewer">
             <img
-              v-if="review.reviewer.photo_url"
+              v-if="review.reviewer.photo_url && !brokenAvatars.has(review.id)"
               :src="review.reviewer.photo_url"
               :alt="review.reviewer.display_name"
               class="group-reviews-modal__avatar"
+              @error="markAvatarBroken(review.id)"
             />
             <div v-else class="group-reviews-modal__avatar group-reviews-modal__avatar--placeholder">
               {{ review.reviewer.display_name.charAt(0) }}
@@ -97,6 +98,12 @@ const props = defineProps<{
   groupName?: string;
 }>();
 
+const brokenAvatars = ref(new Set<string>());
+
+function markAvatarBroken(reviewId: string) {
+  brokenAvatars.value = new Set(brokenAvatars.value).add(reviewId);
+}
+
 const emit = defineEmits<{
   close: [];
 }>();
@@ -121,6 +128,7 @@ async function loadReviews() {
   if (!props.groupId) return;
   loading.value = true;
   errorMessage.value = null;
+  brokenAvatars.value = new Set();
 
   try {
     const data = await fetchGroupReviews(props.groupId, { limit: 30, offset: 0 });
