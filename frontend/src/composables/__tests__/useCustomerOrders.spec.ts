@@ -3,10 +3,12 @@ import {
   buildFulfillmentTimelineLines,
   buildOrderSummaryFromLines,
   formatOrderCardTitle,
+  formatOrderDateTime,
   formatOrderDetailTitle,
   formatOrderHistoryMeta,
   formatOrderHistoryTitle,
   formatOrderStatus,
+  parseOrderDateTime,
   useCustomerOrders,
 } from "@/composables/useCustomerOrders";
 
@@ -398,6 +400,33 @@ describe("order display labels", () => {
     );
 
     expect(lines.map((line) => line.label)).toEqual(["Оформлен", "Собран", "Выдан"]);
+  });
+
+  it("parseOrderDateTime treats SQLite timestamps as Europe/Minsk", () => {
+    const parsed = parseOrderDateTime("2026-06-22 17:09:44");
+    expect(parsed.toISOString()).toBe("2026-06-22T14:09:44.000Z");
+    expect(formatOrderDateTime("2026-06-22 17:09:44")).toContain("17:09");
+  });
+
+  it("buildFulfillmentTimelineLines keeps ready and issued within one minute for prod-like data", () => {
+    const lines = buildFulfillmentTimelineLines(
+      {
+        submitted_at: "2026-06-22 17:08:55",
+        ready_at: "2026-06-22 17:09:41",
+        issued_at: "2026-06-22 17:09:44",
+        cancelled_at: null,
+      },
+      "delivered",
+      "pickup",
+    );
+
+    const ready = formatOrderDateTime(lines.find((line) => line.key === "ready")?.at);
+    const issued = formatOrderDateTime(lines.find((line) => line.key === "issued")?.at);
+
+    expect(ready).toContain("17:09");
+    expect(issued).toContain("17:09");
+    expect(ready).not.toContain("20:09");
+    expect(issued).not.toContain("20:09");
   });
 
   it("buildOrderSummaryFromLines mirrors history card title and thumbs", () => {

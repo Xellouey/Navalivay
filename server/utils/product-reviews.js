@@ -780,13 +780,17 @@ export function buildOrderFulfillmentMilestones(order, timeline = null) {
   const history = timeline ?? loadOrderStatusTimeline(order.id);
   const submittedAt = order.created_at || null;
   const readyAt = findStatusEnteredAt(history, 'in_progress');
-  let issuedAt = order.completed_at || null;
+  // Status history uses SQLite local timestamps; completed_at is often ISO UTC.
+  // Prefer history so "Собран" and "Выдан" stay on the same clock in the UI.
+  let issuedAt = null;
 
-  if (!issuedAt && ['delivered', 'completed'].includes(order.status)) {
+  if (['delivered', 'completed'].includes(order.status)) {
     issuedAt =
       findStatusEnteredAt(history, order.status) ||
       findStatusEnteredAt(history, 'delivered') ||
-      findStatusEnteredAt(history, 'completed');
+      findStatusEnteredAt(history, 'completed') ||
+      order.completed_at ||
+      null;
   }
 
   const cancelledAt =

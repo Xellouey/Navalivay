@@ -567,6 +567,33 @@ console.log('\n--- fulfillment milestones ---');
   ok(!('has_reviews' in card), 'history card omits has_reviews');
 }
 
+console.log('\n--- fulfillment milestones prefer status history over completed_at ---');
+{
+  seedBase();
+  const readyAt = '2026-06-22 17:09:41';
+  const historyIssuedAt = '2026-06-22 17:09:44';
+  const wrongCompletedAt = '2026-06-22T17:09:44.459Z';
+
+  db.prepare(
+    `UPDATE orders
+     SET delivery_type = 'pickup', created_at = '2026-06-22 17:08:55', completed_at = ?, status = 'delivered'
+     WHERE id = ?`,
+  ).run(wrongCompletedAt, 'ord1');
+  db.prepare('DELETE FROM order_status_history WHERE order_id = ?').run('ord1');
+  db.prepare(
+    `INSERT INTO order_status_history (id, order_id, previous_status, new_status, changed_at)
+     VALUES ('osh_a', 'ord1', 'new', 'in_progress', ?),
+            ('osh_b', 'ord1', 'in_progress', 'delivered', ?)`,
+  ).run(readyAt, historyIssuedAt);
+
+  const order = db.prepare('SELECT * FROM orders WHERE id = ?').get('ord1');
+  const milestones = buildOrderFulfillmentMilestones(order);
+
+  ok(milestones.ready_at === readyAt, 'ready milestone from history');
+  ok(milestones.issued_at === historyIssuedAt, 'issued prefers status history over ISO completed_at');
+  ok(milestones.issued_at !== wrongCompletedAt, 'issued does not expose shifted completed_at');
+}
+
 console.log('\n--- repeat purchase: same line within cooldown ---');
 {
   seedBase();

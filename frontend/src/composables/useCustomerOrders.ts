@@ -441,6 +441,21 @@ export function formatOrderDetailTitle(
 }
 
 const ORDER_TIME_ZONE = "Europe/Minsk";
+const MINSK_OFFSET = "+03:00";
+
+/** SQLite timestamps without timezone are stored in Europe/Minsk business time. */
+export function parseOrderDateTime(value: string | null | undefined): Date {
+  if (!value) return new Date(Number.NaN);
+  const trimmed = value.trim();
+  if (!trimmed) return new Date(Number.NaN);
+  if (/[zZ]$|[+-]\d{2}:\d{2}$/.test(trimmed)) {
+    return new Date(trimmed);
+  }
+  if (trimmed.includes("T")) {
+    return new Date(trimmed);
+  }
+  return new Date(`${trimmed.replace(" ", "T")}${MINSK_OFFSET}`);
+}
 
 export function formatOrderStatus(
   status: string,
@@ -463,7 +478,7 @@ export function formatOrderStatus(
 
 export function formatOrderDate(value: string | null | undefined): string {
   if (!value) return "—";
-  const date = new Date(value);
+  const date = parseOrderDateTime(value);
   if (Number.isNaN(date.getTime())) return "—";
   return new Intl.DateTimeFormat("ru-RU", {
     timeZone: ORDER_TIME_ZONE,
@@ -475,7 +490,7 @@ export function formatOrderDate(value: string | null | undefined): string {
 
 export function formatOrderDateTime(value: string | null | undefined): string {
   if (!value) return "—";
-  const date = new Date(value);
+  const date = parseOrderDateTime(value);
   if (Number.isNaN(date.getTime())) return "—";
   return new Intl.DateTimeFormat("ru-RU", {
     timeZone: ORDER_TIME_ZONE,
