@@ -229,6 +229,7 @@ export function verifyTelegramMiniAppInitData(
     telegramUsername,
     firstName: typeof user?.first_name === "string" ? user.first_name.trim() : "",
     lastName: typeof user?.last_name === "string" ? user.last_name.trim() : "",
+    photoUrl: typeof user?.photo_url === "string" ? user.photo_url.trim() : "",
     authDate,
     source: "telegram",
     verified: true,

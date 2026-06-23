@@ -1831,6 +1831,11 @@ publicRouter.get(
         });
       }
 
+      const initPhotoUrl = String(req.telegramAuth?.photoUrl || "").trim();
+      if (initPhotoUrl.startsWith("https://")) {
+        await cacheCustomerPhotoToDisk(customer.id, initPhotoUrl);
+      }
+
       const photoUrl = await refreshCustomerPhotoIfStale(customer, {
         token: TELEGRAM_BOT_TOKEN,
         fetchTelegramChat,
@@ -2044,7 +2049,7 @@ publicRouter.post(
   "/api/reviews",
   publicMiniAppMutationLimiter,
   requireTelegramMiniAppAuth({ allowInsecureFallback: allowInsecureTelegramFallback }),
-  (req, res) => {
+  async (req, res) => {
     try {
       const telegramId = String(req.telegramAuth?.telegramId || "").trim();
       const telegramUsername = normalizeTelegramUsername(req.telegramAuth?.telegramUsername);
@@ -2052,6 +2057,11 @@ publicRouter.post(
 
       if (!customer) {
         return res.status(404).json({ error: "customer_not_found" });
+      }
+
+      const initPhotoUrl = String(req.telegramAuth?.photoUrl || "").trim();
+      if (initPhotoUrl.startsWith("https://")) {
+        await cacheCustomerPhotoToDisk(customer.id, initPhotoUrl);
       }
 
       const {
