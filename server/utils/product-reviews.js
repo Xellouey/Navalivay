@@ -36,6 +36,8 @@ function normalizeOrderTimestampSqlExpr(fieldsExpr) {
 }
 
 function buildCustomerHistoryVisibilityClause(alias = 'o') {
+  // Uses completed_at first; cancelled orders without completed_at fall back to
+  // updated_at/created_at so post-launch cancellations still appear in history.
   const milestoneExpr = normalizeOrderTimestampSqlExpr(
     `${alias}.completed_at, ${alias}.updated_at, ${alias}.created_at`,
   );
@@ -45,6 +47,11 @@ function buildCustomerHistoryVisibilityClause(alias = 'o') {
     sql: `${milestoneExpr} >= ?`,
     param: launchParam,
   };
+}
+
+/** Keep in sync with normalizeTelegramUsername(): trim, strip leading @, lowercase. */
+export function normalizeTelegramUsernameSqlExpr(valueExpr) {
+  return `LOWER(LTRIM(TRIM(COALESCE(${valueExpr}, '')), '@'))`;
 }
 
 function buildCustomerOwnershipClause({ telegramId = '', telegramUsername = '' } = {}) {
@@ -59,7 +66,7 @@ function buildCustomerOwnershipClause({ telegramId = '', telegramUsername = '' }
 
   if (normalizedUsername) {
     parts.push(
-      "LOWER(TRIM(REPLACE(COALESCE(o.telegram_username, c.telegram_username, ''), '@', ''))) = ?",
+      `${normalizeTelegramUsernameSqlExpr('o.telegram_username, c.telegram_username')} = ?`,
     );
     params.push(normalizedUsername);
   }

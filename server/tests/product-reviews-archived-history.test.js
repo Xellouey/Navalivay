@@ -21,6 +21,8 @@ const { publicRouter } = await import('../routes/public.js');
 const {
   findOwnedOrders,
   getReviewPromptForCustomer,
+  normalizeTelegramUsername,
+  normalizeTelegramUsernameSqlExpr,
   REVIEW_STATUSES,
 } = await import('../utils/product-reviews.js');
 
@@ -144,6 +146,30 @@ function insertDeliveredOrder({
     `INSERT INTO order_items (id, order_id, product_id, product_title, variant_name, quantity, price_per_unit, total_price, total_cost)
      VALUES (?, ?, 'prod1', 'Ананас', 'Вкус', 1, 10, 10, 4)`,
   ).run(`oi_${id}`, id);
+}
+
+function insertCancelledOrder({
+  id,
+  orderNumber,
+  customerId,
+  username,
+  archived = 0,
+  completedAt = null,
+  createdAt = '2026-06-22T16:23:07',
+}) {
+  db.prepare(
+    `INSERT INTO orders (
+      id, order_number, customer_id, telegram_username, status, archived,
+      total_amount, final_amount, completed_at, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, 'cancelled', ?, 10, 10, ?, ?, ?)`,
+  ).run(id, orderNumber, customerId, username, archived, completedAt, createdAt, createdAt);
+}
+
+function sqlNormalizeUsername(raw) {
+  const row = db
+    .prepare(`SELECT ${normalizeTelegramUsernameSqlExpr('?')} AS normalized`)
+    .get(raw);
+  return row?.normalized ?? '';
 }
 
 console.log('\n=== product-reviews archived customer history ===\n');
@@ -438,6 +464,29 @@ console.log('\n--- H8: prod-like ISO completed_at on archived post-launch orders
   ok(maffOwned.some((order) => order.order_number === 9086), 'Maffsim ISO archived #9086 is visible');
 }
 
+console.log('\n--- H9: username-only ownership still resolves archived orders ---');
+{
+  seedCatalog();
+  db.prepare(
+    `INSERT INTO orders (
+      id, order_number, customer_id, telegram_username, status, archived,
+      total_amount, final_amount, completed_at, created_at, updated_at
+    ) VALUES ('ord_orphan', 9400, NULL, 'orphan_user', 'delivered', 1, 10, 10,
+      '2026-06-22T11:00:00.000Z', '2026-06-22T09:00:00.000Z', '2026-06-22T11:00:00.000Z')`,
+  ).run();
+  db.prepare(
+    `INSERT INTO order_items (id, order_id, product_id, product_title, variant_name, quantity, price_per_unit, total_price, total_cost)
+     VALUES ('oi_orphan', 'ord_orphan', 'prod1', 'Ананас', 'Вкус', 1, 10, 10, 4)`,
+  ).run();
+
+  const owned = findOwnedOrders({
+    telegramId: '',
+    telegramUsername: 'orphan_user',
+    statuses: ['delivered', 'completed', 'cancelled'],
+  });
+  ok(owned.length === 1 && owned[0].order_number === 9400, 'username-only archived order is visible');
+}
+
 console.log('\n--- H10: global LIMIT noise from other customers does not hide owned orders ---');
 {
   seedCatalog();
@@ -513,27 +562,140 @@ console.log('\n--- H11: pre-launch non-archived orders stay hidden ---');
   ok(owned.length === 1 && owned[0].order_number === 8102, 'only post-launch live order is visible');
 }
 
-console.log('\n--- H9: username-only ownership still resolves archived orders ---');
+console.log('\n--- H12: post-launch cancelled orders without completed_at stay visible ---');
 {
   seedCatalog();
+  insertCustomer({ id: 'cust_rk0ff', telegramId: '2035055116', username: 'rk0ff' });
+  insertDeliveredOrder({
+    id: 'ord_delivered',
+    orderNumber: 9114,
+    customerId: 'cust_rk0ff',
+    username: 'rk0ff',
+    archived: 1,
+    completedAt: '2026-06-22T13:10:41.638Z',
+  });
+  insertCancelledOrder({
+    id: 'ord_cancelled',
+    orderNumber: 9130,
+    customerId: 'cust_rk0ff',
+    username: 'rk0ff',
+    createdAt: '2026-06-22 16:23:07',
+  });
+
+  const owned = findOwnedOrders({
+    telegramId: '2035055116',
+    telegramUsername: 'rk0ff',
+    statuses: ['delivered', 'completed', 'cancelled'],
+  });
+
+  ok(
+    owned.some((order) => order.order_number === 9114),
+    'delivered post-launch order stays visible',
+  );
+  ok(
+    owned.some((order) => order.order_number === 9130 && order.status === 'cancelled'),
+    'cancelled post-launch order visible via created_at fallback',
+  );
+
+  const history = await requestJson('/api/orders/my-history', {
+    headers: authHeaders('2035055116', 'rk0ff'),
+  });
+  ok(
+    history.data?.items?.some((row) => row.order_number === 9130),
+    'HTTP history includes cancelled post-launch order',
+  );
+}
+
+console.log('\n--- H13: pre-launch cancelled orders without completed_at stay hidden ---');
+{
+  seedCatalog();
+  insertCustomer({ id: 'cust_old_cancel', telegramId: '7007', username: 'old_cancel_user' });
+  insertCancelledOrder({
+    id: 'ord_pre_cancel',
+    orderNumber: 8201,
+    customerId: 'cust_old_cancel',
+    username: 'old_cancel_user',
+    createdAt: '2026-06-20 18:00:00',
+  });
+  insertCancelledOrder({
+    id: 'ord_post_cancel',
+    orderNumber: 8202,
+    customerId: 'cust_old_cancel',
+    username: 'old_cancel_user',
+    createdAt: '2026-06-22 18:00:00',
+  });
+
+  const owned = findOwnedOrders({
+    telegramId: '7007',
+    telegramUsername: 'old_cancel_user',
+    statuses: ['delivered', 'completed', 'cancelled'],
+  });
+
+  ok(owned.length === 1 && owned[0].order_number === 8202, 'only post-launch cancelled order is visible');
+  ok(!owned.some((order) => order.order_number === 8201), 'pre-launch cancelled order stays hidden');
+}
+
+console.log('\n--- H14: telegram_id-only ownership resolves customer-linked orders ---');
+{
+  seedCatalog();
+  insertCustomer({ id: 'cust_id_only', telegramId: '8080808', username: 'id_only_user' });
+  insertDeliveredOrder({
+    id: 'ord_id_only',
+    orderNumber: 9500,
+    customerId: 'cust_id_only',
+    username: 'id_only_user',
+    archived: 1,
+  });
+
+  const owned = findOwnedOrders({
+    telegramId: '8080808',
+    telegramUsername: '',
+    statuses: ['delivered', 'completed', 'cancelled'],
+  });
+
+  ok(owned.length === 1 && owned[0].order_number === 9500, 'telegram_id-only query returns owned order');
+}
+
+console.log('\n--- H15: stored @@username matches normalized lookup ---');
+{
+  seedCatalog();
+  insertCustomer({ id: 'cust_at', telegramId: '9090909', username: 'AtUser' });
   db.prepare(
     `INSERT INTO orders (
       id, order_number, customer_id, telegram_username, status, archived,
       total_amount, final_amount, completed_at, created_at, updated_at
-    ) VALUES ('ord_orphan', 9400, NULL, 'orphan_user', 'delivered', 1, 10, 10,
-      '2026-06-22T11:00:00.000Z', '2026-06-22T09:00:00.000Z', '2026-06-22T11:00:00.000Z')`,
+    ) VALUES ('ord_at_user', 9600, 'cust_at', '@@AtUser', 'delivered', 1, 10, 10,
+      '2026-06-22T12:00:00.000Z', '2026-06-22T10:00:00.000Z', '2026-06-22T12:00:00.000Z')`,
   ).run();
   db.prepare(
     `INSERT INTO order_items (id, order_id, product_id, product_title, variant_name, quantity, price_per_unit, total_price, total_cost)
-     VALUES ('oi_orphan', 'ord_orphan', 'prod1', 'Ананас', 'Вкус', 1, 10, 10, 4)`,
+     VALUES ('oi_at_user', 'ord_at_user', 'prod1', 'Ананас', 'Вкус', 1, 10, 10, 4)`,
   ).run();
 
   const owned = findOwnedOrders({
-    telegramId: '',
-    telegramUsername: 'orphan_user',
+    telegramId: '9090909',
+    telegramUsername: '@AtUser',
     statuses: ['delivered', 'completed', 'cancelled'],
   });
-  ok(owned.length === 1 && owned[0].order_number === 9400, 'username-only archived order is visible');
+  ok(owned.length === 1 && owned[0].order_number === 9600, '@@ stored username resolves via normalized lookup');
+}
+
+console.log('\n--- H16: SQL username normalization stays in sync with JS ---');
+{
+  const samples = [
+    ['@@QuaiLLLL', 'quaillll'],
+    ['  @user  ', 'user'],
+    ['@Maffsim', 'maffsim'],
+    ['plain_name', 'plain_name'],
+    ['', ''],
+  ];
+
+  for (const [raw, expected] of samples) {
+    const js = normalizeTelegramUsername(raw).toLowerCase();
+    const sql = sqlNormalizeUsername(raw);
+    ok(js === sql, `JS/SQL parity for ${JSON.stringify(raw)}`);
+    ok(sql === expected, `SQL normalization for ${JSON.stringify(raw)} is ${expected}`);
+  }
 }
 
 server.close();
