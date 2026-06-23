@@ -23,7 +23,9 @@ import {
 import { activatePendingNotesForCustomer } from '../utils/customer-notes.js';
 import { resolvePublicCustomerPhotoUrl } from "../utils/customer-photo.js";
 import {
+  cacheCustomerPhotoToDisk,
   fetchCustomerPhotoBytes,
+  readCustomerPhotoFromDisk,
   refreshCustomerPhotoIfStale,
 } from "../utils/customer-photo-refresh.js";
 import {
@@ -1742,21 +1744,32 @@ publicRouter.get(
         return res.status(404).end();
       }
 
-      let photoUrl = await refreshCustomerPhotoIfStale(customer, {
-        token: TELEGRAM_BOT_TOKEN,
-        fetchTelegramChat,
-        db,
-      });
+      let payload = readCustomerPhotoFromDisk(customerId);
 
-      let payload = photoUrl ? await fetchCustomerPhotoBytes(photoUrl) : null;
-      if (!payload && customer.telegram_id && TELEGRAM_BOT_TOKEN) {
-        photoUrl = await refreshCustomerPhotoIfStale(customer, {
+      if (!payload) {
+        let photoUrl = await refreshCustomerPhotoIfStale(customer, {
           token: TELEGRAM_BOT_TOKEN,
           fetchTelegramChat,
           db,
-          forceRefresh: true,
         });
-        payload = photoUrl ? await fetchCustomerPhotoBytes(photoUrl) : null;
+
+        if (photoUrl) {
+          await cacheCustomerPhotoToDisk(customerId, photoUrl);
+          payload = readCustomerPhotoFromDisk(customerId);
+        }
+
+        if (!payload && customer.telegram_id && TELEGRAM_BOT_TOKEN) {
+          photoUrl = await refreshCustomerPhotoIfStale(customer, {
+            token: TELEGRAM_BOT_TOKEN,
+            fetchTelegramChat,
+            db,
+            forceRefresh: true,
+          });
+          if (photoUrl) {
+            await cacheCustomerPhotoToDisk(customerId, photoUrl);
+            payload = readCustomerPhotoFromDisk(customerId);
+          }
+        }
       }
 
       if (!payload) {
@@ -1768,7 +1781,7 @@ publicRouter.get(
       return res.send(payload.body);
     } catch (error) {
       console.error("[public] Failed to proxy customer photo:", error);
-      return res.status(502).end();
+      return res.status(404).end();
     }
   },
 );

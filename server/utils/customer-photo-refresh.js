@@ -1,7 +1,46 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   resolveCustomerPhotoRefresh,
   shouldRefreshCustomerPhoto,
 } from './customer-photo.js';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const avatarDir = path.resolve(
+  process.env.UPLOADS_DIR || path.join(__dirname, '../../uploads'),
+  'customer-avatars',
+);
+
+function getCustomerAvatarDiskPath(customerId) {
+  return path.join(avatarDir, `${customerId}.jpg`);
+}
+
+export function readCustomerPhotoFromDisk(customerId) {
+  const filePath = getCustomerAvatarDiskPath(customerId);
+  if (!fs.existsSync(filePath)) {
+    return null;
+  }
+  return {
+    body: fs.readFileSync(filePath),
+    contentType: 'image/jpeg',
+  };
+}
+
+export async function cacheCustomerPhotoToDisk(customerId, photoUrl) {
+  if (!customerId || !photoUrl) {
+    return false;
+  }
+
+  const payload = await fetchCustomerPhotoBytes(photoUrl);
+  if (!payload) {
+    return false;
+  }
+
+  fs.mkdirSync(avatarDir, { recursive: true });
+  fs.writeFileSync(getCustomerAvatarDiskPath(customerId), payload.body);
+  return true;
+}
 
 export async function refreshCustomerPhotoIfStale(
   customer,
@@ -55,6 +94,10 @@ export async function refreshCustomerPhotoIfStale(
         WHERE id = ?
       `).run(photoUrl, customer.id);
     }
+
+    if (photoUrl) {
+      await cacheCustomerPhotoToDisk(customer.id, photoUrl);
+    }
   } catch (error) {
     console.warn('[customer-photo] Failed to refresh Telegram photo:', error.message);
   }
@@ -62,18 +105,27 @@ export async function refreshCustomerPhotoIfStale(
   return photoUrl;
 }
 
-export async function fetchCustomerPhotoBytes(photoUrl) {
+export async function fetchCustomerPhotoBytes(photoUrl, { timeoutMs = 8000 } = {}) {
   if (!photoUrl) {
     return null;
   }
 
-  const response = await fetch(photoUrl);
-  if (!response.ok) {
-    return null;
-  }
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
 
-  return {
-    body: Buffer.from(await response.arrayBuffer()),
-    contentType: response.headers.get('content-type') || 'image/jpeg',
-  };
+  try {
+    const response = await fetch(photoUrl, { signal: controller.signal });
+    if (!response.ok) {
+      return null;
+    }
+
+    return {
+      body: Buffer.from(await response.arrayBuffer()),
+      contentType: response.headers.get('content-type') || 'image/jpeg',
+    };
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
 }
