@@ -158,6 +158,7 @@ export interface GroupReviewReviewer {
   display_name: string;
   photo_url: string | null;
   is_anonymous: boolean;
+  is_viewer?: boolean;
 }
 
 export interface ManagerReviewBlock {

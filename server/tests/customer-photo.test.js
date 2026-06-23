@@ -6,6 +6,8 @@ import {
   resolveCustomerPhotoRefresh,
   buildTelegramPhotoUrl,
   buildCustomerPhotoProxyUrl,
+  isPublicTelegramUserpicUrl,
+  isTelegramBotFileUrl,
   resolvePublicCustomerPhotoUrl,
 } from '../utils/customer-photo.js';
 
@@ -161,6 +163,24 @@ assert.equal(
 assert.equal(
   resolvePublicCustomerPhotoUrl({ id: 'cust_123', photo_url: null }),
   null,
+);
+assert.equal(
+  isPublicTelegramUserpicUrl('https://t.me/i/userpic/320/QuaiLLLL.jpg'),
+  true,
+  'detects public t.me userpic',
+);
+assert.equal(
+  isTelegramBotFileUrl('https://api.telegram.org/file/botSECRET/photos/file.jpg'),
+  true,
+  'detects bot file url',
+);
+assert.equal(
+  resolvePublicCustomerPhotoUrl({
+    id: 'cust_123',
+    photo_url: 'https://t.me/i/userpic/320/QuaiLLLL.jpg',
+  }),
+  'https://t.me/i/userpic/320/QuaiLLLL.jpg',
+  't.me userpic is returned without disk cache',
 );
 assert.equal(
   JSON.stringify(

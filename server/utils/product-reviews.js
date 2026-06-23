@@ -1131,9 +1131,14 @@ export function createProductReview({
   return db.prepare('SELECT * FROM product_reviews WHERE id = ?').get(reviewId);
 }
 
-function maskReviewer(customer, review) {
+function maskReviewer(customer, review, { viewerCustomerId = null } = {}) {
   if (Number(review.is_anonymous || 0) === 1) {
-    return { display_name: 'Покупатель', photo_url: null, is_anonymous: true };
+    return {
+      display_name: 'Покупатель',
+      photo_url: null,
+      is_anonymous: true,
+      is_viewer: false,
+    };
   }
 
   const firstName = customer?.first_name || 'Покупатель';
@@ -1144,10 +1149,18 @@ function maskReviewer(customer, review) {
       hasDiskCache: hasCustomerPhotoOnDisk(customer?.id),
     }),
     is_anonymous: false,
+    is_viewer: Boolean(
+      viewerCustomerId
+      && customer?.id
+      && viewerCustomerId === customer.id,
+    ),
   };
 }
 
-export function getPublicGroupReviews(groupId, { limit = 20, offset = 0 } = {}) {
+export function getPublicGroupReviews(
+  groupId,
+  { limit = 20, offset = 0, viewerCustomerId = null } = {},
+) {
   const summary = db.prepare(`
     SELECT
       COUNT(*) AS review_count,
@@ -1237,6 +1250,7 @@ export function getPublicGroupReviews(groupId, { limit = 20, offset = 0 } = {}) 
             photo_url: row.photo_url,
           },
           row,
+          { viewerCustomerId },
         ),
         manager_reply: row.manager_reply || null,
         manager_replied_at: row.manager_replied_at || null,

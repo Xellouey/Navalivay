@@ -28,11 +28,36 @@ export function buildCustomerPhotoProxyUrl(customerId) {
   return `/api/customer-photo/${encodeURIComponent(String(customerId))}`;
 }
 
+export function isPublicTelegramUserpicUrl(photoUrl) {
+  const url = String(photoUrl || '').trim();
+  return url.startsWith('https://t.me/i/userpic/');
+}
+
+export function isTelegramBotFileUrl(photoUrl) {
+  const url = String(photoUrl || '').trim();
+  return /^https:\/\/api\.telegram\.org\/file\/bot/i.test(url);
+}
+
+/**
+ * Public avatar URL for mini-app <img> tags.
+ * Priority: safe t.me userpic → local disk proxy → null (letter placeholder).
+ * Never expose bot token URLs to the client.
+ */
 export function resolvePublicCustomerPhotoUrl(customer, { hasDiskCache = false } = {}) {
-  if (!customer?.id || !customer?.photo_url || !hasDiskCache) {
+  if (!customer?.id || !customer?.photo_url) {
     return null;
   }
-  return buildCustomerPhotoProxyUrl(customer.id);
+
+  const url = String(customer.photo_url).trim();
+  if (isPublicTelegramUserpicUrl(url)) {
+    return url;
+  }
+
+  if (isTelegramBotFileUrl(url) && hasDiskCache) {
+    return buildCustomerPhotoProxyUrl(customer.id);
+  }
+
+  return null;
 }
 
 /**

@@ -462,6 +462,35 @@ console.log('\n--- public reviews expose proxied reviewer avatar ---');
   ok(!JSON.stringify(publicReviews.items[0]).includes('SECRET_TOKEN'), 'review payload hides bot token');
 }
 
+console.log('\n--- public reviews expose t.me avatar without disk cache ---');
+{
+  seedBase();
+  db.prepare(
+    `UPDATE customers
+     SET photo_url = 'https://t.me/i/userpic/320/cust1.jpg'
+     WHERE id = 'cust1'`,
+  ).run();
+  const review = createProductReview({
+    customerId: 'cust1',
+    orderId: 'ord1',
+    groupId: 'grp1',
+    orderItemId: 'oi1',
+    rating: 5,
+    bodyText: 'Отличная жидкость, вкус держится долго и приятный',
+    quickTagIds: [],
+    isAnonymous: false,
+  });
+  db.prepare(`UPDATE product_reviews SET status = 'approved', approved_at = DATETIME('now') WHERE id = ?`).run(
+    review.id,
+  );
+
+  const publicReviews = getPublicGroupReviews('grp1');
+  ok(
+    publicReviews.items[0].reviewer.photo_url === 'https://t.me/i/userpic/320/cust1.jpg',
+    'reviewer photo uses safe t.me url',
+  );
+}
+
 console.log('\n--- public reviews hide avatar url until disk cache exists ---');
 {
   seedBase();
@@ -491,6 +520,27 @@ console.log('\n--- public reviews hide avatar url until disk cache exists ---');
 
   const publicReviews = getPublicGroupReviews('grp1');
   ok(publicReviews.items[0].reviewer.photo_url === null, 'reviewer photo hidden without disk cache');
+}
+
+console.log('\n--- public reviews mark viewer reviewer ---');
+{
+  seedBase();
+  const review = createProductReview({
+    customerId: 'cust1',
+    orderId: 'ord1',
+    groupId: 'grp1',
+    orderItemId: 'oi1',
+    rating: 5,
+    bodyText: 'Отличная жидкость, вкус держится долго и приятный',
+    quickTagIds: [],
+    isAnonymous: false,
+  });
+  db.prepare(`UPDATE product_reviews SET status = 'approved', approved_at = DATETIME('now') WHERE id = ?`).run(
+    review.id,
+  );
+  const publicReviews = getPublicGroupReviews('grp1', { viewerCustomerId: 'cust1' });
+  ok(publicReviews.items[0].reviewer.is_viewer === true, 'viewer flag on own review');
+  ok(publicReviews.items[0].reviewer.is_anonymous === false, 'viewer flag only on named review');
 }
 
 console.log('\n--- public reviews backfill flavor from order item ---');

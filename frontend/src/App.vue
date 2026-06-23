@@ -8,8 +8,10 @@ import BlockedScreen from "@/components/BlockedScreen.vue";
 import WheelHomeWidget from "@/components/wheel/WheelHomeWidget.vue";
 import ReviewPromptModal from "@/components/reviews/ReviewPromptModal.vue";
 import { useCustomerBlock } from "@/composables/useCustomerBlock";
+import { useUserStore } from "@/stores/user";
 const route = useRoute();
 const { currentBlock, isBlocked, refreshBlock } = useCustomerBlock();
+const userStore = useUserStore();
 
 // Экран блокировки клиента не показываем в админке —
 // у админа другая аутентификация, а не клиентский telegram_id.
@@ -50,6 +52,11 @@ onMounted(() => {
   // Проверяем статус блокировки клиента сразу при заходе в миниапку.
   // Если активен — ниже показываем BlockedScreen поверх всего.
   refreshBlock();
+  // Прогреваем аватар и профиль: initData photo_url сохраняется на сервере
+  // и становится доступен в отзывах без отдельного захода в «Профиль».
+  if (window.Telegram?.WebApp?.initData) {
+    userStore.fetchProfile().catch(() => undefined);
+  }
 });
 </script>
 

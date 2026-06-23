@@ -16,6 +16,10 @@ const proxyDispatcher = (() => {
   }
 })();
 
+export function hasTelegramHttpProxy() {
+  return Boolean(proxyDispatcher);
+}
+
 export function applyTelegramHttpProxy(fetchOptions = {}) {
   if (!proxyDispatcher) {
     return fetchOptions;

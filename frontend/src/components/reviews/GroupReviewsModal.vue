@@ -28,8 +28,8 @@
                 {{ review.reviewer.display_name.charAt(0) }}
               </div>
               <img
-                v-if="review.reviewer.photo_url && !brokenAvatars.has(review.id)"
-                :src="review.reviewer.photo_url"
+                v-if="reviewerPhotoUrl(review) && !brokenAvatars.has(review.id)"
+                :src="reviewerPhotoUrl(review)!"
                 :alt="review.reviewer.display_name"
                 class="group-reviews-modal__avatar group-reviews-modal__avatar--photo"
                 @error="markAvatarBroken(review.id)"
@@ -108,6 +108,24 @@ const props = defineProps<{
 
 const brokenAvatars = ref(new Set<string>());
 const managerAvatarBroken = ref(false);
+
+function getTelegramInitPhotoUrl(): string | null {
+  if (typeof window === "undefined") return null;
+  const photoUrl = window.Telegram?.WebApp?.initDataUnsafe?.user?.photo_url;
+  return typeof photoUrl === "string" && photoUrl.startsWith("https://")
+    ? photoUrl
+    : null;
+}
+
+function reviewerPhotoUrl(review: GroupReviewItem): string | null {
+  if (review.reviewer.photo_url) {
+    return review.reviewer.photo_url;
+  }
+  if (review.reviewer.is_viewer) {
+    return getTelegramInitPhotoUrl();
+  }
+  return null;
+}
 
 function markAvatarBroken(reviewId: string) {
   brokenAvatars.value = new Set(brokenAvatars.value).add(reviewId);

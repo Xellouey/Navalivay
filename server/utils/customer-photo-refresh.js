@@ -5,12 +5,41 @@ import {
   readCustomerPhotoFromDisk,
 } from './customer-photo-disk.js';
 import {
+  isPublicTelegramUserpicUrl,
   resolveCustomerPhotoRefresh,
   shouldRefreshCustomerPhoto,
 } from './customer-photo.js';
-import { applyTelegramHttpProxy } from './telegram-http-proxy.js';
+import { applyTelegramHttpProxy, hasTelegramHttpProxy } from './telegram-http-proxy.js';
 
 export { readCustomerPhotoFromDisk } from './customer-photo-disk.js';
+
+export async function warmCustomerPhotoFromInitData(customerId, initPhotoUrl, db) {
+  if (!customerId || !String(initPhotoUrl || '').trim().startsWith('https://')) {
+    return null;
+  }
+
+  const photoUrl = String(initPhotoUrl).trim();
+  let persistedUrl = null;
+
+  if (isPublicTelegramUserpicUrl(photoUrl) && db) {
+    db.prepare(`
+      UPDATE customers
+      SET photo_url = ?,
+          photo_updated_at = DATETIME('now'),
+          updated_at = DATETIME('now')
+      WHERE id = ?
+    `).run(photoUrl, customerId);
+    persistedUrl = photoUrl;
+  }
+
+  try {
+    await cacheCustomerPhotoToDisk(customerId, photoUrl);
+  } catch {
+    // Disk cache is best-effort; t.me URL in DB still works in the webview.
+  }
+
+  return persistedUrl;
+}
 
 export async function cacheCustomerPhotoToDisk(customerId, photoUrl) {
   if (!customerId || !photoUrl) {
@@ -71,18 +100,29 @@ export async function refreshCustomerPhotoIfStale(
     });
     photoUrl = refresh.photoUrl;
 
-    if (refresh.shouldPersist) {
+    const refreshedBotUrl = refresh.photoUrl;
+    const cachedPublicUrl = db.prepare(
+      'SELECT photo_url FROM customers WHERE id = ?',
+    ).get(customer.id)?.photo_url || photoUrl;
+
+    if (refresh.shouldPersist && refreshedBotUrl && !isPublicTelegramUserpicUrl(cachedPublicUrl)) {
       db.prepare(`
         UPDATE customers
         SET photo_url = ?,
             photo_updated_at = DATETIME('now'),
             updated_at = DATETIME('now')
         WHERE id = ?
-      `).run(photoUrl, customer.id);
+      `).run(refreshedBotUrl, customer.id);
+      photoUrl = refreshedBotUrl;
+    } else if (isPublicTelegramUserpicUrl(cachedPublicUrl)) {
+      photoUrl = cachedPublicUrl;
+    } else {
+      photoUrl = refreshedBotUrl || photoUrl;
     }
 
-    if (photoUrl) {
-      await cacheCustomerPhotoToDisk(customer.id, photoUrl);
+    const diskCacheUrl = refreshedBotUrl || photoUrl;
+    if (diskCacheUrl) {
+      await cacheCustomerPhotoToDisk(customer.id, diskCacheUrl);
     }
   } catch (error) {
     console.warn('[customer-photo] Failed to refresh Telegram photo:', error.message);
@@ -99,20 +139,29 @@ export async function fetchCustomerPhotoBytes(photoUrl, { timeoutMs = 8000 } = {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
-  try {
-    const response = await fetch(
-      photoUrl,
-      applyTelegramHttpProxy({ signal: controller.signal }),
-    );
-    if (!response.ok) {
-      return null;
-    }
+  const attempts = hasTelegramHttpProxy()
+    ? [
+        applyTelegramHttpProxy({ signal: controller.signal }),
+        { signal: controller.signal },
+      ]
+    : [{ signal: controller.signal }];
 
-    return {
-      body: Buffer.from(await response.arrayBuffer()),
-      contentType: response.headers.get('content-type') || 'image/jpeg',
-    };
-  } catch {
+  try {
+    for (const fetchOptions of attempts) {
+      try {
+        const response = await fetch(photoUrl, fetchOptions);
+        if (!response.ok) {
+          continue;
+        }
+
+        return {
+          body: Buffer.from(await response.arrayBuffer()),
+          contentType: response.headers.get('content-type') || 'image/jpeg',
+        };
+      } catch {
+        // Try direct fetch when proxy is down or misconfigured.
+      }
+    }
     return null;
   } finally {
     clearTimeout(timer);

@@ -32,6 +32,7 @@ import {
   fetchCustomerPhotoBytes,
   readCustomerPhotoFromDisk,
   refreshCustomerPhotoIfStale,
+  warmCustomerPhotoFromInitData,
 } from "../utils/customer-photo-refresh.js";
 import {
   activatePendingBansForCustomer,
@@ -1840,21 +1841,31 @@ publicRouter.get(
       }
 
       const initPhotoUrl = String(req.telegramAuth?.photoUrl || "").trim();
-      if (initPhotoUrl.startsWith("https://")) {
-        await cacheCustomerPhotoToDisk(customer.id, initPhotoUrl);
-      }
+      await warmCustomerPhotoFromInitData(customer.id, initPhotoUrl, db);
 
-      const photoUrl = await refreshCustomerPhotoIfStale(customer, {
-        token: TELEGRAM_BOT_TOKEN,
-        fetchTelegramChat,
-        db,
-      });
+      const latestCustomer = db.prepare(`
+        SELECT photo_url, photo_updated_at
+        FROM customers
+        WHERE id = ?
+      `).get(customer.id);
+
+      const photoUrl = await refreshCustomerPhotoIfStale(
+        { ...customer, photo_url: latestCustomer?.photo_url || customer.photo_url },
+        {
+          token: TELEGRAM_BOT_TOKEN,
+          fetchTelegramChat,
+          db,
+        },
+      );
 
       // bot_verified: клиент считается верифицированным, если у него есть
       // bot_verified_at либо хотя бы один заказ (старые клиенты). Используем
       // util чтобы логика была в одном месте — те же правила применяются
       // на стороне бота при выдаче доступа.
       const botVerified = isCustomerVerified(customer.telegram_id);
+      const storedPhotoUrl = db.prepare(
+        'SELECT photo_url FROM customers WHERE id = ?',
+      ).get(customer.id)?.photo_url || photoUrl;
 
       res.json({
         found: true,
@@ -1864,7 +1875,7 @@ publicRouter.get(
         first_name: customer.first_name || null,
         last_name: customer.last_name || null,
         photo_url: resolvePublicCustomerPhotoUrl(
-          { id: customer.id, photo_url: photoUrl },
+          { id: customer.id, photo_url: storedPhotoUrl },
           { hasDiskCache: hasCustomerPhotoOnDisk(customer.id) },
         ),
         total_orders: customer.total_orders || 0,
@@ -2071,9 +2082,7 @@ publicRouter.post(
       }
 
       const initPhotoUrl = String(req.telegramAuth?.photoUrl || "").trim();
-      if (initPhotoUrl.startsWith("https://")) {
-        await cacheCustomerPhotoToDisk(customer.id, initPhotoUrl);
-      }
+      await warmCustomerPhotoFromInitData(customer.id, initPhotoUrl, db);
 
       const {
         order_id: orderId,
@@ -2191,11 +2200,15 @@ publicRouter.get(
         : null;
 
       const initPhotoUrl = String(req.telegramAuth?.photoUrl || "").trim();
-      if (viewer && initPhotoUrl.startsWith("https://")) {
-        await cacheCustomerPhotoToDisk(viewer.id, initPhotoUrl);
+      if (viewer) {
+        await warmCustomerPhotoFromInitData(viewer.id, initPhotoUrl, db);
       }
 
-      return res.json(getPublicGroupReviews(groupId, { limit, offset }));
+      return res.json(getPublicGroupReviews(groupId, {
+        limit,
+        offset,
+        viewerCustomerId: viewer?.id || null,
+      }));
     } catch (error) {
       console.error("[public] Failed to get public group reviews:", error);
       return res.status(500).json({
