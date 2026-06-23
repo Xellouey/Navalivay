@@ -22,6 +22,7 @@ import {
 } from "../wholesale-service.js";
 import { activatePendingNotesForCustomer } from '../utils/customer-notes.js';
 import { resolvePublicCustomerPhotoUrl } from "../utils/customer-photo.js";
+import { hasCustomerPhotoOnDisk } from "../utils/customer-photo-disk.js";
 import {
   cacheCustomerPhotoToDisk,
   fetchCustomerPhotoBytes,
@@ -1855,7 +1856,10 @@ publicRouter.get(
         telegram_username: customer.telegram_username || null,
         first_name: customer.first_name || null,
         last_name: customer.last_name || null,
-        photo_url: resolvePublicCustomerPhotoUrl({ id: customer.id, photo_url: photoUrl }),
+        photo_url: resolvePublicCustomerPhotoUrl(
+          { id: customer.id, photo_url: photoUrl },
+          { hasDiskCache: hasCustomerPhotoOnDisk(customer.id) },
+        ),
         total_orders: customer.total_orders || 0,
         total_spent: customer.total_spent || 0,
         member_since: customer.created_at || null,

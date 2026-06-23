@@ -440,6 +440,9 @@ console.log('\n--- public reviews expose proxied reviewer avatar ---');
      SET photo_url = 'https://api.telegram.org/file/botSECRET_TOKEN/photos/file.jpg'
      WHERE id = 'cust1'`,
   ).run();
+  const { customerAvatarDir } = await import('../utils/customer-photo-disk.js');
+  fs.mkdirSync(customerAvatarDir, { recursive: true });
+  fs.writeFileSync(path.join(customerAvatarDir, 'cust1.jpg'), Buffer.from('avatar'));
   const review = createProductReview({
     customerId: 'cust1',
     orderId: 'ord1',
@@ -457,6 +460,37 @@ console.log('\n--- public reviews expose proxied reviewer avatar ---');
   const publicReviews = getPublicGroupReviews('grp1');
   ok(publicReviews.items[0].reviewer.photo_url === '/api/customer-photo/cust1', 'reviewer photo uses proxy url');
   ok(!JSON.stringify(publicReviews.items[0]).includes('SECRET_TOKEN'), 'review payload hides bot token');
+}
+
+console.log('\n--- public reviews hide avatar url until disk cache exists ---');
+{
+  seedBase();
+  const { customerAvatarDir } = await import('../utils/customer-photo-disk.js');
+  const cachedAvatarPath = path.join(customerAvatarDir, 'cust1.jpg');
+  if (fs.existsSync(cachedAvatarPath)) {
+    fs.unlinkSync(cachedAvatarPath);
+  }
+  db.prepare(
+    `UPDATE customers
+     SET photo_url = 'https://api.telegram.org/file/botSECRET_TOKEN/photos/file.jpg'
+     WHERE id = 'cust1'`,
+  ).run();
+  const review = createProductReview({
+    customerId: 'cust1',
+    orderId: 'ord1',
+    groupId: 'grp1',
+    orderItemId: 'oi1',
+    rating: 5,
+    bodyText: 'Отличная жидкость, вкус держится долго и приятный',
+    quickTagIds: [],
+    isAnonymous: false,
+  });
+  db.prepare(`UPDATE product_reviews SET status = 'approved', approved_at = DATETIME('now') WHERE id = ?`).run(
+    review.id,
+  );
+
+  const publicReviews = getPublicGroupReviews('grp1');
+  ok(publicReviews.items[0].reviewer.photo_url === null, 'reviewer photo hidden without disk cache');
 }
 
 console.log('\n--- public reviews backfill flavor from order item ---');

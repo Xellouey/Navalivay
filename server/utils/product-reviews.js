@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { db } from '../db.js';
 import { resolvePublicCustomerPhotoUrl } from './customer-photo.js';
+import { hasCustomerPhotoOnDisk } from './customer-photo-disk.js';
 import { getBusinessPeriodRange, getUtcDateForTimeZoneLocalTime } from './business-time.js';
 
 /** First day the customer order history + reviews cabinet went live on prod. */
@@ -1139,7 +1140,9 @@ function maskReviewer(customer, review) {
   const lastName = customer?.last_name ? `${customer.last_name.charAt(0)}.` : '';
   return {
     display_name: `${firstName}${lastName ? ` ${lastName}` : ''}`.trim(),
-    photo_url: resolvePublicCustomerPhotoUrl(customer),
+    photo_url: resolvePublicCustomerPhotoUrl(customer, {
+      hasDiskCache: hasCustomerPhotoOnDisk(customer?.id),
+    }),
     is_anonymous: false,
   };
 }

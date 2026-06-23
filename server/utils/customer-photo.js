@@ -28,8 +28,8 @@ export function buildCustomerPhotoProxyUrl(customerId) {
   return `/api/customer-photo/${encodeURIComponent(String(customerId))}`;
 }
 
-export function resolvePublicCustomerPhotoUrl(customer) {
-  if (!customer?.id || !customer?.photo_url) {
+export function resolvePublicCustomerPhotoUrl(customer, { hasDiskCache = false } = {}) {
+  if (!customer?.id || !customer?.photo_url || !hasDiskCache) {
     return null;
   }
   return buildCustomerPhotoProxyUrl(customer.id);

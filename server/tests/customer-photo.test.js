@@ -145,6 +145,17 @@ assert.equal(
     id: 'cust_123',
     photo_url: 'https://api.telegram.org/file/botTOKEN/photos/file.jpg',
   }),
+  null,
+  'proxy url is hidden until avatar is cached on disk',
+);
+assert.equal(
+  resolvePublicCustomerPhotoUrl(
+    {
+      id: 'cust_123',
+      photo_url: 'https://api.telegram.org/file/botTOKEN/photos/file.jpg',
+    },
+    { hasDiskCache: true },
+  ),
   '/api/customer-photo/cust_123',
 );
 assert.equal(

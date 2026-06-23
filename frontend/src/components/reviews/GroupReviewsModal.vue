@@ -23,15 +23,17 @@
       <li v-for="review in items" :key="review.id" class="group-reviews-modal__item">
         <div class="group-reviews-modal__item-head">
           <div class="group-reviews-modal__reviewer">
-            <img
-              v-if="review.reviewer.photo_url && !brokenAvatars.has(review.id)"
-              :src="review.reviewer.photo_url"
-              :alt="review.reviewer.display_name"
-              class="group-reviews-modal__avatar"
-              @error="markAvatarBroken(review.id)"
-            />
-            <div v-else class="group-reviews-modal__avatar group-reviews-modal__avatar--placeholder">
-              {{ review.reviewer.display_name.charAt(0) }}
+            <div class="group-reviews-modal__avatar-shell">
+              <div class="group-reviews-modal__avatar group-reviews-modal__avatar--placeholder">
+                {{ review.reviewer.display_name.charAt(0) }}
+              </div>
+              <img
+                v-if="review.reviewer.photo_url && !brokenAvatars.has(review.id)"
+                :src="review.reviewer.photo_url"
+                :alt="review.reviewer.display_name"
+                class="group-reviews-modal__avatar group-reviews-modal__avatar--photo"
+                @error="markAvatarBroken(review.id)"
+              />
             </div>
             <div>
               <strong>{{ review.reviewer.display_name }}</strong>
@@ -67,12 +69,18 @@
 
         <div v-if="review.manager_reply" class="group-reviews-modal__reply">
           <div class="group-reviews-modal__reply-head">
-            <img
-              v-if="managerBlock?.avatar_url"
-              :src="managerBlock.avatar_url"
-              :alt="managerBlock.display_name"
-              class="group-reviews-modal__reply-avatar"
-            />
+            <div class="group-reviews-modal__reply-avatar-shell">
+              <div class="group-reviews-modal__reply-avatar group-reviews-modal__reply-avatar--placeholder">
+                {{ (managerBlock?.display_name || "Н").charAt(0) }}
+              </div>
+              <img
+                v-if="managerBlock?.avatar_url && !managerAvatarBroken"
+                :src="managerBlock.avatar_url"
+                :alt="managerBlock.display_name"
+                class="group-reviews-modal__reply-avatar group-reviews-modal__reply-avatar--photo"
+                @error="managerAvatarBroken = true"
+              />
+            </div>
             <strong>{{ managerBlock?.display_name || "Ответ магазина" }}</strong>
           </div>
           <p>{{ review.manager_reply }}</p>
@@ -99,6 +107,7 @@ const props = defineProps<{
 }>();
 
 const brokenAvatars = ref(new Set<string>());
+const managerAvatarBroken = ref(false);
 
 function markAvatarBroken(reviewId: string) {
   brokenAvatars.value = new Set(brokenAvatars.value).add(reviewId);
@@ -129,6 +138,7 @@ async function loadReviews() {
   loading.value = true;
   errorMessage.value = null;
   brokenAvatars.value = new Set();
+  managerAvatarBroken.value = false;
 
   try {
     const data = await fetchGroupReviews(props.groupId, { limit: 30, offset: 0 });
@@ -223,11 +233,17 @@ watch(
   color: #191919;
 }
 
+.group-reviews-modal__avatar-shell {
+  position: relative;
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+}
+
 .group-reviews-modal__avatar {
   width: 36px;
   height: 36px;
   border-radius: 50%;
-  object-fit: cover;
   flex-shrink: 0;
 }
 
@@ -240,6 +256,12 @@ watch(
   font-family: "Montserrat", sans-serif;
   font-weight: 700;
   font-size: 14px;
+}
+
+.group-reviews-modal__avatar--photo {
+  position: absolute;
+  inset: 0;
+  object-fit: cover;
 }
 
 .group-reviews-modal__variant {
@@ -303,12 +325,35 @@ watch(
   margin-bottom: 4px;
 }
 
+.group-reviews-modal__reply-avatar-shell {
+  position: relative;
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+}
+
 .group-reviews-modal__reply-avatar {
   width: 28px;
   height: 28px;
   border-radius: 50%;
-  object-fit: cover;
   flex-shrink: 0;
+}
+
+.group-reviews-modal__reply-avatar--placeholder {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: #e6e9ed;
+  color: #5c6470;
+  font-family: "Montserrat", sans-serif;
+  font-weight: 700;
+  font-size: 11px;
+}
+
+.group-reviews-modal__reply-avatar--photo {
+  position: absolute;
+  inset: 0;
+  object-fit: cover;
 }
 
 .group-reviews-modal__reply-head strong {

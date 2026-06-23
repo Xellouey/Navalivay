@@ -1,31 +1,15 @@
 import fs from 'node:fs';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import {
+  customerAvatarDir,
+  getCustomerAvatarDiskPath,
+  readCustomerPhotoFromDisk,
+} from './customer-photo-disk.js';
 import {
   resolveCustomerPhotoRefresh,
   shouldRefreshCustomerPhoto,
 } from './customer-photo.js';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const avatarDir = path.resolve(
-  process.env.UPLOADS_DIR || path.join(__dirname, '../../uploads'),
-  'customer-avatars',
-);
-
-function getCustomerAvatarDiskPath(customerId) {
-  return path.join(avatarDir, `${customerId}.jpg`);
-}
-
-export function readCustomerPhotoFromDisk(customerId) {
-  const filePath = getCustomerAvatarDiskPath(customerId);
-  if (!fs.existsSync(filePath)) {
-    return null;
-  }
-  return {
-    body: fs.readFileSync(filePath),
-    contentType: 'image/jpeg',
-  };
-}
+export { readCustomerPhotoFromDisk } from './customer-photo-disk.js';
 
 export async function cacheCustomerPhotoToDisk(customerId, photoUrl) {
   if (!customerId || !photoUrl) {
@@ -37,7 +21,7 @@ export async function cacheCustomerPhotoToDisk(customerId, photoUrl) {
     return false;
   }
 
-  fs.mkdirSync(avatarDir, { recursive: true });
+  fs.mkdirSync(customerAvatarDir, { recursive: true });
   fs.writeFileSync(getCustomerAvatarDiskPath(customerId), payload.body);
   return true;
 }
