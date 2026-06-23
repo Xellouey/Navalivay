@@ -42,11 +42,35 @@ function buildCustomerHistoryVisibilityClause(alias = 'o') {
   const launchParam = getCustomerOrderHistoryLaunchIso().replace('T', ' ').replace('Z', '');
 
   return {
-    sql: `(
-      COALESCE(${alias}.archived, 0) = 0
-      OR ${milestoneExpr} >= ?
-    )`,
+    sql: `${milestoneExpr} >= ?`,
     param: launchParam,
+  };
+}
+
+function buildCustomerOwnershipClause({ telegramId = '', telegramUsername = '' } = {}) {
+  const normalizedUsername = normalizeTelegramUsername(telegramUsername).toLowerCase();
+  const parts = [];
+  const params = [];
+
+  if (telegramId) {
+    parts.push('c.telegram_id = ?');
+    params.push(String(telegramId));
+  }
+
+  if (normalizedUsername) {
+    parts.push(
+      "LOWER(TRIM(REPLACE(COALESCE(o.telegram_username, c.telegram_username, ''), '@', ''))) = ?",
+    );
+    params.push(normalizedUsername);
+  }
+
+  if (parts.length === 0) {
+    return { sql: '0 = 1', params: [] };
+  }
+
+  return {
+    sql: `(${parts.join(' OR ')})`,
+    params,
   };
 }
 
@@ -409,8 +433,9 @@ export function findOwnedOrders({
   beforeCreatedAt = null,
 } = {}) {
   const base = loadOwnedOrdersBaseSql();
-  const params = [...base.params];
-  let sql = base.sql;
+  const ownership = buildCustomerOwnershipClause({ telegramId, telegramUsername });
+  const params = [...base.params, ...ownership.params];
+  let sql = `${base.sql} AND ${ownership.sql}`;
 
   if (orderId) {
     sql += ' AND o.id = ?';

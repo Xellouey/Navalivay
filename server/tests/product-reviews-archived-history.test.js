@@ -438,6 +438,81 @@ console.log('\n--- H8: prod-like ISO completed_at on archived post-launch orders
   ok(maffOwned.some((order) => order.order_number === 9086), 'Maffsim ISO archived #9086 is visible');
 }
 
+console.log('\n--- H10: global LIMIT noise from other customers does not hide owned orders ---');
+{
+  seedCatalog();
+  insertCustomer({ id: 'cust_quai', telegramId: '835143827', username: 'QuaiLLLL' });
+
+  for (let i = 0; i < 60; i += 1) {
+    const otherId = `cust_noise_${i}`;
+    insertCustomer({ id: otherId, telegramId: `9${String(i).padStart(9, '0')}`, username: `noise_${i}` });
+    insertDeliveredOrder({
+      id: `ord_noise_${i}`,
+      orderNumber: 5000 + i,
+      customerId: otherId,
+      username: `noise_${i}`,
+      archived: 0,
+      completedAt: '2026-06-10T10:00:00.000Z',
+      createdAt: '2026-06-10T09:00:00.000Z',
+    });
+  }
+
+  for (const [idx, orderNumber] of [9132, 9137, 9194].entries()) {
+    insertDeliveredOrder({
+      id: `ord_quai_${idx}`,
+      orderNumber,
+      customerId: 'cust_quai',
+      username: 'QuaiLLLL',
+      archived: idx < 2 ? 1 : 0,
+      completedAt: `2026-06-2${idx < 2 ? 2 : 3}T1${idx}:00:00.000Z`,
+      createdAt: `2026-06-2${idx < 2 ? 2 : 3}T0${idx}:00:00.000Z`,
+    });
+  }
+
+  const owned = findOwnedOrders({
+    telegramId: '835143827',
+    telegramUsername: 'QuaiLLLL',
+    statuses: ['delivered', 'completed', 'cancelled'],
+    limit: 50,
+  });
+
+  const numbers = owned.map((order) => order.order_number).sort((a, b) => a - b);
+  ok(numbers.length === 3, 'QuaiLLLL sees all 3 post-launch orders despite global noise');
+  ok(numbers.join(',') === '9132,9137,9194', 'owned order numbers match prod-like set');
+}
+
+console.log('\n--- H11: pre-launch non-archived orders stay hidden ---');
+{
+  seedCatalog();
+  insertCustomer({ id: 'cust_old', telegramId: '6006', username: 'old_live_user' });
+  insertDeliveredOrder({
+    id: 'ord_pre_live',
+    orderNumber: 8101,
+    customerId: 'cust_old',
+    username: 'old_live_user',
+    archived: 0,
+    completedAt: '2026-06-20T12:00:00.000Z',
+    createdAt: '2026-06-20T10:00:00.000Z',
+  });
+  insertDeliveredOrder({
+    id: 'ord_post_live',
+    orderNumber: 8102,
+    customerId: 'cust_old',
+    username: 'old_live_user',
+    archived: 0,
+    completedAt: '2026-06-22T12:00:00.000Z',
+    createdAt: '2026-06-22T10:00:00.000Z',
+  });
+
+  const owned = findOwnedOrders({
+    telegramId: '6006',
+    telegramUsername: 'old_live_user',
+    statuses: ['delivered', 'completed', 'cancelled'],
+  });
+
+  ok(owned.length === 1 && owned[0].order_number === 8102, 'only post-launch live order is visible');
+}
+
 console.log('\n--- H9: username-only ownership still resolves archived orders ---');
 {
   seedCatalog();
