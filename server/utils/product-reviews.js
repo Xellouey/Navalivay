@@ -1,6 +1,44 @@
 import { randomUUID } from 'node:crypto';
 import { db } from '../db.js';
-import { getBusinessPeriodRange } from './business-time.js';
+import { getBusinessPeriodRange, getUtcDateForTimeZoneLocalTime } from './business-time.js';
+
+/** First day the customer order history + reviews cabinet went live on prod. */
+export const CUSTOMER_ORDER_HISTORY_LAUNCH = Object.freeze({
+  year: 2026,
+  month: 6,
+  day: 22,
+});
+
+export function getCustomerOrderHistoryLaunchIso() {
+  const override = getReviewSetting('customer_history_since', '');
+  if (override) {
+    const match = String(override).trim().match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (match) {
+      return getUtcDateForTimeZoneLocalTime(
+        Number(match[1]),
+        Number(match[2]),
+        Number(match[3]),
+      ).toISOString();
+    }
+  }
+
+  return getUtcDateForTimeZoneLocalTime(
+    CUSTOMER_ORDER_HISTORY_LAUNCH.year,
+    CUSTOMER_ORDER_HISTORY_LAUNCH.month,
+    CUSTOMER_ORDER_HISTORY_LAUNCH.day,
+  ).toISOString();
+}
+
+function buildCustomerHistoryVisibilityClause(alias = 'o') {
+  return {
+    sql: `(
+      COALESCE(${alias}.archived, 0) = 0
+      OR datetime(COALESCE(${alias}.completed_at, ${alias}.updated_at, ${alias}.created_at))
+         >= datetime(?)
+    )`,
+    param: getCustomerOrderHistoryLaunchIso(),
+  };
+}
 
 export const REVIEW_CATEGORY_KEYS = Object.freeze({
   LIQUIDS: 'liquids',
@@ -333,19 +371,23 @@ function orderBelongsToCustomer(order, { telegramId = '', telegramUsername = '' 
 }
 
 function loadOwnedOrdersBaseSql() {
+  const visibility = buildCustomerHistoryVisibilityClause('o');
   // `archived` hides delivered orders from the CRM kanban only.
-  // Customer history, order detail, and review eligibility must still see them.
-  return `
-    SELECT
-      o.*,
-      c.telegram_id AS customer_telegram_id,
-      c.first_name AS customer_first_name,
-      c.last_name AS customer_last_name,
-      COALESCE(o.telegram_username, c.telegram_username) AS resolved_telegram_username
-    FROM orders o
-    LEFT JOIN customers c ON c.id = o.customer_id
-    WHERE 1 = 1
-  `;
+  // Customer history keeps archived orders from the cabinet launch date onward.
+  return {
+    sql: `
+      SELECT
+        o.*,
+        c.telegram_id AS customer_telegram_id,
+        c.first_name AS customer_first_name,
+        c.last_name AS customer_last_name,
+        COALESCE(o.telegram_username, c.telegram_username) AS resolved_telegram_username
+      FROM orders o
+      LEFT JOIN customers c ON c.id = o.customer_id
+      WHERE ${visibility.sql}
+    `,
+    params: [visibility.param],
+  };
 }
 
 export function findOwnedOrders({
@@ -356,8 +398,9 @@ export function findOwnedOrders({
   limit = 50,
   beforeCreatedAt = null,
 } = {}) {
-  const params = [];
-  let sql = loadOwnedOrdersBaseSql();
+  const base = loadOwnedOrdersBaseSql();
+  const params = [...base.params];
+  let sql = base.sql;
 
   if (orderId) {
     sql += ' AND o.id = ?';
@@ -529,6 +572,7 @@ export function getGroupReviewEligibility({
     return resolveDevBypassEligibility({ customerId, groupId, orderId, orderItemId });
   }
 
+  const purchaseVisibility = buildCustomerHistoryVisibilityClause('o');
   const purchase = db.prepare(`
     SELECT
       oi.id AS order_item_id,
@@ -548,9 +592,10 @@ export function getGroupReviewEligibility({
     WHERE o.customer_id = ?
       AND p.groupId = ?
       AND o.status IN ('delivered', 'completed')
+      AND ${purchaseVisibility.sql}
     ORDER BY COALESCE(o.completed_at, o.updated_at, o.created_at) DESC
     LIMIT 1
-  `).get(customerId, groupId);
+  `).get(customerId, groupId, purchaseVisibility.param);
 
   if (!purchase) {
     return { canReview: false, reason: 'not_purchased' };

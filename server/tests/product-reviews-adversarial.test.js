@@ -723,5 +723,27 @@ console.log('\n--- A21: Maffsim-like multi-line archived order with all reviews 
   ok(prompt.show === true && prompt.order_id === 'ord1', 'review dock returns for archived rejected order');
 }
 
+console.log('\n--- A22: pre-launch archived orders stay out of customer history ---');
+{
+  seedWorld();
+  db.prepare(
+    `INSERT INTO orders (
+      id, order_number, customer_id, status, archived, total_amount, final_amount,
+      completed_at, created_at, updated_at
+    ) VALUES ('ord_old_arch', 7001, 'cust1', 'delivered', 1, 10, 10,
+      '2026-06-10T12:00:00.000Z', '2026-06-10T10:00:00.000Z', '2026-06-10T12:00:00.000Z')`,
+  ).run();
+  db.prepare(`UPDATE orders SET archived = 1, completed_at = '2026-06-22T15:00:00.000Z' WHERE id = 'ord1'`).run();
+
+  const owned = findOwnedOrders({
+    telegramId: '111',
+    telegramUsername: 'buyer1',
+    statuses: ['delivered', 'completed', 'cancelled'],
+  });
+
+  ok(owned.length === 1 && owned[0].id === 'ord1', 'post-launch archived order stays visible');
+  ok(!owned.some((order) => order.id === 'ord_old_arch'), 'pre-launch archived order stays hidden');
+}
+
 console.log(`\nDone: ${results.passed} passed, ${results.failed} failed\n`);
 process.exit(results.failed > 0 ? 1 : 0);

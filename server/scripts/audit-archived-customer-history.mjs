@@ -7,10 +7,17 @@
  *   node server/scripts/audit-archived-customer-history.mjs --since=2026-06-17
  */
 import { initDb, db } from '../db.js';
-import { findOwnedOrders } from '../utils/product-reviews.js';
+import {
+  findOwnedOrders,
+  getCustomerOrderHistoryLaunchIso,
+  CUSTOMER_ORDER_HISTORY_LAUNCH,
+} from '../utils/product-reviews.js';
 
 const sinceArg = process.argv.find((arg) => arg.startsWith('--since='));
-const sinceDate = sinceArg ? sinceArg.split('=')[1] : '2026-06-17';
+const sinceDate = sinceArg
+  ? sinceArg.split('=')[1]
+  : `${CUSTOMER_ORDER_HISTORY_LAUNCH.year}-${String(CUSTOMER_ORDER_HISTORY_LAUNCH.month).padStart(2, '0')}-${String(CUSTOMER_ORDER_HISTORY_LAUNCH.day).padStart(2, '0')}`;
+const launchIso = getCustomerOrderHistoryLaunchIso();
 
 initDb();
 
@@ -31,10 +38,10 @@ const hiddenRows = db
      LEFT JOIN customers c ON c.id = o.customer_id
      WHERE COALESCE(o.archived, 0) = 1
        AND o.status IN ('delivered', 'completed')
-       AND datetime(COALESCE(o.completed_at, o.created_at)) >= datetime(?)
+       AND datetime(COALESCE(o.completed_at, o.updated_at, o.created_at)) >= datetime(?)
      ORDER BY datetime(COALESCE(o.completed_at, o.created_at)) DESC`,
   )
-  .all(sinceDate);
+  .all(launchIso);
 
 const customerImpact = new Map();
 
@@ -90,6 +97,7 @@ console.log(
   JSON.stringify(
     {
       since: sinceDate,
+      launch_iso: launchIso,
       hidden_delivered_completed: hiddenRows.length,
       affected_customers: customerImpact.size,
       would_recover_with_fix: wouldRecover,

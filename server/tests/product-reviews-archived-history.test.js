@@ -193,7 +193,7 @@ console.log('\n--- H2: all post-cabinet customers recover every archived deliver
         customerId: buyer.id,
         username: buyer.username,
         archived: 1,
-        completedAt: `2026-06-2${1 + idx}T12:00:00.000Z`,
+        completedAt: `2026-06-22T1${idx}:00:00.000Z`,
       });
     }
   }
@@ -287,11 +287,19 @@ console.log('\n--- H5: mixed archived + fresh delivered orders sort correctly --
     customerId: 'cust_mix',
     username: 'mix_user',
     archived: 1,
-    completedAt: '2026-06-21T10:00:00.000Z',
+    completedAt: '2026-06-20T10:00:00.000Z',
+  });
+  insertDeliveredOrder({
+    id: 'ord_new_arch',
+    orderNumber: 9301,
+    customerId: 'cust_mix',
+    username: 'mix_user',
+    archived: 1,
+    completedAt: '2026-06-22T14:00:00.000Z',
   });
   insertDeliveredOrder({
     id: 'ord_new_live',
-    orderNumber: 9301,
+    orderNumber: 9302,
     customerId: 'cust_mix',
     username: 'mix_user',
     archived: 0,
@@ -304,9 +312,10 @@ console.log('\n--- H5: mixed archived + fresh delivered orders sort correctly --
     statuses: ['delivered', 'completed', 'cancelled'],
   });
 
-  ok(owned.length === 2, 'both archived and live delivered orders are owned');
-  ok(owned[0].order_number === 9301, 'newer live order sorts first');
-  ok(owned[1].order_number === 9300, 'older archived order still present');
+  ok(owned.length === 2, 'post-launch archived and live orders are owned');
+  ok(owned[0].order_number === 9302, 'newer live order sorts first');
+  ok(owned[1].order_number === 9301, 'post-launch archived order still present');
+  ok(!owned.some((order) => order.order_number === 9300), 'pre-launch archived order stays hidden');
 }
 
 console.log('\n--- H6: rejected reviews on archived orders unlock prompt + resubmit ---');
@@ -347,7 +356,46 @@ console.log('\n--- H6: rejected reviews on archived orders unlock prompt + resub
   ok(resubmit.response.status === 201, 'resubmit review on archived order succeeds');
 }
 
-console.log('\n--- H7: username-only ownership still resolves archived orders ---');
+console.log('\n--- H7: pre-launch archived orders stay hidden ---');
+{
+  seedCatalog();
+  insertCustomer({ id: 'cust_old', telegramId: '5005', username: 'old_user' });
+  insertDeliveredOrder({
+    id: 'ord_pre_launch',
+    orderNumber: 8001,
+    customerId: 'cust_old',
+    username: 'old_user',
+    archived: 1,
+    completedAt: '2026-06-20T12:00:00.000Z',
+    createdAt: '2026-06-20T10:00:00.000Z',
+  });
+  insertDeliveredOrder({
+    id: 'ord_post_launch',
+    orderNumber: 8002,
+    customerId: 'cust_old',
+    username: 'old_user',
+    archived: 1,
+    completedAt: '2026-06-22T12:00:00.000Z',
+    createdAt: '2026-06-22T10:00:00.000Z',
+  });
+
+  const owned = findOwnedOrders({
+    telegramId: '5005',
+    telegramUsername: 'old_user',
+    statuses: ['delivered', 'completed', 'cancelled'],
+  });
+
+  ok(owned.length === 1, 'only post-launch archived order is visible');
+  ok(owned[0].order_number === 8002, 'pre-launch archived order remains hidden');
+
+  const history = await requestJson('/api/orders/my-history', {
+    headers: authHeaders('5005', 'old_user'),
+  });
+  ok(!history.data?.items?.some((row) => row.order_number === 8001), 'HTTP history hides pre-launch archived');
+  ok(history.data?.items?.some((row) => row.order_number === 8002), 'HTTP history shows post-launch archived');
+}
+
+console.log('\n--- H8: username-only ownership still resolves archived orders ---');
 {
   seedCatalog();
   db.prepare(
