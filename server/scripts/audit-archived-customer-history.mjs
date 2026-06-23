@@ -38,10 +38,10 @@ const hiddenRows = db
      LEFT JOIN customers c ON c.id = o.customer_id
      WHERE COALESCE(o.archived, 0) = 1
        AND o.status IN ('delivered', 'completed')
-       AND datetime(COALESCE(o.completed_at, o.updated_at, o.created_at)) >= datetime(?)
+       AND REPLACE(REPLACE(COALESCE(o.completed_at, o.updated_at, o.created_at), 'T', ' '), 'Z', '') >= ?
      ORDER BY datetime(COALESCE(o.completed_at, o.created_at)) DESC`,
   )
-  .all(launchIso);
+  .all(launchIso.replace('T', ' ').replace('Z', ''));
 
 const customerImpact = new Map();
 

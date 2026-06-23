@@ -395,7 +395,50 @@ console.log('\n--- H7: pre-launch archived orders stay hidden ---');
   ok(history.data?.items?.some((row) => row.order_number === 8002), 'HTTP history shows post-launch archived');
 }
 
-console.log('\n--- H8: username-only ownership still resolves archived orders ---');
+console.log('\n--- H8: prod-like ISO completed_at on archived post-launch orders ---');
+{
+  seedCatalog();
+  insertCustomer({ id: 'cust_quai', telegramId: '835143827', username: 'QuaiLLLL' });
+  db.prepare(
+    `INSERT INTO orders (
+      id, order_number, customer_id, telegram_username, status, archived,
+      total_amount, final_amount, completed_at, created_at, updated_at
+    ) VALUES ('ord_9137', 9137, 'cust_quai', 'QuaiLLLL', 'delivered', 1, 10, 10,
+      '2026-06-22T17:09:44.459Z', '2026-06-22 17:08:55', '2026-06-22 17:08:55')`,
+  ).run();
+  db.prepare(
+    `INSERT INTO order_items (id, order_id, product_id, product_title, variant_name, quantity, price_per_unit, total_price, total_cost)
+     VALUES ('oi_9137', 'ord_9137', 'prod1', 'Ананас', 'Вкус', 1, 10, 10, 4)`,
+  ).run();
+  insertCustomer({ id: 'cust_maff', telegramId: '1088000252', username: 'Maffsim' });
+  db.prepare(
+    `INSERT INTO orders (
+      id, order_number, customer_id, telegram_username, status, archived,
+      total_amount, final_amount, completed_at, created_at, updated_at
+    ) VALUES ('ord_9086', 9086, 'cust_maff', 'Maffsim', 'delivered', 1, 10, 10,
+      '2026-06-22T10:20:37.132Z', '2026-06-22 07:26:38', '2026-06-22 07:26:38')`,
+  ).run();
+  db.prepare(
+    `INSERT INTO order_items (id, order_id, product_id, product_title, variant_name, quantity, price_per_unit, total_price, total_cost)
+     VALUES ('oi_9086', 'ord_9086', 'prod1', 'Ананас', 'Вкус', 1, 10, 10, 4)`,
+  ).run();
+
+  const quaiOwned = findOwnedOrders({
+    telegramId: '835143827',
+    telegramUsername: 'QuaiLLLL',
+    statuses: ['delivered', 'completed', 'cancelled'],
+  });
+  const maffOwned = findOwnedOrders({
+    telegramId: '1088000252',
+    telegramUsername: 'Maffsim',
+    statuses: ['delivered', 'completed', 'cancelled'],
+  });
+
+  ok(quaiOwned.some((order) => order.order_number === 9137), 'QuaiLLLL ISO archived #9137 is visible');
+  ok(maffOwned.some((order) => order.order_number === 9086), 'Maffsim ISO archived #9086 is visible');
+}
+
+console.log('\n--- H9: username-only ownership still resolves archived orders ---');
 {
   seedCatalog();
   db.prepare(

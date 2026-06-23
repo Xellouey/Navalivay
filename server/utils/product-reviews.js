@@ -29,14 +29,24 @@ export function getCustomerOrderHistoryLaunchIso() {
   ).toISOString();
 }
 
+function normalizeOrderTimestampSqlExpr(fieldsExpr) {
+  // SQLite datetime() does not parse ISO-8601 values like 2026-06-22T17:09:44.459Z.
+  // Normalize mixed storage formats before lexicographic compare.
+  return `REPLACE(REPLACE(COALESCE(${fieldsExpr}), 'T', ' '), 'Z', '')`;
+}
+
 function buildCustomerHistoryVisibilityClause(alias = 'o') {
+  const milestoneExpr = normalizeOrderTimestampSqlExpr(
+    `${alias}.completed_at, ${alias}.updated_at, ${alias}.created_at`,
+  );
+  const launchParam = getCustomerOrderHistoryLaunchIso().replace('T', ' ').replace('Z', '');
+
   return {
     sql: `(
       COALESCE(${alias}.archived, 0) = 0
-      OR datetime(COALESCE(${alias}.completed_at, ${alias}.updated_at, ${alias}.created_at))
-         >= datetime(?)
+      OR ${milestoneExpr} >= ?
     )`,
-    param: getCustomerOrderHistoryLaunchIso(),
+    param: launchParam,
   };
 }
 
