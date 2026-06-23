@@ -8,6 +8,7 @@ import {
   resolveCustomerPhotoRefresh,
   shouldRefreshCustomerPhoto,
 } from './customer-photo.js';
+import { applyTelegramHttpProxy } from './telegram-http-proxy.js';
 
 export { readCustomerPhotoFromDisk } from './customer-photo-disk.js';
 
@@ -57,6 +58,7 @@ export async function refreshCustomerPhotoIfStale(
     if (chat?.photo?.big_file_id) {
       const fileResp = await fetch(
         `https://api.telegram.org/bot${token}/getFile?file_id=${encodeURIComponent(chat.photo.big_file_id)}`,
+        applyTelegramHttpProxy(),
       );
       fileData = await fileResp.json();
     }
@@ -98,7 +100,10 @@ export async function fetchCustomerPhotoBytes(photoUrl, { timeoutMs = 8000 } = {
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
-    const response = await fetch(photoUrl, { signal: controller.signal });
+    const response = await fetch(
+      photoUrl,
+      applyTelegramHttpProxy({ signal: controller.signal }),
+    );
     if (!response.ok) {
       return null;
     }

@@ -335,6 +335,7 @@ export function useCustomerOrders() {
     const query = params.toString();
     const response = await fetch(
       `/api/groups/${encodeURIComponent(groupId)}/reviews${query ? `?${query}` : ""}`,
+      { headers: withTelegramAuthHeaders() },
     );
     return parseJsonResponse<GroupReviewsResponse>(response);
   }

@@ -283,3 +283,17 @@ export function requireTelegramMiniAppAuth(options = {}) {
     }
   };
 }
+
+export function optionalTelegramMiniAppAuth(options = {}) {
+  return (req, res, next) => {
+    try {
+      const identity = resolveTelegramMiniAppIdentity(req, options);
+      if (identity) {
+        req.telegramAuth = identity;
+      }
+      return next();
+    } catch {
+      return next();
+    }
+  };
+}

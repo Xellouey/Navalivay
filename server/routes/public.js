@@ -6,7 +6,10 @@ import {
   buildLoyaltyApplication,
   releaseOrderLoyaltyReservations,
 } from "../loyalty.js";
-import { requireTelegramMiniAppAuth } from "../telegram-miniapp-auth.js";
+import {
+  optionalTelegramMiniAppAuth,
+  requireTelegramMiniAppAuth,
+} from "../telegram-miniapp-auth.js";
 import {
   normalizePromoCode,
   releasePromoUsageForOrder,
@@ -2165,7 +2168,8 @@ publicRouter.patch(
 publicRouter.get(
   "/api/groups/:groupId/reviews",
   publicMiniAppReadLimiter,
-  (req, res) => {
+  optionalTelegramMiniAppAuth({ allowInsecureFallback: allowInsecureTelegramFallback }),
+  async (req, res) => {
     try {
       const { groupId } = req.params;
       const limit = Math.min(Math.max(Number(req.query.limit) || 20, 1), 50);
@@ -2174,6 +2178,17 @@ publicRouter.get(
       const group = db.prepare("SELECT id FROM category_groups WHERE id = ?").get(groupId);
       if (!group) {
         return res.status(404).json({ error: "group_not_found" });
+      }
+
+      const telegramId = String(req.telegramAuth?.telegramId || "").trim();
+      const telegramUsername = normalizeTelegramUsername(req.telegramAuth?.telegramUsername);
+      const viewer = telegramId || telegramUsername
+        ? findCustomerByTelegram({ telegramId, telegramUsername })
+        : null;
+
+      const initPhotoUrl = String(req.telegramAuth?.photoUrl || "").trim();
+      if (viewer && initPhotoUrl.startsWith("https://")) {
+        await cacheCustomerPhotoToDisk(viewer.id, initPhotoUrl);
       }
 
       return res.json(getPublicGroupReviews(groupId, { limit, offset }));
