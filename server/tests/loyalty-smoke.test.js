@@ -140,6 +140,42 @@ function getOrderItem(orderId) {
     .get(orderId);
 }
 
+function getOrderItems(orderId) {
+  return db
+    .prepare("SELECT * FROM order_items WHERE order_id = ? ORDER BY rowid ASC")
+    .all(orderId);
+}
+
+function markOrderDelivered(orderId) {
+  db.prepare(
+    "UPDATE orders SET status = 'delivered', completed_at = DATETIME('now') WHERE id = ?",
+  ).run(orderId);
+}
+
+function seedVariantLiquid() {
+  db.prepare("UPDATE products SET has_variants = 1 WHERE id = 'liquid-1'").run();
+  db.prepare(
+    `
+    INSERT OR IGNORE INTO product_variants (id, product_id, name, price_rub, stock, position, created_at)
+    VALUES ('liquid-1-vanilla', 'liquid-1', 'Vanilla', 15, 50, 0, DATETIME('now'))
+  `,
+  ).run();
+}
+
+function seedProduct8148Like() {
+  db.prepare(
+    `
+    INSERT OR IGNORE INTO products (
+      id, categoryId, groupId, title, priceRub, description, use_category_image,
+      createdAt, cost_price, stock, min_stock, has_variants
+    ) VALUES (
+      'liquid-8148', 'c_liquids_salt', NULL, 'Polatranezh', 16, '', 0,
+      DATETIME('now'), 5, 50, 0, 0
+    )
+  `,
+  ).run();
+}
+
 function getRedemptions(orderId) {
   return db
     .prepare("SELECT * FROM order_loyalty_redemptions WHERE order_id = ? ORDER BY rowid ASC")
@@ -737,6 +773,492 @@ async function testMissingTelegramAuthRejectedForSnapshot() {
   assert.equal(snapshot.data.error, "telegram_auth_required");
 }
 
+function testIsPositionSalePriceReducedBoundary() {
+  assert.equal(
+    isPositionSalePriceReduced({
+      product_id: "liquid-1",
+      variant_id: null,
+      price_per_unit: 15,
+    }),
+    false,
+    "catalog price equals sale price",
+  );
+  assert.equal(
+    isPositionSalePriceReduced({
+      product_id: "liquid-1",
+      variant_id: null,
+      price_per_unit: 14.999,
+    }),
+    false,
+    "within epsilon of catalog price is not reduced",
+  );
+  assert.equal(
+    isPositionSalePriceReduced({
+      product_id: "liquid-1",
+      variant_id: null,
+      price_per_unit: 14.998,
+    }),
+    true,
+    "below epsilon threshold counts as lowered sale price",
+  );
+  assert.equal(
+    isPositionSalePriceReduced({
+      product_id: "liquid-1",
+      variant_id: null,
+      price_per_unit: 14,
+    }),
+    true,
+    "clearly lowered sale price",
+  );
+}
+
+async function testAwardSkipsPromoOrder() {
+  const customerId = createCustomer({
+    id: "cust-loyalty-promo",
+    telegramId: "2007",
+    telegramUsername: "loyalty_promo",
+  });
+  const liquidsCategoryId = getLoyaltyCategoryId("liquids");
+
+  const created = await createPublicOrder(
+    {
+      telegram_id: "2007",
+      telegram_username: "loyalty_promo",
+    },
+    {
+      items: [
+        {
+          product_id: "liquid-1",
+          variant_id: null,
+          quantity: 1,
+          price_per_unit: 15,
+          product_title: "Liquid Cherry",
+        },
+      ],
+    },
+  );
+
+  assert.equal(created.response.status, 200);
+  const orderId = created.data.order_id;
+
+  db.prepare(
+    `
+    UPDATE orders
+    SET promo_code_text = 'PROMO10',
+        status = 'delivered',
+        completed_at = DATETIME('now')
+    WHERE id = ?
+  `,
+  ).run(orderId);
+
+  const award = awardLoyaltyForOrder(orderId);
+
+  assert.equal(award.reason, "promo_applied");
+  assert.equal(getBalance(customerId, liquidsCategoryId), 0);
+}
+
+async function testAwardMixedCartPartialAccrual() {
+  const customerId = createCustomer({
+    id: "cust-loyalty-mixed",
+    telegramId: "2008",
+    telegramUsername: "loyalty_mixed",
+  });
+  const liquidsCategoryId = getLoyaltyCategoryId("liquids");
+
+  const created = await createPublicOrder(
+    {
+      telegram_id: "2008",
+      telegram_username: "loyalty_mixed",
+    },
+    {
+      items: [
+        {
+          product_id: "liquid-1",
+          variant_id: null,
+          quantity: 1,
+          price_per_unit: 15,
+          product_title: "Liquid Cherry",
+        },
+        {
+          product_id: "liquid-1",
+          variant_id: null,
+          quantity: 1,
+          price_per_unit: 15,
+          product_title: "Liquid Cherry",
+        },
+      ],
+    },
+  );
+
+  assert.equal(created.response.status, 200);
+  const orderId = created.data.order_id;
+  const items = getOrderItems(orderId);
+
+  db.prepare(
+    `
+    UPDATE order_items
+    SET price_per_unit = 14,
+        total_price = 14
+    WHERE id = ?
+  `,
+  ).run(items[1].id);
+
+  markOrderDelivered(orderId);
+  const award = awardLoyaltyForOrder(orderId);
+
+  assert.equal(award.awarded, true);
+  assert.equal(award.rows, 1);
+  assert.equal(getBalance(customerId, liquidsCategoryId), 1);
+}
+
+async function testAwardSkipsVariantWithLoweredPrice() {
+  seedVariantLiquid();
+
+  const customerId = createCustomer({
+    id: "cust-loyalty-variant-lowered",
+    telegramId: "2009",
+    telegramUsername: "loyalty_variant_lowered",
+  });
+  const liquidsCategoryId = getLoyaltyCategoryId("liquids");
+
+  const created = await createPublicOrder(
+    {
+      telegram_id: "2009",
+      telegram_username: "loyalty_variant_lowered",
+    },
+    {
+      items: [
+        {
+          product_id: "liquid-1",
+          variant_id: "liquid-1-vanilla",
+          quantity: 1,
+          price_per_unit: 14,
+          product_title: "Liquid Cherry",
+          variant_name: "Vanilla",
+        },
+      ],
+    },
+  );
+
+  assert.equal(created.response.status, 200);
+  const orderId = created.data.order_id;
+
+  db.prepare(
+    `
+    UPDATE order_items
+    SET price_per_unit = 14,
+        total_price = 14
+    WHERE order_id = ?
+  `,
+  ).run(orderId);
+
+  const orderItem = getOrderItem(orderId);
+  assert.equal(isPositionSalePriceReduced(orderItem), true);
+  markOrderDelivered(orderId);
+
+  const award = awardLoyaltyForOrder(orderId);
+
+  assert.equal(award.reason, "nothing_to_award");
+  assert.equal(getBalance(customerId, liquidsCategoryId), 0);
+}
+
+async function testAwardAllowsVariantAtCatalogPrice() {
+  seedVariantLiquid();
+
+  const customerId = createCustomer({
+    id: "cust-loyalty-variant-catalog",
+    telegramId: "2011",
+    telegramUsername: "loyalty_variant_catalog",
+  });
+  const liquidsCategoryId = getLoyaltyCategoryId("liquids");
+
+  const created = await createPublicOrder(
+    {
+      telegram_id: "2011",
+      telegram_username: "loyalty_variant_catalog",
+    },
+    {
+      items: [
+        {
+          product_id: "liquid-1",
+          variant_id: "liquid-1-vanilla",
+          quantity: 2,
+          price_per_unit: 15,
+          product_title: "Liquid Cherry",
+          variant_name: "Vanilla",
+        },
+      ],
+    },
+  );
+
+  assert.equal(created.response.status, 200);
+  const orderId = created.data.order_id;
+
+  markOrderDelivered(orderId);
+  const award = awardLoyaltyForOrder(orderId);
+
+  assert.equal(award.awarded, true);
+  assert.equal(getBalance(customerId, liquidsCategoryId), 2);
+}
+
+async function testAwardStatusNotFinal() {
+  const customerId = createCustomer({
+    id: "cust-loyalty-status",
+    telegramId: "2012",
+    telegramUsername: "loyalty_status",
+  });
+  const liquidsCategoryId = getLoyaltyCategoryId("liquids");
+
+  const created = await createPublicOrder(
+    {
+      telegram_id: "2012",
+      telegram_username: "loyalty_status",
+    },
+  );
+
+  assert.equal(created.response.status, 200);
+  const orderId = created.data.order_id;
+
+  const inProgressAward = awardLoyaltyForOrder(orderId);
+  assert.equal(inProgressAward.reason, "status_not_final");
+
+  db.prepare("UPDATE orders SET status = 'in_progress' WHERE id = ?").run(orderId);
+  const stillPendingAward = awardLoyaltyForOrder(orderId);
+  assert.equal(stillPendingAward.reason, "status_not_final");
+  assert.equal(getBalance(customerId, liquidsCategoryId), 0);
+}
+
+async function testAwardNoCustomer() {
+  const created = await createPublicOrder(
+    {
+      telegram_id: "2099",
+      telegram_username: "orphan_order",
+    },
+  );
+
+  assert.equal(created.response.status, 200);
+  const orderId = created.data.order_id;
+
+  db.prepare("UPDATE orders SET customer_id = NULL WHERE id = ?").run(orderId);
+  markOrderDelivered(orderId);
+
+  const award = awardLoyaltyForOrder(orderId);
+  assert.equal(award.reason, "no_customer");
+}
+
+async function testAwardRegression8148LikeOrder() {
+  seedProduct8148Like();
+
+  const customerId = createCustomer({
+    id: "cust-loyalty-8148",
+    telegramId: "2013",
+    telegramUsername: "polatranezh",
+  });
+  const liquidsCategoryId = getLoyaltyCategoryId("liquids");
+
+  const created = await createPublicOrder(
+    {
+      telegram_id: "2013",
+      telegram_username: "polatranezh",
+    },
+    {
+      items: [
+        {
+          product_id: "liquid-8148",
+          variant_id: null,
+          quantity: 1,
+          price_per_unit: 16,
+          product_title: "Polatranezh",
+        },
+      ],
+    },
+  );
+
+  assert.equal(created.response.status, 200);
+  const orderId = created.data.order_id;
+
+  db.prepare(
+    `
+    UPDATE orders
+    SET discount_amount = 1,
+        final_amount = 15,
+        status = 'delivered',
+        completed_at = DATETIME('now')
+    WHERE id = ?
+  `,
+  ).run(orderId);
+
+  const orderItem = getOrderItem(orderId);
+  assert.equal(isPositionSalePriceReduced(orderItem), false);
+
+  const award = awardLoyaltyForOrder(orderId);
+
+  assert.equal(award.awarded, true);
+  assert.equal(getBalance(customerId, liquidsCategoryId), 1);
+}
+
+async function testAwardDetailPageOrderDiscountMatchesKanbanPencil() {
+  const customerId = createCustomer({
+    id: "cust-loyalty-detail-discount",
+    telegramId: "2014",
+    telegramUsername: "loyalty_detail_discount",
+  });
+  const liquidsCategoryId = getLoyaltyCategoryId("liquids");
+
+  const created = await createPublicOrder(
+    {
+      telegram_id: "2014",
+      telegram_username: "loyalty_detail_discount",
+    },
+    {
+      items: [
+        {
+          product_id: "liquid-1",
+          variant_id: null,
+          quantity: 2,
+          price_per_unit: 15,
+          product_title: "Liquid Cherry",
+        },
+      ],
+    },
+  );
+
+  assert.equal(created.response.status, 200);
+  const orderId = created.data.order_id;
+
+  db.prepare(
+    `
+    UPDATE orders
+    SET discount_amount = 3,
+        final_amount = 27,
+        status = 'delivered',
+        completed_at = DATETIME('now')
+    WHERE id = ?
+  `,
+  ).run(orderId);
+
+  const award = awardLoyaltyForOrder(orderId);
+
+  assert.equal(award.awarded, true);
+  assert.equal(getBalance(customerId, liquidsCategoryId), 2);
+}
+
+async function testAwardMultipleCategoriesInOneOrder() {
+  const customerId = createCustomer({
+    id: "cust-loyalty-multi-earn",
+    telegramId: "2015",
+    telegramUsername: "loyalty_multi_earn",
+  });
+  const liquidsCategoryId = getLoyaltyCategoryId("liquids");
+  const disposablesCategoryId = getLoyaltyCategoryId("disposables");
+
+  const created = await createPublicOrder(
+    {
+      telegram_id: "2015",
+      telegram_username: "loyalty_multi_earn",
+    },
+    {
+      items: [
+        {
+          product_id: "liquid-1",
+          variant_id: null,
+          quantity: 1,
+          price_per_unit: 15,
+          product_title: "Liquid Cherry",
+        },
+        {
+          product_id: "disposable-1",
+          variant_id: null,
+          quantity: 2,
+          price_per_unit: 25,
+          product_title: "Disposable Mint",
+        },
+      ],
+    },
+  );
+
+  assert.equal(created.response.status, 200);
+  markOrderDelivered(created.data.order_id);
+
+  const award = awardLoyaltyForOrder(created.data.order_id);
+
+  assert.equal(award.awarded, true);
+  assert.equal(award.rows, 2);
+  assert.equal(getBalance(customerId, liquidsCategoryId), 1);
+  assert.equal(getBalance(customerId, disposablesCategoryId), 2);
+}
+
+async function testAwardDeductsLoyaltyUnitsFromEarnedStamps() {
+  const customerId = createCustomer({
+    id: "cust-loyalty-earn-minus-spent",
+    telegramId: "2016",
+    telegramUsername: "loyalty_earn_minus_spent",
+  });
+  const liquidsCategoryId = getLoyaltyCategoryId("liquids");
+  setBalance(customerId, liquidsCategoryId, 10);
+
+  const created = await createPublicOrder(
+    {
+      telegram_id: "2016",
+      telegram_username: "loyalty_earn_minus_spent",
+    },
+    {
+      items: [
+        {
+          product_id: "liquid-1",
+          variant_id: null,
+          quantity: 3,
+          price_per_unit: 15,
+          product_title: "Liquid Cherry",
+          loyalty_units_applied: 1,
+        },
+      ],
+    },
+  );
+
+  assert.equal(created.response.status, 200);
+  assert.equal(getBalance(customerId, liquidsCategoryId), 0);
+
+  markOrderDelivered(created.data.order_id);
+  const award = awardLoyaltyForOrder(created.data.order_id);
+
+  assert.equal(award.awarded, true);
+  assert.equal(getBalance(customerId, liquidsCategoryId), 2);
+}
+
+async function testAwardMissingOrderId() {
+  const award = awardLoyaltyForOrder(null);
+  assert.equal(award.reason, "missing_order_id");
+}
+
+async function testAwardCompletedStatusAllowed() {
+  const customerId = createCustomer({
+    id: "cust-loyalty-completed",
+    telegramId: "2017",
+    telegramUsername: "loyalty_completed",
+  });
+  const liquidsCategoryId = getLoyaltyCategoryId("liquids");
+
+  const created = await createPublicOrder(
+    {
+      telegram_id: "2017",
+      telegram_username: "loyalty_completed",
+    },
+  );
+
+  assert.equal(created.response.status, 200);
+  const orderId = created.data.order_id;
+
+  db.prepare(
+    "UPDATE orders SET status = 'completed', completed_at = DATETIME('now') WHERE id = ?",
+  ).run(orderId);
+
+  const award = awardLoyaltyForOrder(orderId);
+
+  assert.equal(award.awarded, true);
+  assert.equal(getBalance(customerId, liquidsCategoryId), 1);
+}
+
 async function main() {
   seedLoyaltyCatalog();
   seedDefaultLoyaltyData();
@@ -752,6 +1274,19 @@ async function main() {
   await testOnlyOneBonusUnitCanBeAppliedPerCategory();
   await testBonusesCanBeAppliedAcrossDifferentCategories();
   await testMissingTelegramAuthRejectedForSnapshot();
+  testIsPositionSalePriceReducedBoundary();
+  await testAwardSkipsPromoOrder();
+  await testAwardMixedCartPartialAccrual();
+  await testAwardSkipsVariantWithLoweredPrice();
+  await testAwardAllowsVariantAtCatalogPrice();
+  await testAwardStatusNotFinal();
+  await testAwardNoCustomer();
+  await testAwardRegression8148LikeOrder();
+  await testAwardDetailPageOrderDiscountMatchesKanbanPencil();
+  await testAwardMultipleCategoriesInOneOrder();
+  await testAwardDeductsLoyaltyUnitsFromEarnedStamps();
+  await testAwardMissingOrderId();
+  await testAwardCompletedStatusAllowed();
 
   console.log("[loyalty-smoke] OK");
 }
