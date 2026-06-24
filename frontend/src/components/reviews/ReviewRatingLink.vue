@@ -57,26 +57,26 @@ const actionAriaLabel = computed(() => {
   display: flex;
   align-items: center;
   flex-wrap: nowrap;
-  gap: 8px;
+  gap: 6px;
   margin-top: 4px;
-  min-height: 16px;
+  min-height: 14px;
   min-width: 0;
 }
 
 .review-rating-row__score {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 3px;
   flex-shrink: 0;
   font-family: -apple-system, "SF Pro Display", sans-serif;
-  font-size: 13px;
-  line-height: 16px;
+  font-size: 12px;
+  line-height: 14px;
   white-space: nowrap;
 }
 
 .review-rating-row__star {
   color: #f50302;
-  font-size: 14px;
+  font-size: 12px;
   line-height: 1;
 }
 
@@ -96,8 +96,8 @@ const actionAriaLabel = computed(() => {
   background: none;
   flex-shrink: 0;
   font-family: -apple-system, "SF Pro Display", sans-serif;
-  font-size: 13px;
-  line-height: 16px;
+  font-size: 12px;
+  line-height: 14px;
   font-weight: 400;
   color: #0273f5;
   text-decoration: none;
@@ -114,8 +114,8 @@ const actionAriaLabel = computed(() => {
 .review-rating-row__parent-hint {
   margin: 0;
   font-family: -apple-system, "SF Pro Display", sans-serif;
-  font-size: 13px;
-  line-height: 16px;
+  font-size: 12px;
+  line-height: 14px;
   font-weight: 400;
   color: #8a93a0;
 }
@@ -123,8 +123,8 @@ const actionAriaLabel = computed(() => {
 .review-rating-row__empty {
   margin: 0;
   font-family: -apple-system, "SF Pro Display", sans-serif;
-  font-size: 13px;
-  line-height: 16px;
+  font-size: 12px;
+  line-height: 14px;
   font-weight: 500;
   color: #de2b2b;
 }

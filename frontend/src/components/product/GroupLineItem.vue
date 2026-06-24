@@ -393,7 +393,7 @@ onBeforeUnmount(() => {
 .group-line-header {
   width: 100%;
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 10px;
   padding: 0;
@@ -411,7 +411,7 @@ onBeforeUnmount(() => {
 
 .group-line-main {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 12px;
   flex: 1;
   min-width: 0;
@@ -544,7 +544,7 @@ onBeforeUnmount(() => {
 .group-line-side {
   display: flex;
   flex-direction: row;
-  align-items: flex-start;
+  align-items: center;
   flex-shrink: 0;
 }
 
