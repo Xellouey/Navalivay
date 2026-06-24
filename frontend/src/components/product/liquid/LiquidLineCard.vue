@@ -898,7 +898,7 @@ function closeColorPreview() {
 
 .liquid-line-header {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 10px;
   cursor: pointer;
@@ -906,7 +906,7 @@ function closeColorPreview() {
 
 .liquid-line-main {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 10px;
   flex: 1;
   cursor: pointer;
@@ -1036,7 +1036,7 @@ function closeColorPreview() {
 .liquid-line-side {
   display: flex;
   flex-direction: row;
-  align-items: center;
+  align-items: flex-start;
   flex-shrink: 0;
 }
 

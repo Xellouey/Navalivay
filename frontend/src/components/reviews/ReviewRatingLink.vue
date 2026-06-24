@@ -56,19 +56,22 @@ const actionAriaLabel = computed(() => {
 .review-rating-row {
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 8px;
   margin-top: 4px;
   min-height: 16px;
+  min-width: 0;
 }
 
 .review-rating-row__score {
   display: inline-flex;
   align-items: center;
   gap: 4px;
+  flex-shrink: 0;
   font-family: -apple-system, "SF Pro Display", sans-serif;
   font-size: 13px;
   line-height: 16px;
+  white-space: nowrap;
 }
 
 .review-rating-row__star {
@@ -91,12 +94,14 @@ const actionAriaLabel = computed(() => {
   padding: 0;
   border: none;
   background: none;
+  flex-shrink: 0;
   font-family: -apple-system, "SF Pro Display", sans-serif;
   font-size: 13px;
   line-height: 16px;
   font-weight: 400;
   color: #0273f5;
   text-decoration: none;
+  white-space: nowrap;
   cursor: pointer;
   transition: opacity 0.2s ease;
   -webkit-tap-highlight-color: transparent;

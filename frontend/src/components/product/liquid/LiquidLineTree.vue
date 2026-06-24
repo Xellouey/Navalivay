@@ -255,6 +255,6 @@ onBeforeUnmount(() => {
 }
 
 .liquid-tree-children {
-  @apply ml-3 mt-2 space-y-2;
+  @apply mt-2 space-y-2;
 }
 </style>

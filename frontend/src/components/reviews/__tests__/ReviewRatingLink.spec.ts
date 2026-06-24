@@ -49,6 +49,17 @@ describe("ReviewRatingLink", () => {
     expect(wrapper.find(".review-rating-row").exists()).toBe(false);
   });
 
+  it("renders rating and view-reviews action in the same row", () => {
+    const wrapper = mount(ReviewRatingLink, {
+      props: { count: 1, averageRating: 5 },
+    });
+
+    const row = wrapper.find(".review-rating-row");
+    expect(row.exists()).toBe(true);
+    expect(row.find(".review-rating-row__score").exists()).toBe(true);
+    expect(row.find(".review-rating-row__action").exists()).toBe(true);
+  });
+
   it("emits click from view-reviews action", async () => {
     const wrapper = mount(ReviewRatingLink, {
       props: { count: 3, averageRating: 5 },
