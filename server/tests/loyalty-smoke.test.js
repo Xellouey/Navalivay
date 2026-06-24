@@ -15,7 +15,7 @@ process.env.NODE_ENV = "test";
 const { initDb, db } = await import("../db.js");
 const { publicRouter } = await import("../routes/public.js");
 const { loyaltyRouter } = await import("../routes/loyalty.js");
-const { awardLoyaltyForOrder } = await import("../loyalty.js");
+const { awardLoyaltyForOrder, isPositionSalePriceReduced } = await import("../loyalty.js");
 const { seedDefaultLoyaltyData } = await import("../migrations/add_loyalty_tables.js");
 
 initDb();
@@ -391,18 +391,68 @@ async function testCancelReturnsReservedBalance() {
   assert.equal(Number(orderItem.loyalty_discount_amount || 0), 0);
 }
 
-async function testAwardSkipsDiscountedItems() {
+async function testAwardSkipsLoweredSalePriceOnPosition() {
   const customerId = createCustomer({
     id: "cust-loyalty-3",
     telegramId: "2003",
-    telegramUsername: "loyalty_manual_discount",
+    telegramUsername: "loyalty_lowered_price",
   });
   const liquidsCategoryId = getLoyaltyCategoryId("liquids");
 
   const created = await createPublicOrder(
     {
       telegram_id: "2003",
-      telegram_username: "loyalty_manual_discount",
+      telegram_username: "loyalty_lowered_price",
+    },
+    {
+      items: [
+        {
+          product_id: "liquid-1",
+          variant_id: null,
+          quantity: 1,
+          price_per_unit: 14,
+          product_title: "Liquid Cherry",
+        },
+      ],
+    },
+  );
+
+  assert.equal(created.response.status, 200);
+  const orderId = created.data.order_id;
+
+  db.prepare(
+    `
+    UPDATE order_items
+    SET price_per_unit = 14,
+        total_price = 14
+    WHERE order_id = ?
+  `,
+  ).run(orderId);
+
+  const orderItem = getOrderItem(orderId);
+  assert.equal(isPositionSalePriceReduced(orderItem), true);
+
+  db.prepare("UPDATE orders SET status = 'delivered', completed_at = DATETIME('now') WHERE id = ?").run(
+    orderId,
+  );
+  const award = awardLoyaltyForOrder(orderId);
+
+  assert.equal(award.reason, "nothing_to_award");
+  assert.equal(getBalance(customerId, liquidsCategoryId), 0);
+}
+
+async function testAwardAllowsOrderLevelDiscount() {
+  const customerId = createCustomer({
+    id: "cust-loyalty-order-discount",
+    telegramId: "20031",
+    telegramUsername: "loyalty_order_discount",
+  });
+  const liquidsCategoryId = getLoyaltyCategoryId("liquids");
+
+  const created = await createPublicOrder(
+    {
+      telegram_id: "20031",
+      telegram_username: "loyalty_order_discount",
     },
     {
       items: [
@@ -412,7 +462,52 @@ async function testAwardSkipsDiscountedItems() {
           quantity: 1,
           price_per_unit: 15,
           product_title: "Liquid Cherry",
-          discount_amount: 2,
+        },
+      ],
+    },
+  );
+
+  assert.equal(created.response.status, 200);
+  const orderId = created.data.order_id;
+
+  db.prepare(
+    `
+    UPDATE orders
+    SET discount_amount = 1,
+        final_amount = 14,
+        status = 'delivered',
+        completed_at = DATETIME('now')
+    WHERE id = ?
+  `,
+  ).run(orderId);
+
+  const award = awardLoyaltyForOrder(orderId);
+
+  assert.equal(award.awarded, true);
+  assert.equal(getBalance(customerId, liquidsCategoryId), 1);
+}
+
+async function testAwardAllowsManualPositionDiscountWhenPriceUnchanged() {
+  const customerId = createCustomer({
+    id: "cust-loyalty-manual-position",
+    telegramId: "20032",
+    telegramUsername: "loyalty_manual_position",
+  });
+  const liquidsCategoryId = getLoyaltyCategoryId("liquids");
+
+  const created = await createPublicOrder(
+    {
+      telegram_id: "20032",
+      telegram_username: "loyalty_manual_position",
+    },
+    {
+      items: [
+        {
+          product_id: "liquid-1",
+          variant_id: null,
+          quantity: 1,
+          price_per_unit: 15,
+          product_title: "Liquid Cherry",
         },
       ],
     },
@@ -430,14 +525,14 @@ async function testAwardSkipsDiscountedItems() {
     WHERE order_id = ?
   `,
   ).run(orderId);
-
   db.prepare("UPDATE orders SET status = 'delivered', completed_at = DATETIME('now') WHERE id = ?").run(
     orderId,
   );
+
   const award = awardLoyaltyForOrder(orderId);
 
-  assert.equal(award.reason, "nothing_to_award");
-  assert.equal(getBalance(customerId, liquidsCategoryId), 0);
+  assert.equal(award.awarded, true);
+  assert.equal(getBalance(customerId, liquidsCategoryId), 1);
 }
 
 async function testSnapshotIsReadOnly() {
@@ -649,7 +744,9 @@ async function main() {
   await testSeedRepairsPartialMappings();
   await testPreviewReserveAndAward();
   await testCancelReturnsReservedBalance();
-  await testAwardSkipsDiscountedItems();
+  await testAwardSkipsLoweredSalePriceOnPosition();
+  await testAwardAllowsOrderLevelDiscount();
+  await testAwardAllowsManualPositionDiscountWhenPriceUnchanged();
   await testSnapshotIsReadOnly();
   await testUsernameChangeDoesNotResetBalanceOnOrderCreate();
   await testOnlyOneBonusUnitCanBeAppliedPerCategory();

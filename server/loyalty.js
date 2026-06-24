@@ -654,6 +654,39 @@ export function releaseOrderLoyaltyReservations(orderId, reason = "released_from
   db.prepare("DELETE FROM order_loyalty_redemptions WHERE order_id = ?").run(orderId);
 }
 
+function resolveCatalogPricePerUnit(item) {
+  if (item?.variant_id) {
+    const variant = db
+      .prepare("SELECT price_rub FROM product_variants WHERE id = ?")
+      .get(item.variant_id);
+    if (variant?.price_rub != null) {
+      return Number(variant.price_rub);
+    }
+  }
+
+  if (item?.product_id) {
+    const product = db
+      .prepare("SELECT priceRub FROM products WHERE id = ?")
+      .get(item.product_id);
+    if (product?.priceRub != null) {
+      return Number(product.priceRub);
+    }
+  }
+
+  return null;
+}
+
+/** CRM lowered sale price on a line item — stamp must not accrue for that item. */
+export function isPositionSalePriceReduced(item) {
+  const catalogPrice = resolveCatalogPricePerUnit(item);
+  if (!Number.isFinite(catalogPrice) || catalogPrice <= 0) {
+    return false;
+  }
+
+  const salePrice = Number(item?.price_per_unit || 0);
+  return salePrice + 0.001 < catalogPrice;
+}
+
 export function awardLoyaltyForOrder(orderId) {
   if (!orderId) {
     return { awarded: false, reason: "missing_order_id" };
@@ -719,7 +752,7 @@ export function awardLoyaltyForOrder(orderId) {
       continue;
     }
 
-    if (Number(item.manual_discount_amount || 0) > 0) {
+    if (isPositionSalePriceReduced(item)) {
       continue;
     }
 

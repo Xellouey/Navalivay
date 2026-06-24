@@ -28,7 +28,10 @@ Use it when a task touches:
 - Loyalty application is always an explicit customer action.
 - If a promo code is active on the order, loyalty bonuses are blocked for that order.
 - If wholesale mode is active on the order, loyalty bonuses are blocked for that order.
-- Products purchased with promo discount, loyalty bonus, or manual discount do not generate loyalty marks.
+- Products purchased with promo discount or loyalty bonus do not generate loyalty marks.
+- CRM order-level discount (`orders.discount_amount`) — via kanban pencil or «Скидка BYN» on the order detail page — **does** generate loyalty marks.
+- CRM position-level lowered sale price (`order_items.price_per_unit` below catalog price) does **not** generate loyalty marks for that line item.
+- Position-level manual discount in BYN while catalog sale price stays unchanged **does** generate loyalty marks.
 
 ## Checkout UX Rules
 
