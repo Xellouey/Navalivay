@@ -443,9 +443,8 @@ export function formatOrderDetailTitle(
 }
 
 const ORDER_TIME_ZONE = "Europe/Minsk";
-const MINSK_OFFSET = "+03:00";
 
-/** SQLite timestamps without timezone are stored in Europe/Minsk business time. */
+/** SQLite timestamps without timezone are stored in UTC; format in Europe/Minsk. */
 export function parseOrderDateTime(value: string | null | undefined): Date {
   if (!value) return new Date(Number.NaN);
   const trimmed = value.trim();
@@ -453,10 +452,10 @@ export function parseOrderDateTime(value: string | null | undefined): Date {
   if (/[zZ]$|[+-]\d{2}:\d{2}$/.test(trimmed)) {
     return new Date(trimmed);
   }
-  if (trimmed.includes("T")) {
-    return new Date(trimmed);
-  }
-  return new Date(`${trimmed.replace(" ", "T")}${MINSK_OFFSET}`);
+  const isoNormalized = trimmed.includes("T")
+    ? `${trimmed}Z`
+    : `${trimmed.replace(" ", "T")}Z`;
+  return new Date(isoNormalized);
 }
 
 export function formatOrderStatus(

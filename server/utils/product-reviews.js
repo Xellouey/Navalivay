@@ -782,7 +782,7 @@ export function buildOrderFulfillmentMilestones(order, timeline = null) {
   const history = timeline ?? loadOrderStatusTimeline(order.id);
   const submittedAt = order.created_at || null;
   const readyAt = findStatusEnteredAt(history, 'in_progress');
-  // Status history uses SQLite local timestamps; completed_at is often ISO UTC.
+  // Status history uses SQLite UTC timestamps; completed_at is often ISO UTC.
   // Prefer history so "Собран" and "Выдан" stay on the same clock in the UI.
   let issuedAt = null;
 
