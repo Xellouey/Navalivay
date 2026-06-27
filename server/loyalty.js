@@ -687,6 +687,16 @@ export function isPositionSalePriceReduced(item) {
   return salePrice + 0.001 < catalogPrice;
 }
 
+/** CRM position discount on a line item — stamp must not accrue for that item. */
+export function isPositionLoyaltyStampBlocked(item) {
+  if (isPositionSalePriceReduced(item)) {
+    return true;
+  }
+
+  const manualDiscount = Number(item?.manual_discount_amount ?? 0);
+  return Number.isFinite(manualDiscount) && manualDiscount > 0;
+}
+
 export function awardLoyaltyForOrder(orderId) {
   if (!orderId) {
     return { awarded: false, reason: "missing_order_id" };
@@ -752,7 +762,7 @@ export function awardLoyaltyForOrder(orderId) {
       continue;
     }
 
-    if (isPositionSalePriceReduced(item)) {
+    if (isPositionLoyaltyStampBlocked(item)) {
       continue;
     }
 

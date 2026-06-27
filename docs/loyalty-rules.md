@@ -30,8 +30,7 @@ Use it when a task touches:
 - If wholesale mode is active on the order, loyalty bonuses are blocked for that order.
 - Products purchased with promo discount or loyalty bonus do not generate loyalty marks.
 - CRM order-level discount (`orders.discount_amount`) — via kanban pencil or «Скидка BYN» on the order detail page — **does** generate loyalty marks.
-- CRM position-level lowered sale price (`order_items.price_per_unit` below catalog price) does **not** generate loyalty marks for that line item.
-- Position-level manual discount in BYN while catalog sale price stays unchanged **does** generate loyalty marks.
+- CRM position-level discount on a line item does **not** generate loyalty marks for that line item. This includes both lowered sale price (`order_items.price_per_unit` below catalog price) and «Ручная скидка на позицию, BYN» (`order_items.manual_discount_amount` > 0).
 
 ## Checkout UX Rules
 

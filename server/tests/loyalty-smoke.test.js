@@ -15,7 +15,11 @@ process.env.NODE_ENV = "test";
 const { initDb, db } = await import("../db.js");
 const { publicRouter } = await import("../routes/public.js");
 const { loyaltyRouter } = await import("../routes/loyalty.js");
-const { awardLoyaltyForOrder, isPositionSalePriceReduced } = await import("../loyalty.js");
+const {
+  awardLoyaltyForOrder,
+  isPositionSalePriceReduced,
+  isPositionLoyaltyStampBlocked,
+} = await import("../loyalty.js");
 const { seedDefaultLoyaltyData } = await import("../migrations/add_loyalty_tables.js");
 
 initDb();
@@ -523,7 +527,7 @@ async function testAwardAllowsOrderLevelDiscount() {
   assert.equal(getBalance(customerId, liquidsCategoryId), 1);
 }
 
-async function testAwardAllowsManualPositionDiscountWhenPriceUnchanged() {
+async function testAwardSkipsManualPositionDiscountWhenPriceUnchanged() {
   const customerId = createCustomer({
     id: "cust-loyalty-manual-position",
     telegramId: "20032",
@@ -565,10 +569,13 @@ async function testAwardAllowsManualPositionDiscountWhenPriceUnchanged() {
     orderId,
   );
 
+  const orderItem = getOrderItem(orderId);
+  assert.equal(isPositionLoyaltyStampBlocked(orderItem), true);
+
   const award = awardLoyaltyForOrder(orderId);
 
-  assert.equal(award.awarded, true);
-  assert.equal(getBalance(customerId, liquidsCategoryId), 1);
+  assert.equal(award.reason, "nothing_to_award");
+  assert.equal(getBalance(customerId, liquidsCategoryId), 0);
 }
 
 async function testSnapshotIsReadOnly() {
@@ -771,6 +778,39 @@ async function testMissingTelegramAuthRejectedForSnapshot() {
   const snapshot = await requestJson("/api/loyalty/me?telegram_id=2004");
   assert.equal(snapshot.response.status, 401);
   assert.equal(snapshot.data.error, "telegram_auth_required");
+}
+
+function testIsPositionLoyaltyStampBlockedBoundary() {
+  assert.equal(
+    isPositionLoyaltyStampBlocked({
+      product_id: "liquid-1",
+      variant_id: null,
+      price_per_unit: 15,
+      manual_discount_amount: 0,
+    }),
+    false,
+    "catalog price with zero manual discount is not blocked",
+  );
+  assert.equal(
+    isPositionLoyaltyStampBlocked({
+      product_id: "liquid-1",
+      variant_id: null,
+      price_per_unit: 15,
+      manual_discount_amount: 0.01,
+    }),
+    true,
+    "any positive manual position discount blocks stamp",
+  );
+  assert.equal(
+    isPositionLoyaltyStampBlocked({
+      product_id: "liquid-1",
+      variant_id: null,
+      price_per_unit: 14,
+      manual_discount_amount: 0,
+    }),
+    true,
+    "lowered sale price blocks stamp even without manual discount",
+  );
 }
 
 function testIsPositionSalePriceReducedBoundary() {
@@ -1268,12 +1308,13 @@ async function main() {
   await testCancelReturnsReservedBalance();
   await testAwardSkipsLoweredSalePriceOnPosition();
   await testAwardAllowsOrderLevelDiscount();
-  await testAwardAllowsManualPositionDiscountWhenPriceUnchanged();
+  await testAwardSkipsManualPositionDiscountWhenPriceUnchanged();
   await testSnapshotIsReadOnly();
   await testUsernameChangeDoesNotResetBalanceOnOrderCreate();
   await testOnlyOneBonusUnitCanBeAppliedPerCategory();
   await testBonusesCanBeAppliedAcrossDifferentCategories();
   await testMissingTelegramAuthRejectedForSnapshot();
+  testIsPositionLoyaltyStampBlockedBoundary();
   testIsPositionSalePriceReducedBoundary();
   await testAwardSkipsPromoOrder();
   await testAwardMixedCartPartialAccrual();
