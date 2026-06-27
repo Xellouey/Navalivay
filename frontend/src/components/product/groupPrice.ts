@@ -5,7 +5,7 @@ type PriceGroupNode = {
   children?: PriceGroupNode[];
 };
 
-function hasPositivePrice(value: unknown): value is number {
+export function hasPositivePrice(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value) && value > 0;
 }
 

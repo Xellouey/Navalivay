@@ -24,7 +24,7 @@ describe("LiquidLineCard", () => {
     localStorage.clear();
   });
 
-  it("shows a price in the header for a line with direct products", () => {
+  it("shows meta and price together in the header", () => {
     const wrapper = mount(LiquidLineCard, {
       global: {
         plugins: [pinia],
@@ -52,8 +52,38 @@ describe("LiquidLineCard", () => {
       },
     });
 
-    expect(wrapper.find(".liquid-line-price").exists()).toBe(false);
     expect(wrapper.find(".liquid-line-meta").text()).toBe("Крепость 20 мг");
+    expect(wrapper.find(".liquid-line-price").exists()).toBe(true);
+    expect(wrapper.find(".liquid-line-price-amount").text()).toBe("15");
+  });
+
+  it("shows flavor prices in the expanded list when all flavors share one price", async () => {
+    const wrapper = mount(LiquidLineCard, {
+      global: {
+        plugins: [pinia],
+        stubs: {
+          ColorPreviewModal: true,
+        },
+      },
+      props: {
+        groupId: "g-podgon",
+        title: "PODONKI PODGON",
+        products: [
+          makeProduct({ id: "p-1", title: "Малиновая конфета", priceRub: 15 }),
+          makeProduct({ id: "p-2", title: "Апельсин", priceRub: 15 }),
+        ],
+        expanded: true,
+        coverImage: null,
+        fallbackImage: "/placeholder-category.png",
+        subgroups: [],
+        metaLabel: "Крепость",
+        metaValue: "50 мг",
+      },
+    });
+
+    const flavorPrices = wrapper.findAll(".liquid-flavor-price");
+    expect(flavorPrices.length).toBe(2);
+    expect(flavorPrices[0]?.text()).toBe("15 BYN");
   });
 
   it("does not show a price for a parent line with subgroups", () => {

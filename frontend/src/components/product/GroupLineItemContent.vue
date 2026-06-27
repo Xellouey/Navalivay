@@ -249,17 +249,11 @@ function hasPositivePrice(value: unknown): value is number {
 }
 
 function shouldShowVariantPrice(variant: ProductVariant): boolean {
-  return (
-    hasPositivePrice(variant.priceRub) &&
-    variant.priceRub !== firstProductPrice.value
-  );
+  return hasPositivePrice(variant.priceRub);
 }
 
 function shouldShowProductPrice(product: Product): boolean {
-  return (
-    hasPositivePrice(product.priceRub) &&
-    product.priceRub !== firstProductPrice.value
-  );
+  return hasPositivePrice(product.priceRub);
 }
 
 function formatPrice(value?: number | null) {

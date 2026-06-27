@@ -31,7 +31,7 @@
         <div class="liquid-line-info">
           <h3 class="liquid-line-title">{{ title }}</h3>
           <p v-if="metaText" class="liquid-line-meta">{{ metaText }}</p>
-          <p v-else-if="minPriceLabel" class="liquid-line-price">
+          <p v-if="minPriceLabel" class="liquid-line-price">
             <span class="liquid-line-price-amount">{{ minPriceLabel }}</span>
             <span class="liquid-line-price-currency"> BYN</span>
           </p>
@@ -164,7 +164,7 @@
                   <div class="liquid-variant-info">
                     <!-- Название варианта - всегда черным текстом -->
                     <span class="liquid-variant-title">{{ variant.name }}</span>
-                    <span v-if="variant.priceRub && variant.priceRub !== product.priceRub" class="liquid-variant-price">{{ formatPrice(variant.priceRub) }} BYN</span>
+                    <span v-if="hasPositivePrice(variant.priceRub)" class="liquid-variant-price">{{ formatPrice(variant.priceRub) }} BYN</span>
                     <!-- 
                       Кнопка "Как выглядит цвет" показывается ВСЕГДА когда есть изображение товара варианта
                       Независимо от режима отображения (цвет или картинка)
@@ -235,7 +235,7 @@
           >
             <div class="liquid-flavor-info">
               <span class="liquid-flavor-title">{{ product.title }}</span>
-              <span v-if="product.priceRub && product.priceRub !== (productsWithVariants.length ? null : productsWithoutVariants[0]?.priceRub)" class="liquid-flavor-price">{{ formatPrice(product.priceRub) }} BYN</span>
+              <span v-if="hasPositivePrice(product.priceRub)" class="liquid-flavor-price">{{ formatPrice(product.priceRub) }} BYN</span>
             </div>
             <div class="liquid-flavor-actions">
               <template v-if="getQuantity(product.id) > 0">
@@ -312,7 +312,7 @@ import {
 import { useCartStore } from "@/stores/cart";
 import { useCatalogStore, type Product, type ProductVariant } from "@/stores/catalog";
 import ColorPreviewModal from "@/components/product/ColorPreviewModal.vue";
-import { getMinPriceForProducts } from "@/components/product/groupPrice";
+import { getMinPriceForProducts, hasPositivePrice } from "@/components/product/groupPrice";
 
 interface SubgroupInfo {
   id: string;

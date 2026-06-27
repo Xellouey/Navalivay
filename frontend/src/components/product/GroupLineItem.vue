@@ -33,7 +33,7 @@
         <span class="group-line-info">
           <span class="group-line-title">{{ node.name }}</span>
           <span v-if="metaText" class="group-line-meta">{{ metaText }}</span>
-          <span v-else-if="firstProductPrice" class="group-line-price">
+          <span v-if="firstProductPrice" class="group-line-price">
             <span class="group-line-price-amount">{{ formatPrice(firstProductPrice) }}</span>
             <span class="group-line-price-currency"> BYN</span>
           </span>

@@ -65,7 +65,7 @@ describe("GroupLineItemContent", () => {
     expect(wrapper.text()).not.toContain("Variant 2");
   });
 
-  it("hides the minimum direct product price instead of the first one", () => {
+  it("shows prices for every direct product row", () => {
     const expensiveProduct = makeProduct({
       id: "p-2",
       title: "Smoant Knight 80",
@@ -106,8 +106,6 @@ describe("GroupLineItemContent", () => {
       .map((node) => node.text().replace(/\s+/g, " ").trim());
 
     expect(priceTexts).toContain("140 BYN");
-    expect(priceTexts).not.toContain("50 BYN");
-    expect(wrapper.find(".group-price-amount").text()).toBe("140");
-    expect(wrapper.find(".group-price-currency").text()).toBe("BYN");
+    expect(priceTexts).toContain("50 BYN");
   });
 });

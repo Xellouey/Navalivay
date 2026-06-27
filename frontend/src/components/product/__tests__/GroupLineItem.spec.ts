@@ -222,6 +222,45 @@ describe("GroupLineItem", () => {
     expect(wrapper.find(".group-line-price").exists()).toBe(false);
   });
 
+  it("shows meta and price together on leaf lines", () => {
+    const wrapper = mount(GroupLineItem, {
+      global: {
+        plugins: [pinia],
+        stubs: {
+          Transition: false,
+          GroupLineItemContent: true,
+        },
+      },
+      props: {
+        categoryImage: null,
+        expandedGroups: {},
+        node: {
+          id: "g-hotace",
+          name: "Снюс ICEBERG HOTACE 150MG",
+          slug: "iceberg-hotace-150",
+          order: 0,
+          productCount: 1,
+          totalProductCount: 1,
+          depth: 0,
+          parentId: null,
+          metaLabel: null,
+          metaValue: "с капсулой внутри",
+          children: [],
+          products: [
+            makeProduct({
+              id: "p-hotace",
+              title: "Снюс ICEBERG HOTACE 150MG",
+              priceRub: 18,
+            }),
+          ],
+        },
+      },
+    });
+
+    expect(wrapper.find(".group-line-meta").text()).toBe("с капсулой внутри");
+    expect(wrapper.find(".group-line-price-amount").text()).toBe("18");
+  });
+
   it("shows the direct group price when the group has its own products", () => {
     const wrapper = mount(GroupLineItem, {
       global: {
