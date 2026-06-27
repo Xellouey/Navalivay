@@ -59,7 +59,7 @@ describe("LiquidLineCard", () => {
     expect(wrapper.find(".liquid-line-image-wrapper .liquid-line-image-price").exists()).toBe(true);
   });
 
-  it("shows flavor prices in the expanded list when all flavors share one price", async () => {
+  it("hides flavor prices in the expanded list when they match the header price", () => {
     const wrapper = mount(LiquidLineCard, {
       global: {
         plugins: [pinia],
@@ -83,9 +83,37 @@ describe("LiquidLineCard", () => {
       },
     });
 
+    expect(wrapper.findAll(".liquid-flavor-price").length).toBe(0);
+    expect(wrapper.find(".liquid-line-image-price-amount").text()).toBe("15");
+  });
+
+  it("shows only differing flavor prices in red in the expanded list", () => {
+    const wrapper = mount(LiquidLineCard, {
+      global: {
+        plugins: [pinia],
+        stubs: {
+          ColorPreviewModal: true,
+        },
+      },
+      props: {
+        groupId: "g-mix",
+        title: "MIX LINE",
+        products: [
+          makeProduct({ id: "p-1", title: "Обычный", priceRub: 18 }),
+          makeProduct({ id: "p-2", title: "Премиум", priceRub: 20 }),
+        ],
+        expanded: true,
+        coverImage: null,
+        fallbackImage: "/placeholder-category.png",
+        subgroups: [],
+        metaLabel: null,
+        metaValue: null,
+      },
+    });
+
     const flavorPrices = wrapper.findAll(".liquid-flavor-price");
-    expect(flavorPrices.length).toBe(2);
-    expect(flavorPrices[0]?.text()).toBe("15 BYN");
+    expect(flavorPrices.length).toBe(1);
+    expect(flavorPrices[0]?.text()).toBe("20 BYN");
   });
 
   it("does not show a price for a parent line with subgroups", () => {

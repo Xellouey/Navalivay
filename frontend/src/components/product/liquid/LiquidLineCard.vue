@@ -164,7 +164,7 @@
                   <div class="liquid-variant-info">
                     <!-- Название варианта - всегда черным текстом -->
                     <span class="liquid-variant-title">{{ variant.name }}</span>
-                    <span v-if="hasPositivePrice(variant.priceRub)" class="liquid-variant-price">{{ formatPrice(variant.priceRub) }} BYN</span>
+                    <span v-if="shouldShowVariantPrice(variant, product)" class="liquid-variant-price">{{ formatPrice(variant.priceRub) }} BYN</span>
                     <!-- 
                       Кнопка "Как выглядит цвет" показывается ВСЕГДА когда есть изображение товара варианта
                       Независимо от режима отображения (цвет или картинка)
@@ -235,7 +235,7 @@
           >
             <div class="liquid-flavor-info">
               <span class="liquid-flavor-title">{{ product.title }}</span>
-              <span v-if="hasPositivePrice(product.priceRub)" class="liquid-flavor-price">{{ formatPrice(product.priceRub) }} BYN</span>
+              <span v-if="shouldShowFlavorPrice(product)" class="liquid-flavor-price">{{ formatPrice(product.priceRub) }} BYN</span>
             </div>
             <div class="liquid-flavor-actions">
               <template v-if="getQuantity(product.id) > 0">
@@ -378,14 +378,27 @@ const coverUrl = computed(
   () => props.coverImage || catalogStore.getGroupImage(props.groupId) || props.fallbackImage,
 );
 
+const groupMinPrice = computed(() => getMinPriceForProducts(props.products));
+
 const minPriceLabel = computed(() => {
   if (props.subgroups && props.subgroups.length > 0) return null;
-
-  const minPrice = getMinPriceForProducts(props.products);
-  if (minPrice === null) return null;
-
-  return formatPrice(minPrice);
+  if (groupMinPrice.value === null) return null;
+  return formatPrice(groupMinPrice.value);
 });
+
+function shouldShowFlavorPrice(product: Product): boolean {
+  return (
+    hasPositivePrice(product.priceRub) &&
+    product.priceRub !== groupMinPrice.value
+  );
+}
+
+function shouldShowVariantPrice(variant: ProductVariant, product: Product): boolean {
+  return (
+    hasPositivePrice(variant.priceRub) &&
+    variant.priceRub !== product.priceRub
+  );
+}
 
 const metaText = computed(() => {
   const label = (props.metaLabel ?? '').trim();
@@ -1256,7 +1269,7 @@ function closeColorPreview() {
   font-weight: 700;
   font-size: 16px;
   line-height: 20px;
-  color: #191919;
+  color: var(--navalivay-red, #d32f2f);
 }
 
 .liquid-variant-color-link {
@@ -1433,7 +1446,7 @@ function closeColorPreview() {
   font-weight: 700;
   font-size: 16px;
   line-height: 20px;
-  color: #191919;
+  color: var(--navalivay-red, #d32f2f);
 }
 
 .liquid-flavor-actions {
