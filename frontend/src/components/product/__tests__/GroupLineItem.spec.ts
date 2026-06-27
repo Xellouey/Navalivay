@@ -219,10 +219,10 @@ describe("GroupLineItem", () => {
       },
     });
 
-    expect(wrapper.find(".group-line-price").exists()).toBe(false);
+    expect(wrapper.find(".group-line-image-price").exists()).toBe(false);
   });
 
-  it("shows meta and price together on leaf lines", () => {
+  it("shows meta in info and price under the image on leaf lines", () => {
     const wrapper = mount(GroupLineItem, {
       global: {
         plugins: [pinia],
@@ -258,7 +258,8 @@ describe("GroupLineItem", () => {
     });
 
     expect(wrapper.find(".group-line-meta").text()).toBe("с капсулой внутри");
-    expect(wrapper.find(".group-line-price-amount").text()).toBe("18");
+    expect(wrapper.find(".group-line-image-price-amount").text()).toBe("18");
+    expect(wrapper.find(".group-line-info .group-line-image-price").exists()).toBe(false);
   });
 
   it("shows the direct group price when the group has its own products", () => {
@@ -296,9 +297,9 @@ describe("GroupLineItem", () => {
       },
     });
 
-    const priceWrapper = wrapper.find(".group-line-price");
+    const priceWrapper = wrapper.find(".group-line-image-price");
     expect(priceWrapper.exists()).toBe(true);
-    expect(wrapper.find(".group-line-price-amount").text()).toBe("90");
-    expect(wrapper.find(".group-line-price-currency").text()).toBe("BYN");
+    expect(wrapper.find(".group-line-image-price-amount").text()).toBe("90");
+    expect(wrapper.find(".group-line-image-price-currency").text()).toBe("BYN");
   });
 });

@@ -24,7 +24,7 @@ describe("LiquidLineCard", () => {
     localStorage.clear();
   });
 
-  it("shows meta and price together in the header", () => {
+  it("shows meta in info and price under the image", () => {
     const wrapper = mount(LiquidLineCard, {
       global: {
         plugins: [pinia],
@@ -53,8 +53,10 @@ describe("LiquidLineCard", () => {
     });
 
     expect(wrapper.find(".liquid-line-meta").text()).toBe("Крепость 20 мг");
-    expect(wrapper.find(".liquid-line-price").exists()).toBe(true);
-    expect(wrapper.find(".liquid-line-price-amount").text()).toBe("15");
+    expect(wrapper.find(".liquid-line-info .liquid-line-image-price").exists()).toBe(false);
+    expect(wrapper.find(".liquid-line-image-price").exists()).toBe(true);
+    expect(wrapper.find(".liquid-line-image-price-amount").text()).toBe("15");
+    expect(wrapper.find(".liquid-line-image-wrapper .liquid-line-image-price").exists()).toBe(true);
   });
 
   it("shows flavor prices in the expanded list when all flavors share one price", async () => {
@@ -107,10 +109,10 @@ describe("LiquidLineCard", () => {
       },
     });
 
-    expect(wrapper.find(".liquid-line-price").exists()).toBe(false);
+    expect(wrapper.find(".liquid-line-image-price").exists()).toBe(false);
   });
 
-  it("shows price as the second line when meta is absent", () => {
+  it("shows price under the image when meta is absent", () => {
     const wrapper = mount(LiquidLineCard, {
       global: {
         plugins: [pinia],
@@ -131,7 +133,7 @@ describe("LiquidLineCard", () => {
       },
     });
 
-    expect(wrapper.find(".liquid-line-price").exists()).toBe(true);
-    expect(wrapper.find(".liquid-line-price-amount").text()).toBe("15");
+    expect(wrapper.find(".liquid-line-image-price").exists()).toBe(true);
+    expect(wrapper.find(".liquid-line-image-price-amount").text()).toBe("15");
   });
 });
