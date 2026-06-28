@@ -36,6 +36,7 @@ const DEFAULT_TEST_ALLOWLIST = [
   "wheel_promo_text",
   "wheel_idem_real",
   "wheel_audit_route",
+  "wheel_feed_title",
 ];
 
 initDb();
@@ -127,6 +128,43 @@ async function testWheelStateWorksWithRealLiveFeed() {
     seeded.photo,
     "https://t.me/i/userpic/test.png",
     "feed.photo must come from customers.photo_url, not the (nonexistent) customer_photo column",
+  );
+}
+
+async function testFeedUsesShortPrizeTitleNotCustomerDescription() {
+  ensureCustomer("cust_feed_title", "777333", "wheel_feed_title");
+  const prizeId = "p_feed_title";
+  const templateId = "promo_feed_title";
+  db.prepare(
+    `INSERT OR IGNORE INTO promo_codes (
+      id, code, description, customer_description, discount_type, discount_value,
+      min_order_amount, max_uses, current_uses, active, has_gift, is_wheel_template, created_at
+    ) VALUES (?, 'FEEDTITLE', ?, ?, 'percent', 5, 0, 0, 0, 1, 0, 1, DATETIME('now'))`,
+  ).run(
+    templateId,
+    "5% скидка на покупку",
+    "Заказ от 30 рублей, если в чеке есть пластины и ещё много условий",
+  );
+  db.prepare(
+    `INSERT OR IGNORE INTO wheel_prizes (
+      id, rarity_code, title, description, weight, max_total, issued_count,
+      is_for_retail, is_for_wholesale, promo_template_id, promo_validity_days, epic_pool_size,
+      epic_pool_threshold_byn, is_active, sort_order, created_at
+    ) VALUES (?, 'common', ?, NULL, 1, 0, 0, 1, 0, ?, 90, 5, 300, 1, 0, DATETIME('now'))`,
+  ).run(prizeId, "5% СКИДКА НА ПОКУПКУ", templateId);
+  insertSpin("spin_feed_title", "cust_feed_title", prizeId, "common");
+
+  const { response, data } = await requestJson("/api/wheel/state", {
+    method: "GET",
+    headers: telegramHeaders({ telegram_id: "777333", telegram_username: "wheel_feed_title" }),
+  });
+  assert.equal(response.status, 200);
+  const seeded = (data?.feed || []).find((row) => row.id === "spin_feed_title");
+  assert.ok(seeded, "seeded spin should appear in feed");
+  assert.equal(
+    seeded.prize_title,
+    "5% скидка на покупку",
+    "feed must show the short promo title, not customer_description",
   );
 }
 
@@ -1266,6 +1304,7 @@ async function testAdminAuditEndpointReturnsDecisionTrailWithoutPromoCode() {
 
 async function main() {
   await testWheelStateWorksWithRealLiveFeed();
+  await testFeedUsesShortPrizeTitleNotCustomerDescription();
   await testForgedWholesaleHeadersDoNotUnlockWholesalePool();
   await testValidatedWholesaleHeadersUnlockWholesalePool();
   await testWheelAccessAllowlistLocksStateForOutsiders();

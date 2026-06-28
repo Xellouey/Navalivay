@@ -477,6 +477,31 @@ export function prizeDisplayDescription(prize) {
   return null;
 }
 
+function prizeDisplayFieldsFromSpinJoin(row) {
+  return {
+    rarity_code: row.rarity_code ?? row.prize_rarity_code ?? null,
+    title: row.title ?? row.prize_title_stored ?? row.prize_title ?? "",
+    description: row.description ?? row.prize_description_stored ?? row.prize_description ?? null,
+    promo_description: row.promo_description ?? null,
+    promo_customer_description: row.promo_customer_description ?? null,
+    promo_code: row.promo_template_code ?? null,
+  };
+}
+
+export function spinPrizeDisplayTitle(row) {
+  if (String(row?.rarity_code || "") === "nothing") {
+    return "Без выигрыша";
+  }
+  return prizeDisplayTitle(prizeDisplayFieldsFromSpinJoin(row));
+}
+
+export function spinPrizeDisplayDescription(row) {
+  if (String(row?.rarity_code || "") === "nothing") {
+    return null;
+  }
+  return prizeDisplayDescription(prizeDisplayFieldsFromSpinJoin(row));
+}
+
 function resolvePrizeStorageText(payload = {}, existing = null) {
   const templateId = payload.promo_template_id ?? existing?.promo_template_id ?? null;
   if (!templateId) {
@@ -1765,7 +1790,10 @@ export function getCustomerWheelState(customerId, { isWholesale = false, telegra
   const feed = db
     .prepare(
       `SELECT s.id, s.spun_at, s.rarity_code, s.is_wholesale,
-              COALESCE(NULLIF(pc.customer_description, ''), NULLIF(pc.description, ''), p.title, pc.code, 'Приз') AS prize_title,
+              p.title AS prize_title_stored,
+              pc.description AS promo_description,
+              pc.customer_description AS promo_customer_description,
+              pc.code AS promo_template_code,
               c.first_name, c.last_name, c.photo_url AS customer_photo
        FROM wheel_spins s
        LEFT JOIN wheel_prizes p ON p.id = s.prize_id
@@ -1805,7 +1833,7 @@ export function getCustomerWheelState(customerId, { isWholesale = false, telegra
       return {
         id: row.id,
         spun_at: row.spun_at,
-        prize_title: row.prize_title,
+        prize_title: spinPrizeDisplayTitle(row),
         first_name: row.first_name || "Гость",
         last_initial: row.last_name ? String(row.last_name).slice(0, 1) : "",
         photo: row.customer_photo || null,
@@ -1825,8 +1853,11 @@ export function getCustomerWheelState(customerId, { isWholesale = false, telegra
         .prepare(
           `SELECT s.id, s.spun_at, s.rarity_code, s.generated_promo_code AS promo_code,
                   s.promo_valid_until, s.prize_used_at, s.is_wholesale,
-                  COALESCE(NULLIF(pc.customer_description, ''), NULLIF(pc.description, ''), p.title, pc.code, 'Приз') AS prize_title,
-                  NULL AS prize_description
+                  p.title AS prize_title_stored,
+                  p.description AS prize_description_stored,
+                  pc.description AS promo_description,
+                  pc.customer_description AS promo_customer_description,
+                  pc.code AS promo_template_code
            FROM wheel_spins s
            LEFT JOIN wheel_prizes p ON p.id = s.prize_id
            LEFT JOIN promo_codes pc ON pc.id = p.promo_template_id
@@ -1840,6 +1871,9 @@ export function getCustomerWheelState(customerId, { isWholesale = false, telegra
           const rarity = rarityByCode.get(row.rarity_code) || null;
           return {
             ...row,
+            promo_code: row.promo_code,
+            prize_title: spinPrizeDisplayTitle(row),
+            prize_description: spinPrizeDisplayDescription(row),
             rarity: rarity
               ? {
                   code: rarity.code,
@@ -2405,10 +2439,11 @@ export function listAdminSpins({ limit = 50, offset = 0, customerId, rarity } = 
               CASE WHEN s.rarity_code = 'nothing' THEN NULL ELSE s.promo_valid_until END AS promo_valid_until,
               s.is_epic_release, s.is_pity_release, s.seed_for_animation,
               s.prize_used_at, s.spun_at, s.idempotency_key,
-              CASE
-                WHEN s.rarity_code = 'nothing' THEN 'Без выигрыша'
-                ELSE COALESCE(NULLIF(pc.customer_description, ''), NULLIF(pc.description, ''), p.title, pc.code, 'Приз')
-              END AS prize_title,
+              p.title AS prize_title_stored,
+              p.description AS prize_description_stored,
+              pc.description AS promo_description,
+              pc.customer_description AS promo_customer_description,
+              pc.code AS promo_template_code,
               c.first_name, c.last_name, c.telegram_username
        FROM wheel_spins s
        LEFT JOIN wheel_prizes p ON p.id = s.prize_id
@@ -2418,7 +2453,11 @@ export function listAdminSpins({ limit = 50, offset = 0, customerId, rarity } = 
        ORDER BY s.spun_at DESC
        LIMIT ? OFFSET ?`,
     )
-    .all(...params, safeLimit, safeOffset);
+    .all(...params, safeLimit, safeOffset)
+    .map((row) => ({
+      ...row,
+      prize_title: spinPrizeDisplayTitle(row),
+    }));
 
   const totalRow = db
     .prepare(
@@ -2472,10 +2511,12 @@ export function listAdminSpinAudit({ limit = 100, offset = 0, from = null, to = 
   const rows = db
     .prepare(
       `SELECT a.*, s.spun_at,
-              CASE
-                WHEN s.rarity_code = 'nothing' THEN 'Без выигрыша'
-                ELSE COALESCE(NULLIF(pc.customer_description, ''), NULLIF(pc.description, ''), p.title, pc.code, 'Приз')
-              END AS prize_title,
+              p.title AS prize_title_stored,
+              p.description AS prize_description_stored,
+              s.rarity_code,
+              pc.description AS promo_description,
+              pc.customer_description AS promo_customer_description,
+              pc.code AS promo_template_code,
               c.telegram_username
        FROM wheel_spin_audit a
        JOIN wheel_spins s ON s.id = a.spin_id
@@ -2487,7 +2528,10 @@ export function listAdminSpinAudit({ limit = 100, offset = 0, from = null, to = 
        LIMIT ? OFFSET ?`,
     )
     .all(...params, safeLimit, safeOffset)
-    .map(parseAuditRow);
+    .map((row) => ({
+      ...parseAuditRow(row),
+      prize_title: spinPrizeDisplayTitle(row),
+    }));
 
   const totalRow = db
     .prepare(`SELECT COUNT(*) AS count FROM wheel_spin_audit a ${whereSql}`)
@@ -2556,8 +2600,13 @@ export function getAdminDashboard() {
   const prizesIssued = db
     .prepare(
       `SELECT p.id,
-              COALESCE(NULLIF(pc.customer_description, ''), NULLIF(pc.description, ''), p.title, pc.code, 'Приз') AS title,
-              p.rarity_code, p.issued_count,
+              p.title AS prize_title_stored,
+              p.description AS prize_description_stored,
+              p.rarity_code,
+              pc.description AS promo_description,
+              pc.customer_description AS promo_customer_description,
+              pc.code AS promo_template_code,
+              p.issued_count,
               CASE
                 WHEN p.rarity_code = 'nothing' THEN p.max_total
                 ELSE COALESCE(pc.max_uses, 0)
@@ -2569,7 +2618,11 @@ export function getAdminDashboard() {
          AND p.rarity_code != 'nothing'
        ORDER BY p.sort_order ASC, p.created_at ASC`,
     )
-    .all();
+    .all()
+    .map((row) => ({
+      ...row,
+      title: spinPrizeDisplayTitle(row),
+    }));
 
   const rarityRules = listAdminRarityRules();
 

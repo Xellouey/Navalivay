@@ -23,6 +23,8 @@ import {
   spinWheelForCustomer,
   prizeDisplayTitle,
   prizeDisplayDescription,
+  spinPrizeDisplayTitle,
+  spinPrizeDisplayDescription,
   updateRarityRule,
   updatePrize,
   updateWheelSettings,
@@ -337,11 +339,11 @@ wheelRouter.post(
           const replay = db
             .prepare(
               `SELECT s.*,
-                      CASE
-                        WHEN s.rarity_code = 'nothing' THEN 'Без выигрыша'
-                        ELSE COALESCE(NULLIF(pc.customer_description, ''), NULLIF(pc.description, ''), p.title, pc.code, 'Приз')
-                      END AS prize_title,
-                      NULL AS prize_description,
+                      p.title AS prize_title_stored,
+                      p.description AS prize_description_stored,
+                      pc.description AS promo_description,
+                      pc.customer_description AS promo_customer_description,
+                      pc.code AS promo_template_code,
                       CASE WHEN s.rarity_code = 'nothing' THEN NULL ELSE p.image_url END AS prize_image_url
                FROM wheel_spins s
                LEFT JOIN wheel_prizes p ON p.id = s.prize_id
@@ -359,8 +361,8 @@ wheelRouter.post(
               spin_id: replay.id,
               prize: {
                 id: replay.prize_id,
-                title: replay.prize_title,
-                description: replay.prize_description,
+                title: spinPrizeDisplayTitle(replay),
+                description: spinPrizeDisplayDescription(replay),
                 image_url: replay.prize_image_url,
                 rarity_code: replay.rarity_code,
               },
@@ -477,7 +479,7 @@ wheelRouter.get(
                   p.description AS prize_description,
                   p.rarity_code AS prize_rarity_code,
                   p.promo_template_id,
-                  pc.code AS promo_code,
+                  pc.code AS promo_template_code,
                   pc.description AS promo_description,
                   pc.customer_description AS promo_customer_description,
                   p.image_url AS prize_image_url,
@@ -497,8 +499,8 @@ wheelRouter.get(
       res.json({
         prizes: rows.map((row) => ({
           spin_id: row.id,
-          prize_title: prizeDisplayTitle(row),
-          prize_description: prizeDisplayDescription(row),
+          prize_title: spinPrizeDisplayTitle(row),
+          prize_description: spinPrizeDisplayDescription(row),
           prize_image_url: row.prize_image_url,
           rarity_code: row.rarity_code,
           rarity_label: row.rarity_label,
