@@ -498,7 +498,9 @@
                 </div>
                 <div class="flex items-center justify-between text-xs text-gray-500">
                   <dt>Ожидаемая прибыль</dt>
-                  <dd>{{ formatCurrency(expectedProfit) }}</dd>
+                  <dd :class="expectedProfit < 0 ? 'font-semibold text-red-600' : ''">
+                    {{ formatCurrency(expectedProfit) }}
+                  </dd>
                 </div>
               </dl>
             </div>
@@ -557,6 +559,8 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useCrmStore, type CrmProductSummary, type Order, type AutoNotificationResult } from '@/stores/crm'
 import ManagerActionSummary from '@/components/crm/ManagerActionSummary.vue'
+import { formatBynCurrency as formatCurrency } from '@/utils/currency'
+import { calculateExpectedProfit } from '@/utils/orderProfit'
 
 const props = defineProps<{ id: string }>()
 
@@ -678,7 +682,7 @@ const itemsCost = computed(() => {
 })
 
 const finalAmount = computed(() => applyDiscounts(itemsDiscountedSubtotal.value, form.discountAmount, form.discountPercent))
-const expectedProfit = computed(() => Math.max(finalAmount.value - itemsCost.value, 0))
+const expectedProfit = computed(() => calculateExpectedProfit(finalAmount.value, itemsCost.value))
 
 const hasChanges = computed(() => {
   if (!currentOrder.value) return false
@@ -1134,14 +1138,6 @@ function statusLabel(status: Order['status'], deliveryType?: 'pickup' | 'deliver
     return deliveryType === 'delivery' ? 'Доставлена' : 'Выдан'
   }
   return statusOptions.find((option) => option.value === status)?.label ?? status
-}
-
-function formatCurrency(value: number) {
-  return new Intl.NumberFormat('ru-RU', {
-    style: 'currency',
-    currency: 'BYN',
-    minimumFractionDigits: 0
-  }).format(value)
 }
 
 function formatFullDate(dateString?: string | null) {

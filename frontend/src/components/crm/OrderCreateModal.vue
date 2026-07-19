@@ -167,7 +167,7 @@
                         />
                       </label>
                       <label class="flex flex-col gap-1 text-xs font-medium text-gray-600">
-                        Цена, ₽
+                        Цена, BYN
                         <input
                           v-model.number="item.price"
                           type="number"
@@ -177,7 +177,7 @@
                         />
                       </label>
                       <label class="flex flex-col gap-1 text-xs font-medium text-gray-600">
-                        Скидка на позицию, ₽
+                        Скидка на позицию, BYN
                         <input
                           v-model.number="item.discount"
                           type="number"
@@ -231,7 +231,7 @@
                   <dd class="font-semibold text-gray-900">{{ formatCurrency(subtotal) }}</dd>
                 </div>
                 <div class="flex items-center justify-between">
-                  <dt>Скидка ₽</dt>
+                  <dt>Скидка BYN</dt>
                   <dd>
                     <input
                       v-model.number="form.discountAmount"
@@ -261,7 +261,9 @@
                 </div>
                 <div class="flex items-center justify-between text-xs text-gray-500">
                   <dt>Ожидаемая прибыль</dt>
-                  <dd>{{ formatCurrency(expectedProfit) }}</dd>
+                  <dd :class="expectedProfit < 0 ? 'font-semibold text-red-600' : ''">
+                    {{ formatCurrency(expectedProfit) }}
+                  </dd>
                 </div>
               </dl>
             </div>
@@ -366,6 +368,8 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useCrmStore, type CrmProductSummary, type Customer, type Order } from '@/stores/crm'
 import AdminModal from '@/components/AdminModal.vue'
+import { formatBynCurrency as formatCurrency } from '@/utils/currency'
+import { calculateExpectedProfit } from '@/utils/orderProfit'
 
 interface Props {
   isOpen: boolean
@@ -437,12 +441,12 @@ const form = reactive({
 })
 
 const subtotal = computed(() => {
-  return form.items.reduce((sum, item) => sum + Math.max(item.price, 0) * Math.max(item.quantity, 0), 0)
+  return form.items.reduce((sum, item) => sum + itemTotal(item), 0)
 })
 
 const expectedProfit = computed(() => {
   const totalCost = form.items.reduce((sum, item) => sum + item.cost * Math.max(item.quantity, 0), 0)
-  return Math.max(finalAmount.value - totalCost, 0)
+  return calculateExpectedProfit(finalAmount.value, totalCost)
 })
 
 const finalAmount = computed(() => {
@@ -650,15 +654,6 @@ watch(
     }
   }
 )
-
-function formatCurrency(amount: number) {
-  return new Intl.NumberFormat('ru-RU', {
-    style: 'currency',
-    currency: 'RUB',
-    minimumFractionDigits: amount % 1 === 0 ? 0 : 2,
-    maximumFractionDigits: 2
-  }).format(Number.isFinite(amount) ? amount : 0)
-}
 
 function pluralize(count: number, one: string, few: string, many: string): string {
   const mod10 = count % 10
