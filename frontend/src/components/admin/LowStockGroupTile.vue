@@ -52,7 +52,7 @@
       <div class="mt-2 flex flex-wrap items-center gap-2">
         <button
           type="button"
-          class="inline-flex min-h-10 items-center gap-1 rounded-md border px-3 py-1.5 text-xs font-medium transition"
+          class="inline-flex h-10 items-center justify-center gap-1.5 rounded-lg border px-3.5 text-xs font-semibold shadow-sm transition"
           :class="severity === 'ended'
             ? 'border-red-200 bg-red-50 text-red-700 hover:bg-red-100'
             : 'border-orange-200 bg-orange-50 text-orange-700 hover:bg-orange-100'"
@@ -67,14 +67,14 @@
         <div class="relative inline-block">
           <button
             type="button"
-            class="inline-flex items-center gap-1 rounded-md border border-gray-300 bg-white px-2.5 py-1 text-xs font-medium text-gray-700 transition hover:bg-gray-50"
+            class="inline-flex h-10 items-center justify-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3.5 text-xs font-semibold text-gray-700 shadow-sm transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
             :disabled="busy"
             @click.stop="$emit('toggleMenu')"
           >
             <span v-if="busy">…</span>
             <template v-else>
               Скрыть
-              <svg class="h-3 w-3" viewBox="0 0 12 12" fill="none">
+              <svg class="h-3.5 w-3.5" viewBox="0 0 12 12" fill="none">
                 <path d="M2 4l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
               </svg>
             </template>
