@@ -16,7 +16,7 @@ Single reference for Telegram WebApp behavior, environment variables, public set
 
 | Variable | Role |
 |----------|------|
-| `NODE_ENV` | На проде обязательно `production`. Дополнительно закреплено в systemd unit. |
+| `NODE_ENV` | На новом проде ставится `production` после настройки сильного `SESSION_SECRET`. Защита Telegram остаётся закрытой и при пустом значении. |
 | `BOT_TOKEN` | Telegram bot token (required for bot) |
 | `BASE_URL` | HTTPS storefront root for `web_app` buttons and menu (trailing slash stripped). Default `https://navalivay.store` |
 | `TELEGRAM_BOT_USERNAME` | Bot username **without** `@`. Exposed in `/api/settings` as `telegram_bot_username`. Needed for `t.me/...` wholesale and mini app open links |
