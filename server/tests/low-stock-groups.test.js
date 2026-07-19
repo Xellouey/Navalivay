@@ -27,6 +27,7 @@ initDb();
 const {
   PAUSE_REASONS,
   computeLowStockGroups,
+  getGroupStockItems,
   getLowStockSummary,
   pauseGroup,
   resumeGroup,
@@ -76,7 +77,9 @@ function setup() {
   // Продукты
   const products = [
     { id: 'p_g1_a', groupId: 'g1', stock: 8 },
-    { id: 'p_g2_a', groupId: 'g2', stock: 10 },
+    { id: 'p_g2_a', groupId: 'g2', title: 'Много', stock: 8 },
+    { id: 'p_g2_b', groupId: 'g2', title: 'Нет', stock: 0 },
+    { id: 'p_g2_c', groupId: 'g2', title: 'Варианты', stock: 0, hasVariants: 1 },
     { id: 'p_g3_a', groupId: 'g3', stock: 0 },
     { id: 'p_g4_a', groupId: 'g4', stock: 3 },
     // g5 — без продуктов
@@ -84,9 +87,13 @@ function setup() {
   products.forEach((p) => {
     db.prepare(
       `INSERT INTO products (id, categoryId, groupId, title, priceRub, createdAt, stock, has_variants)
-       VALUES (?, 'c_t', ?, 'test', 10, DATETIME('now'), ?, 0)`
-    ).run(p.id, p.groupId, p.stock);
+       VALUES (?, 'c_t', ?, ?, 10, DATETIME('now'), ?, ?)`
+    ).run(p.id, p.groupId, p.title ?? 'test', p.stock, p.hasVariants ?? 0);
   });
+  db.prepare(
+    `INSERT INTO product_variants (id, product_id, name, stock, position)
+     VALUES ('pv_g2_c_1', 'p_g2_c', 'Первый', 2, 1)`,
+  ).run();
 }
 
 function runTests() {
@@ -106,6 +113,12 @@ function runTests() {
   const g3 = initial.find((g) => g.id === 'g3');
   assertEq(g3?.threshold, null, 'g3.threshold = null (порог не задан)');
   assertEq(g3?.totalStock, 0, 'g3.totalStock = 0');
+
+  console.log('\n=== Test 1a: вкусы отсортированы от нулевого остатка к большему ===');
+  const flavors = getGroupStockItems('g2');
+  assertEq(JSON.stringify(flavors.map((item) => item.stock)), JSON.stringify([0, 2, 8]),
+    'остатки вкусов идут 0, 2, 8');
+  assertEq(flavors[1]?.name, 'Варианты', 'для товара с вариантами остаток суммируется');
 
   console.log('\n=== Test 2: getLowStockSummary совпадает с computeLowStockGroups ===');
   const summary = getLowStockSummary();

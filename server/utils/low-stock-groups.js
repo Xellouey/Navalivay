@@ -238,6 +238,48 @@ export function computeLowStockGroups() {
 }
 
 /**
+ * Возвращает вкусы (товары) линейки от меньшего остатка к большему.
+ * Для товара с вариантами считаем общий остаток всех вариантов так же,
+ * как в суммарном остатке линейки.
+ */
+export function getGroupStockItems(groupId) {
+  if (!groupId) {
+    const err = new Error('group_id_required');
+    err.code = 'group_id_required';
+    throw err;
+  }
+
+  const group = db.prepare('SELECT id FROM category_groups WHERE id = ?').get(String(groupId));
+  if (!group) {
+    const err = new Error('group_not_found');
+    err.code = 'group_not_found';
+    throw err;
+  }
+
+  return db
+    .prepare(
+      `SELECT
+         p.id,
+         p.title AS name,
+         CASE WHEN p.has_variants = 1
+              THEN (SELECT COALESCE(SUM(pv.stock), 0)
+                      FROM product_variants pv
+                     WHERE pv.product_id = p.id)
+              ELSE COALESCE(p.stock, 0)
+         END AS stock
+       FROM products p
+       WHERE p.groupId = ?
+       ORDER BY stock ASC, p.title COLLATE NOCASE ASC, p.id ASC`,
+    )
+    .all(String(groupId))
+    .map((item) => ({
+      id: item.id,
+      name: item.name,
+      stock: Number(item.stock) || 0,
+    }));
+}
+
+/**
  * Lightweight-проверка для индикатора в сайдбаре.
  *
  * Считает только КОЛИЧЕСТВО заканчивающихся линеек одним SQL-запросом без

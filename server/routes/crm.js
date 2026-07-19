@@ -55,6 +55,7 @@ import {
 import {
   PAUSE_REASONS,
   computeLowStockGroups,
+  getGroupStockItems,
   getLowStockSummary,
   pauseGroup,
   resumeGroup,
@@ -620,6 +621,19 @@ crmRouter.get('/api/admin/crm/low-stock-groups/summary', authMiddleware, (req, r
   } catch (error) {
     console.error('[crm] Low-stock summary error:', error);
     res.status(500).json({ error: 'failed', message: error.message });
+  }
+});
+
+// Вкусы выбранной линейки: от нулевого остатка к самому большому.
+crmRouter.get('/api/admin/crm/low-stock-groups/:groupId/flavors', authMiddleware, (req, res) => {
+  try {
+    res.json({ items: getGroupStockItems(req.params.groupId) });
+  } catch (err) {
+    if (err.code === 'group_not_found') {
+      return res.status(404).json({ error: 'group_not_found' });
+    }
+    console.error('[crm] List low-stock group flavors error:', err);
+    res.status(500).json({ error: 'failed', message: err.message });
   }
 });
 

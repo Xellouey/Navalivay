@@ -59,6 +59,7 @@
               :menu-open="openMenuId === group.id"
               :reasons="reasonsList"
               severity="ending"
+              @show-flavors="openFlavors(group)"
               @toggle-menu="toggleMenu(group.id)"
               @pause="(reason) => onPause(group.id, reason)"
             />
@@ -96,6 +97,7 @@
               :menu-open="openMenuId === group.id"
               :reasons="reasonsList"
               severity="ended"
+              @show-flavors="openFlavors(group)"
               @toggle-menu="toggleMenu(group.id)"
               @pause="(reason) => onPause(group.id, reason)"
             />
@@ -113,14 +115,31 @@
       <template v-if="expanded">Свернуть</template>
       <template v-else>Показать ещё ({{ groups.length - INITIAL_VISIBLE_COUNT }})</template>
     </button>
+
+    <LowStockFlavorsModal
+      :is-open="selectedFlavorGroup !== null"
+      :group-name="selectedFlavorGroup?.name ?? ''"
+      :items="flavorItems"
+      :loading="flavorsLoading"
+      :error-text="flavorsError"
+      @close="closeFlavors"
+      @retry="retryFlavors"
+    />
   </section>
 </template>
 
 <script setup lang="ts">
 import { computed, onMounted, onBeforeUnmount, reactive, ref, watch } from "vue";
 import { storeToRefs } from "pinia";
-import { useCrmStore, type LowStockPauseReason, type LowStockPauseConfig } from "@/stores/crm";
+import {
+  useCrmStore,
+  type LowStockFlavor,
+  type LowStockGroup,
+  type LowStockPauseReason,
+  type LowStockPauseConfig,
+} from "@/stores/crm";
 import LowStockGroupTile from "@/components/admin/LowStockGroupTile.vue";
+import LowStockFlavorsModal from "@/components/admin/LowStockFlavorsModal.vue";
 
 const INITIAL_VISIBLE_COUNT = 3;
 
@@ -143,6 +162,11 @@ const expanded = ref(false);
 const openMenuId = ref<string | null>(null);
 const busyGroupId = ref<string | null>(null);
 const error = ref<string | null>(null);
+const selectedFlavorGroup = ref<LowStockGroup | null>(null);
+const flavorItems = ref<LowStockFlavor[]>([]);
+const flavorsLoading = ref(false);
+const flavorsError = ref<string | null>(null);
+let flavorsRequestId = 0;
 
 // Лениво подгружаемые cover-images (server не шлёт base64 в основном payload —
 // см. selectGroupStockAggregates в server/utils/low-stock-groups.js).
@@ -208,6 +232,38 @@ function hidePanel() {
 
 function toggleMenu(groupId: string) {
   openMenuId.value = openMenuId.value === groupId ? null : groupId;
+}
+
+async function openFlavors(group: LowStockGroup) {
+  const requestId = ++flavorsRequestId;
+  openMenuId.value = null;
+  selectedFlavorGroup.value = group;
+  flavorItems.value = [];
+  flavorsError.value = null;
+  flavorsLoading.value = true;
+  try {
+    const items = await crmStore.fetchLowStockGroupFlavors(group.id);
+    if (requestId === flavorsRequestId) flavorItems.value = items;
+  } catch (err) {
+    if (requestId === flavorsRequestId) {
+      flavorsError.value = "Не удалось загрузить вкусы.";
+      console.error("[LowStockGroupsPanel] flavors fetch failed:", err);
+    }
+  } finally {
+    if (requestId === flavorsRequestId) flavorsLoading.value = false;
+  }
+}
+
+function closeFlavors() {
+  flavorsRequestId += 1;
+  selectedFlavorGroup.value = null;
+  flavorItems.value = [];
+  flavorsLoading.value = false;
+  flavorsError.value = null;
+}
+
+function retryFlavors() {
+  if (selectedFlavorGroup.value) void openFlavors(selectedFlavorGroup.value);
 }
 
 async function onPause(groupId: string, reason: LowStockPauseReason) {

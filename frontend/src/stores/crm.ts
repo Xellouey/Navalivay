@@ -551,6 +551,12 @@ export interface LowStockGroup {
   categoryName: string | null;
 }
 
+export interface LowStockFlavor {
+  id: string;
+  name: string;
+  stock: number;
+}
+
 /**
  * Причина паузы линейки — соответствует PAUSE_REASONS на бэке
  * (server/utils/low-stock-groups.js).
@@ -2563,6 +2569,16 @@ export const useCrmStore = defineStore("crm", () => {
     }
   }
 
+  async function fetchLowStockGroupFlavors(groupId: string) {
+    if (!groupId) {
+      throw new Error("group_id_required");
+    }
+    const data = await fetchAPI<{ items: LowStockFlavor[] }>(
+      `${API_BASE}/low-stock-groups/${encodeURIComponent(groupId)}/flavors`,
+    );
+    return Array.isArray(data?.items) ? data.items : [];
+  }
+
   async function pauseLowStockGroup(groupId: string, reason: LowStockPauseReason) {
     if (!groupId) {
       throw new Error("group_id_required");
@@ -2936,6 +2952,7 @@ export const useCrmStore = defineStore("crm", () => {
     lowStockCount,
     fetchLowStockGroups,
     fetchLowStockSummary,
+    fetchLowStockGroupFlavors,
     pauseLowStockGroup,
     resumeLowStockGroup,
 

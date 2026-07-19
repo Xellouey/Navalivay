@@ -49,7 +49,21 @@
       >
         Фактически: {{ group.totalStock }} шт
       </p>
-      <div class="mt-2">
+      <div class="mt-2 flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          class="inline-flex min-h-10 items-center gap-1 rounded-md border px-3 py-1.5 text-xs font-medium transition"
+          :class="severity === 'ended'
+            ? 'border-red-200 bg-red-50 text-red-700 hover:bg-red-100'
+            : 'border-orange-200 bg-orange-50 text-orange-700 hover:bg-orange-100'"
+          @click.stop="$emit('showFlavors')"
+        >
+          <svg class="h-3.5 w-3.5" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+            <path d="M2.5 10s2.5-4.5 7.5-4.5 7.5 4.5 7.5 4.5-2.5 4.5-7.5 4.5S2.5 10 2.5 10Z" stroke="currentColor" stroke-width="1.5" />
+            <circle cx="10" cy="10" r="2" stroke="currentColor" stroke-width="1.5" />
+          </svg>
+          Вкусы
+        </button>
         <div class="relative inline-block">
           <button
             type="button"
@@ -99,6 +113,7 @@ const props = defineProps<{
 }>()
 
 defineEmits<{
+  showFlavors: []
   toggleMenu: []
   pause: [reason: LowStockPauseReason]
 }>()

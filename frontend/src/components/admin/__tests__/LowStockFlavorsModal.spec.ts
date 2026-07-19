@@ -1,0 +1,98 @@
+import { describe, expect, it } from "vitest";
+import { flushPromises, mount } from "@vue/test-utils";
+import LowStockFlavorsModal from "@/components/admin/LowStockFlavorsModal.vue";
+
+const items = [
+  { id: "zero", name: "Нет в наличии", stock: 0 },
+  { id: "few", name: "Заканчивается", stock: 2 },
+  { id: "many", name: "Много", stock: 12 },
+];
+
+function mountModal(overrides: Record<string, unknown> = {}) {
+  return mount(LowStockFlavorsModal, {
+    attachTo: document.body,
+    props: {
+      isOpen: true,
+      groupName: "Тестовая линейка",
+      items,
+      loading: false,
+      errorText: null,
+      ...overrides,
+    },
+  });
+}
+
+describe("LowStockFlavorsModal", () => {
+  it("показывает вкусы и остатки в переданном порядке", () => {
+    const wrapper = mountModal();
+    const rows = Array.from(document.querySelectorAll("ol li"));
+
+    expect(rows.map((row) => row.textContent?.replace(/\s+/g, " ").trim())).toEqual([
+      "Нет в наличии0 шт",
+      "Заканчивается2 шт",
+      "Много12 шт",
+    ]);
+
+    wrapper.unmount();
+  });
+
+  it("закрывается по Escape даже во время загрузки", async () => {
+    const wrapper = mountModal({ items: [], loading: true });
+
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+
+    expect(wrapper.emitted("close")).toHaveLength(1);
+    wrapper.unmount();
+  });
+
+  it("показывает ошибку с повтором и пустое состояние", async () => {
+    const wrapper = mountModal({ items: [], errorText: "Не удалось загрузить вкусы." });
+    const retryButton = Array.from(document.querySelectorAll("button"))
+      .find((button) => button.textContent?.includes("Повторить"));
+
+    expect(document.querySelector('[role="alert"]')?.textContent).toContain("Не удалось загрузить вкусы.");
+    retryButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    expect(wrapper.emitted("retry")).toHaveLength(1);
+
+    await wrapper.setProps({ errorText: null, loading: true });
+    await flushPromises();
+    expect(document.activeElement).toBe(
+      document.querySelector<HTMLButtonElement>('button[aria-label="Закрыть"]'),
+    );
+
+    await wrapper.setProps({ loading: false });
+    expect(document.querySelector('[role="status"]')?.textContent).toContain("В этой линейке пока нет вкусов");
+    wrapper.unmount();
+  });
+
+  it("закрывается кнопкой и фоном", () => {
+    const wrapper = mountModal();
+    const closeButton = document.querySelector<HTMLButtonElement>('button[aria-label="Закрыть"]');
+    closeButton?.click();
+    expect(wrapper.emitted("close")).toHaveLength(1);
+
+    document.querySelector<HTMLElement>('[aria-hidden="true"].absolute')?.click();
+    expect(wrapper.emitted("close")).toHaveLength(2);
+    wrapper.unmount();
+  });
+
+  it("удерживает фокус в окне и возвращает его на кнопку открытия", async () => {
+    const opener = document.createElement("button");
+    document.body.appendChild(opener);
+    opener.focus();
+    const wrapper = mountModal();
+    await flushPromises();
+
+    const closeButton = document.querySelector<HTMLButtonElement>('button[aria-label="Закрыть"]');
+    expect(document.activeElement).toBe(closeButton);
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", bubbles: true }));
+    expect(document.activeElement).toBe(closeButton);
+
+    await wrapper.setProps({ isOpen: false });
+    await flushPromises();
+    expect(document.activeElement).toBe(opener);
+
+    wrapper.unmount();
+    opener.remove();
+  });
+});
