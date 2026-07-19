@@ -205,6 +205,36 @@ console.log('\n=== R-API2: PUT with waive fields persists ===');
   ok(Number(row.waive_wholesale) === 1, 'waive_wholesale saved');
 }
 
+console.log('\n=== TC-API1: POST/PUT total control persists ===');
+{
+  resetDb();
+  seedCategory();
+  const created = await requestJson('/api/admin/category-groups', {
+    method: 'POST',
+    headers: authHeaders(),
+    body: JSON.stringify({ categoryId: 'c1', name: 'XROS', totalControl: true }),
+  });
+  ok(created.response.status === 200, 'create group 200');
+  ok(Number(created.data?.total_control) === 1, 'create response has total_control=1');
+  ok(Number(db.prepare('SELECT total_control FROM category_groups WHERE id = ?').get(created.data.id)?.total_control) === 1, 'total_control saved');
+
+  const renamed = await requestJson(`/api/admin/category-groups/${created.data.id}`, {
+    method: 'PUT',
+    headers: authHeaders(),
+    body: JSON.stringify({ name: 'XROS обновлённый' }),
+  });
+  ok(renamed.response.status === 200, 'partial update group 200');
+  ok(Number(renamed.data?.total_control) === 1, 'partial update keeps total_control=1');
+
+  const updated = await requestJson(`/api/admin/category-groups/${created.data.id}`, {
+    method: 'PUT',
+    headers: authHeaders(),
+    body: JSON.stringify({ totalControl: false }),
+  });
+  ok(updated.response.status === 200, 'update group 200');
+  ok(Number(updated.data?.total_control) === 0, 'update response has total_control=0');
+}
+
 console.log('\n=== A-API7: liquids profile flags missing strength_tier ===');
 {
   resetDb();

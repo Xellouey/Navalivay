@@ -69,6 +69,25 @@
       </p>
     </div>
 
+    <label
+      class="flex cursor-pointer items-start gap-3 rounded-2xl border p-4 transition focus-within:ring-2 focus-within:ring-blue-500/30"
+      :class="form.totalControl
+        ? 'border-blue-300 bg-blue-50'
+        : 'border-gray-200 bg-white hover:border-gray-300 hover:bg-gray-50'"
+    >
+      <input
+        v-model="form.totalControl"
+        type="checkbox"
+        class="mt-0.5 h-5 w-5 rounded border-gray-300 text-blue-600 focus:ring-blue-500/30"
+      />
+      <span>
+        <span class="block text-sm font-semibold text-gray-800">Тотальный контроль</span>
+        <span class="mt-1 block text-xs leading-5 text-gray-600">
+          Показывать в «Закупках» общий остаток линейки и разбивку по товарам, вкусам или цветам.
+        </span>
+      </span>
+    </label>
+
     <div class="space-y-3 rounded-2xl border border-gray-200 bg-gray-50/80 p-4">
       <div class="flex flex-wrap items-start justify-between gap-2">
         <div>
@@ -317,6 +336,7 @@ interface CategoryGroup {
   metaLabel?: string | null
   metaValue?: string | null
   minStockThreshold?: number | null
+  totalControl?: boolean
   waiveDescription?: boolean
   waiveMinStock?: boolean
   waiveWholesale?: boolean
@@ -347,7 +367,7 @@ const props = withDefaults(defineProps<{ editingGroup?: CategoryGroup | null; is
 })
 
 const emit = defineEmits<{
-  (e: 'submit', payload: { name: string; coverImage?: string | null; hideEmpty?: boolean; parentId?: string | null; metaLabel?: string | null; metaValue?: string | null; minStockThreshold?: number | null; wholesalePrices?: Record<string, number | null>; waiveDescription?: boolean; waiveMinStock?: boolean; waiveWholesale?: boolean; waiveStrengthTier?: boolean; strengthTier?: string | null }): void
+  (e: 'submit', payload: { name: string; coverImage?: string | null; hideEmpty?: boolean; parentId?: string | null; metaLabel?: string | null; metaValue?: string | null; minStockThreshold?: number | null; totalControl?: boolean; wholesalePrices?: Record<string, number | null>; waiveDescription?: boolean; waiveMinStock?: boolean; waiveWholesale?: boolean; waiveStrengthTier?: boolean; strengthTier?: string | null }): void
   (e: 'cancel'): void
 }>()
 
@@ -358,6 +378,7 @@ const form = reactive({
   parentId: '',
   metaValue: '',
   minStockThreshold: '',
+  totalControl: false,
   waiveDescription: false,
   waiveMinStock: false,
   waiveWholesale: false,
@@ -447,6 +468,7 @@ watch(
         threshold === null || threshold === undefined || !Number.isFinite(Number(threshold)) || Number(threshold) <= 0
           ? ''
           : String(threshold)
+      form.totalControl = Boolean(group.totalControl)
       form.waiveDescription = Boolean(group.waiveDescription)
       form.waiveMinStock = Boolean(group.waiveMinStock)
       form.waiveWholesale = Boolean(group.waiveWholesale)
@@ -468,6 +490,7 @@ watch(
       form.parentId = ''
       form.metaValue = ''
       form.minStockThreshold = ''
+      form.totalControl = false
       form.waiveDescription = false
       form.waiveMinStock = false
       form.waiveWholesale = false
@@ -530,6 +553,7 @@ function onSubmit() {
     metaLabel: null,
     metaValue: metaValue.length ? metaValue : null,
     minStockThreshold,
+    totalControl: form.totalControl,
     wholesalePrices,
     waiveDescription: form.waiveDescription,
     waiveMinStock: form.waiveMinStock,

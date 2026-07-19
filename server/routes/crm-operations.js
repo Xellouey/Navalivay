@@ -30,8 +30,22 @@ import {
   fetchEnrichedOrdersByIds,
   fetchKanbanBoardOrders,
 } from "../utils/crm-kanban-board.js";
+import { buildTotalControlGroups } from "../utils/total-control-groups.js";
 
 export const crmOperationsRouter = express.Router();
+
+crmOperationsRouter.get(
+  "/api/admin/crm/total-control-groups",
+  authMiddleware,
+  (_req, res) => {
+    try {
+      res.json({ items: buildTotalControlGroups(db) });
+    } catch (error) {
+      console.error("[crm] Get total control groups error:", error);
+      res.status(500).json({ error: "total_control_groups_failed" });
+    }
+  },
+);
 
 // Helper для генерации ID
 function generateId(prefix) {

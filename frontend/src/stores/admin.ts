@@ -110,6 +110,7 @@ export interface CategoryGroup {
   metaLabel?: string | null
   metaValue?: string | null
   minStockThreshold?: number | null
+  totalControl?: boolean
   waiveDescription?: boolean
   waiveMinStock?: boolean
   waiveWholesale?: boolean
@@ -820,6 +821,7 @@ async function createCategory(category: { name: string; hideEmpty?: boolean; cov
         metaLabel: group.metaLabel ?? group.meta_label ?? null,
         metaValue: group.metaValue ?? group.meta_value ?? null,
         minStockThreshold: normalizeMinStockThreshold(group.minStockThreshold ?? group.min_stock_threshold),
+        totalControl: Boolean(group.totalControl ?? group.total_control),
         createdAt: group.createdAt,
         updatedAt: group.updatedAt,
         productCount: group.productCount ?? 0,
@@ -914,6 +916,7 @@ async function createCategory(category: { name: string; hideEmpty?: boolean; cov
         metaLabel: response.metaLabel ?? response.meta_label ?? null,
         metaValue: response.metaValue ?? response.meta_value ?? null,
         minStockThreshold: normalizeMinStockThreshold(response.minStockThreshold ?? response.min_stock_threshold),
+        totalControl: Boolean(response.totalControl ?? response.total_control),
         createdAt: response.createdAt,
         updatedAt: response.updatedAt,
         productCount: response.productCount ?? 0,
@@ -959,7 +962,7 @@ async function createCategory(category: { name: string; hideEmpty?: boolean; cov
     }
   }
 
-  async function createCategoryGroup(payload: { categoryId: string; name: string; slug?: string; coverImage?: string | null; hideEmpty?: boolean; parentId?: string | null; metaLabel?: string | null; metaValue?: string | null; minStockThreshold?: number | null; wholesalePrices?: Record<string, number | null>; waiveDescription?: boolean; waiveMinStock?: boolean; waiveWholesale?: boolean; waiveStrengthTier?: boolean; strengthTier?: string | null }) {
+  async function createCategoryGroup(payload: { categoryId: string; name: string; slug?: string; coverImage?: string | null; hideEmpty?: boolean; parentId?: string | null; metaLabel?: string | null; metaValue?: string | null; minStockThreshold?: number | null; totalControl?: boolean; wholesalePrices?: Record<string, number | null>; waiveDescription?: boolean; waiveMinStock?: boolean; waiveWholesale?: boolean; waiveStrengthTier?: boolean; strengthTier?: string | null }) {
     try {
       isLoading.value = true
       error.value = null
@@ -977,6 +980,7 @@ async function createCategory(category: { name: string; hideEmpty?: boolean; cov
           metaLabel: payload.metaLabel ?? null,
           metaValue: payload.metaValue ?? null,
           minStockThreshold: payload.minStockThreshold ?? null,
+          totalControl: payload.totalControl ?? false,
           wholesalePrices: payload.wholesalePrices ?? undefined,
           waiveDescription: payload.waiveDescription ?? false,
           waiveMinStock: payload.waiveMinStock ?? false,
@@ -998,6 +1002,7 @@ async function createCategory(category: { name: string; hideEmpty?: boolean; cov
         metaLabel: response.metaLabel ?? response.meta_label ?? null,
         metaValue: response.metaValue ?? response.meta_value ?? null,
         minStockThreshold: normalizeMinStockThreshold(response.minStockThreshold ?? response.min_stock_threshold),
+        totalControl: Boolean(response.totalControl ?? response.total_control),
         waiveDescription: Boolean(response.waiveDescription ?? response.waive_description),
         waiveMinStock: Boolean(response.waiveMinStock ?? response.waive_min_stock),
         waiveWholesale: Boolean(response.waiveWholesale ?? response.waive_wholesale),
@@ -1048,6 +1053,7 @@ async function createCategory(category: { name: string; hideEmpty?: boolean; cov
       if ('metaLabel' in updates) body.metaLabel = updates.metaLabel ?? null
       if ('metaValue' in updates) body.metaValue = updates.metaValue ?? null
       if ('minStockThreshold' in updates) body.minStockThreshold = updates.minStockThreshold ?? null
+      if ('totalControl' in updates) body.totalControl = updates.totalControl
       if ('wholesalePrices' in updates) body.wholesalePrices = updates.wholesalePrices
       if ('waiveDescription' in updates) body.waiveDescription = updates.waiveDescription
       if ('waiveMinStock' in updates) body.waiveMinStock = updates.waiveMinStock
@@ -1083,6 +1089,7 @@ async function createCategory(category: { name: string; hideEmpty?: boolean; cov
         metaLabel: response.metaLabel ?? response.meta_label ?? null,
         metaValue: response.metaValue ?? response.meta_value ?? null,
         minStockThreshold: normalizeMinStockThreshold(response.minStockThreshold ?? response.min_stock_threshold),
+        totalControl: Boolean(response.totalControl ?? response.total_control ?? existing?.totalControl),
         createdAt: response.createdAt ?? existing?.createdAt,
         updatedAt: response.updatedAt ?? existing?.updatedAt,
         productCount: response.productCount ?? existing?.productCount ?? 0,

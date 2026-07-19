@@ -29,6 +29,7 @@
       </div>
 
       <template v-if="profitUnlocked">
+        <TotalControlPanel class="mb-6" />
         <LowStockGroupsPanel class="mb-6" />
         <div class="mb-6 grid grid-cols-1 gap-4 md:grid-cols-3">
           <div class="rounded-xl bg-white p-5 shadow-sm">
@@ -1087,6 +1088,7 @@ import {
 import { useAdminStore } from "@/stores/admin";
 import AdminModal from "@/components/AdminModal.vue";
 import LowStockGroupsPanel from "@/components/admin/LowStockGroupsPanel.vue";
+import TotalControlPanel from "@/components/admin/TotalControlPanel.vue";
 import { LockClosedIcon } from "@heroicons/vue/24/outline";
 import CrmProfitPasswordField from "@/components/crm/CrmProfitPasswordField.vue";
 
@@ -1831,7 +1833,11 @@ async function submitProcurement() {
 }
 
 async function refreshProcurements() {
-  await crmStore.fetchProcurements();
+  await Promise.all([
+    crmStore.fetchProcurements(),
+    crmStore.fetchTotalControlGroups(),
+    crmStore.fetchLowStockGroups(),
+  ]);
 }
 
 async function deleteProcurementRecord(id: string) {

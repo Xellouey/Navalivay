@@ -301,6 +301,25 @@ export interface ProcurementItem {
   min_stock?: number;
 }
 
+export interface TotalControlItem {
+  id: string;
+  productId: string;
+  variantId: string | null;
+  label: string;
+  stock: number;
+}
+
+export interface TotalControlGroup {
+  id: string;
+  name: string;
+  categoryId: string | null;
+  categoryName: string | null;
+  hasCoverImage: boolean;
+  totalStock: number;
+  itemCount: number;
+  items: TotalControlItem[];
+}
+
 export interface WriteOff {
   id: string;
   writeoff_number: number;
@@ -1808,6 +1827,28 @@ export const useCrmStore = defineStore("crm", () => {
   const procurements = ref<Procurement[]>([]);
   const currentProcurement = ref<Procurement | null>(null);
   const loadingProcurements = ref(false);
+  const totalControlGroups = ref<TotalControlGroup[]>([]);
+  const totalControlGroupsLoading = ref(false);
+  const totalControlGroupsError = ref("");
+
+  async function fetchTotalControlGroups() {
+    totalControlGroupsLoading.value = true;
+    totalControlGroupsError.value = "";
+    try {
+      const data = await fetchAPI<{ items: TotalControlGroup[] }>(
+        `${API_BASE}/total-control-groups`,
+      );
+      totalControlGroups.value = Array.isArray(data?.items) ? data.items : [];
+      return totalControlGroups.value;
+    } catch (error) {
+      totalControlGroupsError.value = totalControlGroups.value.length
+        ? "Не удалось обновить остатки. Показаны последние загруженные данные."
+        : "Не удалось загрузить сводку. Повторите попытку.";
+      throw error;
+    } finally {
+      totalControlGroupsLoading.value = false;
+    }
+  }
 
   async function fetchProcurements() {
     loadingProcurements.value = true;
@@ -2869,6 +2910,10 @@ export const useCrmStore = defineStore("crm", () => {
     fetchProcurement,
     createProcurement,
     completeProcurement,
+    totalControlGroups,
+    totalControlGroupsLoading,
+    totalControlGroupsError,
+    fetchTotalControlGroups,
 
     // Write-offs
     writeOffs,
