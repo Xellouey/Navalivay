@@ -7,6 +7,7 @@ import {
   releaseOrderLoyaltyReservations,
 } from "../loyalty.js";
 import {
+  isInsecureTelegramFallbackEnabled,
   optionalTelegramMiniAppAuth,
   requireTelegramMiniAppAuth,
 } from "../telegram-miniapp-auth.js";
@@ -109,9 +110,7 @@ function resolveVariantPublicPriceRub(variantRow, effectivePrice, isWholesaleTie
 
 const MAX_SQL_VARS = 900;
 const TELEGRAM_BOT_TOKEN = process.env.BOT_TOKEN || "";
-const allowInsecureTelegramFallback =
-  !["production", "test"].includes(String(process.env.NODE_ENV || "").toLowerCase()) &&
-  process.env.ALLOW_INSECURE_TELEGRAM_AUTH !== "0";
+const allowInsecureTelegramFallback = isInsecureTelegramFallbackEnabled();
 const publicMiniAppReadLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: 120,

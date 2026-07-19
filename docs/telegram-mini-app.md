@@ -16,10 +16,17 @@ Single reference for Telegram WebApp behavior, environment variables, public set
 
 | Variable | Role |
 |----------|------|
+| `NODE_ENV` | На проде обязательно `production`. Дополнительно закреплено в systemd unit. |
 | `BOT_TOKEN` | Telegram bot token (required for bot) |
 | `BASE_URL` | HTTPS storefront root for `web_app` buttons and menu (trailing slash stripped). Default `https://navalivay.store` |
 | `TELEGRAM_BOT_USERNAME` | Bot username **without** `@`. Exposed in `/api/settings` as `telegram_bot_username`. Needed for `t.me/...` wholesale and mini app open links |
 | `TELEGRAM_MINI_APP_SHORT_NAME` | Direct Link mini app short name from BotFather (path segment `t.me/bot/SHORT/...`). Optional; improves compact open on some clients. Exposed as `telegram_mini_app_short_name` |
+| `ALLOW_INSECURE_TELEGRAM_AUTH` | Только локальная разработка: при `NODE_ENV=development` значение `1` разрешает неподписанные `telegram_id/@username`. Во всех остальных режимах игнорируется. |
+
+Заказы, бонусы и рулетка не должны принимать один лишь `@username`: он не
+доказывает личность и может оставить заказ без `customer_id`. Даже если
+`NODE_ENV` по ошибке отсутствует, сервер обязан требовать подписанный
+`Telegram.WebApp.initData`.
 
 ## Public settings fields
 

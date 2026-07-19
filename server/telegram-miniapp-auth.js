@@ -133,6 +133,19 @@ function getInsecureFallbackIdentity(req) {
   };
 }
 
+/**
+ * Неподписанные telegram_id/@username разрешены только при явном включении
+ * локального режима. Если NODE_ENV случайно не задан на проде, запрос не
+ * должен автоматически становиться доверенным.
+ */
+export function isInsecureTelegramFallbackEnabled() {
+  const nodeEnv = String(process.env.NODE_ENV || "").toLowerCase();
+  return (
+    nodeEnv === "development" &&
+    process.env.ALLOW_INSECURE_TELEGRAM_AUTH === "1"
+  );
+}
+
 export function getTelegramInitDataFromRequest(req) {
   return getHeaderValue(req, TELEGRAM_INIT_DATA_HEADER);
 }
@@ -240,9 +253,7 @@ export function verifyTelegramMiniAppInitData(
 export function resolveTelegramMiniAppIdentity(
   req,
   {
-    allowInsecureFallback =
-      !["production", "test"].includes(String(process.env.NODE_ENV || "").toLowerCase()) &&
-      process.env.ALLOW_INSECURE_TELEGRAM_AUTH !== "0",
+    allowInsecureFallback = isInsecureTelegramFallbackEnabled(),
   } = {},
 ) {
   const initData = getTelegramInitDataFromRequest(req);

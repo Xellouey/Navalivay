@@ -2,7 +2,10 @@ import express from "express";
 import rateLimit from "express-rate-limit";
 import { db } from "../db.js";
 import { authMiddleware } from "../auth.js";
-import { requireTelegramMiniAppAuth } from "../telegram-miniapp-auth.js";
+import {
+  isInsecureTelegramFallbackEnabled,
+  requireTelegramMiniAppAuth,
+} from "../telegram-miniapp-auth.js";
 import { normalizeTelegramUsername } from "../loyalty.js";
 import { resolveWholesaleContextFromRequest } from "../wholesale-service.js";
 import {
@@ -60,9 +63,7 @@ export function isWheelIdempotencyConflict(error, idempotencyKey) {
   );
 }
 
-const allowInsecureTelegramFallback =
-  !["production", "test"].includes(String(process.env.NODE_ENV || "").toLowerCase()) &&
-  process.env.ALLOW_INSECURE_TELEGRAM_AUTH !== "0";
+const allowInsecureTelegramFallback = isInsecureTelegramFallbackEnabled();
 
 // S2-N6: even when ALLOW_INSECURE_TELEGRAM_AUTH is on (staging dev tools),
 // the wheel feed still ships real customer first names and Telegram

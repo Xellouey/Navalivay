@@ -9,12 +9,13 @@ import {
   normalizeTelegramUsername,
   serializeLoyaltySnapshot,
 } from "../loyalty.js";
-import { requireTelegramMiniAppAuth } from "../telegram-miniapp-auth.js";
+import {
+  isInsecureTelegramFallbackEnabled,
+  requireTelegramMiniAppAuth,
+} from "../telegram-miniapp-auth.js";
 
 export const loyaltyRouter = express.Router();
-const allowInsecureTelegramFallback =
-  !["production", "test"].includes(String(process.env.NODE_ENV || "").toLowerCase()) &&
-  process.env.ALLOW_INSECURE_TELEGRAM_AUTH !== "0";
+const allowInsecureTelegramFallback = isInsecureTelegramFallbackEnabled();
 const loyaltyReadLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: 120,
