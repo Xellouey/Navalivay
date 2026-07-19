@@ -103,6 +103,15 @@ app.use(cookieParser());
 app.use(cors(buildCorsOptions()));
 app.use(helmet({ contentSecurityPolicy: false }));
 
+// Defense in depth: API and uploaded files must not appear in search results.
+app.use((req, res, next) => {
+  res.setHeader(
+    'X-Robots-Tag',
+    'noindex, nofollow, noarchive, nosnippet, noimageindex',
+  );
+  next();
+});
+
 
 // Static (БЕЗ КЭША)
 const uploadsDir = path.resolve(__dirname, '../uploads');
