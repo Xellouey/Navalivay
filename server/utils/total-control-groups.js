@@ -1,6 +1,6 @@
 /**
  * Собирает сводку по линейкам, отмеченным «Тотальным контролем».
- * Для товаров с вариантами считаем остатки вариантов, для остальных — товара.
+ * Для товаров с вариантами считаем остатки вариантов, для остальных остаток товара.
  * Дочерние линейки входят в итог родительской линейки.
  */
 export function buildTotalControlGroups(database) {
@@ -50,7 +50,7 @@ export function buildTotalControlGroups(database) {
       pv.id AS variant_id,
       CASE
         WHEN NULLIF(TRIM(pv.name), '') IS NULL THEN COALESCE(NULLIF(TRIM(p.title), ''), 'Без названия')
-        ELSE COALESCE(NULLIF(TRIM(p.title), ''), 'Без названия') || ' — ' || TRIM(pv.name)
+        ELSE COALESCE(NULLIF(TRIM(p.title), ''), 'Без названия') || ' · ' || TRIM(pv.name)
       END AS label,
       MAX(0, COALESCE(pv.stock, 0)) AS stock
     FROM monitored
@@ -75,6 +75,7 @@ export function buildTotalControlGroups(database) {
   return groups.map((group) => {
     const items = itemsByGroup.get(group.id) || [];
     items.sort((left, right) =>
+      left.stock - right.stock ||
       left.label.localeCompare(right.label, 'ru', { numeric: true, sensitivity: 'base' }),
     );
 

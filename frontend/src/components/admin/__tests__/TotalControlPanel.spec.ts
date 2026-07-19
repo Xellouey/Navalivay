@@ -9,7 +9,7 @@ describe("TotalControlPanel", () => {
     setActivePinia(createPinia());
   });
 
-  it("показывает четыре строки и раскрывает полный список", async () => {
+  it("показывает четыре дефицитные строки и открывает полный список с поиском", async () => {
     const store = useCrmStore();
     store.totalControlGroups = [{
       id: "g1",
@@ -29,18 +29,25 @@ describe("TotalControlPanel", () => {
     }];
     vi.spyOn(store, "fetchTotalControlGroups").mockResolvedValue(store.totalControlGroups);
 
-    const wrapper = mount(TotalControlPanel);
+    const wrapper = mount(TotalControlPanel, { attachTo: document.body });
 
-    expect(wrapper.text()).toContain("Всего: 15 шт");
-    expect(wrapper.findAll("li")).toHaveLength(4);
+    expect(wrapper.text()).toContain("15 шт");
+    expect(wrapper.get("#total-control-items-g1").findAll("li")).toHaveLength(4);
+    expect(wrapper.text()).not.toContain("—");
 
-    const expandButton = wrapper.get("button[aria-expanded='false']");
-    expect(expandButton.text()).toContain("Показать полный список (5)");
-    expect(expandButton.attributes("aria-controls")).toBe("total-control-items-g1");
-    await expandButton.trigger("click");
+    const allItemsButton = wrapper.get("button[aria-haspopup='dialog']");
+    expect(allItemsButton.text()).toContain("Все позиции · 5");
+    await allItemsButton.trigger("click");
+    await wrapper.vm.$nextTick();
 
-    expect(wrapper.findAll("li")).toHaveLength(5);
-    expect(wrapper.get("button[aria-expanded='true']").text()).toContain("Скрыть полный список");
+    const dialog = document.querySelector<HTMLElement>("[role='dialog']");
+    expect(dialog?.querySelectorAll("li")).toHaveLength(5);
+    const search = dialog?.querySelector<HTMLInputElement>("input[type='search']");
+    search!.value = "Позиция 5";
+    search!.dispatchEvent(new Event("input", { bubbles: true }));
+    await wrapper.vm.$nextTick();
+    expect(dialog?.querySelectorAll("li")).toHaveLength(1);
+    wrapper.unmount();
   });
 
   it("объясняет пустое состояние", () => {
@@ -70,6 +77,6 @@ describe("TotalControlPanel", () => {
     const wrapper = mount(TotalControlPanel);
 
     expect(wrapper.get("[role='alert']").text()).toContain("Показаны последние загруженные данные");
-    expect(wrapper.text()).toContain("Всего: 10 шт");
+    expect(wrapper.text()).toContain("10 шт");
   });
 });
