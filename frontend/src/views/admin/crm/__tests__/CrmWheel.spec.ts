@@ -874,23 +874,53 @@ describe("CrmWheel prize image flow", () => {
     await quickTemplateButton!.trigger("click");
     await flushPromises();
 
-    const modalInputs = wrapper.findAll('input[type="text"]');
-    await modalInputs[modalInputs.length - 1].setValue("wheel-quick");
+    await wrapper.find("#wheel-promo-quick-prize-title").setValue("Скидка на жидкость VINTAGE");
+    await wrapper.find("#wheel-promo-quick-code").setValue("wheel-quick");
     await wrapper.find("#wheel-promo-quick-discount-value").setValue("0");
     await wrapper.find("#wheel-promo-quick-max-uses").setValue("3");
     const textareas = wrapper.findAll("textarea");
     await textareas[textareas.length - 2].setValue("Новый шаблон для клиента");
-    const createTemplateConfirm = wrapper.findAll("button").filter((item) => item.text() === "Создать промокод").at(-1);
+    const createTemplateConfirm = wrapper.findAll("button").find((item) => item.text() === "Создать промокод для приза");
     expect(createTemplateConfirm).toBeTruthy();
     await createTemplateConfirm!.trigger("click");
     await flushPromises();
 
     expect(createPromoCodeMock).toHaveBeenCalledTimes(1);
     expect(createPromoCodeMock).toHaveBeenCalledWith(
-      expect.objectContaining({ discount_value: 0, has_gift: 1, max_uses: 3 }),
+      expect.objectContaining({
+        description: "Скидка на жидкость VINTAGE",
+        discount_value: 0,
+        has_gift: 1,
+        max_uses: 3,
+        is_wheel_template: 1,
+      }),
     );
     const promoSelect = wrapper.find("#wheel-prize-promo-template");
     expect((promoSelect.element as HTMLSelectElement).value).toBe("promo-quick");
     expect(wrapper.text()).toContain("Промокод создан.");
+  });
+
+  it("requires a prize title before creating a wheel promo template", async () => {
+    installFetchMock([]);
+    const wrapper = mount(CrmWheel);
+    await flushPromises();
+    await openPrizesTab(wrapper);
+
+    const createButton = wrapper.findAll("button").find((item) => item.text().includes("Добавить приз"));
+    await createButton!.trigger("click");
+    await flushPromises();
+
+    const quickTemplateButton = wrapper.findAll("button").find((item) => item.text() === "Создать промокод");
+    await quickTemplateButton!.trigger("click");
+    await flushPromises();
+
+    const confirmButton = wrapper.findAll("button").find((item) => item.text() === "Создать промокод для приза");
+    const titleFocusSpy = vi.spyOn(wrapper.find("#wheel-promo-quick-prize-title").element as HTMLInputElement, "focus");
+    await confirmButton!.trigger("click");
+    await flushPromises();
+
+    expect(createPromoCodeMock).not.toHaveBeenCalled();
+    expect(wrapper.text()).toContain("Укажите название приза");
+    expect(titleFocusSpy).toHaveBeenCalledTimes(1);
   });
 });

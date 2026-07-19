@@ -914,11 +914,11 @@
             class="flex max-h-[90vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-slate-200/40 bg-white shadow-2xl"
             role="dialog"
             aria-modal="true"
-            aria-labelledby="wheel-promo-quick-title"
+            aria-labelledby="wheel-promo-quick-dialog-title"
             @keydown.esc="closeQuickPromoModal"
           >
             <div class="border-b border-slate-100 px-5 py-3">
-              <h3 id="wheel-promo-quick-title" class="text-lg font-bold text-slate-900">Создать промокод для приза</h3>
+              <h3 id="wheel-promo-quick-dialog-title" class="text-lg font-bold text-slate-900">Создать промокод для приза</h3>
               <p class="mt-0.5 text-xs text-slate-500">Заполните текст приза, скидку и правила выдачи.</p>
             </div>
 
@@ -932,14 +932,34 @@
                   <p class="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-500">Текст приза</p>
                   <div class="space-y-3">
                     <div>
-                      <label for="wheel-promo-quick-title" class="mb-1.5 block text-sm font-medium text-slate-700">Заголовок</label>
+                      <label for="wheel-promo-quick-prize-title" class="mb-1.5 block text-sm font-medium text-slate-700">
+                        Название приза <span class="font-normal text-slate-500">(обязательно)</span>
+                      </label>
                       <input
-                        id="wheel-promo-quick-title"
+                        id="wheel-promo-quick-prize-title"
+                        ref="promoQuickTitleInputRef"
                         v-model="promoQuickForm.description"
                         type="text"
                         placeholder="Например: Скидка на жидкость VINTAGE"
-                        class="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
+                        class="w-full rounded-lg border px-4 py-2.5 text-sm focus:outline-none focus:ring-2"
+                        :class="promoQuickTitleError
+                          ? 'border-red-300 focus:border-red-500 focus:ring-red-100'
+                          : 'border-gray-300 focus:border-blue-500 focus:ring-blue-200'"
+                        :aria-invalid="Boolean(promoQuickTitleError)"
+                        aria-required="true"
+                        :aria-describedby="promoQuickTitleError ? 'wheel-promo-quick-prize-title-error' : 'wheel-promo-quick-prize-title-hint'"
+                        @input="promoQuickTitleError = ''"
                       />
+                      <p
+                        v-if="promoQuickTitleError"
+                        id="wheel-promo-quick-prize-title-error"
+                        class="mt-1 text-xs font-medium text-red-600"
+                      >
+                        {{ promoQuickTitleError }}
+                      </p>
+                      <p v-else id="wheel-promo-quick-prize-title-hint" class="mt-1 text-xs text-slate-500">
+                        Показывается на рулетке и в окне выигрыша.
+                      </p>
                     </div>
                     <div>
                       <label for="wheel-promo-quick-code" class="mb-1.5 block text-sm font-medium text-slate-700">Промокод</label>
@@ -1058,7 +1078,7 @@
                 class="rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 px-4 py-2.5 text-sm font-semibold text-white shadow-md hover:from-blue-700 hover:to-indigo-700"
                 @click="createQuickPromoTemplate"
               >
-                Создать промокод
+                Создать промокод для приза
               </button>
             </div>
           </div>
@@ -1168,7 +1188,7 @@
 </template>
 
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, reactive, ref, computed, watch } from 'vue'
+import { nextTick, onBeforeUnmount, onMounted, reactive, ref, computed, watch } from 'vue'
 import CrmButton from '@/components/admin/crm/CrmButton.vue'
 import {
   BUSINESS_TIME_ZONE,
@@ -1377,6 +1397,8 @@ const promoQuickForm = reactive({
   active: true,
 })
 const promoQuickError = ref('')
+const promoQuickTitleError = ref('')
+const promoQuickTitleInputRef = ref<HTMLInputElement | null>(null)
 
 const prizeModalOpen = ref(false)
 const prizeImageInputRef = ref<HTMLInputElement | null>(null)
@@ -1979,6 +2001,7 @@ function generatePromoTemplateCode() {
 function openQuickPromoModal() {
   const inheritedDuration = promoTemplateDurationDays(selectedPromoTemplate.value)
   promoQuickError.value = ''
+  promoQuickTitleError.value = ''
   Object.assign(promoQuickForm, {
     code: '',
     description: '',
@@ -1999,11 +2022,20 @@ function openQuickPromoModal() {
 function closeQuickPromoModal() {
   promoQuickModalOpen.value = false
   promoQuickError.value = ''
+  promoQuickTitleError.value = ''
 }
 
 async function createQuickPromoTemplate() {
   promoQuickError.value = ''
+  promoQuickTitleError.value = ''
   try {
+    const prizeTitle = promoQuickForm.description.trim()
+    if (!prizeTitle) {
+      promoQuickTitleError.value = 'Укажите название приза'
+      await nextTick()
+      promoQuickTitleInputRef.value?.focus()
+      return
+    }
     if (!Number.isFinite(Number(promoQuickForm.max_uses)) || Number(promoQuickForm.max_uses) < 0) {
       promoQuickError.value = 'Лимит победителей не может быть отрицательным.'
       return
@@ -2015,7 +2047,7 @@ async function createQuickPromoTemplate() {
     }
     const promo = await crmStore.createPromoCode({
       code: promoQuickForm.code.trim().toUpperCase(),
-      description: promoQuickForm.description.trim() || null,
+      description: prizeTitle,
       customer_description: promoQuickForm.customer_description.trim() || null,
       manager_description: promoQuickForm.manager_description.trim() || null,
       discount_type: promoQuickForm.discount_type as 'fixed' | 'percent',
@@ -2024,6 +2056,7 @@ async function createQuickPromoTemplate() {
       min_order_amount: Number(promoQuickForm.min_order_amount) || 0,
       max_uses: Number(promoQuickForm.max_uses) || 0,
       duration_days: Number(promoQuickForm.duration_days) || 90,
+      is_wheel_template: 1,
       active: promoQuickForm.active ? 1 : 0,
     })
     await loadPromoTemplates()

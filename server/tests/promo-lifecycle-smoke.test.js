@@ -291,6 +291,123 @@ async function testGiftPromoCanHaveZeroDiscount() {
   assert.equal(ordinaryZeroPatch.data.error, "invalid_discount");
 }
 
+async function testBoundedPromoRequiresStartDateExceptForWheelTemplates() {
+  const missingStart = await requestJson("/api/admin/crm/promo-codes", {
+    method: "POST",
+    headers: adminHeaders(),
+    body: JSON.stringify({
+      code: "DAYS-NO-START",
+      discount_type: "fixed",
+      discount_value: 5,
+      duration_days: 25,
+    }),
+  });
+  assert.equal(missingStart.response.status, 400);
+  assert.equal(missingStart.data.error, "valid_from_date_required");
+
+  const bounded = await requestJson("/api/admin/crm/promo-codes", {
+    method: "POST",
+    headers: adminHeaders(),
+    body: JSON.stringify({
+      code: "DAYS-WITH-START",
+      description: "Старый заголовок",
+      customer_description: "Старое описание",
+      manager_description: "Старая инструкция",
+      discount_type: "fixed",
+      discount_value: 5,
+      valid_from_date: "2026-07-19",
+      duration_days: 25,
+    }),
+  });
+  assert.equal(bounded.response.status, 200, JSON.stringify(bounded.data));
+  assert.equal(bounded.data.valid_from_date, "2026-07-19");
+  assert.equal(bounded.data.duration_days, 25);
+
+  const updated = await requestJson(`/api/admin/crm/promo-codes/${bounded.data.id}`, {
+    method: "PATCH",
+    headers: adminHeaders(),
+    body: JSON.stringify({
+      code: "DAYS-UPDATED",
+      description: null,
+      customer_description: null,
+      manager_description: null,
+      discount_type: "percent",
+      discount_value: 15,
+      min_order_amount: 20,
+      max_uses: 7,
+      valid_from_date: "2026-07-20",
+      duration_days: 21,
+      active: 0,
+    }),
+  });
+  assert.equal(updated.response.status, 200, JSON.stringify(updated.data));
+
+  const reopened = await requestJson(`/api/admin/crm/promo-codes/${bounded.data.id}`, {
+    method: "GET",
+    headers: adminHeaders(),
+  });
+  assert.equal(reopened.response.status, 200, JSON.stringify(reopened.data));
+  assert.equal(reopened.data.code, "DAYS-UPDATED");
+  assert.equal(reopened.data.description, null);
+  assert.equal(reopened.data.customer_description, null);
+  assert.equal(reopened.data.manager_description, null);
+  assert.equal(reopened.data.discount_type, "percent");
+  assert.equal(reopened.data.discount_value, 15);
+  assert.equal(reopened.data.min_order_amount, 20);
+  assert.equal(reopened.data.max_uses, 7);
+  assert.equal(reopened.data.valid_from_date, "2026-07-20");
+  assert.equal(reopened.data.duration_days, 21);
+  assert.equal(reopened.data.effective_valid_until_date, "2026-08-09");
+  assert.equal(reopened.data.active, 0);
+
+  const invalidPatch = await requestJson(`/api/admin/crm/promo-codes/${bounded.data.id}`, {
+    method: "PATCH",
+    headers: adminHeaders(),
+    body: JSON.stringify({ valid_from_date: null, duration_days: 21 }),
+  });
+  assert.equal(invalidPatch.response.status, 400);
+  assert.equal(invalidPatch.data.error, "valid_from_date_required");
+
+  const wheelWithoutTitle = await requestJson("/api/admin/crm/promo-codes", {
+    method: "POST",
+    headers: adminHeaders(),
+    body: JSON.stringify({
+      code: "WHEEL-NO-TITLE",
+      discount_type: "fixed",
+      discount_value: 5,
+      duration_days: 21,
+      is_wheel_template: 1,
+    }),
+  });
+  assert.equal(wheelWithoutTitle.response.status, 400);
+  assert.equal(wheelWithoutTitle.data.error, "prize_title_required");
+
+  const wheelTemplate = await requestJson("/api/admin/crm/promo-codes", {
+    method: "POST",
+    headers: adminHeaders(),
+    body: JSON.stringify({
+      code: "WHEEL-RELATIVE-DAYS",
+      description: "Приз рулетки",
+      discount_type: "fixed",
+      discount_value: 5,
+      duration_days: 21,
+      is_wheel_template: 1,
+    }),
+  });
+  assert.equal(wheelTemplate.response.status, 200, JSON.stringify(wheelTemplate.data));
+  assert.equal(wheelTemplate.data.valid_from_date, null);
+  assert.equal(wheelTemplate.data.duration_days, 21);
+  assert.equal(wheelTemplate.data.is_wheel_template, 1);
+
+  const clearedWheelTitle = await requestJson(`/api/admin/crm/promo-codes/${wheelTemplate.data.id}`, {
+    method: "PATCH",
+    headers: adminHeaders(),
+    body: JSON.stringify({ description: null }),
+  });
+  assert.equal(clearedWheelTitle.response.status, 400);
+  assert.equal(clearedWheelTitle.data.error, "prize_title_required");
+}
+
 async function testPromoReservationCanBeReusedBySameOrder() {
   const promoId = "promo-reserved";
   const promoCode = "SAVE3A";
@@ -681,6 +798,7 @@ async function main() {
   seedProduct();
 
   await testGiftPromoCanHaveZeroDiscount();
+  await testBoundedPromoRequiresStartDateExceptForWheelTemplates();
   await testPromoReservationCanBeReusedBySameOrder();
   await testPromoSwitchAndRemovalOnSameOrder();
   await testPromoConsumedAndReturnedToReservedByAdmin();

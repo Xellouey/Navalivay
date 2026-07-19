@@ -216,6 +216,7 @@ promoRouter.post('/api/admin/crm/promo-codes', authMiddleware, (req, res) => {
       valid_until,
       valid_from_date,
       duration_days,
+      is_wheel_template = 0,
       active = true,
     } = req.body;
 
@@ -249,6 +250,19 @@ promoRouter.post('/api/admin/crm/promo-codes', authMiddleware, (req, res) => {
     if (duration_days !== undefined && duration_days !== null && duration_days !== '' && !normalizedDuration) {
       return res.status(400).json({ error: 'invalid_duration_days', message: 'Срок в днях должен быть целым числом больше 0' });
     }
+    const normalizedWheelTemplate = is_wheel_template === true || is_wheel_template === 1 || is_wheel_template === '1' ? 1 : 0;
+    if (normalizedWheelTemplate && (typeof description !== 'string' || !description.trim())) {
+      return res.status(400).json({
+        error: 'prize_title_required',
+        message: 'Укажите название приза',
+      });
+    }
+    if (normalizedDuration && !normalizedFromDate && !normalizedWheelTemplate) {
+      return res.status(400).json({
+        error: 'valid_from_date_required',
+        message: 'Укажите дату начала действия промокода',
+      });
+    }
 
     const cleanCode = code.trim().toUpperCase();
 
@@ -264,9 +278,9 @@ promoRouter.post('/api/admin/crm/promo-codes', authMiddleware, (req, res) => {
       INSERT INTO promo_codes (
         id, code, description, customer_description, manager_description, has_gift,
         discount_type, discount_value, min_order_amount, max_uses,
-        valid_from, valid_until, valid_from_date, duration_days, active
+        valid_from, valid_until, valid_from_date, duration_days, active, is_wheel_template
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       id,
       cleanCode,
@@ -283,6 +297,7 @@ promoRouter.post('/api/admin/crm/promo-codes', authMiddleware, (req, res) => {
       normalizedFromDate,
       normalizedDuration,
       active ? 1 : 0,
+      normalizedWheelTemplate,
     );
 
     const promo = db.prepare('SELECT * FROM promo_codes WHERE id = ?').get(id);
@@ -342,6 +357,15 @@ promoRouter.patch('/api/admin/crm/promo-codes/:id', authMiddleware, (req, res) =
     }
 
     if (description !== undefined) updates.description = description || null;
+    if (Number(existing.is_wheel_template || 0) === 1 && description !== undefined) {
+      if (typeof description !== 'string' || !description.trim()) {
+        return res.status(400).json({
+          error: 'prize_title_required',
+          message: 'Укажите название приза',
+        });
+      }
+      updates.description = description.trim();
+    }
     if (customer_description !== undefined) updates.customer_description = customer_description || null;
     if (manager_description !== undefined) updates.manager_description = manager_description || null;
     if (has_gift !== undefined) {
@@ -385,6 +409,16 @@ promoRouter.patch('/api/admin/crm/promo-codes/:id', authMiddleware, (req, res) =
         return res.status(400).json({ error: 'invalid_duration_days', message: 'Срок в днях должен быть целым числом больше 0' });
       }
       updates.duration_days = normalizedDuration;
+    }
+    if ((valid_from_date !== undefined || duration_days !== undefined) && !Number(existing.is_wheel_template || 0)) {
+      const nextFromDate = valid_from_date !== undefined ? updates.valid_from_date : existing.valid_from_date;
+      const nextDuration = duration_days !== undefined ? updates.duration_days : existing.duration_days;
+      if (nextDuration && !nextFromDate) {
+        return res.status(400).json({
+          error: 'valid_from_date_required',
+          message: 'Укажите дату начала действия промокода',
+        });
+      }
     }
     if (active !== undefined) updates.active = active ? 1 : 0;
 

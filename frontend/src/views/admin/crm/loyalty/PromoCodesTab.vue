@@ -1,5 +1,23 @@
 <template>
   <div class="flex min-h-0 flex-1 flex-col gap-5">
+    <Transition
+      enter-active-class="transition ease-out duration-200"
+      enter-from-class="opacity-0 translate-y-2"
+      enter-to-class="opacity-100 translate-y-0"
+      leave-active-class="transition ease-in duration-150"
+      leave-from-class="opacity-100 translate-y-0"
+      leave-to-class="opacity-0 translate-y-2"
+    >
+      <div
+        v-if="successMessage"
+        class="fixed right-5 top-5 z-[70] rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800 shadow-lg"
+        role="status"
+        aria-live="polite"
+      >
+        {{ successMessage }}
+      </div>
+    </Transition>
+
     <!-- Toolbar -->
     <div class="flex shrink-0 flex-wrap items-center gap-3">
       <div class="inline-flex items-center gap-0.5 rounded-[10px] border border-slate-200 bg-slate-50 p-[3px]">
@@ -115,12 +133,12 @@
                 </span>
               </td>
               <td class="px-4 py-3.5 text-sm text-slate-600 max-w-[240px]">
-                <p class="truncate font-medium text-slate-800">{{ promo.description || promo.customer_description || '-' }}</p>
+                <p class="truncate font-medium text-slate-800">{{ getPromoPrimaryText(promo) }}</p>
                 <p
-                  v-if="promo.description && promo.customer_description"
+                  v-if="getPromoSecondaryText(promo)"
                   class="truncate text-xs text-slate-500"
                 >
-                  {{ promo.customer_description }}
+                  {{ getPromoSecondaryText(promo) }}
                 </p>
               </td>
               <td class="px-4 py-3.5 text-sm text-right font-semibold text-slate-800">
@@ -229,7 +247,7 @@
     >
       <div
         v-if="formModalOpen"
-        class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
+        class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm sm:p-6"
         @click.self="closeFormModal"
       >
         <Transition
@@ -240,12 +258,20 @@
           leave-from-class="opacity-100 scale-100 translate-y-0"
           leave-to-class="opacity-0 scale-95 translate-y-2"
         >
-          <div v-if="formModalOpen" class="w-full max-w-lg rounded-2xl border border-slate-200/40 bg-white p-6 shadow-2xl">
-            <h3 class="text-lg font-bold text-slate-900 mb-5">
+          <div
+            v-if="formModalOpen"
+            data-testid="promo-form-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="promo-form-title"
+            class="flex max-h-[calc(100dvh-2rem)] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-slate-200/40 bg-white shadow-2xl sm:max-h-[calc(100dvh-3rem)]"
+          >
+            <h3 id="promo-form-title" class="shrink-0 border-b border-slate-100 px-6 py-4 text-lg font-bold text-slate-900">
               {{ editingPromo ? 'Редактировать промокод' : 'Создать промокод' }}
             </h3>
 
-            <form @submit.prevent="handleSubmit" class="space-y-4">
+            <form @submit.prevent="handleSubmit" class="flex min-h-0 flex-1 flex-col overflow-hidden">
+              <div data-testid="promo-form-scroll" class="min-h-0 flex-1 space-y-4 overflow-y-auto px-6 py-4">
               <div>
                 <label class="block text-sm font-medium text-slate-700 mb-1.5">Код промокода</label>
                 <div class="flex gap-2">
@@ -266,29 +292,48 @@
                 </div>
               </div>
 
-              <div>
-                <label class="block text-sm font-medium text-slate-700 mb-1.5">Заголовок</label>
+              <div v-if="isEditingWheelTemplate">
+                <div class="mb-1.5 flex items-center gap-2">
+                  <label for="promo-prize-title" class="block text-sm font-medium text-slate-700">Название приза</label>
+                  <span class="rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-semibold text-indigo-700">Для рулетки</span>
+                  <span class="text-xs text-slate-500">обязательно</span>
+                </div>
                 <input
+                  id="promo-prize-title"
+                  ref="prizeTitleInput"
                   v-model="form.description"
                   type="text"
-                  class="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
-                  placeholder="Название приза или промокода для клиента"
+                  class="w-full rounded-lg border px-4 py-2.5 text-sm focus:outline-none focus:ring-2"
+                  :class="prizeTitleError
+                    ? 'border-red-300 focus:border-red-500 focus:ring-red-100'
+                    : 'border-gray-300 focus:border-blue-500 focus:ring-blue-200'"
+                  :aria-invalid="Boolean(prizeTitleError)"
+                  aria-required="true"
+                  :aria-describedby="prizeTitleError ? 'promo-prize-title-error' : 'promo-prize-title-hint'"
+                  placeholder="Например: Одноразка в подарок"
+                  @input="prizeTitleError = ''"
                 />
+                <p v-if="prizeTitleError" id="promo-prize-title-error" class="mt-1 text-xs font-medium text-red-600">
+                  {{ prizeTitleError }}
+                </p>
+                <p v-else id="promo-prize-title-hint" class="mt-1 text-xs text-slate-500">Показывается на рулетке и в окне выигрыша.</p>
               </div>
 
               <div>
-                <label class="block text-sm font-medium text-slate-700 mb-1.5">Описание для клиента</label>
+                <label for="promo-customer-description" class="block text-sm font-medium text-slate-700 mb-1.5">Описание для клиента</label>
                 <textarea
+                  id="promo-customer-description"
                   v-model="form.customer_description"
                   rows="2"
                   class="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
-                  placeholder="Дополнительный текст под заголовком в миниаппе"
+                  placeholder="Этот текст клиент увидит после применения промокода"
                 ></textarea>
               </div>
 
               <div>
-                <label class="block text-sm font-medium text-slate-700 mb-1.5">Описание для менеджера</label>
+                <label for="promo-manager-description" class="block text-sm font-medium text-slate-700 mb-1.5">Описание для менеджера</label>
                 <textarea
+                  id="promo-manager-description"
                   v-model="form.manager_description"
                   rows="3"
                   class="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
@@ -346,31 +391,61 @@
                 </div>
               </div>
 
-              <div class="grid grid-cols-2 gap-4">
-                <div>
-                  <label class="block text-sm font-medium text-slate-700 mb-1.5">Действует с</label>
+              <div class="grid gap-4" :class="isEditingWheelTemplate ? 'grid-cols-1' : 'grid-cols-2'">
+                <div v-if="!isEditingWheelTemplate">
+                  <label for="promo-valid-from-date" class="block text-sm font-medium text-slate-700 mb-1.5">Действует с</label>
                   <input
+                    id="promo-valid-from-date"
+                    ref="validFromDateInput"
                     v-model="form.valid_from_date"
                     type="date"
-                    class="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
+                    class="w-full rounded-lg border px-4 py-2.5 text-sm focus:outline-none focus:ring-2"
+                    :class="validFromDateError
+                      ? 'border-red-300 focus:border-red-500 focus:ring-red-100'
+                      : 'border-gray-300 focus:border-blue-500 focus:ring-blue-200'"
+                    :aria-invalid="Boolean(validFromDateError)"
+                    :aria-describedby="validFromDateError ? 'promo-valid-from-date-error' : undefined"
+                    @input="validFromDateError = ''"
                   />
+                  <p v-if="validFromDateError" id="promo-valid-from-date-error" class="mt-1 text-xs font-medium text-red-600">
+                    {{ validFromDateError }}
+                  </p>
                 </div>
                 <div>
-                  <label class="block text-sm font-medium text-slate-700 mb-1.5">На сколько дней</label>
+                  <label for="promo-duration-days" class="block text-sm font-medium text-slate-700 mb-1.5">
+                    {{ isEditingWheelTemplate ? 'Срок после выигрыша, дней' : 'На сколько дней' }}
+                  </label>
                   <input
+                    id="promo-duration-days"
+                    ref="durationDaysInput"
                     v-model.number="form.duration_days"
                     type="number"
                     min="1"
-                    :disabled="form.is_perpetual"
-                    class="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
+                    :disabled="!isEditingWheelTemplate && form.is_perpetual"
+                    class="w-full rounded-lg border px-4 py-2.5 text-sm focus:outline-none focus:ring-2 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
+                    :class="durationDaysError
+                      ? 'border-red-300 focus:border-red-500 focus:ring-red-100'
+                      : 'border-gray-300 focus:border-blue-500 focus:ring-blue-200'"
+                    :aria-invalid="Boolean(durationDaysError)"
+                    :aria-describedby="durationDaysError ? 'promo-duration-days-error' : undefined"
                     placeholder="Например, 13"
+                    @input="durationDaysError = ''"
                   />
+                  <p v-if="durationDaysError" id="promo-duration-days-error" class="mt-1 text-xs font-medium text-red-600">
+                    {{ durationDaysError }}
+                  </p>
+                  <p v-else-if="isEditingWheelTemplate" class="mt-1 text-xs text-slate-500">Отсчитывается со дня выигрыша.</p>
                 </div>
               </div>
 
-              <div class="flex flex-wrap items-center gap-5">
+              <div v-if="!isEditingWheelTemplate" class="flex flex-wrap items-center gap-5">
                 <label class="inline-flex items-center gap-2 text-sm text-slate-700">
-                  <input v-model="form.is_perpetual" type="checkbox" class="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
+                  <input
+                    v-model="form.is_perpetual"
+                    type="checkbox"
+                    class="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                    @change="clearValidityErrorsForPerpetual"
+                  />
                   Бессрочно
                 </label>
               </div>
@@ -394,13 +469,15 @@
 
               <p v-if="formError" class="rounded-lg bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-600">{{ formError }}</p>
 
-              <div class="flex gap-3 pt-2">
+              </div>
+
+              <div class="flex shrink-0 flex-col gap-3 border-t border-slate-100 bg-white px-6 py-4 sm:flex-row">
                 <button
                   type="submit"
                   :disabled="formSubmitting"
                   class="flex-1 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 px-4 py-2.5 text-sm font-semibold text-white shadow-md transition-all duration-200 hover:from-blue-700 hover:to-indigo-700 hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  {{ formSubmitting ? 'Сохранение...' : (editingPromo ? 'Сохранить' : 'Создать') }}
+                  {{ formSubmitting ? 'Сохранение...' : (editingPromo ? 'Сохранить промокод' : 'Создать промокод') }}
                 </button>
                 <button
                   type="button"
@@ -481,7 +558,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, nextTick, onBeforeUnmount, onMounted } from 'vue'
 import { PencilIcon, TrashIcon } from '@heroicons/vue/24/outline'
 import { useCrmStore, type PromoCode, type PromoUsage } from '@/stores/crm'
 
@@ -508,7 +585,18 @@ const formModalOpen = ref(false)
 const editingPromo = ref<PromoCode | null>(null)
 const formSubmitting = ref(false)
 const formError = ref('')
+const prizeTitleError = ref('')
+const validFromDateError = ref('')
+const durationDaysError = ref('')
+const prizeTitleInput = ref<HTMLInputElement | null>(null)
+const validFromDateInput = ref<HTMLInputElement | null>(null)
+const durationDaysInput = ref<HTMLInputElement | null>(null)
+const successMessage = ref('')
+let successTimer: ReturnType<typeof setTimeout> | null = null
 const form = ref(getEmptyForm())
+const isEditingWheelTemplate = computed(() => Boolean(
+  editingPromo.value && isWheelTemplatePromo(editingPromo.value),
+))
 
 function getEmptyForm() {
   return {
@@ -538,6 +626,10 @@ const usageLoading = ref(false)
 
 onMounted(() => {
   loadPromoCodes()
+})
+
+onBeforeUnmount(() => {
+  if (successTimer) clearTimeout(successTimer)
 })
 
 async function loadPromoCodes() {
@@ -582,6 +674,9 @@ function openCreateModal() {
   editingPromo.value = null
   form.value = getEmptyForm()
   formError.value = ''
+  prizeTitleError.value = ''
+  validFromDateError.value = ''
+  durationDaysError.value = ''
   formModalOpen.value = true
 }
 
@@ -589,7 +684,7 @@ function openEditModal(promo: PromoCode) {
   editingPromo.value = promo
   form.value = {
     code: promo.code,
-    description: promo.description || promo.customer_description || '',
+    description: promo.description || '',
     customer_description: promo.customer_description || '',
     manager_description: promo.manager_description || '',
     has_gift: Boolean(promo.has_gift),
@@ -605,6 +700,9 @@ function openEditModal(promo: PromoCode) {
     active: Boolean(promo.active),
   }
   formError.value = ''
+  prizeTitleError.value = ''
+  validFromDateError.value = ''
+  durationDaysError.value = ''
   formModalOpen.value = true
 }
 
@@ -616,18 +714,44 @@ function closeFormModal() {
 
 async function handleSubmit() {
   formError.value = ''
+  prizeTitleError.value = ''
+  validFromDateError.value = ''
+  durationDaysError.value = ''
   formSubmitting.value = true
 
   try {
-    const useNewValidity = Boolean(form.value.valid_from_date)
+    const wheelTemplateEdit = isEditingWheelTemplate.value
+    const days = Number(form.value.duration_days || 0)
 
-    if (useNewValidity && !form.value.is_perpetual) {
-      const days = Number(form.value.duration_days || 0)
-      if (!Number.isFinite(days) || days <= 0) {
-        formError.value = 'Укажите срок действия в днях'
+    if (wheelTemplateEdit) {
+      if (!form.value.description.trim()) {
+        prizeTitleError.value = 'Укажите название приза'
+        await nextTick()
+        prizeTitleInput.value?.focus()
+        return
+      }
+      if (!Number.isInteger(days) || days <= 0) {
+        durationDaysError.value = 'Укажите целое число дней больше 0'
+        await nextTick()
+        durationDaysInput.value?.focus()
+        return
+      }
+    } else if (!form.value.is_perpetual) {
+      if (!Number.isInteger(days) || days <= 0) {
+        durationDaysError.value = 'Укажите целое число дней больше 0'
+      }
+      if (!form.value.valid_from_date) {
+        validFromDateError.value = 'Укажите дату начала действия промокода'
+      }
+      if (validFromDateError.value || durationDaysError.value) {
+        await nextTick()
+        if (validFromDateError.value) validFromDateInput.value?.focus()
+        else durationDaysInput.value?.focus()
         return
       }
     }
+
+    const useNewValidity = !wheelTemplateEdit && Boolean(form.value.valid_from_date)
 
     const discountValue = Number(form.value.discount_value)
     if (!Number.isFinite(discountValue) || discountValue < 0) {
@@ -637,16 +761,20 @@ async function handleSubmit() {
 
     const data = {
       ...form.value,
-      description: form.value.description?.trim() || null,
+      description: editingPromo.value && isWheelRelatedPromo(editingPromo.value)
+        ? (form.value.description?.trim() || null)
+        : null,
       customer_description: form.value.customer_description?.trim() || null,
-      duration_days: useNewValidity ? (form.value.is_perpetual ? null : form.value.duration_days) : null,
-      valid_from_date: useNewValidity ? (form.value.valid_from_date || null) : null,
-      valid_from: useNewValidity ? null : (form.value.valid_from || null),
-      valid_until: useNewValidity ? null : (form.value.valid_until || null),
+      manager_description: form.value.manager_description?.trim() || null,
+      duration_days: wheelTemplateEdit ? days : (useNewValidity ? (form.value.is_perpetual ? null : days) : null),
+      valid_from_date: wheelTemplateEdit ? (form.value.valid_from_date || null) : (useNewValidity ? form.value.valid_from_date : null),
+      valid_from: wheelTemplateEdit ? (form.value.valid_from || null) : (useNewValidity ? null : (form.value.valid_from || null)),
+      valid_until: wheelTemplateEdit ? (form.value.valid_until || null) : (useNewValidity ? null : (form.value.valid_until || null)),
       active: form.value.active ? 1 : 0,
       has_gift: discountValue <= 0 ? 1 : 0,
     }
 
+    const wasEditing = Boolean(editingPromo.value)
     if (editingPromo.value) {
       await crmStore.updatePromoCode(editingPromo.value.id, data)
     } else {
@@ -655,6 +783,7 @@ async function handleSubmit() {
 
     formModalOpen.value = false
     editingPromo.value = null
+    showSuccess(wasEditing ? 'Промокод сохранён.' : 'Промокод создан.')
   } catch (error: any) {
     const msg = error?.message || ''
     if (msg.includes('code_exists') || msg.includes('уже существует')) {
@@ -665,6 +794,21 @@ async function handleSubmit() {
   } finally {
     formSubmitting.value = false
   }
+}
+
+function clearValidityErrorsForPerpetual() {
+  if (!form.value.is_perpetual) return
+  validFromDateError.value = ''
+  durationDaysError.value = ''
+}
+
+function showSuccess(message: string) {
+  successMessage.value = message
+  if (successTimer) clearTimeout(successTimer)
+  successTimer = setTimeout(() => {
+    successMessage.value = ''
+    successTimer = null
+  }, 3000)
 }
 
 async function handleDelete(promo: PromoCode) {
@@ -755,6 +899,27 @@ function isWheelTemplatePromo(promo: PromoCode): boolean {
   return Number(promo.is_wheel_template || 0) === 1
 }
 
+function isWheelRelatedPromo(promo: PromoCode): boolean {
+  return isWheelTemplatePromo(promo)
+    || Number(promo.is_wheel_generated || 0) === 1
+    || Boolean(promo.wheel_owner_customer_id)
+}
+
+function getPromoPrimaryText(promo: PromoCode): string {
+  if (isWheelTemplatePromo(promo)) {
+    return promo.description || promo.customer_description || '-'
+  }
+  return promo.customer_description || promo.description || '-'
+}
+
+function getPromoSecondaryText(promo: PromoCode): string {
+  if (!isWheelTemplatePromo(promo)) return ''
+  const title = String(promo.description || '').trim()
+  const customerText = String(promo.customer_description || '').trim()
+  if (!title || !customerText || title === customerText) return ''
+  return customerText
+}
+
 function getSourceBadgeClass(): string {
   return 'bg-indigo-100 text-indigo-700'
 }
@@ -777,6 +942,11 @@ function formatDate(dateStr: string): string {
 }
 
 const effectiveUntilHint = computed(() => {
+  if (isEditingWheelTemplate.value) {
+    const duration = Number(form.value.duration_days || 0)
+    if (!Number.isInteger(duration) || duration <= 0) return ''
+    return `Выданный промокод будет действовать ${duration} дн. со дня выигрыша.`
+  }
   const startDate = form.value.valid_from_date
   if (!startDate) return ''
   if (form.value.is_perpetual) return 'Промокод будет действовать бессрочно.'

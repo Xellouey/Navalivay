@@ -96,12 +96,21 @@ Current promo fields include:
 - Use separate fields:
   - `Описание для клиента`
   - `Описание для менеджера`
+- Regular promos do not show the legacy `description` field in the CRM form.
+- Wheel templates show `description` as `Название приза`.
+- `Название приза` is displayed on the wheel and in the win result.
+- `Название приза` is required for wheel templates in both UI and API.
+- Do not fill `description` from `customer_description` when reopening the form.
+- Explicitly saving a regular promo clears its hidden legacy `description` so removed customer text cannot return through the fallback.
 - Gift toggle:
   - `Есть подарок к заказу`
 - Validity UX:
   - `Действует с` (date)
   - `На сколько дней` or `Бессрочно`
   - UI shows computed inclusive end date.
+- A bounded regular promo requires both `valid_from_date` and `duration_days`.
+- If days are entered without a start date, block saving and show the error near `Действует с`.
+- A wheel template is the exception: its `duration_days` starts from the winner's issue date, so it does not require `valid_from_date`.
 
 ### Orders visibility
 
@@ -134,6 +143,8 @@ At minimum verify:
 
 - create/edit regular promo
 - create/edit gift promo
+- regular promo rejects duration without a start date
+- wheel template accepts relative duration without a start date
 - perpetual promo (`duration_days = null`)
 - bounded promo (`duration_days > 0`) with inclusive end date
 - checkout shows customer description correctly
