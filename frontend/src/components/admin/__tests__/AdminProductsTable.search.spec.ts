@@ -14,7 +14,7 @@ describe("AdminProductsTable search regressions", () => {
     vi.restoreAllMocks();
   });
 
-  function mountTable() {
+  function mountTable(extraProps: Record<string, unknown> = {}) {
     return mount(AdminProductsTable, {
       props: {
         products: [],
@@ -28,6 +28,7 @@ describe("AdminProductsTable search regressions", () => {
           total: 0,
           totalPages: 1,
         },
+        ...extraProps,
       },
       global: {
         stubs: {
@@ -72,5 +73,23 @@ describe("AdminProductsTable search regressions", () => {
 
     await vi.advanceTimersByTimeAsync(300);
     expect(wrapper.emitted("filters")).toHaveLength(1);
+  });
+
+  it("shows a safe empty warehouse state without catalog editing actions", () => {
+    const wrapper = mountTable({ location: "warehouse" });
+
+    expect(wrapper.text()).toContain("На складе пока нет товаров");
+    expect(wrapper.text()).toContain("Перемещение");
+    expect(wrapper.text()).not.toContain("Добавить товар");
+    expect(wrapper.text()).not.toContain("Выбрать все");
+  });
+
+  it("emits warehouse location switch", async () => {
+    const wrapper = mountTable();
+    const warehouseButton = wrapper.findAll("button").find((button) => button.text() === "Склад");
+
+    expect(warehouseButton).toBeTruthy();
+    await warehouseButton!.trigger("click");
+    expect(wrapper.emitted("changeLocation")).toEqual([["warehouse"]]);
   });
 });

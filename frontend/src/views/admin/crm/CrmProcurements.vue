@@ -258,7 +258,7 @@
       @close="closeCreateModal"
       @cancel="closeCreateModal"
     >
-      <div class="grid gap-6 md:grid-cols-[1.55fr,1fr]">
+      <div class="grid gap-6">
         <div class="space-y-6">
           <div class="grid gap-4 rounded-xl border border-gray-200 p-5">
             <label class="text-sm font-medium text-gray-700" for="supplier"
@@ -377,7 +377,7 @@
                         {{ product.groupName }}
                       </div>
                       <div class="text-xs text-gray-500">
-                        Остаток: {{ product.stock }} • Себестоимость:
+                        Розница: {{ product.stock }} · Склад: {{ Number(product.warehouseStock || 0) }} · Себестоимость:
                         {{ formatCurrency(product.costPrice) }}
                       </div>
                     </div>
@@ -412,7 +412,7 @@
 
           <div class="rounded-xl border border-gray-200">
             <div class="overflow-x-auto">
-              <table class="w-full min-w-[680px] text-sm">
+              <table class="w-full min-w-[780px] text-sm">
                 <thead
                   class="bg-gray-50 text-xs font-medium uppercase text-gray-500"
                 >
@@ -421,6 +421,7 @@
                     <th class="px-4 py-3 text-left">Товар</th>
                     <th class="px-4 py-3 text-left">Остаток</th>
                     <th class="px-4 py-3 text-left">Кол-во</th>
+                    <th class="px-4 py-3 text-left">На склад</th>
                     <th class="px-4 py-3 text-left">Себестоимость</th>
                     <th class="px-4 py-3 text-left">Новая средняя</th>
                     <th class="px-4 py-3 text-right">Сумма</th>
@@ -464,7 +465,8 @@
                       </div>
                     </td>
                     <td class="px-4 py-3 text-sm text-gray-600">
-                      {{ item.product.stock }} шт
+                      <div>Розница: {{ item.product.stock }} шт</div>
+                      <div>Склад: {{ Number(item.product.warehouseStock || 0) }} шт</div>
                     </td>
                     <td class="px-4 py-3">
                       <input
@@ -474,6 +476,19 @@
                         class="w-20 rounded-lg border border-gray-300 px-2 py-1 text-sm focus:border-blue-500 focus:outline-none"
                         @change="clampQuantity(item)"
                       />
+                    </td>
+                    <td class="px-4 py-3">
+                      <input
+                        v-model.number="item.warehouseQuantity"
+                        type="number"
+                        min="0"
+                        :max="item.quantity"
+                        class="w-20 rounded-lg border border-gray-300 px-2 py-1 text-sm focus:border-blue-500 focus:outline-none"
+                        @change="clampWarehouseQuantity(item)"
+                      />
+                      <div class="mt-1 whitespace-nowrap text-[11px] text-gray-500">
+                        В розницу: {{ item.quantity - item.warehouseQuantity }}
+                      </div>
                     </td>
                     <td class="px-4 py-3">
                       <input
@@ -507,7 +522,7 @@
                   <tr>
                     <td
                       class="px-4 py-6 text-center text-sm text-gray-500"
-                      colspan="7"
+                      colspan="9"
                     >
                       Добавьте товары, чтобы сформировать закупку
                     </td>
@@ -519,6 +534,27 @@
         </div>
 
         <aside class="space-y-6">
+          <div v-if="draftItems.length" class="rounded-xl border border-gray-200 bg-white p-5">
+            <h4 class="text-sm font-semibold text-gray-900">Быстрое распределение</h4>
+            <p class="mt-1 text-xs text-gray-500">Укажите, сколько единиц каждой позиции отправить на склад.</p>
+            <div class="mt-4 flex gap-2">
+              <input
+                v-model.number="bulkWarehouseQuantity"
+                type="number"
+                min="0"
+                class="min-w-0 flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
+                placeholder="Например, 5"
+              />
+              <button
+                type="button"
+                class="rounded-lg border border-blue-200 px-3 py-2 text-xs font-semibold text-blue-700 transition hover:bg-blue-50"
+                @click="applyWarehouseQuantityToAll"
+              >
+                Применить ко всем
+              </button>
+            </div>
+          </div>
+
           <div class="rounded-xl border border-blue-100 bg-blue-50 p-5">
             <h4 class="text-sm font-semibold text-blue-900">
               Итого по закупке
@@ -531,6 +567,14 @@
               <div class="flex justify-between">
                 <span>Количество</span>
                 <span>{{ draftTotalQuantity }} шт</span>
+              </div>
+              <div class="flex justify-between">
+                <span>На склад</span>
+                <span>{{ draftWarehouseQuantity }} шт</span>
+              </div>
+              <div class="flex justify-between">
+                <span>В розницу</span>
+                <span>{{ draftRetailQuantity }} шт</span>
               </div>
               <div class="flex justify-between text-base font-semibold">
                 <span>Сумма закупки</span>
@@ -632,13 +676,14 @@
 
         <div class="rounded-lg border border-gray-200">
           <div class="overflow-x-auto">
-            <table class="w-full min-w-[560px] text-sm">
+            <table class="w-full min-w-[680px] text-sm">
               <thead
                 class="bg-gray-50 text-xs font-medium uppercase text-gray-500"
               >
                 <tr>
                   <th class="px-4 py-3 text-left">Товар</th>
                   <th class="px-4 py-3 text-left">Кол-во</th>
+                  <th class="px-4 py-3 text-left">Распределение</th>
                   <th class="px-4 py-3 text-left">Цена</th>
                   <th class="px-4 py-3 text-right">Сумма</th>
                 </tr>
@@ -684,6 +729,10 @@
                   </td>
                   <td class="px-4 py-3 text-sm text-gray-600">
                     {{ item.quantity }} шт
+                  </td>
+                  <td class="px-4 py-3 text-sm text-gray-600">
+                    <div>Склад: {{ Number(item.warehouse_quantity || 0) }} шт</div>
+                    <div>Розница: {{ item.quantity - Number(item.warehouse_quantity || 0) }} шт</div>
                   </td>
                   <td class="px-4 py-3 text-sm text-gray-600">
                     {{ formatCurrency(item.cost_per_unit) }}
@@ -818,7 +867,7 @@
 
         <div class="grid gap-4 md:grid-cols-2">
           <label class="flex flex-col gap-2 text-sm font-medium text-gray-700">
-            Остаток на складе, шт
+            Остаток в рознице, шт
             <input
               v-model.number="quickProduct.stock"
               type="number"
@@ -1096,6 +1145,7 @@ interface DraftProcurementItem {
   product: CrmProductSummary;
   quantity: number;
   costPerUnit: number;
+  warehouseQuantity: number;
 }
 
 const crmStore = useCrmStore();
@@ -1120,6 +1170,8 @@ const searchError = ref("");
 const productSearchRequestId = ref(0);
 const lowStockLoading = ref(false);
 const creatingProcurement = ref(false);
+const bulkWarehouseQuantity = ref<number | null>(null);
+const initialDraftSignature = ref("");
 
 const showQuickProductModal = ref(false);
 const quickProductSaving = ref(false);
@@ -1193,12 +1245,21 @@ const draftTotalAmount = computed(() =>
     0,
   ),
 );
+const draftWarehouseQuantity = computed(() =>
+  draftItems.value.reduce((sum, item) => sum + Number(item.warehouseQuantity || 0), 0),
+);
+const draftRetailQuantity = computed(() => draftTotalQuantity.value - draftWarehouseQuantity.value);
 const draftAverageCost = computed(() => {
   if (!draftItems.value.length) return 0;
   return draftTotalAmount.value / draftTotalQuantity.value || 0;
 });
 const hasDraftIssues = computed(() =>
-  draftItems.value.some((item) => item.quantity <= 0 || item.costPerUnit <= 0),
+  draftItems.value.some((item) =>
+    item.quantity <= 0
+    || item.costPerUnit <= 0
+    || item.warehouseQuantity < 0
+    || item.warehouseQuantity > item.quantity,
+  ),
 );
 const canSubmitProcurement = computed(
   () => draftItems.value.length > 0 && !hasDraftIssues.value,
@@ -1310,6 +1371,13 @@ function normalizeProduct(row: any): CrmProductSummary {
     priceRub: Number(row.priceRub ?? row.price_rub ?? 0),
     costPrice: Number(row.costPrice ?? row.cost_price ?? 0),
     stock: Number(row.stock ?? 0),
+    warehouseStock: Number(row.warehouse_stock ?? row.warehouseStock ?? 0),
+    companyStock: Number(
+      row.total_stock
+      ?? row.base_total_stock
+      ?? row.companyStock
+      ?? (Number(row.stock ?? 0) + Number(row.warehouse_stock ?? row.warehouseStock ?? 0)),
+    ),
     minStock: Number(row.minStock ?? row.min_stock ?? 0),
     categoryId: String(row.categoryId ?? row.category_id ?? ""),
     categoryName: row.categoryName ?? row.category_name ?? null,
@@ -1338,6 +1406,8 @@ function convertAdminProductToCrmSummary(product: any): CrmProductSummary {
     priceRub: Number(product.priceRub ?? 0),
     costPrice: Number(product.costPrice ?? 0),
     stock: Number(product.stock ?? 0),
+    warehouseStock: Number(product.warehouseStock ?? 0),
+    companyStock: Number(product.stock ?? 0) + Number(product.warehouseStock ?? 0),
     minStock: Number(product.minStock ?? 0),
     categoryId: String(product.categoryId ?? ""),
     categoryName: category?.name ?? null,
@@ -1408,17 +1478,28 @@ async function openCreateModal() {
   supplierName.value = "";
   draftNotes.value = "";
   draftItems.value = [];
+  bulkWarehouseQuantity.value = null;
   productSearch.value = "";
   clearProductSearchState();
+  initialDraftSignature.value = procurementDraftSignature();
   showCreateModal.value = true;
   quickProductError.value = "";
   await loadProducts();
   // Обновление произойдет автоматически через watch(showCreateModal)
 }
 
-function closeCreateModal() {
+function closeCreateModal(force = false) {
+  if (
+    !force
+    &&
+    procurementDraftSignature() !== initialDraftSignature.value
+    && !confirm("Закрыть закупку? Несохранённые товары и распределение будут потеряны.")
+  ) {
+    return;
+  }
   showCreateModal.value = false;
   editingProcurementId.value = null;
+  initialDraftSignature.value = "";
   clearProductSearchState();
 }
 
@@ -1443,6 +1524,7 @@ function addProduct(product: CrmProductSummary) {
     product,
     quantity: 1,
     costPerUnit: product.costPrice > 0 ? product.costPrice : product.priceRub,
+    warehouseQuantity: 0,
   });
 }
 
@@ -1458,6 +1540,7 @@ function decreaseProduct(productId: string) {
     draftItems.value = draftItems.value.filter((i) => i.product.id !== productId);
   } else {
     item.quantity -= 1;
+    clampWarehouseQuantity(item);
   }
 }
 
@@ -1486,9 +1569,11 @@ async function startEditProcurement(id: string, existing?: Procurement | null) {
         product_id: item.variant_id ? item.product_id : undefined, // productId только для вариантов
         title: item.product_title,
         group_name: item.group_name ?? null,
-        cost_price: item.cost_per_unit,
+        cost_price: item.product_cost_price ?? item.cost_per_unit,
         priceRub: item.cost_per_unit,
         stock: item.variant_stock ?? item.stock ?? 0,
+        warehouse_stock: item.variant_warehouse_stock ?? item.warehouse_stock ?? 0,
+        base_total_stock: item.base_total_stock,
         min_stock: item.min_stock ?? 0,
         is_variant: !!item.variant_id,
         variant_name: item.variant_name ?? null,
@@ -1496,7 +1581,10 @@ async function startEditProcurement(id: string, existing?: Procurement | null) {
       }),
       quantity: Number(item.quantity || 0),
       costPerUnit: Number(item.cost_per_unit || 0),
+      warehouseQuantity: Number(item.warehouse_quantity || 0),
     }));
+    bulkWarehouseQuantity.value = null;
+    initialDraftSignature.value = procurementDraftSignature();
 
     productSearch.value = "";
     clearProductSearchState();
@@ -1768,6 +1856,21 @@ function clampQuantity(item: DraftProcurementItem) {
   if (!Number.isFinite(item.quantity) || item.quantity <= 0) {
     item.quantity = 1;
   }
+  item.quantity = Math.floor(item.quantity);
+  clampWarehouseQuantity(item);
+}
+
+function clampWarehouseQuantity(item: DraftProcurementItem) {
+  const value = Math.floor(Number(item.warehouseQuantity || 0));
+  item.warehouseQuantity = Math.min(Math.max(value, 0), item.quantity);
+}
+
+function applyWarehouseQuantityToAll() {
+  const value = Math.max(0, Math.floor(Number(bulkWarehouseQuantity.value || 0)));
+  bulkWarehouseQuantity.value = value;
+  draftItems.value.forEach((item) => {
+    item.warehouseQuantity = Math.min(value, item.quantity);
+  });
 }
 
 function clampCost(item: DraftProcurementItem) {
@@ -1780,9 +1883,24 @@ function clampCost(item: DraftProcurementItem) {
 }
 
 function projectedCost(item: DraftProcurementItem) {
-  const currentTotal = item.product.stock * item.product.costPrice;
-  const upcomingTotal = item.quantity * item.costPerUnit;
-  const totalQuantity = item.product.stock + item.quantity;
+  const baseProductId = item.product.productId || item.product.id;
+  const relatedItems = draftItems.value.filter(
+    (draftItem) => (draftItem.product.productId || draftItem.product.id) === baseProductId,
+  );
+  const currentStock = Number(
+    item.product.companyStock
+    ?? (item.product.stock + Number(item.product.warehouseStock || 0)),
+  );
+  const currentTotal = currentStock * item.product.costPrice;
+  const upcomingTotal = relatedItems.reduce(
+    (sum, draftItem) => sum + draftItem.quantity * draftItem.costPerUnit,
+    0,
+  );
+  const upcomingQuantity = relatedItems.reduce(
+    (sum, draftItem) => sum + draftItem.quantity,
+    0,
+  );
+  const totalQuantity = currentStock + upcomingQuantity;
   if (totalQuantity <= 0) return null;
   return (currentTotal + upcomingTotal) / totalQuantity;
 }
@@ -1804,6 +1922,7 @@ async function submitProcurement() {
         product_id: (item.product as any).productId || item.product.id, // Используем productId для вариантов
         variant_id: item.product.isVariant ? item.product.id : undefined, // ID варианта для товаров с вариантами
         quantity: item.quantity,
+        warehouse_quantity: item.warehouseQuantity,
         cost_per_unit: item.costPerUnit,
       })),
     };
@@ -1813,12 +1932,12 @@ async function submitProcurement() {
         editingProcurementId.value,
         payload,
       );
-      closeCreateModal();
+      closeCreateModal(true);
       await crmStore.fetchProcurements();
       await openDetails(updated.id);
     } else {
       const procurement = await crmStore.createProcurement(payload);
-      closeCreateModal();
+      closeCreateModal(true);
       await crmStore.fetchProcurements();
       await openDetails(procurement.id);
     }
@@ -1838,6 +1957,20 @@ async function refreshProcurements() {
     crmStore.fetchTotalControlGroups(),
     crmStore.fetchLowStockGroups(),
   ]);
+}
+
+function procurementDraftSignature() {
+  return JSON.stringify({
+    supplier: supplierName.value.trim(),
+    notes: draftNotes.value.trim(),
+    items: draftItems.value.map((item) => ({
+      productId: item.product.productId || item.product.id,
+      variantId: item.product.isVariant ? item.product.id : null,
+      quantity: item.quantity,
+      warehouseQuantity: item.warehouseQuantity,
+      costPerUnit: item.costPerUnit,
+    })),
+  });
 }
 
 async function deleteProcurementRecord(id: string) {
@@ -1919,6 +2052,17 @@ async function deleteCurrentProcurement() {
 
 async function completeFromDetails() {
   if (!activeProcurement.value || completingProcurement.value) return;
+  const totalQuantity = (activeProcurement.value.items || []).reduce(
+    (sum, item) => sum + Number(item.quantity || 0),
+    0,
+  );
+  const warehouseQuantity = (activeProcurement.value.items || []).reduce(
+    (sum, item) => sum + Number(item.warehouse_quantity || 0),
+    0,
+  );
+  if (!confirm(
+    `Оприходовать закупку?\nНа склад: ${warehouseQuantity} шт\nВ розницу: ${totalQuantity - warehouseQuantity} шт`,
+  )) return;
   completingProcurement.value = true;
   try {
     await crmStore.completeProcurement(activeProcurement.value.id);

@@ -198,7 +198,7 @@ function scoreRow(row, rawQuery, tokens) {
   return score;
 }
 
-function findIndexRows({ search, limit, categoryId, groupId, includeVariants = true, maxLimit = 200 }) {
+function findIndexRows({ search, limit, categoryId, groupId, location, includeVariants = true, maxLimit = 200 }) {
   ensureSearchIndexReady();
   const normalizedSearch = normalizeText(search);
   const tokens = buildSearchTokens(normalizedSearch);
@@ -216,6 +216,21 @@ function findIndexRows({ search, limit, categoryId, groupId, includeVariants = t
   }
   if (!includeVariants) {
     filters.push('is_variant = 0');
+  }
+  if (location === 'retail' || location === 'warehouse') {
+    const stockColumn = location === 'warehouse' ? 'warehouse_stock' : 'stock';
+    filters.push(`(
+      (product_search_index.is_variant = 0 AND EXISTS (
+        SELECT 1 FROM products location_product
+        WHERE location_product.id = product_search_index.product_id
+          AND COALESCE(location_product.${stockColumn}, 0) > 0
+      ))
+      OR (product_search_index.is_variant = 1 AND EXISTS (
+        SELECT 1 FROM product_variants location_variant
+        WHERE location_variant.id = product_search_index.variant_id
+          AND COALESCE(location_variant.${stockColumn}, 0) > 0
+      ))
+    )`);
   }
 
   let rows = [];
@@ -280,6 +295,10 @@ function fetchProductDetails(indexRows) {
         v.color_code,
         v.price_rub,
         v.stock,
+        v.warehouse_stock,
+        (SELECT COALESCE(SUM(all_variants.stock + all_variants.warehouse_stock), 0)
+         FROM product_variants all_variants
+         WHERE all_variants.product_id = p.id) AS base_total_stock,
         p.id AS base_product_id,
         p.title AS base_product_title,
         p.description,
@@ -324,6 +343,8 @@ async function toCrmSearchDto(indexRow, detail) {
       priceRub: detail.price_rub,
       cost_price: detail.cost_price,
       stock: detail.stock,
+      warehouse_stock: detail.warehouse_stock,
+      total_stock: detail.base_total_stock,
       min_stock: detail.min_stock,
       categoryId: detail.categoryId,
       category_name: detail.category_name,
@@ -350,6 +371,8 @@ async function toCrmSearchDto(indexRow, detail) {
     priceRub: detail.priceRub,
     cost_price: detail.cost_price,
     stock: detail.stock,
+    warehouse_stock: detail.warehouse_stock,
+    total_stock: Number(detail.stock || 0) + Number(detail.warehouse_stock || 0),
     min_stock: detail.min_stock,
     categoryId: detail.categoryId,
     category_name: detail.category_name,
@@ -365,15 +388,26 @@ async function toCrmSearchDto(indexRow, detail) {
 }
 
 export async function searchProductsForCrm(options = {}) {
+  const requestedLimit = Math.min(Math.max(Number(options.limit || 25), 1), 200);
   const rows = findIndexRows({
     search: options.search,
-    limit: options.limit,
+    limit: requestedLimit,
+    maxLimit: 200,
     categoryId: options.categoryId,
     groupId: options.groupId,
+    location: options.location,
     includeVariants: true,
   });
   const details = fetchProductDetails(rows);
-  return (await Promise.all(rows
+  const eligibleRows = rows.filter((row) => {
+    const detail = details.get(row.item_id);
+    if (!detail) return false;
+    if (options.location === 'retail') return Number(detail.stock || 0) > 0;
+    if (options.location === 'warehouse') return Number(detail.warehouse_stock || 0) > 0;
+    return true;
+  }).slice(0, requestedLimit);
+
+  return (await Promise.all(eligibleRows
     .map(async (row) => {
       const detail = details.get(row.item_id);
       return detail ? await toCrmSearchDto(row, detail) : null;
@@ -390,13 +424,44 @@ export function searchProductsForAdmin(options = {}) {
     maxLimit: 1000,
     categoryId: options.categoryId,
     groupId: options.groupId,
-    includeVariants: false,
+    location: options.location === 'warehouse' ? 'warehouse' : undefined,
+    includeVariants: true,
   });
-  const pagedRows = allRows.slice((page - 1) * limit, page * limit);
-  const details = fetchProductDetails(pagedRows);
-  const products = pagedRows
-    .map((row) => details.get(row.item_id))
-    .filter(Boolean)
+  const searchDetails = fetchProductDetails(allRows);
+  const productIds = [];
+  const seenProductIds = new Set();
+  for (const row of allRows) {
+    const detail = searchDetails.get(row.item_id);
+    if (!detail) continue;
+    if (options.location === 'warehouse' && Number(detail.warehouse_stock || 0) <= 0) continue;
+    const productId = String(row.product_id);
+    if (seenProductIds.has(productId)) continue;
+    seenProductIds.add(productId);
+    productIds.push(productId);
+  }
+
+  const pagedProductIds = productIds.slice((page - 1) * limit, page * limit);
+  let productRows = [];
+  if (pagedProductIds.length) {
+    const placeholders = pagedProductIds.map(() => '?').join(',');
+    productRows = db.prepare(`
+      SELECT
+        p.*,
+        c.name AS category_name,
+        c.cover_image AS category_image,
+        g.name AS group_name,
+        g.slug AS group_slug,
+        g.cover_image AS group_image
+      FROM products p
+      LEFT JOIN categories c ON c.id = p.categoryId
+      LEFT JOIN category_groups g ON g.id = p.groupId
+      WHERE p.id IN (${placeholders})
+    `).all(...pagedProductIds);
+    const orderById = new Map(pagedProductIds.map((id, index) => [id, index]));
+    productRows.sort((a, b) => orderById.get(a.id) - orderById.get(b.id));
+  }
+
+  const products = productRows
     .map((row) => ({
       id: row.id,
       categoryId: row.categoryId,
@@ -406,6 +471,7 @@ export function searchProductsForAdmin(options = {}) {
       description: row.description,
       strength: row.strength,
       stock: row.stock,
+      warehouseStock: row.warehouse_stock,
       createdAt: row.createdAt,
       categoryName: row.category_name,
       categoryImage: null,
@@ -423,8 +489,8 @@ export function searchProductsForAdmin(options = {}) {
     pagination: {
       page,
       limit,
-      total: allRows.length,
-      totalPages: Math.max(1, Math.ceil(allRows.length / limit)),
+      total: productIds.length,
+      totalPages: Math.max(1, Math.ceil(productIds.length / limit)),
     },
   };
 }

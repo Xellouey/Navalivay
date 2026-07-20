@@ -31,6 +31,7 @@ import {
   fetchKanbanBoardOrders,
 } from "../utils/crm-kanban-board.js";
 import { buildTotalControlGroups } from "../utils/total-control-groups.js";
+import { syncGroupParking } from "../utils/group-parking.js";
 
 export const crmOperationsRouter = express.Router();
 
@@ -81,15 +82,47 @@ function recordStatusChange(orderId, previousStatus, newStatus, note) {
   }
 }
 
+function getProductTotalStock(productId) {
+  const product = db
+    .prepare("SELECT stock, warehouse_stock, has_variants FROM products WHERE id = ?")
+    .get(productId);
+  if (!product) return 0;
+  return Number(product.has_variants || 0) === 1
+    ? Number(db.prepare(`
+        SELECT COALESCE(SUM(stock + warehouse_stock), 0) AS total
+        FROM product_variants
+        WHERE product_id = ?
+      `).get(productId)?.total || 0)
+    : Number(product.stock || 0) + Number(product.warehouse_stock || 0);
+}
+
+function syncGroupsForProducts(productIds) {
+  const ids = Array.from(new Set(productIds.filter(Boolean).map(String)));
+  if (!ids.length) return;
+  const placeholders = ids.map(() => "?").join(",");
+  const groups = db.prepare(`
+    SELECT DISTINCT groupId
+    FROM products
+    WHERE id IN (${placeholders}) AND groupId IS NOT NULL
+  `).all(...ids);
+  for (const row of groups) {
+    try {
+      syncGroupParking(row.groupId);
+    } catch (error) {
+      console.error("[crm] Procurement group parking sync failed:", error);
+    }
+  }
+}
+
 // Helper для расчета средней себестоимости (метод CloudShop)
 function calculateAverageCost(productId, newQuantity, newCostPerUnit) {
   const product = db
-    .prepare("SELECT stock, cost_price FROM products WHERE id = ?")
+    .prepare("SELECT cost_price FROM products WHERE id = ?")
     .get(productId);
 
   if (!product) return newCostPerUnit;
 
-  const currentStock = product.stock || 0;
+  const currentStock = getProductTotalStock(productId);
   const currentCost = product.cost_price || 0;
 
   if (currentStock === 0) {
@@ -2095,8 +2128,17 @@ crmOperationsRouter.get(
           `
       SELECT pi.*,
              CASE WHEN pv.name IS NOT NULL THEN p.title || ' (' || pv.name || ')' ELSE p.title END as product_title,
-             p.stock, p.min_stock, cg.name as group_name,
+             p.stock, p.warehouse_stock, p.cost_price as product_cost_price, p.min_stock, cg.name as group_name,
              pv.name as variant_name, pv.stock as variant_stock,
+             pv.warehouse_stock as variant_warehouse_stock,
+             CASE
+               WHEN COALESCE(p.has_variants, 0) = 1 THEN (
+                 SELECT COALESCE(SUM(all_variants.stock + all_variants.warehouse_stock), 0)
+                 FROM product_variants all_variants
+                 WHERE all_variants.product_id = p.id
+               )
+               ELSE COALESCE(p.stock, 0) + COALESCE(p.warehouse_stock, 0)
+             END as base_total_stock,
              COALESCE(
                (SELECT url FROM product_images WHERE productId = pi.product_id AND variant_id = pi.variant_id ORDER BY position LIMIT 1),
                (SELECT url FROM product_images WHERE productId = pi.product_id AND variant_id IS NULL ORDER BY position LIMIT 1),
@@ -2166,9 +2208,8 @@ crmOperationsRouter.post(
             const variant = db
               .prepare("SELECT product_id FROM product_variants WHERE id = ?")
               .get(variantId);
-            if (variant) {
-              productId = variant.product_id;
-            }
+            if (!variant) throw new Error('variant_not_found');
+            if (String(productId) !== String(variant.product_id)) throw new Error('variant_product_mismatch');
           }
           
           const product = db
@@ -2177,22 +2218,33 @@ crmOperationsRouter.post(
           if (!product) {
             throw new Error(`Product not found: ${productId}`);
           }
+          if (Number(product.has_variants || 0) === 1 && !variantId) throw new Error('variant_required');
+          if (Number(product.has_variants || 0) === 0 && variantId) throw new Error('variant_not_allowed');
 
-          const totalCost = item.quantity * item.cost_per_unit;
+          const quantity = Number(item.quantity || 0);
+          const costPerUnit = Number(item.cost_per_unit || 0);
+          const warehouseQuantity = Number(item.warehouse_quantity || 0);
+          if (!Number.isInteger(quantity) || quantity <= 0) throw new Error('invalid_quantity');
+          if (!Number.isFinite(costPerUnit) || costPerUnit < 0) throw new Error('invalid_cost');
+          if (!Number.isInteger(warehouseQuantity) || warehouseQuantity < 0 || warehouseQuantity > quantity) {
+            throw new Error('invalid_warehouse_quantity');
+          }
+          const totalCost = quantity * costPerUnit;
           totalAmount += totalCost;
 
           db.prepare(
             `
-          INSERT INTO procurement_items (id, procurement_id, product_id, variant_id, quantity, cost_per_unit, total_cost)
-          VALUES (?, ?, ?, ?, ?, ?, ?)
+          INSERT INTO procurement_items (id, procurement_id, product_id, variant_id, quantity, warehouse_quantity, cost_per_unit, total_cost)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         `,
           ).run(
             generateId("pi"),
             procurementId,
             productId,
             variantId,
-            item.quantity,
-            item.cost_per_unit,
+            quantity,
+            warehouseQuantity,
+            costPerUnit,
             totalCost,
           );
         }
@@ -2214,8 +2266,17 @@ crmOperationsRouter.post(
           `
       SELECT pi.*,
              CASE WHEN pv.name IS NOT NULL THEN p.title || ' (' || pv.name || ')' ELSE p.title END as product_title,
-             cg.name as group_name,
-             pv.name as variant_name,
+             p.stock, p.warehouse_stock, p.cost_price as product_cost_price, p.min_stock, cg.name as group_name,
+             pv.name as variant_name, pv.stock as variant_stock,
+             pv.warehouse_stock as variant_warehouse_stock,
+             CASE
+               WHEN COALESCE(p.has_variants, 0) = 1 THEN (
+                 SELECT COALESCE(SUM(all_variants.stock + all_variants.warehouse_stock), 0)
+                 FROM product_variants all_variants
+                 WHERE all_variants.product_id = p.id
+               )
+               ELSE COALESCE(p.stock, 0) + COALESCE(p.warehouse_stock, 0)
+             END as base_total_stock,
              COALESCE(
                (SELECT url FROM product_images WHERE productId = pi.product_id AND variant_id = pi.variant_id ORDER BY position LIMIT 1),
                (SELECT url FROM product_images WHERE productId = pi.product_id AND variant_id IS NULL ORDER BY position LIMIT 1),
@@ -2235,6 +2296,17 @@ crmOperationsRouter.post(
       res.json({ ...procurement, items: procurementItems });
     } catch (error) {
       console.error("[crm] Create procurement error:", error);
+      if ([
+        "invalid_quantity",
+        "invalid_cost",
+        "invalid_warehouse_quantity",
+        "variant_not_found",
+        "variant_product_mismatch",
+        "variant_required",
+        "variant_not_allowed",
+      ].includes(error.message)) {
+        return res.status(400).json({ error: error.message });
+      }
       res.status(500).json({ error: "failed", message: error.message });
     }
   },
@@ -2288,8 +2360,8 @@ crmOperationsRouter.patch(
 
           let totalAmount = 0;
           const itemStmt = db.prepare(`
-          INSERT INTO procurement_items (id, procurement_id, product_id, variant_id, quantity, cost_per_unit, total_cost)
-          VALUES (?, ?, ?, ?, ?, ?, ?)
+          INSERT INTO procurement_items (id, procurement_id, product_id, variant_id, quantity, warehouse_quantity, cost_per_unit, total_cost)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         `);
 
           for (const item of items) {
@@ -2306,9 +2378,8 @@ crmOperationsRouter.patch(
               const variant = db
                 .prepare("SELECT product_id FROM product_variants WHERE id = ?")
                 .get(variantId);
-              if (variant) {
-                productId = variant.product_id;
-              }
+              if (!variant) throw new Error("variant_not_found");
+              if (String(productId) !== String(variant.product_id)) throw new Error("variant_product_mismatch");
             }
 
             const product = db
@@ -2317,16 +2388,22 @@ crmOperationsRouter.patch(
             if (!product) {
               throw new Error(`Product not found: ${productId}`);
             }
+            if (Number(product.has_variants || 0) === 1 && !variantId) throw new Error("variant_required");
+            if (Number(product.has_variants || 0) === 0 && variantId) throw new Error("variant_not_allowed");
 
             const quantity = Number(item.quantity || 0);
             const costPerUnit = Number(item.cost_per_unit || 0);
+            const warehouseQuantity = Number(item.warehouse_quantity || 0);
 
-            if (!Number.isFinite(quantity) || quantity <= 0) {
+            if (!Number.isInteger(quantity) || quantity <= 0) {
               throw new Error("invalid_quantity");
             }
 
             if (!Number.isFinite(costPerUnit) || costPerUnit < 0) {
               throw new Error("invalid_cost");
+            }
+            if (!Number.isInteger(warehouseQuantity) || warehouseQuantity < 0 || warehouseQuantity > quantity) {
+              throw new Error("invalid_warehouse_quantity");
             }
 
             const totalCost = costPerUnit * quantity;
@@ -2338,6 +2415,7 @@ crmOperationsRouter.patch(
               productId,
               variantId,
               quantity,
+              warehouseQuantity,
               costPerUnit,
               totalCost,
             );
@@ -2359,8 +2437,17 @@ crmOperationsRouter.patch(
           `
       SELECT pi.*,
              CASE WHEN pv.name IS NOT NULL THEN p.title || ' (' || pv.name || ')' ELSE p.title END as product_title,
-             p.stock, p.min_stock, cg.name as group_name,
+             p.stock, p.warehouse_stock, p.cost_price as product_cost_price, p.min_stock, cg.name as group_name,
              pv.name as variant_name, pv.stock as variant_stock,
+             pv.warehouse_stock as variant_warehouse_stock,
+             CASE
+               WHEN COALESCE(p.has_variants, 0) = 1 THEN (
+                 SELECT COALESCE(SUM(all_variants.stock + all_variants.warehouse_stock), 0)
+                 FROM product_variants all_variants
+                 WHERE all_variants.product_id = p.id
+               )
+               ELSE COALESCE(p.stock, 0) + COALESCE(p.warehouse_stock, 0)
+             END as base_total_stock,
              COALESCE(
                (SELECT url FROM product_images WHERE productId = pi.product_id AND variant_id = pi.variant_id ORDER BY position LIMIT 1),
                (SELECT url FROM product_images WHERE productId = pi.product_id AND variant_id IS NULL ORDER BY position LIMIT 1),
@@ -2385,6 +2472,11 @@ crmOperationsRouter.patch(
         "invalid_item",
         "invalid_quantity",
         "invalid_cost",
+        "invalid_warehouse_quantity",
+        "variant_not_found",
+        "variant_product_mismatch",
+        "variant_required",
+        "variant_not_allowed",
         "edit_not_allowed",
       ]);
       if (clientErrors.has(error.message)) {
@@ -2411,12 +2503,12 @@ crmOperationsRouter.delete(
       }
 
       const items = db
-        .prepare("SELECT * FROM procurement_items WHERE procurement_id = ?")
+        .prepare("SELECT * FROM procurement_items WHERE procurement_id = ? ORDER BY rowid ASC")
         .all(id);
 
       const tx = db.transaction(() => {
         if (procurement.status === "completed") {
-          for (const item of items) {
+          for (const item of [...items].reverse()) {
             const product = db
               .prepare("SELECT * FROM products WHERE id = ?")
               .get(item.product_id);
@@ -2424,20 +2516,31 @@ crmOperationsRouter.delete(
               continue;
             }
 
-            const currentStock = Number(product.stock || 0);
             const quantity = Number(item.quantity || 0);
+            const warehouseQuantity = Number(item.warehouse_quantity || 0);
+            const retailQuantity = quantity - warehouseQuantity;
             const costPerUnit = Number(item.cost_per_unit || 0);
+            const stockTable = item.variant_id ? "product_variants" : "products";
+            const stockId = item.variant_id || item.product_id;
+            const stockRow = db.prepare(`
+              SELECT stock, warehouse_stock FROM ${stockTable} WHERE id = ?
+            `).get(stockId);
 
-            if (currentStock < quantity) {
+            if (
+              !stockRow
+              || Number(stockRow.stock || 0) < retailQuantity
+              || Number(stockRow.warehouse_stock || 0) < warehouseQuantity
+            ) {
               throw new Error(`insufficient_stock_to_rollback:${product.id}`);
             }
 
-            const previousStock = currentStock - quantity;
+            const currentTotalStock = getProductTotalStock(item.product_id);
+            const previousStock = currentTotalStock - quantity;
             let previousCost = 0;
             if (previousStock > 0) {
               const currentCost = Number(product.cost_price || 0);
               previousCost =
-                (currentCost * currentStock - quantity * costPerUnit) /
+                (currentCost * currentTotalStock - quantity * costPerUnit) /
                 previousStock;
               if (previousCost < 0) {
                 previousCost = 0;
@@ -2445,9 +2548,11 @@ crmOperationsRouter.delete(
             }
 
             db.prepare(
-              `UPDATE products SET stock = stock - ?, cost_price = ? WHERE id = ?`,
-            ).run(
-              quantity,
+              `UPDATE ${stockTable}
+               SET stock = stock - ?, warehouse_stock = warehouse_stock - ?
+               WHERE id = ?`,
+            ).run(retailQuantity, warehouseQuantity, stockId);
+            db.prepare('UPDATE products SET cost_price = ? WHERE id = ?').run(
               previousStock > 0 ? previousCost : 0,
               item.product_id,
             );
@@ -2483,6 +2588,7 @@ crmOperationsRouter.delete(
       });
 
       tx();
+      syncGroupsForProducts(items.map((item) => item.product_id));
 
       res.json({ ok: true });
     } catch (error) {
@@ -2577,42 +2683,40 @@ crmOperationsRouter.post(
       }
 
       const items = db
-        .prepare("SELECT * FROM procurement_items WHERE procurement_id = ?")
+        .prepare("SELECT * FROM procurement_items WHERE procurement_id = ? ORDER BY rowid ASC")
         .all(id);
 
       const tx = db.transaction(() => {
         for (const item of items) {
+          const quantity = Number(item.quantity || 0);
+          const warehouseQuantity = Number(item.warehouse_quantity || 0);
+          const retailQuantity = quantity - warehouseQuantity;
+          const avgCost = calculateAverageCost(
+            item.product_id,
+            quantity,
+            item.cost_per_unit,
+          );
           // Проверяем, это вариант или обычный товар
           if (item.variant_id) {
-            // Это вариант - обновляем stock в product_variants
             db.prepare(
-              `UPDATE product_variants SET stock = stock + ? WHERE id = ?`
-            ).run(item.quantity, item.variant_id);
-            
-            // Также обновляем cost_price базового товара
-            const avgCost = calculateAverageCost(
-              item.product_id,
-              item.quantity,
-              item.cost_per_unit,
-            );
+              `UPDATE product_variants
+               SET stock = stock + ?, warehouse_stock = warehouse_stock + ?
+               WHERE id = ?`
+            ).run(retailQuantity, warehouseQuantity, item.variant_id);
+
             db.prepare(
               `UPDATE products SET cost_price = ? WHERE id = ?`
             ).run(avgCost, item.product_id);
           } else {
-            // Обычный товар - обновляем stock в products
-            const avgCost = calculateAverageCost(
-              item.product_id,
-              item.quantity,
-              item.cost_per_unit,
-            );
             db.prepare(
               `
             UPDATE products 
             SET stock = stock + ?,
+                warehouse_stock = warehouse_stock + ?,
                 cost_price = ?
             WHERE id = ?
           `,
-            ).run(item.quantity, avgCost, item.product_id);
+            ).run(retailQuantity, warehouseQuantity, avgCost, item.product_id);
           }
         }
 
@@ -2658,6 +2762,7 @@ crmOperationsRouter.post(
       });
 
       tx();
+      syncGroupsForProducts(items.map((item) => item.product_id));
 
       const updated = db
         .prepare("SELECT * FROM procurements WHERE id = ?")

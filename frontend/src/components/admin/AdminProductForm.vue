@@ -1257,6 +1257,7 @@ async function onSubmit() {
     if (form.hasVariants) {
       payload.hasVariants = true
       payload.variants = form.variants?.map(v => ({
+        id: v.id,
         name: v.name.trim(),
         colorCode: v.colorDisplayMode === 'image' ? null : (v.colorCode?.trim() || null),
         colorImage: v.colorDisplayMode === 'image' ? (v.colorImage || null) : null,

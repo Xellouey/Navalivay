@@ -549,6 +549,8 @@
                 :categories="adminStore.categories || []"
                 :pagination="adminStore.productsPagination"
                 :isLoading="adminStore.isLoading"
+                :location="adminStore.productsLocation"
+                :availableGroups="adminStore.availableProductGroups"
                 @create="handleCreateProduct"
                 @edit="handleEditProduct"
                 @delete="handleDeleteProduct"
@@ -560,6 +562,8 @@
                 @batchChangeGroup="handleBatchChangeProductGroup"
                 @createCategory="handleCreateCategoryFromProducts"
                 @createGroup="handleCreateGroupFromProducts"
+                @transfer="openStockTransfer"
+                @changeLocation="handleProductsLocationChange"
               />
             </div>
           </template>
@@ -911,6 +915,13 @@
       <AdminProductForm :product="editingProduct" :categories="adminStore.categories" @submit="handleProductFormSubmit" @cancel="showProductModal = false" />
 </AdminModal>
 
+    <AdminStockTransferModal
+      :isOpen="showStockTransferModal"
+      :initialSource="stockTransferInitialSource"
+      @close="showStockTransferModal = false"
+      @completed="handleStockTransferCompleted"
+    />
+
     <!-- Category Groups Modal -->
     <AdminModal
       ref="groupModalRef"
@@ -1255,6 +1266,7 @@ import AdminProductForm from '@/components/admin/AdminProductForm.vue'
 import AdminLayout from '@/components/admin/layout/AdminLayout.vue'
 import AdminSectionHero from '@/components/admin/layout/AdminSectionHero.vue'
 import AdminProductsTable from '@/components/admin/AdminProductsTable.vue'
+import AdminStockTransferModal from '@/components/admin/AdminStockTransferModal.vue'
 import AdminCategoryGroupForm from '@/components/admin/AdminCategoryGroupForm.vue'
 import AdminGroupMinStockEditor from '@/components/admin/AdminGroupMinStockEditor.vue'
 import AdminWholesaleLinksPanel from '@/components/admin/AdminWholesaleLinksPanel.vue'
@@ -1377,6 +1389,8 @@ type CategoryGroupNode = CategoryGroup & { children: CategoryGroupNode[] }
 const showBannerModal = ref(false)
 const showCategoryModal = ref(false)
 const showProductModal = ref(false)
+const showStockTransferModal = ref(false)
+const stockTransferInitialSource = ref<'retail' | 'warehouse'>('retail')
 const editingBanner = ref<any>(null)
 const editingCategory = ref<any>(null)
 const editingProduct = ref<any>(null)
@@ -1411,6 +1425,7 @@ const crossSellSubmitting = ref(false)
 const activeCrossSellCategory = ref<Category | null>(null)
 const crossSellSelection = ref<string[]>([])
 const crossSellSearch = ref('')
+const crossSellProducts = ref<Product[]>([])
 
 // Simple global toast state for admin actions
 const toast = ref<{ visible: boolean; message: string; type: 'success' | 'error'; timer: number | null }>({
@@ -1898,7 +1913,7 @@ const availableCrossSellProducts = computed<Product[]>(() => {
   const query = crossSellSearch.value.trim().toLowerCase()
   const selectedIds = new Set(crossSellSelection.value)
   
-  return (adminStore.products || []).filter(product => {
+  return crossSellProducts.value.filter(product => {
     // Исключаем уже выбранные товары (они показываются отдельно вверху)
     if (selectedIds.has(product.id)) return false
     
@@ -1917,7 +1932,7 @@ const selectedCrossSellProducts = computed<Product[]>(() => {
   if (!activeCrossSellCategory.value || !crossSellSelection.value.length) return []
   
   const selectedIds = new Set(crossSellSelection.value)
-  return (adminStore.products || []).filter(p => selectedIds.has(p.id))
+  return crossSellProducts.value.filter(p => selectedIds.has(p.id))
 })
 
 const groupFormOptions = computed(() => {
@@ -1974,7 +1989,7 @@ const dashboardHeader = computed(() => {
 })
 
 // Products table state for client-side filters (mock store)
-const productsFilters = ref({ search: '', category: '', group: '' })
+const productsFilters = ref({ search: '', category: '', group: '', location: 'retail' as 'retail' | 'warehouse' })
 
 // Auth
 async function handleLoginSuccess() {
@@ -2380,7 +2395,8 @@ async function handleProductFormSubmit(formData: any) {
       limit: adminStore.productsPagination?.limit || 10,
       category: productsFilters.value.category || undefined,
       search: productsFilters.value.search || undefined,
-      group: productsFilters.value.group || undefined
+      group: productsFilters.value.group || undefined,
+      location: productsFilters.value.location,
     })
     
     // Обновляем счётчики в линейках если товар был назначен в линейку
@@ -2400,7 +2416,8 @@ function handleProductsPageChange(page: number) {
     limit: adminStore.productsPagination?.limit || 10,
     category: productsFilters.value.category || undefined,
     search: productsFilters.value.search || undefined,
-    group: productsFilters.value.group || undefined
+    group: productsFilters.value.group || undefined,
+    location: productsFilters.value.location,
   })
 }
 function handleProductsPageSizeChange(limit: number) {
@@ -2409,18 +2426,51 @@ function handleProductsPageSizeChange(limit: number) {
     limit,
     category: productsFilters.value.category || undefined,
     search: productsFilters.value.search || undefined,
-    group: productsFilters.value.group || undefined
+    group: productsFilters.value.group || undefined,
+    location: productsFilters.value.location,
   })
 }
 function handleProductsFilters(v: { search: string; category: string; group: string }) {
-  productsFilters.value = v
+  productsFilters.value = { ...productsFilters.value, ...v }
   // Вызываем API с новыми фильтрами
   adminStore.fetchProducts({ 
     page: 1, 
     limit: adminStore.productsPagination?.limit || 10,
     category: v.category || undefined,
     search: v.search || undefined,
-    group: v.group || undefined
+    group: v.group || undefined,
+    location: productsFilters.value.location,
+  })
+}
+
+function handleProductsLocationChange(location: 'retail' | 'warehouse') {
+  productsFilters.value = { ...productsFilters.value, group: '', location }
+  adminStore.fetchProducts({
+    page: 1,
+    limit: adminStore.productsPagination?.limit || 10,
+    category: productsFilters.value.category || undefined,
+    search: productsFilters.value.search || undefined,
+    location,
+  })
+}
+
+function openStockTransfer(location: 'retail' | 'warehouse') {
+  stockTransferInitialSource.value = location
+  showStockTransferModal.value = true
+}
+
+async function handleStockTransferCompleted(details: { quantity: number; destination: 'retail' | 'warehouse' }) {
+  showToast(
+    `Перемещено ${details.quantity} шт ${details.destination === 'warehouse' ? 'на склад' : 'в розницу'}`,
+    'success',
+  )
+  await adminStore.fetchProducts({
+    page: adminStore.productsPagination?.page || 1,
+    limit: adminStore.productsPagination?.limit || 10,
+    category: productsFilters.value.category || undefined,
+    search: productsFilters.value.search || undefined,
+    group: productsFilters.value.group || undefined,
+    location: productsFilters.value.location,
   })
 }
 
@@ -3152,6 +3202,7 @@ function closeCrossSellModal() {
   activeCrossSellCategory.value = null
   crossSellSelection.value = []
   crossSellSearch.value = ''
+  crossSellProducts.value = []
 }
 
 function handleManageCrossSell(category: Category) {
@@ -3163,10 +3214,11 @@ async function openCrossSellModal(category: Category) {
   crossSellSearch.value = ''
   try {
     await adminStore.fetchCategoryCrossSells(category.id)
-    if (!adminStore.products.length) {
-      await adminStore.fetchProducts({ page: 1, limit: 200 })
-    }
     const existing = adminStore.categoryCrossSells?.[category.id] || []
+    const options = await adminStore.fetchProductOptions(100)
+    const optionsById = new Map(options.map(product => [product.id, product]))
+    existing.forEach(product => optionsById.set(product.id, product))
+    crossSellProducts.value = Array.from(optionsById.values())
     crossSellSelection.value = existing.map(product => product.id)
     showCrossSellModal.value = true
   } catch (error) {

@@ -9,6 +9,7 @@
     >
       <template #actions>
         <button
+          v-if="location === 'retail'"
           @click="$emit('create')"
           class="flex items-center justify-center gap-2 rounded-xl bg-white/15 px-5 py-3 text-sm font-semibold text-white shadow-lg transition-all duration-200 hover:bg-white/25 focus:outline-none focus:ring-2 focus:ring-white/60 focus:ring-offset-2 focus:ring-offset-transparent"
         >
@@ -17,6 +18,34 @@
         </button>
       </template>
     </AdminSectionHero>
+
+    <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <div class="grid w-full grid-cols-2 rounded-2xl border border-gray-200 bg-white p-1 shadow-sm sm:w-[420px]">
+        <button
+          v-for="option in locationOptions"
+          :key="option.value"
+          type="button"
+          :aria-pressed="location === option.value"
+          :class="[
+            'rounded-xl px-5 py-3 text-sm font-semibold transition-all duration-200',
+            location === option.value
+              ? 'bg-blue-600 text-white shadow-sm'
+              : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+          ]"
+          @click="switchLocation(option.value)"
+        >
+          {{ option.label }}
+        </button>
+      </div>
+      <button
+        type="button"
+        class="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-blue-700 sm:w-auto"
+        @click="$emit('transfer', location)"
+      >
+        <ArrowsRightLeftIcon class="h-5 w-5" />
+        Перемещение
+      </button>
+    </div>
 
     <div class="relative overflow-hidden rounded-3xl border border-white/60 bg-white/85 p-4 sm:p-6 shadow-xl backdrop-blur space-y-4">
       <div class="pointer-events-none absolute -top-16 -right-14 h-44 w-44 rounded-full bg-rose-200/35 blur-3xl"></div>
@@ -176,7 +205,7 @@
       </div>
     </div>
 
-    <div v-if="selectedIds.length" class="relative overflow-hidden rounded-3xl border border-rose-200/70 bg-white/90 p-4 sm:p-5 shadow-xl backdrop-blur space-y-3">
+    <div v-if="location === 'retail' && selectedIds.length" class="relative overflow-hidden rounded-3xl border border-rose-200/70 bg-white/90 p-4 sm:p-5 shadow-xl backdrop-blur space-y-3">
       <div class="pointer-events-none absolute -top-12 right-0 h-28 w-28 rounded-full bg-rose-200/35 blur-3xl"></div>
       <div class="pointer-events-none absolute bottom-0 left-4 h-24 w-24 rounded-full bg-brand-dark/10 blur-2xl"></div>
       <div class="relative flex items-center justify-between">
@@ -230,6 +259,7 @@
             <tr class="text-gray-600">
               <th class="w-12 px-4 py-3" :style="columnStyle(0)">
                 <input
+                  v-if="location === 'retail'"
                   type="checkbox"
                   :checked="isAllSelected"
                   @change="toggleSelectAll"
@@ -371,6 +401,7 @@
                   </svg>
                 </button>
                 <input
+                  v-if="location === 'retail'"
                   type="checkbox"
                   :checked="selectedIds.includes(p.id)"
                   @change="toggleSelect(p.id)"
@@ -411,17 +442,12 @@
             <td class="px-4 py-4 text-right" :style="columnStyle(6)">
               <div class="flex items-center justify-end gap-2 whitespace-nowrap">
                 <span v-if="p.hasVariants" :class="isBelowMin(p) ? 'text-red-600 font-semibold' : 'text-gray-900 font-medium'">
-                  <template v-if="p.minVariantStock === p.maxVariantStock">
-                    {{ Number(p.minVariantStock ?? 0) }}
-                  </template>
-                  <template v-else>
-                    {{ Number(p.minVariantStock ?? 0) }}–{{ Number(p.maxVariantStock ?? 0) }}
-                  </template>
+                  {{ productStockLabel(p) }}
                 </span>
                 <span v-else :class="isBelowMin(p) ? 'text-red-600 font-semibold' : 'text-gray-900 font-medium'">
-                  {{ Number(p.stock ?? 0) }}
+                  {{ displayProductStock(p) }}
                 </span>
-                <span v-if="Number(p.minStock ?? 0) > 0" class="text-xs text-gray-500 whitespace-nowrap">
+                <span v-if="location === 'retail' && Number(p.minStock ?? 0) > 0" class="text-xs text-gray-500 whitespace-nowrap">
                   мин. {{ Number(p.minStock ?? 0) }}
                 </span>
               </div>
@@ -443,6 +469,7 @@
                   </svg>
                 </button>
                 <button 
+                  v-if="location === 'retail'"
                   @click="$emit('edit', p)" 
                   class="rounded-full bg-blue-500/10 p-2 text-blue-600 transition hover:bg-blue-500/20 hover:text-blue-800"
                   title="Редактировать"
@@ -452,6 +479,7 @@
                   </svg>
                 </button>
                 <button 
+                  v-if="location === 'retail'"
                   @click="$emit('delete', p)" 
                   class="rounded-full bg-rose-500/10 p-2 text-rose-600 transition hover:bg-rose-500/20 hover:text-rose-800"
                   title="Удалить"
@@ -514,7 +542,7 @@
                 </div>
               </td>
               <td class="px-4 py-3 text-right" :style="columnStyle(6)">
-                <span class="text-sm text-gray-900">{{ Number(variant.stock ?? 0) }}</span>
+                <span class="text-sm text-gray-900">{{ displayVariantStock(variant) }}</span>
               </td>
               <td class="px-4 py-3 text-right text-gray-700" :style="columnStyle(7)">
                 <span class="text-sm">{{ formatRub(getVariantPrice(p, variant)) }}</span>
@@ -526,7 +554,9 @@
           </template>
           </template>
             <tr v-if="!isLoading && !paged.length">
-              <td colspan="9" class="py-8 text-center text-gray-600">Ничего не найдено</td>
+              <td colspan="9" class="py-8 text-center text-gray-600">
+                {{ location === 'warehouse' && !search && !category && !group ? 'На складе пока нет товаров. Добавьте их через перемещение.' : 'Ничего не найдено' }}
+              </td>
             </tr>
           </tbody>
         </table>
@@ -536,7 +566,7 @@
     <!-- List View -->
     <div v-else-if="viewMode === 'list'" class="relative overflow-hidden rounded-3xl border border-white/70 bg-white shadow-xl">
       <div class="relative p-4 bg-white/80 border-b border-rose-100 flex items-center justify-between">
-        <div class="flex items-center gap-3">
+        <div v-if="location === 'retail'" class="flex items-center gap-3">
           <input
             type="checkbox"
             :checked="isAllSelected"
@@ -553,7 +583,7 @@
       </div>
       
       <div v-else-if="!paged.length" class="py-12 text-center text-gray-600">
-        Ничего не найдено
+        {{ location === 'warehouse' && !search && !category && !group ? 'На складе пока нет товаров. Добавьте их через перемещение.' : 'Ничего не найдено' }}
       </div>
       
       <div v-else class="divide-y divide-rose-50">
@@ -582,6 +612,7 @@
                   </svg>
                 </button>
                 <input
+                  v-if="location === 'retail'"
                   type="checkbox"
                   :checked="selectedIds.includes(p.id)"
                   @change="toggleSelect(p.id)"
@@ -622,7 +653,7 @@
                       </span>
                     </p>
                     <p class="text-xs leading-snug" :class="isBelowMin(p) ? 'text-red-600 font-semibold' : 'text-gray-600'">
-                      Остаток: {{ Number(p.stock ?? 0) }}<span v-if="Number(p.minStock ?? 0) > 0"> / мин. {{ Number(p.minStock ?? 0) }}</span>
+                      Остаток: {{ displayStockLabel(p) }}<span v-if="location === 'retail' && Number(p.minStock ?? 0) > 0"> / мин. {{ Number(p.minStock ?? 0) }}</span>
                     </p>
                     </div>
                   </div>
@@ -639,6 +670,7 @@
                       </svg>
                     </button>
                     <button 
+                      v-if="location === 'retail'"
                       @click="$emit('edit', p)" 
                       class="flex items-center justify-center rounded-full bg-blue-500/10 p-1.5 text-blue-600 transition-colors hover:bg-blue-500/20 hover:text-blue-800 touch-manipulation"
                       title="Редактировать"
@@ -648,6 +680,7 @@
                       </svg>
                     </button>
                     <button 
+                      v-if="location === 'retail'"
                       @click="$emit('delete', p)" 
                       class="flex items-center justify-center rounded-full bg-rose-500/10 p-1.5 text-rose-600 transition-colors hover:bg-rose-500/20 hover:text-rose-800 touch-manipulation"
                       title="Удалить"
@@ -681,6 +714,7 @@
                 </svg>
               </button>
               <input
+                v-if="location === 'retail'"
                 type="checkbox"
                 :checked="selectedIds.includes(p.id)"
                 @change="toggleSelect(p.id)"
@@ -723,7 +757,7 @@
                         </span>
                       </span>
                       <span :class="isBelowMin(p) ? 'text-red-600 font-semibold' : 'text-gray-600'">
-                        Остаток: {{ Number(p.stock ?? 0) }}<span v-if="Number(p.minStock ?? 0) > 0"> / мин. {{ Number(p.minStock ?? 0) }}</span>
+                        Остаток: {{ displayStockLabel(p) }}<span v-if="location === 'retail' && Number(p.minStock ?? 0) > 0"> / мин. {{ Number(p.minStock ?? 0) }}</span>
                       </span>
                     </div>
                   </div>
@@ -749,6 +783,7 @@
                       </svg>
                     </button>
                     <button 
+                      v-if="location === 'retail'"
                       @click="$emit('edit', p)" 
                     class="rounded-full bg-blue-500/10 p-2 text-blue-600 transition hover:bg-blue-500/20 hover:text-blue-800"
                       title="Редактировать"
@@ -758,6 +793,7 @@
                       </svg>
                     </button>
                     <button 
+                      v-if="location === 'retail'"
                       @click="$emit('delete', p)" 
                     class="rounded-full bg-rose-500/10 p-2 text-rose-600 transition hover:bg-rose-500/20 hover:text-rose-800"
                       title="Удалить"
@@ -814,7 +850,7 @@
                             </div>
                             <div class="text-gray-600">
                               <span class="font-medium">Остаток:</span>
-                              <span class="ml-1">{{ Number(variant.stock ?? 0) }}</span>
+                              <span class="ml-1">{{ displayVariantStock(variant) }}</span>
                             </div>
                           </div>
                         </div>
@@ -832,7 +868,9 @@
     
     <!-- Help text -->
     <div class="relative overflow-hidden rounded-2xl border border-dashed border-rose-200/60 bg-rose-50/40 px-6 py-3 text-center text-[0.65rem] font-semibold uppercase tracking-[0.28em] text-rose-500 shadow-inner">
-      <div class="relative">Используйте чекбоксы для массовых операций с товарами.</div>
+      <div class="relative">
+        {{ location === 'warehouse' ? 'На сайте показывается только розничный остаток.' : 'Используйте чекбоксы для массовых операций с товарами.' }}
+      </div>
     </div>
 
     <!-- Category Change Modal -->
@@ -1204,7 +1242,7 @@
 
 <script setup lang="ts">
 import { computed, ref, watch, onMounted, onUnmounted, nextTick } from 'vue'
-import { PlusIcon, FunnelIcon, XMarkIcon, CubeIcon, MagnifyingGlassIcon, LockClosedIcon } from '@heroicons/vue/24/outline'
+import { PlusIcon, FunnelIcon, XMarkIcon, CubeIcon, MagnifyingGlassIcon, LockClosedIcon, ArrowsRightLeftIcon } from '@heroicons/vue/24/outline'
 import AdminSectionHero from '@/components/admin/layout/AdminSectionHero.vue'
 import { useAdminStore } from '@/stores/admin'
 import { useCrmStore } from '@/stores/crm'
@@ -1220,6 +1258,8 @@ interface ProductVariant {
   colorImage?: string | null
   priceRub?: number | null
   stock?: number
+  warehouseStock?: number
+  locationStock?: number
   position?: number
   images: string[]
 }
@@ -1239,6 +1279,8 @@ interface Product {
   strength?: string | null
   costPrice?: number
   stock?: number
+  warehouseStock?: number
+  locationStock?: number
   minStock?: number
   hasVariants?: boolean
   variants?: ProductVariant[]
@@ -1253,7 +1295,9 @@ const props = withDefaults(defineProps<{
   categories: Category[]
   pagination?: Pagination
   isLoading?: boolean
-}>(), { isLoading: false })
+  location?: 'retail' | 'warehouse'
+  availableGroups?: Array<{ id: string; name: string; categoryId: string }>
+}>(), { isLoading: false, location: 'retail', availableGroups: () => [] })
 
 const emit = defineEmits<{
   (e: 'create'): void
@@ -1262,6 +1306,8 @@ const emit = defineEmits<{
   (e: 'changePage', page: number): void
   (e: 'changePageSize', limit: number): void
   (e: 'filters', v: { search: string; category: string; group: string }): void
+  (e: 'changeLocation', location: 'retail' | 'warehouse'): void
+  (e: 'transfer', location: 'retail' | 'warehouse'): void
   (e: 'batchDelete', ids: string[]): void
   (e: 'batchChangeCategory', ids: string[], categoryId: string): void
   (e: 'batchChangeGroup', ids: string[], payload: { categoryId: string; groupId: string | null }): void
@@ -1308,6 +1354,10 @@ const showBottomScrollbar = ref(false)
 const bottomScrollbarLeft = ref(16)
 const bottomScrollbarWidth = ref(0)
 const bottomScrollContentWidth = ref(0)
+const locationOptions = [
+  { value: 'retail' as const, label: 'Розница' },
+  { value: 'warehouse' as const, label: 'Склад' },
+]
 
 const bottomScrollbarStyle = computed(() => ({
   left: `${bottomScrollbarLeft.value}px`,
@@ -1329,8 +1379,9 @@ let searchDebounceTimer: ReturnType<typeof setTimeout> | null = null
 
 const groupFilterOptions = computed(() => {
   const currentCategory = category.value
-  // Используем все линейки из adminStore.categoryGroups вместо извлечения из props.products
-  const allGroups = adminStore.categoryGroups || []
+  const allGroups = props.location === 'warehouse'
+    ? props.availableGroups
+    : (adminStore.categoryGroups || [])
   const filtered = currentCategory
     ? allGroups.filter(g => g.categoryId === currentCategory)
     : allGroups
@@ -1595,6 +1646,14 @@ function onFiltersChanged() {
   emit('changePage', 1)
 }
 
+function switchLocation(nextLocation: 'retail' | 'warehouse') {
+  if (nextLocation === props.location) return
+  selectedIds.value = []
+  group.value = ''
+  emit('changeLocation', nextLocation)
+  page.value = 1
+}
+
 function onSearchInput() {
   if (searchDebounceTimer !== null) {
     clearTimeout(searchDebounceTimer)
@@ -1671,6 +1730,7 @@ function getProductCover(product: Product) {
 }
 
 function isBelowMin(product: Product) {
+  if (props.location === 'warehouse') return false
   const min = Number(product.minStock ?? 0)
   if (min <= 0) return false
   
@@ -1682,6 +1742,31 @@ function isBelowMin(product: Product) {
     const stock = Number(product.stock ?? 0)
     return stock <= min
   }
+}
+
+function displayProductStock(product: Product) {
+  return numericValue(product.locationStock ?? (props.location === 'warehouse' ? product.warehouseStock : product.stock))
+}
+
+function displayVariantStock(variant: ProductVariant) {
+  return numericValue(variant.locationStock ?? (props.location === 'warehouse' ? variant.warehouseStock : variant.stock))
+}
+
+function productStockLabel(product: Product) {
+  const stocks = (product.variants || []).map(displayVariantStock)
+  if (!stocks.length) return '0'
+  const min = Math.min(...stocks)
+  const max = Math.max(...stocks)
+  return min === max ? String(min) : `${min}–${max}`
+}
+
+function displayStockLabel(product: Product) {
+  return product.hasVariants ? productStockLabel(product) : String(displayProductStock(product))
+}
+
+function productSortStock(product: Product) {
+  const stocks = (product.variants || []).map(displayVariantStock)
+  return stocks.length ? Math.min(...stocks) : 0
 }
 
 // Computed для фильтрации (нужен для вычисления selectedIds)
@@ -1750,8 +1835,8 @@ const sortedProducts = computed(() => {
         return (numericValue(a.costPrice) - numericValue(b.costPrice)) * direction
       case 'stock': {
         // Для товаров с вариантами сортируем по минимальному остатку
-        const stockA = a.hasVariants ? numericValue((a as any).minVariantStock) : numericValue(a.stock)
-        const stockB = b.hasVariants ? numericValue((b as any).minVariantStock) : numericValue(b.stock)
+        const stockA = a.hasVariants ? productSortStock(a) : displayProductStock(a)
+        const stockB = b.hasVariants ? productSortStock(b) : displayProductStock(b)
         return (stockA - stockB) * direction
       }
       case 'priceRub':

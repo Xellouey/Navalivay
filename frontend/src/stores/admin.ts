@@ -49,6 +49,7 @@ export interface ProductVariant {
   colorDisplayMode?: 'color' | 'image'
   priceRub?: number | null
   stock?: number
+  warehouseStock?: number
   position?: number
   images: string[]
 }
@@ -69,6 +70,7 @@ export interface Product {
   strength?: string | null
   costPrice?: number
   stock?: number
+  warehouseStock?: number
   minStock?: number
   hasVariants?: boolean | number
   variants?: ProductVariant[]
@@ -154,6 +156,7 @@ export interface IncompleteGroupItem {
 
 interface ProductsResponse {
   products: Product[]
+  availableGroups?: Array<{ id: string; name: string; categoryId: string }>
   pagination: {
     page: number
     limit: number
@@ -181,6 +184,7 @@ export const useAdminStore = defineStore('admin', () => {
   const products = ref<Product[]>([])
   const currentProduct = ref<Product | null>(null)
   const categoryGroups = ref<CategoryGroup[]>([])
+  const availableProductGroups = ref<Array<{ id: string; name: string; categoryId: string }>>([])
   const categoryCrossSells = ref<Record<string, Product[]>>({})
   const wholesaleLinks = ref<WholesaleLink[]>([])
   const settings = ref<Record<string, string>>({})
@@ -199,6 +203,7 @@ export const useAdminStore = defineStore('admin', () => {
     total: 0,
     totalPages: 1
   })
+  const productsLocation = ref<'retail' | 'warehouse'>('retail')
   let latestProductsRequestId = 0
 
   // Computed
@@ -281,6 +286,7 @@ export const useAdminStore = defineStore('admin', () => {
       strength: product?.strength ?? null,
       costPrice: Number(product?.costPrice ?? 0),
       stock: Number(product?.stock ?? 0),
+      warehouseStock: Number(product?.warehouseStock ?? product?.warehouse_stock ?? 0),
       minStock: Number(product?.minStock ?? 0),
       hasVariants,
       useCategoryImage: Boolean(product?.useCategoryImage ?? 1)
@@ -295,6 +301,7 @@ export const useAdminStore = defineStore('admin', () => {
         colorImage: v.colorImage || v.color_image || null,
         priceRub: v.priceRub !== undefined ? Number(v.priceRub) : null,
         stock: v.stock !== undefined ? Number(v.stock) : 0,
+        warehouseStock: Number(v.warehouseStock ?? v.warehouse_stock ?? 0),
         position: v.position ?? 0,
         images: Array.isArray(v.images) ? v.images : []
       }))
@@ -1302,8 +1309,11 @@ async function createCategory(category: { name: string; hideEmpty?: boolean; cov
     category?: string
     search?: string
     group?: string
+    location?: 'retail' | 'warehouse'
   } = {}) {
     const requestId = ++latestProductsRequestId
+    const location = options.location ?? 'retail'
+    productsLocation.value = location
     try {
       isLoading.value = true
       error.value = null
@@ -1314,6 +1324,7 @@ async function createCategory(category: { name: string; hideEmpty?: boolean; cov
       if (options.category) params.set('category', options.category)
       if (options.search) params.set('search', options.search)
       if (options.group) params.set('group', options.group)
+      params.set('location', location)
 
       const response = await $fetch<ProductsResponse>(`/api/admin/products?${params}`, {
         headers: getAuthHeaders()
@@ -1323,6 +1334,9 @@ async function createCategory(category: { name: string; hideEmpty?: boolean; cov
         return
       }
       products.value = response.products.map(normalizeProductData)
+      availableProductGroups.value = Array.isArray(response.availableGroups)
+        ? response.availableGroups
+        : []
       productsPagination.value = response.pagination
     } catch (err: any) {
       if (requestId !== latestProductsRequestId) {
@@ -1335,6 +1349,49 @@ async function createCategory(category: { name: string; hideEmpty?: boolean; cov
         isLoading.value = false
       }
     }
+  }
+
+  async function fetchInventoryItems(options: {
+    location: 'retail' | 'warehouse'
+    search?: string
+    limit?: number
+  }) {
+    const params = new URLSearchParams({
+      location: options.location,
+      limit: String(options.limit ?? 100),
+    })
+    if (options.search) params.set('search', options.search)
+    return await $fetch<any[]>(`/api/admin/inventory/items?${params}`, {
+      headers: getAuthHeaders(),
+    })
+  }
+
+  async function fetchProductOptions(limit = 100) {
+    const params = new URLSearchParams({
+      page: '1',
+      limit: String(limit),
+      location: 'retail',
+    })
+    const response = await $fetch<ProductsResponse>(`/api/admin/products?${params}`, {
+      headers: getAuthHeaders(),
+    })
+    return response.products.map(normalizeProductData)
+  }
+
+  async function createInventoryTransfer(data: {
+    source_location: 'retail' | 'warehouse'
+    destination_location: 'retail' | 'warehouse'
+    comment?: string
+    items: Array<{ product_id: string; variant_id?: string | null; quantity: number }>
+  }) {
+    return await $fetch<{ id: string; transfer_number: number; ok: boolean }>(
+      '/api/admin/inventory/transfers',
+      {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: data,
+      },
+    )
   }
 
   async function fetchProduct(id: string) {
@@ -1778,6 +1835,7 @@ async function createCategory(category: { name: string; hideEmpty?: boolean; cov
     products,
     currentProduct,
     categoryGroups,
+    availableProductGroups,
     categoryCrossSells,
     wholesaleLinks,
     settings,
@@ -1787,6 +1845,7 @@ async function createCategory(category: { name: string; hideEmpty?: boolean; cov
     isLoading,
     error,
     productsPagination,
+    productsLocation,
 
     // Computed
     isLoggedIn,
@@ -1829,6 +1888,9 @@ async function createCategory(category: { name: string; hideEmpty?: boolean; cov
 
     // Product methods
     fetchProducts,
+    fetchProductOptions,
+    fetchInventoryItems,
+    createInventoryTransfer,
     fetchProduct,
     createProduct,
     updateProduct,

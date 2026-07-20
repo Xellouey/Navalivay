@@ -19,7 +19,7 @@ import {
   saveGroupWholesalePrices,
 } from '../wholesale-service.js';
 import { syncGroupParking, syncParkingFromFlattened } from '../utils/group-parking.js';
-import { searchProductsForAdmin, syncProductSearchIndex } from '../services/product-search-service.js';
+import { searchProductsForAdmin, searchProductsForCrm, syncProductSearchIndex } from '../services/product-search-service.js';
 import {
   COMPLETENESS_FIELD_LABELS,
   computeIncompleteGroups,
@@ -750,6 +750,59 @@ adminRouter.patch('/api/admin/products/:id', authMiddleware, async (req, res) =>
 
   const normalizedHasVariants = hasVariants !== undefined ? (hasVariants === true ? 1 : 0) : cur.has_variants;
 
+  let normalizedVariants = null;
+  if (normalizedHasVariants && Array.isArray(variants)) {
+    const existingVariants = db.prepare(`
+      SELECT id, stock, warehouse_stock
+      FROM product_variants
+      WHERE product_id = ?
+    `).all(id);
+    const existingById = new Map(existingVariants.map((variant) => [String(variant.id), variant]));
+    const desiredIds = new Set();
+    normalizedVariants = variants.map((variant, index) => {
+      const variantId = variant.id ? String(variant.id) : `${id}-${index}-${Date.now()}`;
+      if (desiredIds.has(variantId)) {
+        return null;
+      }
+      if (variant.id && !existingById.has(variantId)) {
+        return null;
+      }
+      desiredIds.add(variantId);
+      return { ...variant, id: variantId };
+    });
+    if (normalizedVariants.some((variant) => !variant)) {
+      return res.status(400).json({ error: 'invalid_variant_id' });
+    }
+
+    const removedVariants = existingVariants.filter((variant) => !desiredIds.has(String(variant.id)));
+    for (const variant of removedVariants) {
+      const hasStock = Number(variant.stock || 0) > 0 || Number(variant.warehouse_stock || 0) > 0;
+      const usedInProcurement = db.prepare(
+        'SELECT 1 FROM procurement_items WHERE variant_id = ? LIMIT 1',
+      ).get(variant.id);
+      if (hasStock || usedInProcurement) {
+        return res.status(400).json({ error: hasStock ? 'variant_has_stock' : 'variant_in_use' });
+      }
+    }
+  } else if (!normalizedHasVariants && Number(cur.has_variants || 0) === 1) {
+    const protectedVariant = db.prepare(`
+      SELECT v.id,
+             CASE WHEN COALESCE(v.stock, 0) > 0 OR COALESCE(v.warehouse_stock, 0) > 0 THEN 1 ELSE 0 END AS has_stock,
+             EXISTS (SELECT 1 FROM procurement_items pi WHERE pi.variant_id = v.id) AS in_use
+      FROM product_variants v
+      WHERE v.product_id = ?
+        AND (
+          COALESCE(v.stock, 0) > 0
+          OR COALESCE(v.warehouse_stock, 0) > 0
+          OR EXISTS (SELECT 1 FROM procurement_items pi WHERE pi.variant_id = v.id)
+        )
+      LIMIT 1
+    `).get(id);
+    if (protectedVariant) {
+      return res.status(400).json({ error: protectedVariant.has_stock ? 'variant_has_stock' : 'variant_in_use' });
+    }
+  }
+
   db.prepare('UPDATE products SET categoryId = ?, groupId = ?, title = ?, priceRub = ?, description = ?, strength = ?, cost_price = ?, stock = ?, min_stock = ?, use_category_image = ?, has_variants = ? WHERE id = ?')
     .run(
       nextCategoryId,
@@ -789,25 +842,36 @@ adminRouter.patch('/api/admin/products/:id', authMiddleware, async (req, res) =>
 
   // Обработка вариантов
   try {
-    if (normalizedHasVariants && Array.isArray(variants)) {
-      console.log('[admin] Processing variants:', variants.length);
-      
-      const deleteVariantsStmt = db.prepare('DELETE FROM product_variants WHERE product_id = ?');
-      const deleteAllImagesStmt = db.prepare('DELETE FROM product_images WHERE productId = ?');
-      const variantStmt = db.prepare('INSERT INTO product_variants (id, product_id, name, color_code, color_image, color_display_mode, price_rub, stock, position) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
+    if (normalizedHasVariants && normalizedVariants) {
+      console.log('[admin] Processing variants:', normalizedVariants.length);
+
+      const updateVariantStmt = db.prepare(`
+        UPDATE product_variants
+        SET name = ?, color_code = ?, color_image = ?, color_display_mode = ?, price_rub = ?, stock = ?, position = ?
+        WHERE id = ? AND product_id = ?
+      `);
+      const insertVariantStmt = db.prepare(`
+        INSERT INTO product_variants (
+          id, product_id, name, color_code, color_image, color_display_mode,
+          price_rub, stock, warehouse_stock, position
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?)
+      `);
       const imageStmt = db.prepare('INSERT INTO product_images (productId, variant_id, url, position) VALUES (?, ?, ?, ?)');
       
       const txVariants = db.transaction((items) => {
-        // ВАЖНО: Сначала обнуляем variant_id в procurement_items (FK без ON DELETE)
-        db.prepare('UPDATE procurement_items SET variant_id = NULL WHERE variant_id IN (SELECT id FROM product_variants WHERE product_id = ?)').run(id);
-        // Затем удаляем ВСЕ изображения товара, затем варианты
-        deleteAllImagesStmt.run(id);
-        deleteVariantsStmt.run(id);
+        const desiredIds = new Set(items.map((variant) => String(variant.id)));
+        const currentIds = db.prepare('SELECT id FROM product_variants WHERE product_id = ?').all(id);
+        db.prepare('DELETE FROM product_images WHERE productId = ? AND variant_id IS NOT NULL').run(id);
+        for (const current of currentIds) {
+          if (!desiredIds.has(String(current.id))) {
+            db.prepare('DELETE FROM product_variants WHERE id = ? AND product_id = ?').run(current.id, id);
+          }
+        }
         
         let globalImagePosition = 0;
         
         items.forEach((variant, index) => {
-          const variantId = variant.id || `${id}-${index}-${Date.now()}`;
+          const variantId = String(variant.id);
           const displayMode = variant.colorDisplayMode || 'color';
           
           console.log(`[admin] Inserting variant ${index}:`, {
@@ -821,17 +885,23 @@ adminRouter.patch('/api/admin/products/:id', authMiddleware, async (req, res) =>
             imagesCount: variant.images?.length || 0
           });
           
-          variantStmt.run(
-            variantId,
-            id,
+          const values = [
             variant.name || '',
             displayMode === 'image' ? null : (variant.colorCode || variant.color || null),
             displayMode === 'image' ? (variant.colorImage || null) : null,
             displayMode,
             variant.priceRub !== null && variant.priceRub !== undefined ? Number(variant.priceRub) : null,
             variant.stock !== undefined ? Number(variant.stock) : 0,
-            index
-          );
+            index,
+          ];
+          const existing = db.prepare(
+            'SELECT id FROM product_variants WHERE id = ? AND product_id = ?',
+          ).get(variantId, id);
+          if (existing) {
+            updateVariantStmt.run(...values, variantId, id);
+          } else {
+            insertVariantStmt.run(variantId, id, ...values);
+          }
 
           // Обработка изображений вариантов
           if (Array.isArray(variant.images) && variant.images.length > 0) {
@@ -844,12 +914,11 @@ adminRouter.patch('/api/admin/products/:id', authMiddleware, async (req, res) =>
           }
         });
       });
-      txVariants(variants);
+      txVariants(normalizedVariants);
       console.log('[admin] Variants processed successfully');
     } else if (!normalizedHasVariants) {
       console.log('[admin] Removing variants (hasVariants = false)');
       // Если больше нет вариантов, удаляем все связанные данные
-      db.prepare('UPDATE procurement_items SET variant_id = NULL WHERE variant_id IN (SELECT id FROM product_variants WHERE product_id = ?)').run(id);
       db.prepare('DELETE FROM product_variants WHERE product_id = ?').run(id);
       db.prepare('DELETE FROM product_images WHERE variant_id IS NOT NULL AND productId = ?').run(id);
     }
@@ -903,12 +972,23 @@ adminRouter.get('/api/admin/products', authMiddleware, (req, res) => {
   const category = req.query.category
   const search = req.query.search
   const group = req.query.group
+  const location = req.query.location === 'warehouse' ? 'warehouse' : 'retail'
 
   const trimmedSearch = typeof search === 'string' ? search.trim() : ''
   let where = ''
   const params = []
   if (category) { where += (where ? ' AND ' : 'WHERE ') + 'p.categoryId = ?'; params.push(String(category)) }
   if (group) { where += (where ? ' AND ' : 'WHERE ') + 'p.groupId = ?'; params.push(String(group)) }
+  if (location === 'warehouse') {
+    where += (where ? ' AND ' : 'WHERE ') + `(
+      (COALESCE(p.has_variants, 0) = 0 AND COALESCE(p.warehouse_stock, 0) > 0)
+      OR (COALESCE(p.has_variants, 0) = 1 AND EXISTS (
+        SELECT 1 FROM product_variants location_variant
+        WHERE location_variant.product_id = p.id
+          AND COALESCE(location_variant.warehouse_stock, 0) > 0
+      ))
+    )`;
+  }
 
   let total
   let rows
@@ -919,6 +999,7 @@ adminRouter.get('/api/admin/products', authMiddleware, (req, res) => {
       limit,
       categoryId: category ? String(category) : undefined,
       groupId: group ? String(group) : undefined,
+      location,
     })
     total = result.pagination.total
     rows = result.products
@@ -955,6 +1036,7 @@ adminRouter.get('/api/admin/products', authMiddleware, (req, res) => {
           p.strength,
           p.cost_price AS costPrice,
           p.stock,
+          p.warehouse_stock AS warehouseStock,
           p.min_stock AS minStock,
           p.use_category_image AS useCategoryImage,
           p.has_variants AS hasVariants,
@@ -982,6 +1064,7 @@ adminRouter.get('/api/admin/products', authMiddleware, (req, res) => {
           p.strength,
           p.cost_price AS costPrice,
           p.stock,
+          p.warehouse_stock AS warehouseStock,
           p.min_stock AS minStock,
           p.use_category_image AS useCategoryImage,
           p.has_variants AS hasVariants,
@@ -1034,7 +1117,7 @@ adminRouter.get('/api/admin/products', authMiddleware, (req, res) => {
       });
 
       const variantRows = db.prepare(`
-        SELECT id, product_id, name, color_code AS colorCode, color_image AS colorImage, color_display_mode AS colorDisplayMode, price_rub AS priceRub, stock, position
+        SELECT id, product_id, name, color_code AS colorCode, color_image AS colorImage, color_display_mode AS colorDisplayMode, price_rub AS priceRub, stock, warehouse_stock AS warehouseStock, position
         FROM product_variants
         WHERE product_id IN (${placeholders})
         ORDER BY product_id ASC, position ASC
@@ -1048,13 +1131,17 @@ adminRouter.get('/api/admin/products', authMiddleware, (req, res) => {
   const products = rows.map(r => {
     const product = {
       ...r,
+      locationStock: location === 'warehouse' ? Number(r.warehouseStock || 0) : Number(r.stock || 0),
       links: linksByProduct.get(r.id) ?? []
     };
 
     if (r.hasVariants) {
-      const variants = variantsByProduct.get(r.id) ?? [];
+      const variants = (variantsByProduct.get(r.id) ?? []).filter((variant) => (
+        location !== 'warehouse' || Number(variant.warehouseStock || 0) > 0
+      ));
       product.variants = variants.map(v => ({
         ...v,
+        locationStock: location === 'warehouse' ? Number(v.warehouseStock || 0) : Number(v.stock || 0),
         images: (variantImagesByProduct.get(r.id)?.get(v.id)) ?? []
       }));
 
@@ -1063,9 +1150,19 @@ adminRouter.get('/api/admin/products', authMiddleware, (req, res) => {
         const stocks = variants.map(v => Number(v.stock || 0));
         product.minVariantStock = Math.min(...stocks);
         product.maxVariantStock = Math.max(...stocks);
+        const warehouseStocks = variants.map(v => Number(v.warehouseStock || 0));
+        product.minVariantWarehouseStock = Math.min(...warehouseStocks);
+        product.maxVariantWarehouseStock = Math.max(...warehouseStocks);
+        const locationStocks = location === 'warehouse' ? warehouseStocks : stocks;
+        product.minVariantLocationStock = Math.min(...locationStocks);
+        product.maxVariantLocationStock = Math.max(...locationStocks);
       } else {
         product.minVariantStock = 0;
         product.maxVariantStock = 0;
+        product.minVariantWarehouseStock = 0;
+        product.maxVariantWarehouseStock = 0;
+        product.minVariantLocationStock = 0;
+        product.maxVariantLocationStock = 0;
       }
     } else {
       product.images = baseImagesByProduct.get(r.id) ?? [];
@@ -1074,8 +1171,151 @@ adminRouter.get('/api/admin/products', authMiddleware, (req, res) => {
     return product;
   })
 
-  res.json({ products, pagination: { page, limit, total, totalPages: Math.max(1, Math.ceil(total / limit)) } })
+  const availableGroups = location === 'warehouse'
+    ? db.prepare(`
+        SELECT DISTINCT g.id, g.name, g.categoryId
+        FROM category_groups g
+        JOIN products p ON p.groupId = g.id
+        WHERE (
+          (COALESCE(p.has_variants, 0) = 0 AND COALESCE(p.warehouse_stock, 0) > 0)
+          OR (COALESCE(p.has_variants, 0) = 1 AND EXISTS (
+            SELECT 1 FROM product_variants v
+            WHERE v.product_id = p.id AND COALESCE(v.warehouse_stock, 0) > 0
+          ))
+        )
+        ORDER BY g.name COLLATE NOCASE
+      `).all()
+    : db.prepare('SELECT id, name, categoryId FROM category_groups ORDER BY name COLLATE NOCASE').all();
+
+  res.json({
+    products,
+    availableGroups,
+    pagination: { page, limit, total, totalPages: Math.max(1, Math.ceil(total / limit)) },
+  })
 })
+
+adminRouter.get('/api/admin/inventory/items', authMiddleware, async (req, res) => {
+  try {
+    const location = req.query.location === 'warehouse' ? 'warehouse' : 'retail';
+    const search = typeof req.query.search === 'string' ? req.query.search.trim() : '';
+    const items = await searchProductsForCrm({
+      search,
+      location,
+      limit: Math.min(Math.max(Number(req.query.limit || 100), 1), 200),
+    });
+
+    res.json(items.map((item) => ({
+      ...item,
+      retail_stock: Number(item.stock || 0),
+      warehouse_stock: Number(item.warehouse_stock || 0),
+      available_stock: location === 'warehouse'
+        ? Number(item.warehouse_stock || 0)
+        : Number(item.stock || 0),
+    })));
+  } catch (error) {
+    console.error('[admin] Inventory items error:', error);
+    res.status(500).json({ error: 'failed', message: error.message });
+  }
+});
+
+adminRouter.post('/api/admin/inventory/transfers', authMiddleware, (req, res) => {
+  try {
+    const { source_location: source, destination_location: destination, comment, items } = req.body || {};
+    const locations = new Set(['retail', 'warehouse']);
+    if (!locations.has(source) || !locations.has(destination) || source === destination) {
+      return res.status(400).json({ error: 'invalid_direction' });
+    }
+    if (!Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({ error: 'items_required' });
+    }
+
+    const transferId = `move_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const nextNumber = Number(db.prepare('SELECT MAX(transfer_number) AS value FROM stock_transfers').get()?.value || 0) + 1;
+    const sourceColumn = source === 'warehouse' ? 'warehouse_stock' : 'stock';
+    const destinationColumn = destination === 'warehouse' ? 'warehouse_stock' : 'stock';
+    const affectedGroupIds = new Set();
+
+    const tx = db.transaction(() => {
+      db.prepare(`
+        INSERT INTO stock_transfers (id, transfer_number, source_location, destination_location, comment)
+        VALUES (?, ?, ?, ?, ?)
+      `).run(transferId, nextNumber, source, destination, String(comment || '').trim() || null);
+
+      const insertItem = db.prepare(`
+        INSERT INTO stock_transfer_items (
+          id, transfer_id, product_id, variant_id, product_title, variant_name, quantity
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+      `);
+
+      for (const rawItem of items) {
+        const productId = String(rawItem?.product_id || '').trim();
+        const variantId = rawItem?.variant_id ? String(rawItem.variant_id) : null;
+        const quantity = Number(rawItem?.quantity);
+        if (!productId || !Number.isInteger(quantity) || quantity <= 0) {
+          throw new Error('invalid_item');
+        }
+
+        const product = db.prepare('SELECT id, title, has_variants, groupId FROM products WHERE id = ?').get(productId);
+        if (!product) throw new Error('product_not_found');
+        if (product.groupId) affectedGroupIds.add(product.groupId);
+
+        const table = variantId ? 'product_variants' : 'products';
+        const idColumn = variantId ? 'id' : 'id';
+        const rowId = variantId || productId;
+        let variantName = null;
+        if (variantId) {
+          const variant = db.prepare('SELECT id, product_id, name FROM product_variants WHERE id = ?').get(variantId);
+          if (!variant || variant.product_id !== productId) throw new Error('variant_not_found');
+          variantName = variant.name || null;
+        } else if (Number(product.has_variants || 0) === 1) {
+          throw new Error('variant_required');
+        }
+
+        const stockRow = db.prepare(`SELECT ${sourceColumn} AS available FROM ${table} WHERE ${idColumn} = ?`).get(rowId);
+        if (Number(stockRow?.available || 0) < quantity) {
+          throw new Error(`insufficient_stock:${rowId}`);
+        }
+
+        db.prepare(`
+          UPDATE ${table}
+          SET ${sourceColumn} = ${sourceColumn} - ?,
+              ${destinationColumn} = ${destinationColumn} + ?
+          WHERE ${idColumn} = ?
+        `).run(quantity, quantity, rowId);
+
+        insertItem.run(
+          `move_item_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+          transferId,
+          productId,
+          variantId,
+          product.title || productId,
+          variantName,
+          quantity,
+        );
+      }
+    });
+
+    tx();
+    affectedGroupIds.forEach((groupId) => {
+      try {
+        syncGroupParking(groupId);
+      } catch (error) {
+        console.error('[admin] Inventory transfer group parking sync failed:', error);
+      }
+    });
+    res.json({ id: transferId, transfer_number: nextNumber, ok: true });
+  } catch (error) {
+    console.error('[admin] Create inventory transfer error:', error);
+    const clientError = String(error.message || '');
+    if (
+      ['invalid_item', 'product_not_found', 'variant_not_found', 'variant_required'].includes(clientError)
+      || clientError.startsWith('insufficient_stock:')
+    ) {
+      return res.status(400).json({ error: clientError });
+    }
+    res.status(500).json({ error: 'failed', message: error.message });
+  }
+});
 
 adminRouter.get('/api/admin/products/:id', authMiddleware, (req, res) => {
   const id = req.params.id
@@ -1090,6 +1330,7 @@ adminRouter.get('/api/admin/products/:id', authMiddleware, (req, res) => {
       p.strength,
       p.cost_price AS costPrice,
       p.stock,
+      p.warehouse_stock AS warehouseStock,
       p.min_stock AS minStock,
       p.use_category_image AS useCategoryImage,
       p.has_variants AS hasVariants,
@@ -1112,7 +1353,7 @@ adminRouter.get('/api/admin/products/:id', authMiddleware, (req, res) => {
   if (p.hasVariants) {
     // Для товаров с вариантами получаем варианты и их изображения
     const variants = db.prepare(`
-      SELECT id, product_id, name, color_code AS colorCode, color_image AS colorImage, color_display_mode AS colorDisplayMode, price_rub AS priceRub, stock, position
+      SELECT id, product_id, name, color_code AS colorCode, color_image AS colorImage, color_display_mode AS colorDisplayMode, price_rub AS priceRub, stock, warehouse_stock AS warehouseStock, position
       FROM product_variants
       WHERE product_id = ?
       ORDER BY position ASC

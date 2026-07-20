@@ -294,10 +294,15 @@ export interface ProcurementItem {
   variant_id?: string | null;
   variant_name?: string | null;
   variant_stock?: number | null;
+  variant_warehouse_stock?: number | null;
   quantity: number;
+  warehouse_quantity?: number;
   cost_per_unit: number;
   total_cost: number;
   stock?: number;
+  warehouse_stock?: number;
+  base_total_stock?: number;
+  product_cost_price?: number;
   min_stock?: number;
 }
 
@@ -353,6 +358,8 @@ export interface CrmProductSummary {
   priceRub: number;
   costPrice: number;
   stock: number;
+  warehouseStock?: number;
+  companyStock?: number;
   minStock: number;
   categoryId: string;
   categoryName?: string | null;
@@ -1873,7 +1880,9 @@ export const useCrmStore = defineStore("crm", () => {
     notes?: string;
     items: Array<{
       product_id: string;
+      variant_id?: string;
       quantity: number;
+      warehouse_quantity?: number;
       cost_per_unit: number;
     }>;
   }) {
@@ -1909,7 +1918,9 @@ export const useCrmStore = defineStore("crm", () => {
       notes?: string;
       items?: Array<{
         product_id: string;
+        variant_id?: string;
         quantity: number;
+        warehouse_quantity?: number;
         cost_per_unit: number;
       }>;
     },
@@ -2679,6 +2690,13 @@ export const useCrmStore = defineStore("crm", () => {
       priceRub: Number(product.priceRub ?? product.price_rub ?? 0),
       costPrice: Number(product.costPrice ?? product.cost_price ?? 0),
       stock: Number(product.stock ?? 0),
+      warehouseStock: Number(product.warehouse_stock ?? product.warehouseStock ?? 0),
+      companyStock: Number(
+        product.total_stock
+        ?? product.base_total_stock
+        ?? product.companyStock
+        ?? (Number(product.stock ?? 0) + Number(product.warehouse_stock ?? product.warehouseStock ?? 0)),
+      ),
       minStock: Number(product.minStock ?? product.min_stock ?? 0),
       categoryId: String(product.categoryId ?? product.category_id),
       categoryName: product.categoryName ?? product.category_name ?? null,

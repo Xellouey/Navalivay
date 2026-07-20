@@ -1313,10 +1313,16 @@ crmFinanceRouter.get('/api/admin/crm/products/search', authMiddleware, async (re
   try {
     const requestStartedAt = Date.now();
     const { search, limit = 25 } = req.query;
+    const location = req.query.location === 'warehouse'
+      ? 'warehouse'
+      : req.query.location === 'retail'
+        ? 'retail'
+        : undefined;
     const trimmedSearch = typeof search === 'string' ? search.trim() : '';
     const cleanProducts = await searchProductsForCrm({
       search: trimmedSearch,
       limit: Number(limit),
+      location,
     });
     
     if (trimmedSearch) {

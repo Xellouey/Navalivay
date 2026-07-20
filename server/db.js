@@ -63,6 +63,7 @@ import { migrateStorefrontFilters } from './migrations/add_storefront_filters.js
 import { migrateProductReviews } from './migrations/add_product_reviews.js';
 import { migratePendingNotifications } from './migrations/add_pending_notifications.js';
 import { migrateCategoryGroupTotalControl } from './migrations/add_total_control_to_category_groups.js';
+import { migrateInventoryLocations } from './migrations/add_inventory_locations.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -225,6 +226,7 @@ export function initDb() {
   migrateProductReviews();
   migratePendingNotifications();
   migrateCategoryGroupTotalControl();
+  migrateInventoryLocations();
 
   seedIfEmpty();
   seedDefaultLoyaltyData();
