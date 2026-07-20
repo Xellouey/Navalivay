@@ -1218,6 +1218,63 @@ adminRouter.get('/api/admin/inventory/items', authMiddleware, async (req, res) =
   }
 });
 
+function getInventoryTransfer(id) {
+  const transfer = db.prepare(`
+    SELECT st.*,
+           COUNT(sti.id) AS item_count,
+           COALESCE(SUM(sti.quantity), 0) AS total_quantity
+    FROM stock_transfers st
+    LEFT JOIN stock_transfer_items sti ON sti.transfer_id = st.id
+    WHERE st.id = ?
+    GROUP BY st.id
+  `).get(id);
+  if (!transfer) return null;
+  transfer.items = db.prepare(`
+    SELECT id, product_id, variant_id, product_title, variant_name, quantity
+    FROM stock_transfer_items
+    WHERE transfer_id = ?
+    ORDER BY rowid ASC
+  `).all(id);
+  return transfer;
+}
+
+function inventoryActor(req) {
+  return String(req.user?.u || req.user?.username || 'admin');
+}
+
+adminRouter.get('/api/admin/inventory/transfers', authMiddleware, (req, res) => {
+  const page = Math.max(Number.parseInt(req.query.page, 10) || 1, 1);
+  const limit = Math.min(Math.max(Number.parseInt(req.query.limit, 10) || 30, 1), 100);
+  const total = Number(db.prepare('SELECT COUNT(*) AS count FROM stock_transfers').get()?.count || 0);
+  const transfers = db.prepare(`
+    SELECT st.*,
+           COUNT(sti.id) AS item_count,
+           COALESCE(SUM(sti.quantity), 0) AS total_quantity
+    FROM stock_transfers st
+    LEFT JOIN stock_transfer_items sti ON sti.transfer_id = st.id
+    GROUP BY st.id
+    ORDER BY CASE WHEN st.status = 'draft' THEN 0 ELSE 1 END,
+             st.created_at DESC,
+             st.transfer_number DESC
+    LIMIT ? OFFSET ?
+  `).all(limit, (page - 1) * limit);
+  res.json({
+    transfers,
+    pagination: {
+      page,
+      limit,
+      total,
+      totalPages: Math.max(1, Math.ceil(total / limit)),
+    },
+  });
+});
+
+adminRouter.get('/api/admin/inventory/transfers/:id', authMiddleware, (req, res) => {
+  const transfer = getInventoryTransfer(req.params.id);
+  if (!transfer) return res.status(404).json({ error: 'not_found' });
+  res.json(transfer);
+});
+
 adminRouter.post('/api/admin/inventory/transfers', authMiddleware, (req, res) => {
   try {
     const { source_location: source, destination_location: destination, comment, items } = req.body || {};
@@ -1230,16 +1287,17 @@ adminRouter.post('/api/admin/inventory/transfers', authMiddleware, (req, res) =>
     }
 
     const transferId = `move_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-    const nextNumber = Number(db.prepare('SELECT MAX(transfer_number) AS value FROM stock_transfers').get()?.value || 0) + 1;
     const sourceColumn = source === 'warehouse' ? 'warehouse_stock' : 'stock';
-    const destinationColumn = destination === 'warehouse' ? 'warehouse_stock' : 'stock';
-    const affectedGroupIds = new Set();
+    const actor = inventoryActor(req);
+    let nextNumber = 0;
 
     const tx = db.transaction(() => {
+      nextNumber = Number(db.prepare('SELECT MAX(transfer_number) AS value FROM stock_transfers').get()?.value || 0) + 1;
       db.prepare(`
-        INSERT INTO stock_transfers (id, transfer_number, source_location, destination_location, comment)
-        VALUES (?, ?, ?, ?, ?)
-      `).run(transferId, nextNumber, source, destination, String(comment || '').trim() || null);
+        INSERT INTO stock_transfers (
+          id, transfer_number, source_location, destination_location, comment, status, created_by
+        ) VALUES (?, ?, ?, ?, ?, 'draft', ?)
+      `).run(transferId, nextNumber, source, destination, String(comment || '').trim() || null, actor);
 
       const insertItem = db.prepare(`
         INSERT INTO stock_transfer_items (
@@ -1247,6 +1305,7 @@ adminRouter.post('/api/admin/inventory/transfers', authMiddleware, (req, res) =>
         ) VALUES (?, ?, ?, ?, ?, ?, ?)
       `);
 
+      const seenItems = new Set();
       for (const rawItem of items) {
         const productId = String(rawItem?.product_id || '').trim();
         const variantId = rawItem?.variant_id ? String(rawItem.variant_id) : null;
@@ -1257,11 +1316,11 @@ adminRouter.post('/api/admin/inventory/transfers', authMiddleware, (req, res) =>
 
         const product = db.prepare('SELECT id, title, has_variants, groupId FROM products WHERE id = ?').get(productId);
         if (!product) throw new Error('product_not_found');
-        if (product.groupId) affectedGroupIds.add(product.groupId);
 
         const table = variantId ? 'product_variants' : 'products';
-        const idColumn = variantId ? 'id' : 'id';
         const rowId = variantId || productId;
+        if (seenItems.has(rowId)) throw new Error('duplicate_item');
+        seenItems.add(rowId);
         let variantName = null;
         if (variantId) {
           const variant = db.prepare('SELECT id, product_id, name FROM product_variants WHERE id = ?').get(variantId);
@@ -1271,17 +1330,10 @@ adminRouter.post('/api/admin/inventory/transfers', authMiddleware, (req, res) =>
           throw new Error('variant_required');
         }
 
-        const stockRow = db.prepare(`SELECT ${sourceColumn} AS available FROM ${table} WHERE ${idColumn} = ?`).get(rowId);
+        const stockRow = db.prepare(`SELECT ${sourceColumn} AS available FROM ${table} WHERE id = ?`).get(rowId);
         if (Number(stockRow?.available || 0) < quantity) {
           throw new Error(`insufficient_stock:${rowId}`);
         }
-
-        db.prepare(`
-          UPDATE ${table}
-          SET ${sourceColumn} = ${sourceColumn} - ?,
-              ${destinationColumn} = ${destinationColumn} + ?
-          WHERE ${idColumn} = ?
-        `).run(quantity, quantity, rowId);
 
         insertItem.run(
           `move_item_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
@@ -1296,6 +1348,70 @@ adminRouter.post('/api/admin/inventory/transfers', authMiddleware, (req, res) =>
     });
 
     tx();
+    res.json(getInventoryTransfer(transferId));
+  } catch (error) {
+    console.error('[admin] Create inventory transfer error:', error);
+    const clientError = String(error.message || '');
+    if (
+      ['invalid_item', 'duplicate_item', 'product_not_found', 'variant_not_found', 'variant_required'].includes(clientError)
+      || clientError.startsWith('insufficient_stock:')
+    ) {
+      return res.status(400).json({ error: clientError });
+    }
+    res.status(500).json({ error: 'failed', message: error.message });
+  }
+});
+
+adminRouter.post('/api/admin/inventory/transfers/:id/complete', authMiddleware, (req, res) => {
+  const affectedGroupIds = new Set();
+  try {
+    const tx = db.transaction(() => {
+      const transfer = db.prepare('SELECT * FROM stock_transfers WHERE id = ?').get(req.params.id);
+      if (!transfer) throw new Error('not_found');
+      if (transfer.status !== 'draft') throw new Error('invalid_status');
+
+      const sourceColumn = transfer.source_location === 'warehouse' ? 'warehouse_stock' : 'stock';
+      const destinationColumn = transfer.destination_location === 'warehouse' ? 'warehouse_stock' : 'stock';
+      const items = db.prepare(`
+        SELECT product_id, variant_id, quantity
+        FROM stock_transfer_items
+        WHERE transfer_id = ?
+        ORDER BY rowid ASC
+      `).all(transfer.id);
+      if (!items.length) throw new Error('items_required');
+
+      for (const item of items) {
+        const product = db.prepare('SELECT id, groupId FROM products WHERE id = ?').get(item.product_id);
+        if (!product) throw new Error('product_not_found');
+        if (product.groupId) affectedGroupIds.add(product.groupId);
+
+        const table = item.variant_id ? 'product_variants' : 'products';
+        const rowId = item.variant_id || item.product_id;
+        if (item.variant_id) {
+          const variant = db.prepare('SELECT product_id FROM product_variants WHERE id = ?').get(item.variant_id);
+          if (!variant || variant.product_id !== item.product_id) throw new Error('variant_not_found');
+        }
+        const stockRow = db.prepare(`SELECT ${sourceColumn} AS available FROM ${table} WHERE id = ?`).get(rowId);
+        if (Number(stockRow?.available || 0) < Number(item.quantity || 0)) {
+          throw new Error(`insufficient_stock:${rowId}`);
+        }
+        db.prepare(`
+          UPDATE ${table}
+          SET ${sourceColumn} = ${sourceColumn} - ?,
+              ${destinationColumn} = ${destinationColumn} + ?
+          WHERE id = ?
+        `).run(item.quantity, item.quantity, rowId);
+      }
+
+      const updated = db.prepare(`
+        UPDATE stock_transfers
+        SET status = 'completed', completed_by = ?, completed_at = DATETIME('now')
+        WHERE id = ? AND status = 'draft'
+      `).run(inventoryActor(req), transfer.id);
+      if (updated.changes !== 1) throw new Error('invalid_status');
+    });
+
+    tx();
     affectedGroupIds.forEach((groupId) => {
       try {
         syncGroupParking(groupId);
@@ -1303,16 +1419,36 @@ adminRouter.post('/api/admin/inventory/transfers', authMiddleware, (req, res) =>
         console.error('[admin] Inventory transfer group parking sync failed:', error);
       }
     });
-    res.json({ id: transferId, transfer_number: nextNumber, ok: true });
+    res.json(getInventoryTransfer(req.params.id));
   } catch (error) {
-    console.error('[admin] Create inventory transfer error:', error);
+    console.error('[admin] Complete inventory transfer error:', error);
     const clientError = String(error.message || '');
+    if (clientError === 'not_found') return res.status(404).json({ error: clientError });
+    if (clientError === 'invalid_status') return res.status(409).json({ error: clientError });
     if (
-      ['invalid_item', 'product_not_found', 'variant_not_found', 'variant_required'].includes(clientError)
+      ['items_required', 'product_not_found', 'variant_not_found'].includes(clientError)
       || clientError.startsWith('insufficient_stock:')
     ) {
       return res.status(400).json({ error: clientError });
     }
+    res.status(500).json({ error: 'failed', message: error.message });
+  }
+});
+
+adminRouter.post('/api/admin/inventory/transfers/:id/cancel', authMiddleware, (req, res) => {
+  try {
+    const updated = db.prepare(`
+      UPDATE stock_transfers
+      SET status = 'cancelled', cancelled_by = ?, cancelled_at = DATETIME('now')
+      WHERE id = ? AND status = 'draft'
+    `).run(inventoryActor(req), req.params.id);
+    if (updated.changes !== 1) {
+      const exists = db.prepare('SELECT 1 FROM stock_transfers WHERE id = ?').get(req.params.id);
+      return res.status(exists ? 409 : 404).json({ error: exists ? 'invalid_status' : 'not_found' });
+    }
+    res.json(getInventoryTransfer(req.params.id));
+  } catch (error) {
+    console.error('[admin] Cancel inventory transfer error:', error);
     res.status(500).json({ error: 'failed', message: error.message });
   }
 });

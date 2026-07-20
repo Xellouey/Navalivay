@@ -347,13 +347,13 @@
                   v-for="(product, index) in productResults"
                   :key="product.id"
                   :class="[
-                    'flex items-center justify-between gap-3 px-4 py-3 transition-colors',
+                    'grid grid-cols-1 gap-3 px-3 py-3 transition-colors sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:px-4',
                     getAddedQuantity(product.id) > 0
                       ? 'bg-blue-50 ring-2 ring-inset ring-blue-400'
                       : 'hover:bg-gray-50'
                   ]"
                 >
-                  <div class="flex items-center gap-3">
+                  <div class="flex min-w-0 items-center gap-3">
                     <span class="w-5 text-xs text-gray-400">{{ index + 1 }}.</span>
                     <img
                       v-if="product.image"
@@ -366,44 +366,26 @@
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
                       </svg>
                     </div>
-                    <div>
-                      <div class="font-medium text-gray-900">
+                    <div class="min-w-0">
+                      <div class="truncate font-medium text-gray-900">
                         {{ product.title }}
                       </div>
                       <div
                         v-if="product.groupName"
-                        class="text-xs font-semibold text-blue-600"
+                        class="truncate text-xs font-semibold text-blue-600"
                       >
                         {{ product.groupName }}
                       </div>
-                      <div class="text-xs text-gray-500">
+                      <div class="truncate text-xs text-gray-500">
                         Розница: {{ product.stock }} · Склад: {{ Number(product.warehouseStock || 0) }} · Себестоимость:
                         {{ formatCurrency(product.costPrice) }}
                       </div>
                     </div>
                   </div>
-                  <div class="flex items-center gap-2">
-                    <span
-                      v-if="getAddedQuantity(product.id) > 0"
-                      class="rounded-full bg-blue-600 px-2 py-0.5 text-xs font-semibold text-white"
-                    >
-                      {{ getAddedQuantity(product.id) }} шт
-                    </span>
-                    <button
-                      v-if="getAddedQuantity(product.id) > 0"
-                      class="rounded-full border border-gray-300 px-3 py-1 text-xs font-semibold text-gray-600 transition hover:bg-gray-100"
-                      @click.stop="decreaseProduct(product.id)"
-                      type="button"
-                    >
-                      -1
-                    </button>
-                    <button
-                      class="rounded-full border border-blue-200 px-3 py-1 text-xs font-semibold text-blue-600 transition hover:bg-blue-50"
-                      @click="addProduct(product)"
-                      type="button"
-                    >
-                      {{ getAddedQuantity(product.id) > 0 ? '+1' : 'Добавить' }}
-                    </button>
+                  <div class="flex flex-shrink-0 items-center gap-1 justify-self-end rounded-xl bg-gray-100 p-1">
+                    <button type="button" class="h-10 w-10 rounded-lg bg-white text-lg font-semibold text-gray-700 shadow-sm hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-40" :disabled="getAddedQuantity(product.id) === 0" aria-label="Уменьшить количество" @click.stop="decreaseProduct(product.id)">−</button>
+                    <span class="min-w-10 text-center text-xs font-semibold text-gray-900">{{ getAddedQuantity(product.id) }} шт</span>
+                    <button type="button" class="h-10 w-10 rounded-lg bg-blue-600 text-lg font-semibold text-white shadow-sm hover:bg-blue-700" aria-label="Увеличить количество" @click="addProduct(product)">+</button>
                   </div>
                 </li>
               </ul>

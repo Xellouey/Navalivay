@@ -58,4 +58,32 @@ export function migrateInventoryLocations() {
     CREATE INDEX IF NOT EXISTS idx_product_variants_warehouse_stock
       ON product_variants(warehouse_stock);
   `);
+
+  const transferColumns = [
+    ['status', "TEXT NOT NULL DEFAULT 'draft'"],
+    ['created_by', 'TEXT'],
+    ['completed_by', 'TEXT'],
+    ['completed_at', 'TEXT'],
+    ['cancelled_by', 'TEXT'],
+    ['cancelled_at', 'TEXT'],
+  ];
+  for (const [column, definition] of transferColumns) {
+    if (!hasColumn('stock_transfers', column)) {
+      db.exec(`ALTER TABLE stock_transfers ADD COLUMN ${column} ${definition}`);
+      console.log(`[migration] Added stock_transfers.${column}`);
+    }
+  }
+
+  // До появления заявок все перемещения проводились сразу. У таких записей
+  // нет created_by. Условие намеренно идемпотентно на случай прерванного ALTER.
+  db.exec(`
+    UPDATE stock_transfers
+    SET status = 'completed', completed_at = COALESCE(completed_at, created_at)
+    WHERE status = 'draft' AND created_by IS NULL
+  `);
+
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_stock_transfers_status_created
+      ON stock_transfers(status, created_at DESC);
+  `);
 }

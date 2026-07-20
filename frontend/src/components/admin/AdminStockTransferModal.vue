@@ -1,15 +1,155 @@
 <template>
   <AdminModal
     :isOpen="isOpen"
-    title="Перемещение товаров"
-    description="Выберите товары и перенесите остаток между розницей и складом."
+    :title="modalTitle"
+    :description="modalDescription"
     size="2xl"
     :showActions="false"
     :persistent="true"
     @close="closeModal"
     @cancel="closeModal"
   >
-    <div class="space-y-6">
+    <div v-if="view === 'list'" class="space-y-5">
+      <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h4 class="text-base font-semibold text-gray-900">Заявки на перемещение</h4>
+          <p class="text-sm text-gray-500">Черновики не меняют остатки.</p>
+        </div>
+        <button
+          type="button"
+          class="rounded-xl bg-brand-dark px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-brand-dark/90"
+          :disabled="loadingTransfers || loadingMore"
+          @click="openCreate"
+        >
+          Новая заявка
+        </button>
+      </div>
+
+      <div v-if="loadingTransfers" class="py-10 text-center text-sm text-gray-500">Загрузка…</div>
+      <div v-else-if="listError" class="flex flex-col gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 sm:flex-row sm:items-center sm:justify-between">
+        <span>{{ listError }}</span>
+        <button type="button" class="font-semibold underline" @click="loadTransfers()">Повторить</button>
+      </div>
+      <p v-if="detailError" class="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+        {{ detailError }}
+      </p>
+      <div v-if="!loadingTransfers && !listError && !transfers.length" class="rounded-2xl border border-dashed border-gray-200 px-5 py-10 text-center">
+        <p class="font-medium text-gray-900">Заявок пока нет</p>
+        <p class="mt-1 text-sm text-gray-500">Создайте первую заявку на перемещение.</p>
+      </div>
+      <div v-if="!loadingTransfers && transfers.length" class="overflow-hidden rounded-2xl border border-gray-200">
+        <button
+          v-for="transfer in transfers"
+          :key="transfer.id"
+          type="button"
+          class="grid w-full gap-2 border-b border-gray-100 px-4 py-4 text-left transition last:border-b-0 hover:bg-gray-50 disabled:cursor-wait disabled:opacity-60 sm:grid-cols-[1fr,auto] sm:items-center"
+          :disabled="Boolean(openingTransferId) || loadingMore"
+          @click="openDetails(transfer.id)"
+        >
+          <span class="min-w-0">
+            <span class="flex flex-wrap items-center gap-2">
+              <span class="font-semibold text-gray-900">Перемещение №{{ transfer.transfer_number }}</span>
+              <span :class="statusClass(transfer.status)" class="rounded-full px-2.5 py-1 text-xs font-semibold">
+                {{ statusLabel(transfer.status) }}
+              </span>
+            </span>
+            <span class="mt-1 block text-sm text-gray-600">
+              {{ locationLabel(transfer.source_location) }} → {{ locationLabel(transfer.destination_location) }} · {{ Number(transfer.total_quantity || 0) }} шт
+            </span>
+            <span class="mt-1 block text-xs text-gray-400">
+              {{ formatDate(transfer.created_at) }} · создал {{ transfer.created_by || 'администратор' }}
+            </span>
+          </span>
+          <span class="text-sm font-semibold text-brand-dark">{{ openingTransferId === transfer.id ? 'Открываем…' : 'Открыть' }}</span>
+        </button>
+      </div>
+      <div v-if="loadMoreError" class="flex items-center justify-between gap-3 rounded-xl bg-red-50 px-4 py-3 text-sm text-red-700">
+        <span>{{ loadMoreError }}</span>
+        <button type="button" class="font-semibold underline" @click="loadTransfers(true)">Повторить</button>
+      </div>
+      <button
+        v-if="transferPage < transferTotalPages && !loadMoreError"
+        type="button"
+        class="w-full rounded-xl border border-gray-200 px-4 py-2.5 text-sm font-semibold text-gray-700 transition hover:bg-gray-50 disabled:opacity-50"
+        :disabled="loadingMore"
+        @click="loadTransfers(true)"
+      >
+        {{ loadingMore ? 'Загрузка…' : 'Показать ещё' }}
+      </button>
+    </div>
+
+    <div v-else-if="view === 'details' && activeTransfer" class="space-y-5">
+      <button type="button" class="text-sm font-semibold text-brand-dark hover:underline" @click="backToList">
+        ← Все перемещения
+      </button>
+
+      <div class="rounded-2xl border border-gray-200 bg-gray-50/70 p-4">
+        <div class="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <div class="text-xs font-semibold uppercase tracking-wide text-gray-500">Маршрут</div>
+            <div class="mt-1 text-lg font-semibold text-gray-900">
+              {{ locationLabel(activeTransfer.source_location) }} → {{ locationLabel(activeTransfer.destination_location) }}
+            </div>
+          </div>
+          <span :class="statusClass(activeTransfer.status)" class="rounded-full px-3 py-1.5 text-sm font-semibold">
+            {{ statusLabel(activeTransfer.status) }}
+          </span>
+        </div>
+        <p v-if="activeTransfer.comment" class="mt-3 text-sm text-gray-600">{{ activeTransfer.comment }}</p>
+        <div class="mt-3 space-y-1 text-xs text-gray-500">
+          <div>Создал: {{ activeTransfer.created_by || 'администратор' }} · {{ formatDate(activeTransfer.created_at) }}</div>
+          <div v-if="activeTransfer.completed_at">Оприходовал: {{ activeTransfer.completed_by || 'администратор' }} · {{ formatDate(activeTransfer.completed_at) }}</div>
+          <div v-if="activeTransfer.cancelled_at">Отменил: {{ activeTransfer.cancelled_by || 'администратор' }} · {{ formatDate(activeTransfer.cancelled_at) }}</div>
+        </div>
+      </div>
+
+      <div class="overflow-hidden rounded-2xl border border-gray-200">
+        <div class="border-b border-gray-200 bg-gray-50 px-4 py-3 text-sm font-semibold text-gray-900">
+          Товары: {{ Number(activeTransfer.total_quantity || 0) }} шт
+        </div>
+        <div class="divide-y divide-gray-100">
+          <div v-for="item in activeTransfer.items" :key="item.id" class="flex items-center justify-between gap-4 px-4 py-3 text-sm">
+            <div class="min-w-0">
+              <div class="truncate font-medium text-gray-900">{{ item.product_title }}</div>
+              <div v-if="item.variant_name" class="truncate text-xs text-gray-500">{{ item.variant_name }}</div>
+            </div>
+            <div class="flex-shrink-0 font-semibold text-gray-900">{{ item.quantity }} шт</div>
+          </div>
+        </div>
+      </div>
+
+      <p v-if="actionMessage" class="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+        {{ actionMessage }}
+      </p>
+      <p v-if="errorMessage" class="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+        {{ errorMessage }}
+      </p>
+
+      <div v-if="activeTransfer.status === 'draft'" class="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+        <button
+          type="button"
+          class="rounded-xl border border-red-200 px-5 py-2.5 text-sm font-semibold text-red-600 transition hover:bg-red-50"
+          :disabled="actionSubmitting"
+          @click="cancelTransfer"
+        >
+          Отменить заявку
+        </button>
+        <button
+          type="button"
+          class="rounded-xl bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:bg-emerald-300"
+          :disabled="actionSubmitting"
+          @click="completeTransfer"
+        >
+          {{ actionSubmitting ? 'Оприходуем…' : 'Оприходовать' }}
+        </button>
+      </div>
+    </div>
+
+    <div v-else class="space-y-6">
+      <button type="button" class="text-sm font-semibold text-brand-dark hover:underline" @click="backToList">
+        ← Все перемещения
+      </button>
+
       <div class="grid gap-3 sm:grid-cols-[1fr,auto,1fr] sm:items-end">
         <div>
           <div class="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">Откуда</div>
@@ -19,7 +159,7 @@
         </div>
         <button
           type="button"
-          class="rounded-xl border border-gray-300 bg-white px-4 py-3 text-sm font-semibold text-gray-700 transition hover:border-blue-300 hover:text-blue-700"
+          class="rounded-xl border border-gray-300 bg-white px-4 py-3 text-sm font-semibold text-gray-700 transition hover:border-rose-300 hover:text-brand-dark"
           :disabled="submitting"
           @click="swapDirection"
         >
@@ -27,7 +167,7 @@
         </button>
         <div>
           <div class="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">Куда</div>
-          <div class="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-base font-semibold text-blue-900">
+          <div class="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-base font-semibold text-brand-dark">
             {{ locationLabel(destinationLocation) }}
           </div>
         </div>
@@ -39,7 +179,7 @@
           v-model="comment"
           :disabled="submitting"
           rows="2"
-          class="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
+          class="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:border-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-100"
           placeholder="Например, пополнение витрины"
         ></textarea>
       </label>
@@ -53,19 +193,17 @@
           v-model="search"
           type="search"
           :disabled="submitting"
-          class="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
+          class="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:border-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-100"
           placeholder="Название товара, вкус или линейка"
         />
         <div class="max-h-64 overflow-y-auto rounded-xl border border-gray-200">
           <div v-if="loading" class="py-8 text-center text-sm text-gray-500">Загрузка…</div>
-          <div v-else-if="loadErrorMessage" class="py-8 text-center text-sm text-red-600">
-            {{ loadErrorMessage }}
-          </div>
+          <div v-else-if="loadErrorMessage" class="py-8 text-center text-sm text-red-600">{{ loadErrorMessage }}</div>
           <div v-else-if="!results.length" class="py-8 text-center text-sm text-gray-500">
             В {{ locationLabel(sourceLocation).toLowerCase() }} подходящих товаров нет
           </div>
           <ul v-else class="divide-y divide-gray-100">
-            <li v-for="item in results" :key="item.id" class="flex items-center justify-between gap-3 px-4 py-3">
+            <li v-for="item in results" :key="item.id" class="grid grid-cols-1 gap-3 px-4 py-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
               <div class="flex min-w-0 items-center gap-3">
                 <img v-if="item.image" :src="item.image" :alt="item.title" class="h-10 w-10 flex-shrink-0 rounded-lg object-cover" />
                 <div class="min-w-0">
@@ -75,14 +213,11 @@
                   </div>
                 </div>
               </div>
-              <button
-                type="button"
-                class="flex-shrink-0 rounded-lg border border-blue-200 px-3 py-1.5 text-xs font-semibold text-blue-700 transition hover:bg-blue-50 disabled:cursor-not-allowed disabled:border-gray-200 disabled:text-gray-400"
-                :disabled="submitting || isSelected(item)"
-                @click="addItem(item)"
-              >
-                {{ isSelected(item) ? 'Добавлен' : 'Добавить' }}
-              </button>
+              <div class="flex flex-shrink-0 items-center gap-1 justify-self-end rounded-xl bg-gray-100 p-1">
+                <button type="button" class="h-10 w-10 rounded-lg bg-white text-lg font-semibold text-gray-700 shadow-sm hover:text-brand-dark disabled:cursor-not-allowed disabled:opacity-40" :disabled="submitting || selectedQuantity(item) === 0" aria-label="Уменьшить количество" @click="decreaseResultItem(item)">−</button>
+                <span class="min-w-10 text-center text-xs font-semibold text-gray-900">{{ selectedQuantity(item) }} шт</span>
+                <button type="button" class="h-10 w-10 rounded-lg bg-brand-dark text-lg font-semibold text-white shadow-sm disabled:cursor-not-allowed disabled:opacity-40" :disabled="submitting || selectedQuantity(item) >= item.available_stock" aria-label="Увеличить количество" @click="addItem(item)">+</button>
+              </div>
             </li>
           </ul>
         </div>
@@ -90,40 +225,23 @@
 
       <section class="overflow-hidden rounded-xl border border-gray-200">
         <div class="border-b border-gray-200 bg-gray-50 px-4 py-3 text-sm font-semibold text-gray-900">
-          К перемещению: {{ selectedItems.length }}
+          К перемещению: {{ selectedItems.length }} поз. · {{ totalQuantity }} шт
         </div>
-        <div v-if="!selectedItems.length" class="px-4 py-8 text-center text-sm text-gray-500">
-          Добавьте товары из списка выше
-        </div>
+        <div v-if="!selectedItems.length" class="px-4 py-8 text-center text-sm text-gray-500">Добавьте товары из списка выше</div>
         <div v-else class="overflow-x-auto">
           <table class="w-full min-w-[560px] text-sm">
             <thead class="border-b border-gray-100 text-left text-xs uppercase text-gray-500">
-              <tr>
-                <th class="px-4 py-3">Товар</th>
-                <th class="px-4 py-3">Доступно</th>
-                <th class="px-4 py-3">Количество</th>
-                <th class="px-4 py-3"></th>
-              </tr>
+              <tr><th class="px-4 py-3">Товар</th><th class="px-4 py-3">Доступно</th><th class="px-4 py-3">Количество</th><th class="px-4 py-3"></th></tr>
             </thead>
             <tbody class="divide-y divide-gray-100">
               <tr v-for="item in selectedItems" :key="item.key">
                 <td class="px-4 py-3 font-medium text-gray-900">{{ item.title }}</td>
                 <td class="px-4 py-3 text-gray-600">{{ item.available }} шт</td>
                 <td class="px-4 py-3">
-                  <input
-                    v-model.number="item.quantity"
-                    type="number"
-                    min="1"
-                    :max="item.available"
-                    :disabled="submitting"
-                    class="w-24 rounded-lg border border-gray-300 px-2 py-1.5 focus:border-blue-500 focus:outline-none"
-                    @change="clampQuantity(item)"
-                  />
+                  <input v-model.number="item.quantity" type="number" min="1" :max="item.available" :disabled="submitting" class="w-24 rounded-lg border border-gray-300 px-2 py-1.5 focus:border-rose-400 focus:outline-none" @change="clampQuantity(item)" />
                 </td>
                 <td class="px-4 py-3 text-right">
-                  <button type="button" class="text-xs font-semibold text-red-600 hover:text-red-800 disabled:text-gray-400" :disabled="submitting" @click="removeItem(item.key)">
-                    Удалить
-                  </button>
+                  <button type="button" class="text-xs font-semibold text-red-600 hover:text-red-800 disabled:text-gray-400" :disabled="submitting" @click="removeItem(item.key)">Удалить</button>
                 </td>
               </tr>
             </tbody>
@@ -131,21 +249,12 @@
         </div>
       </section>
 
-      <p v-if="errorMessage" class="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-        {{ errorMessage }}
-      </p>
+      <p v-if="errorMessage" class="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{{ errorMessage }}</p>
 
       <div class="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
-        <button type="button" class="rounded-lg border border-gray-300 px-5 py-2.5 text-sm font-semibold text-gray-700 hover:bg-gray-50" :disabled="submitting" @click="closeModal">
-          Отмена
-        </button>
-        <button
-          type="button"
-          class="rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-300"
-          :disabled="!selectedItems.length || submitting"
-          @click="submitTransfer"
-        >
-          {{ submitting ? 'Перемещаем…' : `Переместить ${totalQuantity} шт ${destinationLabel}` }}
+        <button type="button" class="rounded-xl border border-gray-300 px-5 py-2.5 text-sm font-semibold text-gray-700 hover:bg-gray-50" :disabled="submitting" @click="backToList">Отмена</button>
+        <button type="button" class="rounded-xl bg-brand-dark px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-brand-dark/90 disabled:cursor-not-allowed disabled:opacity-40" :disabled="!selectedItems.length || submitting" @click="submitTransfer">
+          {{ submitting ? 'Сохраняем…' : `Создать заявку на ${totalQuantity} шт` }}
         </button>
       </div>
     </div>
@@ -156,8 +265,11 @@
 import { computed, onUnmounted, ref, watch } from 'vue'
 import AdminModal from '@/components/AdminModal.vue'
 import { useAdminStore } from '@/stores/admin'
+import { BUSINESS_TIME_ZONE } from '@/utils/businessTime'
 
 type Location = 'retail' | 'warehouse'
+type TransferStatus = 'draft' | 'completed' | 'cancelled'
+type ModalView = 'list' | 'create' | 'details'
 
 interface InventoryItem {
   id: string
@@ -178,17 +290,46 @@ interface SelectedItem {
   quantity: number
 }
 
-const props = defineProps<{
-  isOpen: boolean
-  initialSource?: Location
-}>()
+interface StockTransfer {
+  id: string
+  transfer_number: number
+  source_location: Location
+  destination_location: Location
+  status: TransferStatus
+  comment?: string | null
+  created_at: string
+  created_by?: string | null
+  completed_at?: string | null
+  completed_by?: string | null
+  cancelled_at?: string | null
+  cancelled_by?: string | null
+  total_quantity: number
+  item_count: number
+  items?: Array<{ id: string; product_title: string; variant_name?: string | null; quantity: number }>
+}
 
+const props = defineProps<{ isOpen: boolean; initialSource?: Location }>()
 const emit = defineEmits<{
   (event: 'close'): void
+  (event: 'saved', details: { number: number }): void
   (event: 'completed', details: { quantity: number; destination: Location }): void
+  (event: 'cancelled', details: { number: number }): void
 }>()
 
 const adminStore = useAdminStore()
+const view = ref<ModalView>('list')
+const transfers = ref<StockTransfer[]>([])
+const activeTransfer = ref<StockTransfer | null>(null)
+const loadingTransfers = ref(false)
+const loadingMore = ref(false)
+const transferPage = ref(1)
+const transferTotalPages = ref(1)
+const listError = ref('')
+const loadMoreError = ref('')
+const detailError = ref('')
+const openingTransferId = ref('')
+const actionSubmitting = ref(false)
+const actionMessage = ref('')
 const sourceLocation = ref<Location>('retail')
 const destinationLocation = computed<Location>(() => sourceLocation.value === 'retail' ? 'warehouse' : 'retail')
 const comment = ref('')
@@ -201,21 +342,116 @@ const errorMessage = ref('')
 const loadErrorMessage = ref('')
 let searchTimer: ReturnType<typeof setTimeout> | null = null
 let requestId = 0
+let detailsRequestId = 0
+let transfersRequestId = 0
 
 const totalQuantity = computed(() => selectedItems.value.reduce((sum, item) => sum + item.quantity, 0))
-const destinationLabel = computed(() => destinationLocation.value === 'warehouse' ? 'на склад' : 'в розницу')
+const hasUnsavedDraft = computed(() => selectedItems.value.length > 0 || Boolean(comment.value.trim()))
+const modalTitle = computed(() => activeTransfer.value ? `Перемещение №${activeTransfer.value.transfer_number}` : view.value === 'create' ? 'Новая заявка' : 'Перемещения товаров')
+const modalDescription = computed(() => view.value === 'list'
+  ? 'Создайте заявку, а после фактического перемещения оприходуйте её.'
+  : view.value === 'create'
+    ? 'Остатки не изменятся, пока заявка не будет оприходована.'
+    : 'Проверьте состав и статус заявки.')
 
 function locationLabel(location: Location) {
   return location === 'warehouse' ? 'Склад' : 'Розница'
+}
+
+function statusLabel(status: TransferStatus) {
+  return status === 'completed' ? 'Оприходовано' : status === 'cancelled' ? 'Отменено' : 'Черновик'
+}
+
+function statusClass(status: TransferStatus) {
+  if (status === 'completed') return 'bg-emerald-100 text-emerald-700'
+  if (status === 'cancelled') return 'bg-gray-100 text-gray-500'
+  return 'bg-amber-100 text-amber-700'
+}
+
+function formatDate(value?: string | null) {
+  if (!value) return ''
+  const normalized = value.includes('T') ? value : `${value.replace(' ', 'T')}Z`
+  const date = new Date(normalized)
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleString('ru-RU', {
+    dateStyle: 'short',
+    timeStyle: 'short',
+    timeZone: BUSINESS_TIME_ZONE,
+  })
 }
 
 function itemKey(item: InventoryItem) {
   return `${item.product_id || item.id}:${item.is_variant ? item.id : ''}`
 }
 
-function isSelected(item: InventoryItem) {
+function selectedItem(item: InventoryItem) {
   const key = itemKey(item)
-  return selectedItems.value.some((selected) => selected.key === key)
+  return selectedItems.value.find((selected) => selected.key === key)
+}
+
+function selectedQuantity(item: InventoryItem) {
+  return selectedItem(item)?.quantity || 0
+}
+
+async function loadTransfers(append = false) {
+  if (append && (loadingMore.value || loadingTransfers.value)) return
+  const currentRequest = ++transfersRequestId
+  if (append) loadingMore.value = true
+  else {
+    loadingTransfers.value = true
+    loadingMore.value = false
+  }
+  if (append) loadMoreError.value = ''
+  else {
+    listError.value = ''
+    loadMoreError.value = ''
+  }
+  try {
+    const nextPage = append ? transferPage.value + 1 : 1
+    const response = await adminStore.fetchInventoryTransfers({ page: nextPage, limit: 30 })
+    if (currentRequest !== transfersRequestId) return
+    const nextTransfers = Array.isArray(response?.transfers) ? response.transfers : []
+    transfers.value = append ? [...transfers.value, ...nextTransfers] : nextTransfers
+    transferPage.value = Number(response?.pagination?.page || nextPage)
+    transferTotalPages.value = Number(response?.pagination?.totalPages || 1)
+  } catch (error) {
+    if (currentRequest !== transfersRequestId) return
+    console.error('[inventory] Failed to load transfers', error)
+    if (append) loadMoreError.value = 'Не удалось загрузить следующую страницу'
+    else listError.value = 'Не удалось загрузить перемещения'
+  } finally {
+    if (currentRequest === transfersRequestId) {
+      loadingTransfers.value = false
+      loadingMore.value = false
+    }
+  }
+}
+
+function invalidateTransferLoads() {
+  transfersRequestId += 1
+  loadingTransfers.value = false
+  loadingMore.value = false
+}
+
+async function openDetails(id: string) {
+  if (openingTransferId.value) return
+  invalidateTransferLoads()
+  const currentRequest = ++detailsRequestId
+  actionMessage.value = ''
+  errorMessage.value = ''
+  detailError.value = ''
+  openingTransferId.value = id
+  try {
+    const transfer = await adminStore.fetchInventoryTransfer(id)
+    if (currentRequest !== detailsRequestId) return
+    activeTransfer.value = transfer
+    view.value = 'details'
+  } catch (error) {
+    if (currentRequest !== detailsRequestId) return
+    console.error('[inventory] Failed to load transfer', error)
+    detailError.value = 'Не удалось открыть перемещение. Попробуйте ещё раз.'
+  } finally {
+    if (currentRequest === detailsRequestId) openingTransferId.value = ''
+  }
 }
 
 async function loadItems() {
@@ -223,11 +459,7 @@ async function loadItems() {
   loading.value = true
   loadErrorMessage.value = ''
   try {
-    const data = await adminStore.fetchInventoryItems({
-      location: sourceLocation.value,
-      search: search.value.trim() || undefined,
-      limit: 100,
-    })
+    const data = await adminStore.fetchInventoryItems({ location: sourceLocation.value, search: search.value.trim() || undefined, limit: 100 })
     if (currentRequest !== requestId) return
     results.value = Array.isArray(data) ? data : []
   } catch (error) {
@@ -241,17 +473,21 @@ async function loadItems() {
 }
 
 function addItem(item: InventoryItem) {
-  if (isSelected(item)) return
+  const existing = selectedItem(item)
   const available = Math.max(0, Number(item.available_stock || 0))
   if (available <= 0) return
-  selectedItems.value.push({
-    key: itemKey(item),
-    productId: String(item.product_id || item.id),
-    variantId: item.is_variant ? String(item.id) : null,
-    title: item.title,
-    available,
-    quantity: 1,
-  })
+  if (existing) {
+    existing.quantity = Math.min(existing.quantity + 1, existing.available)
+    return
+  }
+  selectedItems.value.push({ key: itemKey(item), productId: String(item.product_id || item.id), variantId: item.is_variant ? String(item.id) : null, title: item.title, available, quantity: 1 })
+}
+
+function decreaseResultItem(item: InventoryItem) {
+  const existing = selectedItem(item)
+  if (!existing) return
+  if (existing.quantity <= 1) removeItem(existing.key)
+  else existing.quantity -= 1
 }
 
 function removeItem(key: string) {
@@ -263,17 +499,9 @@ function clampQuantity(item: SelectedItem) {
   item.quantity = Math.min(Math.max(quantity, 1), item.available)
 }
 
-function swapDirection() {
-  sourceLocation.value = destinationLocation.value
-  selectedItems.value = []
-  void loadItems()
-}
-
-function reset() {
-  if (searchTimer) {
-    clearTimeout(searchTimer)
-    searchTimer = null
-  }
+function resetForm() {
+  if (searchTimer) clearTimeout(searchTimer)
+  searchTimer = null
   requestId += 1
   sourceLocation.value = props.initialSource || 'retail'
   comment.value = ''
@@ -285,52 +513,134 @@ function reset() {
   loading.value = false
 }
 
+function openCreate() {
+  invalidateTransferLoads()
+  detailsRequestId += 1
+  openingTransferId.value = ''
+  activeTransfer.value = null
+  detailError.value = ''
+  resetForm()
+  view.value = 'create'
+  void loadItems()
+}
+
+function backToList() {
+  if (submitting.value || actionSubmitting.value) return
+  if (view.value === 'create' && hasUnsavedDraft.value && !confirm('Закрыть заявку? Данные заявки не сохранятся.')) return
+  detailsRequestId += 1
+  openingTransferId.value = ''
+  activeTransfer.value = null
+  actionMessage.value = ''
+  errorMessage.value = ''
+  detailError.value = ''
+  resetForm()
+  view.value = 'list'
+  void loadTransfers()
+}
+
+function swapDirection() {
+  if (selectedItems.value.length && !confirm('Поменять направление? Выбранные товары будут удалены.')) return
+  sourceLocation.value = destinationLocation.value
+  selectedItems.value = []
+  void loadItems()
+}
+
 function closeModal() {
-  if (submitting.value) return
+  if (submitting.value || actionSubmitting.value) return
+  if (view.value === 'create' && hasUnsavedDraft.value && !confirm('Закрыть заявку? Данные заявки не сохранятся.')) return
+  detailsRequestId += 1
+  openingTransferId.value = ''
+  invalidateTransferLoads()
   emit('close')
 }
 
 async function submitTransfer() {
   if (!selectedItems.value.length || submitting.value) return
   selectedItems.value.forEach(clampQuantity)
-  const submittedQuantity = totalQuantity.value
-  const submittedDestination = destinationLocation.value
   submitting.value = true
   errorMessage.value = ''
   try {
-    await adminStore.createInventoryTransfer({
+    const transfer = await adminStore.createInventoryTransfer({
       source_location: sourceLocation.value,
       destination_location: destinationLocation.value,
       comment: comment.value.trim() || undefined,
-      items: selectedItems.value.map((item) => ({
-        product_id: item.productId,
-        variant_id: item.variantId,
-        quantity: item.quantity,
-      })),
+      items: selectedItems.value.map((item) => ({ product_id: item.productId, variant_id: item.variantId, quantity: item.quantity })),
     })
-    emit('completed', { quantity: submittedQuantity, destination: submittedDestination })
-    emit('close')
+    emit('saved', { number: transfer.transfer_number })
+    resetForm()
+    activeTransfer.value = transfer
+    view.value = 'details'
+    void loadTransfers()
   } catch (error: any) {
     const code = String(error?.data?.error || '')
     errorMessage.value = code.startsWith('insufficient_stock:')
       ? 'Остаток изменился. Обновите список и проверьте количество.'
-      : 'Не удалось выполнить перемещение'
+      : 'Не удалось сохранить заявку'
   } finally {
     submitting.value = false
   }
 }
 
+async function completeTransfer() {
+  if (!activeTransfer.value || actionSubmitting.value) return
+  if (!confirm(`Оприходовать перемещение №${activeTransfer.value.transfer_number}? Остатки изменятся сразу.`)) return
+  actionSubmitting.value = true
+  errorMessage.value = ''
+  actionMessage.value = ''
+  try {
+    const completed = await adminStore.completeInventoryTransfer(activeTransfer.value.id)
+    activeTransfer.value = completed
+    actionMessage.value = 'Перемещение оприходовано'
+    emit('completed', { quantity: Number(completed.total_quantity || 0), destination: completed.destination_location })
+    void loadTransfers()
+  } catch (error: any) {
+    const code = String(error?.data?.error || '')
+    errorMessage.value = code.startsWith('insufficient_stock:')
+      ? 'В точке отправления уже не хватает товара. Проверьте остатки.'
+      : 'Не удалось оприходовать перемещение'
+  } finally {
+    actionSubmitting.value = false
+  }
+}
+
+async function cancelTransfer() {
+  if (!activeTransfer.value || actionSubmitting.value) return
+  if (!confirm(`Отменить перемещение №${activeTransfer.value.transfer_number}?`)) return
+  actionSubmitting.value = true
+  errorMessage.value = ''
+  actionMessage.value = ''
+  try {
+    const cancelled = await adminStore.cancelInventoryTransfer(activeTransfer.value.id)
+    activeTransfer.value = cancelled
+    actionMessage.value = 'Заявка отменена'
+    emit('cancelled', { number: cancelled.transfer_number })
+    void loadTransfers()
+  } catch (error) {
+    console.error('[inventory] Failed to cancel transfer', error)
+    errorMessage.value = 'Не удалось отменить заявку'
+  } finally {
+    actionSubmitting.value = false
+  }
+}
+
 watch(() => props.isOpen, (open) => {
   if (!open) {
-    reset()
+    detailsRequestId += 1
+    openingTransferId.value = ''
+    invalidateTransferLoads()
+    resetForm()
+    view.value = 'list'
+    activeTransfer.value = null
     return
   }
-  sourceLocation.value = props.initialSource || 'retail'
-  void loadItems()
+  detailError.value = ''
+  loadMoreError.value = ''
+  resetForm()
+  void loadTransfers()
 })
 
 watch(search, () => {
-  if (!props.isOpen) return
+  if (!props.isOpen || view.value !== 'create') return
   if (searchTimer) clearTimeout(searchTimer)
   searchTimer = setTimeout(() => void loadItems(), 250)
 })

@@ -13,8 +13,21 @@ const { issueToken } = await import('../auth.js');
 const { adminRouter } = await import('../routes/admin.js');
 const { crmOperationsRouter } = await import('../routes/crm-operations.js');
 const { syncProductSearchIndex } = await import('../services/product-search-service.js');
+const { migrateInventoryLocations } = await import('../migrations/add_inventory_locations.js');
 
 initDb();
+
+db.prepare(`
+  INSERT INTO stock_transfers (
+    id, transfer_number, source_location, destination_location, status, created_at
+  ) VALUES ('legacy_interrupted', 999, 'retail', 'warehouse', 'draft', DATETIME('now'))
+`).run();
+migrateInventoryLocations();
+assert.equal(
+  db.prepare('SELECT status FROM stock_transfers WHERE id = ?').get('legacy_interrupted').status,
+  'completed',
+);
+db.prepare('DELETE FROM stock_transfers WHERE id = ?').run('legacy_interrupted');
 
 db.exec(`
   DELETE FROM product_images;
@@ -90,9 +103,55 @@ try {
     }),
   });
   assert.equal(moveToWarehouse.response.status, 200);
+  assert.equal(moveToWarehouse.data.status, 'draft');
+  assert.equal(moveToWarehouse.data.created_by, 'inventory-test');
+  assert.deepEqual(regularStock(), { stock: 10, warehouse_stock: 0 });
+  assert.deepEqual(variantStock(), { stock: 10, warehouse_stock: 0 });
+  assert.equal(db.prepare('SELECT COUNT(*) AS count FROM stock_transfer_items').get().count, 2);
+
+  const completeMove = await requestJson(`/api/admin/inventory/transfers/${moveToWarehouse.data.id}/complete`, {
+    method: 'POST',
+  });
+  assert.equal(completeMove.response.status, 200);
+  assert.equal(completeMove.data.status, 'completed');
+  assert.equal(completeMove.data.completed_by, 'inventory-test');
   assert.deepEqual(regularStock(), { stock: 6, warehouse_stock: 4 });
   assert.deepEqual(variantStock(), { stock: 7, warehouse_stock: 3 });
-  assert.equal(db.prepare('SELECT COUNT(*) AS count FROM stock_transfer_items').get().count, 2);
+
+  const completeMoveAgain = await requestJson(`/api/admin/inventory/transfers/${moveToWarehouse.data.id}/complete`, {
+    method: 'POST',
+  });
+  assert.equal(completeMoveAgain.response.status, 409);
+  const cancelCompletedMove = await requestJson(`/api/admin/inventory/transfers/${moveToWarehouse.data.id}/cancel`, {
+    method: 'POST',
+  });
+  assert.equal(cancelCompletedMove.response.status, 409);
+
+  const cancelledMove = await requestJson('/api/admin/inventory/transfers', {
+    method: 'POST',
+    body: JSON.stringify({
+      source_location: 'retail',
+      destination_location: 'warehouse',
+      items: [{ product_id: 'product_regular', quantity: 1 }],
+    }),
+  });
+  assert.equal(cancelledMove.response.status, 200);
+  const cancelMove = await requestJson(`/api/admin/inventory/transfers/${cancelledMove.data.id}/cancel`, {
+    method: 'POST',
+  });
+  assert.equal(cancelMove.response.status, 200);
+  assert.equal(cancelMove.data.status, 'cancelled');
+  assert.equal(cancelMove.data.cancelled_by, 'inventory-test');
+  assert.deepEqual(regularStock(), { stock: 6, warehouse_stock: 4 });
+
+  const transferList = await requestJson('/api/admin/inventory/transfers?page=1&limit=1');
+  assert.equal(transferList.response.status, 200);
+  assert.equal(transferList.data.pagination.total, 2);
+  assert.equal(transferList.data.pagination.totalPages, 2);
+  assert.equal(transferList.data.transfers[0].id, cancelledMove.data.id);
+  const secondTransferPage = await requestJson('/api/admin/inventory/transfers?page=2&limit=1');
+  assert.equal(secondTransferPage.response.status, 200);
+  assert.equal(secondTransferPage.data.transfers[0].id, moveToWarehouse.data.id);
 
   const editVariantProduct = await requestJson('/api/admin/products/product_variant', {
     method: 'PATCH',
@@ -132,6 +191,28 @@ try {
   });
   assert.equal(tooMuch.response.status, 400);
   assert.deepEqual(regularStock(), { stock: 6, warehouse_stock: 4 });
+
+  const stockChangedDraft = await requestJson('/api/admin/inventory/transfers', {
+    method: 'POST',
+    body: JSON.stringify({
+      source_location: 'warehouse',
+      destination_location: 'retail',
+      items: [{ product_id: 'product_regular', quantity: 4 }],
+    }),
+  });
+  assert.equal(stockChangedDraft.response.status, 200);
+  db.prepare('UPDATE products SET warehouse_stock = 3 WHERE id = ?').run('product_regular');
+  const stockChangedComplete = await requestJson(`/api/admin/inventory/transfers/${stockChangedDraft.data.id}/complete`, {
+    method: 'POST',
+  });
+  assert.equal(stockChangedComplete.response.status, 400);
+  assert.equal(
+    db.prepare('SELECT status FROM stock_transfers WHERE id = ?').get(stockChangedDraft.data.id).status,
+    'draft',
+  );
+  assert.deepEqual(regularStock(), { stock: 6, warehouse_stock: 3 });
+  db.prepare('UPDATE products SET warehouse_stock = 4 WHERE id = ?').run('product_regular');
+  await requestJson(`/api/admin/inventory/transfers/${stockChangedDraft.data.id}/cancel`, { method: 'POST' });
 
   const invalidVariantProcurement = await requestJson('/api/admin/crm/procurements', {
     method: 'POST',

@@ -919,7 +919,9 @@
       :isOpen="showStockTransferModal"
       :initialSource="stockTransferInitialSource"
       @close="showStockTransferModal = false"
+      @saved="handleStockTransferSaved"
       @completed="handleStockTransferCompleted"
+      @cancelled="handleStockTransferCancelled"
     />
 
     <!-- Category Groups Modal -->
@@ -2457,6 +2459,14 @@ function handleProductsLocationChange(location: 'retail' | 'warehouse') {
 function openStockTransfer(location: 'retail' | 'warehouse') {
   stockTransferInitialSource.value = location
   showStockTransferModal.value = true
+}
+
+function handleStockTransferSaved(details: { number: number }) {
+  showToast(`Заявка №${details.number} сохранена. Остатки пока не изменились.`, 'success')
+}
+
+function handleStockTransferCancelled(details: { number: number }) {
+  showToast(`Заявка №${details.number} отменена`, 'success')
 }
 
 async function handleStockTransferCompleted(details: { quantity: number; destination: 'retail' | 'warehouse' }) {

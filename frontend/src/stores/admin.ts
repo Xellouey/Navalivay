@@ -1384,7 +1384,7 @@ async function createCategory(category: { name: string; hideEmpty?: boolean; cov
     comment?: string
     items: Array<{ product_id: string; variant_id?: string | null; quantity: number }>
   }) {
-    return await $fetch<{ id: string; transfer_number: number; ok: boolean }>(
+    return await $fetch<any>(
       '/api/admin/inventory/transfers',
       {
         method: 'POST',
@@ -1392,6 +1392,36 @@ async function createCategory(category: { name: string; hideEmpty?: boolean; cov
         body: data,
       },
     )
+  }
+
+  async function fetchInventoryTransfers(options: { page?: number; limit?: number } = {}) {
+    const params = new URLSearchParams({
+      page: String(options.page ?? 1),
+      limit: String(options.limit ?? 30),
+    })
+    return await $fetch<any>(`/api/admin/inventory/transfers?${params}`, {
+      headers: getAuthHeaders(),
+    })
+  }
+
+  async function fetchInventoryTransfer(id: string) {
+    return await $fetch<any>(`/api/admin/inventory/transfers/${id}`, {
+      headers: getAuthHeaders(),
+    })
+  }
+
+  async function completeInventoryTransfer(id: string) {
+    return await $fetch<any>(`/api/admin/inventory/transfers/${id}/complete`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+    })
+  }
+
+  async function cancelInventoryTransfer(id: string) {
+    return await $fetch<any>(`/api/admin/inventory/transfers/${id}/cancel`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+    })
   }
 
   async function fetchProduct(id: string) {
@@ -1891,6 +1921,10 @@ async function createCategory(category: { name: string; hideEmpty?: boolean; cov
     fetchProductOptions,
     fetchInventoryItems,
     createInventoryTransfer,
+    fetchInventoryTransfers,
+    fetchInventoryTransfer,
+    completeInventoryTransfer,
+    cancelInventoryTransfer,
     fetchProduct,
     createProduct,
     updateProduct,
