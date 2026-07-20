@@ -8,9 +8,9 @@ StartLimitBurst=5
 [Service]
 Type=simple
 WorkingDirectory=/var/www/NAVALIVAY/server
-# Port 8082 is owned by the production API. If a stale manual process is still
-# listening there, stop it before starting to avoid EADDRINUSE and 502 errors.
-ExecStartPre=/usr/bin/bash -lc 'pids=$$(/usr/bin/lsof -t -iTCP:8082 -sTCP:LISTEN 2>/dev/null || true); if [ -n "$$pids" ]; then /usr/bin/kill -TERM $$pids || true; /usr/bin/sleep 2; fi; pids=$$(/usr/bin/lsof -t -iTCP:8082 -sTCP:LISTEN 2>/dev/null || true); if [ -n "$$pids" ]; then /usr/bin/kill -KILL $$pids || true; /usr/bin/sleep 1; fi'
+# Никогда не убиваем неизвестный процесс. После штатной остановки порт обязан
+# быть свободен; иначе запуск прекращается и оператор видит PID владельца.
+ExecStartPre=/usr/bin/bash -lc 'pids=$$(/usr/bin/lsof -t -iTCP:8082 -sTCP:LISTEN 2>/dev/null || true); if [ -n "$$pids" ]; then echo "Порт 8082 уже занят PID: $$pids" >&2; exit 1; fi'
 # Self-heal native modules (e.g. better-sqlite3) when host Node ABI changes.
 # This is a fallback; primary defense is `apt-mark hold nodejs`.
 ExecStartPre=/usr/bin/bash -lc '/var/www/NAVALIVAY/ops/systemd/navalivay-rebuild-native.sh'

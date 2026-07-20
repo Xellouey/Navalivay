@@ -23,7 +23,7 @@ Userbot работает как обычный Telegram-клиент (типа i
 
 ```
 ┌─────────────────────┐    HTTP 127.0.0.1:8083   ┌────────────────────┐
-│ navalivay-api (PM2) │ ────────────────────────►│ navalivay-userbot  │
+│ API (systemd)       │ ────────────────────────►│ navalivay-userbot  │
 │ Express endpoints   │                          │ (PM2, GramJS)      │
 │ auto-notify         │                          │                    │
 │ /bot/send-custom    │ ◄──── auto-fallback ──── │ MTProto ↔ Telegram │
@@ -55,10 +55,10 @@ Userbot работает как обычный Telegram-клиент (типа i
   PM2 запускает именно его.
 - `server/utils/userbot-client.js` — bridge от api-процесса к userbot
   через локальный HTTP, с health-кэшем (30с success / 10с failure).
-- `server/ecosystem.config.cjs` — PM2-конфиг всех трёх процессов
-  (api / bot / userbot) с restart policy и max_memory_restart.
+- `server/ecosystem.config.cjs` — PM2-конфиг бота и userbot. API в нём
+  намеренно отсутствует.
 - `ops/userbot-watchdog.sh` — cron-watchdog, при двух фейлах /health
-  делает `pm2 restart` и шлёт алерт в Telegram админу.
+  просит `ops/prod.sh` перезапустить userbot и шлёт алерт админу.
 - `ops/backup.sh` — бэкап БД, .env, **userbot.session** (с GPG-шифром
   если задан `BACKUP_GPG_RECIPIENT`), proxychains4.conf.
 - Интеграции:
@@ -112,15 +112,8 @@ sudo chmod 600 /etc/proxychains4.conf
 
 ### 3. Код и зависимости
 
-```bash
-sudo mkdir -p /var/www/NAVALIVAY
-sudo chown $USER:$USER /var/www/NAVALIVAY
-cd /var/www/NAVALIVAY
-git clone <repo> .
-npm --prefix server ci --production
-npm --prefix frontend ci
-npm --prefix frontend run build-only
-```
+Код выкладывается только по единому регламенту
+[`DEPLOY_REBUILD_RESTART.md`](DEPLOY_REBUILD_RESTART.md).
 
 ### 4. .env
 
@@ -154,15 +147,11 @@ echo "your-cloud-password" > data/userbot.password
 # Скрипт сам подберёт файлы (polling каждые 2с) и удалит после прочтения.
 ```
 
-### 6. PM2
+### 6. Управление процессом
 
-```bash
-chmod +x /var/www/NAVALIVAY/server/userbot/start.sh
-cd /var/www/NAVALIVAY/server
-pm2 startOrReload ecosystem.config.cjs --env production
-pm2 save
-pm2 startup systemd  # сгенерирует команду — выполнить как root
-```
+Production-схема и команды находятся только в
+[`DEPLOY_REBUILD_RESTART.md`](DEPLOY_REBUILD_RESTART.md). Для проверки после
+настройки используйте `./ops/prod.sh doctor`.
 
 ### 7. PM2 logrotate (одноразово, иначе логи userbot забьют диск)
 
@@ -190,7 +179,7 @@ crontab -e
 ```bash
 curl -fsS http://127.0.0.1:8083/health         # {ok:true, connected:true}
 curl -fsS http://127.0.0.1:8082/api/health     # API
-pm2 status                                     # все три процесса online
+./ops/prod.sh doctor                           # вся схема процессов исправна
 proxychains4 -q curl -s https://api.ipify.org  # IP прокси
 ```
 
@@ -200,8 +189,7 @@ proxychains4 -q curl -s https://api.ipify.org  # IP прокси
 
 | Что | Команда |
 |---|---|
-| Live логи userbot | `pm2 logs navalivay-userbot` |
-| Последние 200 строк | `pm2 logs navalivay-userbot --lines 200 --nostream` |
+| Логи userbot | `./ops/prod.sh logs userbot` |
 | Только ошибки | `tail -f /var/www/NAVALIVAY/server/logs/userbot-error.log` |
 | Watchdog | `tail -f /var/log/navalivay-watchdog.log` |
 | Файлы PM2 | `~/.pm2/logs/` (но мы переопределили в `out_file`/`error_file` ecosystem) |
@@ -214,17 +202,17 @@ PM2 настроен:
 - `restart_delay: 5s` — пауза между рестартами
 - `autorestart: true` — рестартует при non-zero exit
 
-В `errored` сам не выйдет — нужно `pm2 restart navalivay-userbot` руками.
+В `errored` сам не выйдет — нужен `./ops/prod.sh restart userbot`.
 Watchdog поднимет алерт, что упало.
 
 ### Что делать при разных сбоях
 
 | Симптом | Причина | Действие |
 |---|---|---|
-| `/health` отвечает `connected:false` | разрыв MTProto / прокси отвалился | подождать 30с (autoreconnect), потом `pm2 restart navalivay-userbot` |
+| `/health` отвечает `connected:false` | разрыв MTProto / прокси отвалился | подождать 30с, затем `./ops/prod.sh restart userbot` |
 | Все запросы дают `FLOOD_WAIT_X` | Telegram rate-limit на аккаунт | подождать X секунд, проверить нет ли массовых рассылок в логах |
 | `AUTH_KEY_UNREGISTERED` в логе | сессия инвалидирована (другой клиент завершил все сеансы) | пройти SMS-флоу заново (см. шаг 5 выше) |
-| PM2 status `errored` | 10 крэшей подряд | `pm2 logs navalivay-userbot --err --lines 100`, диагностировать root-cause, потом `pm2 restart navalivay-userbot` |
+| Процесс `errored` | 10 крэшей подряд | `./ops/prod.sh logs userbot`, устранить причину, затем `./ops/prod.sh restart userbot` |
 | start.sh: `proxychains4 not installed` | пакет потерялся | `sudo apt-get install -y proxychains4` |
 | `data/userbot.session is missing or empty` | сессия удалена / пустой файл | восстановить из бэкапа или пройти SMS-флоу |
 | Watchdog шлёт алерты постоянно | userbot реально не может стартануть | проверить /etc/proxychains4.conf (пароль не протух?), `proxychains4 -q curl https://api.ipify.org` |
@@ -250,7 +238,7 @@ rm /var/www/NAVALIVAY/server/data/userbot.session
 cd /var/www/NAVALIVAY/server
 PHONE=+375XXXXXXXXX node userbot/login.js
 # (см. SMS-флоу в шаге 5)
-pm2 start navalivay-userbot
+./ops/prod.sh restart userbot
 ```
 
 ## Безопасность
@@ -280,7 +268,6 @@ pm2 start navalivay-userbot
 - `git pull` не трогает `server/.env` (в gitignore)
 - `git pull` не трогает `/etc/proxychains4.conf` (вне репо)
 - `npm ci --production` — детерминированно, по lock-файлу
-- `pm2 startOrReload ecosystem.config.cjs` — idempotent, hot-reload api/bot,
-  graceful restart userbot (SIGTERM → 10с на disconnect → SIGKILL)
+- Деплой по полному SHA и выбор рестартов выполняет `ops/prod.sh`.
 - После рестарта проверьте `curl -fsS http://127.0.0.1:8083/health` — ожидается
   `"connected":true`. Если userbot не поднялся, auto-notify уйдёт в очередь retry.

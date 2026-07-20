@@ -1,8 +1,8 @@
 /**
  * Прямые вызовы Telegram Bot API для Business mode.
  *
- * На проде у нас два PM2-процесса: `navalivay-api` (Express endpoints)
- * и `navalivay-bot` (Telegraf long-polling). У них отдельная память,
+ * На проде API работает через systemd, а `navalivay-bot` через PM2.
+ * У них отдельная память,
  * поэтому API-процесс НЕ может позвать функцию из bot-процесса через
  * globalThis или import. Раньше я регистрировал sender как globalThis —
  * локально работало (один процесс), а в проде API всегда видел undefined.

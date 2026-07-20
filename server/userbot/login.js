@@ -143,7 +143,7 @@ saveSession(sessionString);
 const me = await client.getMe();
 console.log('Залогинены как:', me?.firstName, me?.lastName || '', '(@' + (me?.username || '—') + ')');
 console.log('User ID:', String(me?.id));
-console.log('Сессия сохранена. Можно запускать pm2 start userbot/index.js --name navalivay-userbot');
+console.log('Сессия сохранена. На production: ./ops/prod.sh restart userbot');
 
 await client.disconnect();
 process.exit(0);

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # Userbot watchdog: пингует /health, при двух подряд фейлах рестартует
-# процесс через PM2 и шлёт алерт в Telegram админу.
+# процесс через единый production-контур и шлёт алерт в Telegram админу.
 #
 # Запускается cron'ом раз в минуту:
 #   * * * * * /var/www/NAVALIVAY/ops/userbot-watchdog.sh >> /var/log/navalivay-watchdog.log 2>&1
@@ -10,15 +10,16 @@
 #   WATCHDOG_BOT_TOKEN  токен Telegram-бота для алертов (можно тот же BOT_TOKEN)
 #   WATCHDOG_ADMIN_ID   chat_id админа, куда слать алерты
 #   USERBOT_HTTP_PORT   порт userbot HTTP API (по умолчанию 8083)
-#   STATE_FILE          файл с состоянием (default: /tmp/navalivay-watchdog.state)
+#   WATCHDOG_STATE_FILE файл состояния (default: /var/lib/navalivay/userbot-watchdog.state)
 #
 # Логика двух фейлов подряд защищает от ложных тревог при кратком
 # сетевом флапе или пока userbot переподключается после FloodWait.
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PORT="${USERBOT_HTTP_PORT:-8083}"
 HEALTH_URL="http://127.0.0.1:${PORT}/health"
-STATE_FILE="${STATE_FILE:-/tmp/navalivay-watchdog.state}"
+STATE_FILE="${WATCHDOG_STATE_FILE:-/var/lib/navalivay/userbot-watchdog.state}"
 ALERT_COOLDOWN_SEC=900  # не спамим алертами чаще раза в 15 минут
 
 ADMIN_ID="${WATCHDOG_ADMIN_ID:-}"
@@ -36,6 +37,21 @@ fi
 
 now_ts() { date +%s; }
 
+state_dir="$(dirname "$STATE_FILE")"
+[ ! -L "$state_dir" ] || { echo "[watchdog] unsafe state directory" >&2; exit 1; }
+if [ ! -e "$state_dir" ]; then mkdir -- "$state_dir"; chmod 0750 "$state_dir"; fi
+[ -d "$state_dir" ] || { echo "[watchdog] state path is not a directory" >&2; exit 1; }
+[ "$(stat -c %u "$state_dir")" = "$(id -u)" ] || { echo "[watchdog] wrong state directory owner" >&2; exit 1; }
+state_mode="$(stat -c %a "$state_dir")"
+(( (8#$state_mode & 8#022) == 0 )) || { echo "[watchdog] state directory is writable by group or others" >&2; exit 1; }
+[ ! -L "$STATE_FILE" ] || { echo "[watchdog] state file must not be a symlink" >&2; exit 1; }
+if [ -e "$STATE_FILE" ]; then
+  [ -f "$STATE_FILE" ] && [ "$(stat -c %u "$STATE_FILE")" = "$(id -u)" ] && [ "$(stat -c %h "$STATE_FILE")" = 1 ] || {
+    echo "[watchdog] unsafe state file" >&2
+    exit 1
+  }
+fi
+
 read_state_field() {
   local field="$1"
   if [ -f "$STATE_FILE" ]; then
@@ -44,12 +60,9 @@ read_state_field() {
 }
 
 write_state() {
-  local fails="$1"
-  local last_alert="$2"
-  cat > "$STATE_FILE" <<EOF
-fails=${fails}
-last_alert=${last_alert}
-EOF
+  local fails="$1" last_alert="$2" temp="${STATE_FILE}.tmp.$$"
+  (umask 077; printf 'fails=%s\nlast_alert=%s\n' "$fails" "$last_alert" >"$temp")
+  mv -- "$temp" "$STATE_FILE"
 }
 
 send_alert() {
@@ -91,6 +104,8 @@ prev_fails="$(read_state_field fails)"
 prev_fails="${prev_fails:-0}"
 last_alert="$(read_state_field last_alert)"
 last_alert="${last_alert:-0}"
+[[ "$prev_fails" =~ ^[0-9]+$ ]] || prev_fails=0
+[[ "$last_alert" =~ ^[0-9]+$ ]] || last_alert=0
 
 if $http_ok; then
   # Сбрасываем счётчик при первом успехе после серии фейлов и
@@ -111,10 +126,10 @@ if [ "$new_fails" -lt 2 ]; then
   exit 0
 fi
 
-# Два фейла подряд — пробуем рестартануть.
-echo "[watchdog] restarting navalivay-userbot via PM2..."
-if command -v pm2 >/dev/null 2>&1; then
-  pm2 restart navalivay-userbot --update-env >/dev/null 2>&1 || true
+# Два фейла подряд — просим единый production-контур выполнить рестарт.
+echo "[watchdog] restarting userbot via ops/prod.sh..."
+if ! bash "${SCRIPT_DIR}/prod.sh" restart userbot >/dev/null 2>&1; then
+  echo "[watchdog] restart skipped or failed (deploy lock may be held)"
 fi
 
 # Алерт с rate-limit, чтобы не спамить ночью при долгом инциденте.
@@ -136,7 +151,7 @@ for p in data:
 else:
   print("(navalivay-userbot not in PM2)")
 ' 2>/dev/null || echo "(jlist parse failed)")
-  send_alert "<b>userbot DOWN</b>%0A$(hostname): /health failing 2x.%0A${pm2_status}%0Acheck: pm2 logs navalivay-userbot --lines 50"
+  send_alert "<b>userbot DOWN</b>%0A$(hostname): /health failing 2x.%0A${pm2_status}%0Acheck: ./ops/prod.sh logs userbot"
   write_state "$new_fails" "$ts"
 else
   write_state "$new_fails" "$last_alert"

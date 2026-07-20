@@ -11,11 +11,8 @@
 #     `cat /proc/<pid>/environ`).
 #   - проще менять прокси без рестартов чужих сервисов и без правок в коде.
 #
-# Запуск:
-#   pm2 startOrReload server/ecosystem.config.cjs --env production
+# Управление на production: ./ops/prod.sh restart userbot
 #
-# Ручная проверка:
-#   bash /var/www/NAVALIVAY/server/userbot/start.sh
 set -euo pipefail
 
 # Защита от запуска не из проектной директории — start.sh использует

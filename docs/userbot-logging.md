@@ -10,14 +10,14 @@ Each line is a valid JSON object with at least `ev` (event type) and `ts` (ISO t
 
 ```bash
 # Last 1000 lines, structured events only
-pm2 logs navalivay-userbot --nostream --lines 1000 | grep '{"ev"'
+./ops/prod.sh logs userbot | grep '{"ev"'
 
-# Real-time stream
-pm2 logs navalivay-userbot | grep '{"ev"'
+# Ещё один снимок последних строк
+./ops/prod.sh logs userbot | grep '{"ev"'
 
 # Filter by event type
-pm2 logs navalivay-userbot --nostream --lines 5000 | grep '"ev":"flood"'
-pm2 logs navalivay-userbot --nostream --lines 5000 | grep '"ev":"send"'
+./ops/prod.sh logs userbot | grep '"ev":"flood"'
+./ops/prod.sh logs userbot | grep '"ev":"send"'
 ```
 
 ## Event Types
@@ -173,10 +173,10 @@ Auto-notify skips (`new_customer_no_dialog`, `customer_blocked`, etc.) are logge
 #    RESOLVE_USERNAME_ENABLED = false → true (около строки 98)
 
 # 2. Перезапустить userbot
-ssh NavalivayNew "pm2 restart navalivay-userbot"
+ssh NavalivayNew "cd /var/www/NAVALIVAY && ./ops/prod.sh restart userbot"
 
 # 3. Проверить, что всё работает
-pm2 logs navalivay-userbot --nostream | grep '{"ev":"resolve"'
+./ops/prod.sh logs userbot | grep '{"ev":"resolve"'
 # Должен появиться {"ev":"resolve","outcome":"ok",...}
 
 # 4. Создать тестовый заказ на новом клиенте (без диалога) и проверить

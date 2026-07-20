@@ -7,7 +7,7 @@ A full-featured e-commerce platform for a vape shop with:
 - **Backend**: Node.js + Express API server
 - **Bot**: Telegram bot integration
 - **Database**: SQLite with migrations
-- **Deployment**: Systemd services (primary) with PM2 kept only as an optional alternative for explicitly configured environments
+- **Deployment**: API в systemd, bot и userbot в PM2; управление только через `ops/prod.sh`
 
 ## Architecture
 
@@ -54,78 +54,22 @@ npm run dev:bot
 
 ## Production Build
 
-### Frontend build
-Recommended production bundle command:
-```bash
-npm --prefix frontend run build-only
-```
-
-Root `npm run build` may fail on frontend type-check even when the production bundle itself builds successfully.
-
-### Server build
-```bash
-npm run build:server
-```
+На production сборку и нужные рестарты определяет только `ops/prod.sh`.
+Локальные команды разработки не являются инструкцией по выкладке.
 
 ## Production Deployment
 
-### Standard deployment flow
-1. Update code on the server
-2. Install dependencies if needed
-3. Build frontend
-4. Restart production services
-5. Verify health
-
-### Production deploy
-See [`docs/DEPLOY_REBUILD_RESTART.md`](docs/DEPLOY_REBUILD_RESTART.md) — verified against `NavalivayNew` (API=systemd:8082, bot+userbot=PM2).
+Production deploy: [`docs/DEPLOY_REBUILD_RESTART.md`](docs/DEPLOY_REBUILD_RESTART.md). Использовать только `ops/prod.sh` и полный SHA.
 
 ## Production Process Management
 
-### Systemd Services (primary / standard)
-Primary production runtime on this project is systemd.
+| Компонент | Production runtime |
+|---|---|
+| API | systemd `navalivay-server` |
+| Telegram-бот | PM2 `navalivay-bot` |
+| Userbot | PM2 `navalivay-userbot` |
 
-- `navalivay-server.service` - main API server
-- `navalivay-bot.service` - optional Telegram bot service
-
-**Useful commands:**
-```bash
-# Restart API
-sudo systemctl restart navalivay-server
-
-# Restart bot only if the unit exists
-if systemctl list-unit-files --type=service --no-legend | awk '{print $1}' | grep -qx 'navalivay-bot.service'; then
-  sudo systemctl restart navalivay-bot
-fi
-
-# Status
-sudo systemctl status navalivay-server --no-pager -n 20
-
-# Logs
-sudo journalctl -u navalivay-server -f
-sudo journalctl -u navalivay-bot -f
-
-# Health check
-curl -fsS http://127.0.0.1:8082/api/health
-```
-
-**Recommended one-liner after frontend rebuild:**
-```bash
-npm --prefix frontend run build-only && sudo systemctl restart navalivay-server && if systemctl list-unit-files --type=service --no-legend | awk '{print $1}' | grep -qx 'navalivay-bot.service'; then sudo systemctl restart navalivay-bot; fi && sleep 2 && curl -fsS http://127.0.0.1:8082/api/health
-```
-
-### PM2 (optional alternative only)
-[`server/ecosystem.config.cjs`](server/ecosystem.config.cjs) should be used only on servers where the application was intentionally started and is actively managed through PM2.
-
-Do **not** assume PM2 is the standard runtime on production for this repository.
-
-Example PM2 commands for such dedicated environments:
-```bash
-pm2 start server/ecosystem.config.cjs --only navalivay-api --update-env
-pm2 start server/ecosystem.config.cjs --only navalivay-bot --update-env
-pm2 status
-```
-
-If `pm2 status` does not show the apps, restarting by name will fail.
+Прямые команды диспетчеров не использовать. Команды `doctor`, `plan`, `deploy`, `restart` и `logs` описаны в едином регламенте выше.
 
 ## File Structure
 
@@ -136,7 +80,7 @@ NAVALIVAY/
 ├── ops/               # Deployment and operations
 │   ├── backup.sh      # Database backup script
 │   └── monitor.sh     # Health monitoring script
-├── deploy/            # Optional samples (e.g. systemd unit for bot)
+├── deploy/            # Вспомогательные файлы окружения
 ├── uploads/           # User uploaded files
 └── docs/              # Documentation
 ```
@@ -144,7 +88,7 @@ NAVALIVAY/
 ## Important Notes
 
 ### Frontend build nuance
-The recommended deploy-time command is `npm --prefix frontend run build-only` because it skips the stricter type-check path that may block deployment while still allowing Vite to emit the production bundle.
+На production используется сборка внутри `ops/prod.sh`; вручную её не запускать.
 
 ### vite-plugin-vue-devtools Known Issue
 **CRITICAL:** `vite-plugin-vue-devtools` is disabled in `frontend/vite.config.ts` due to a RouterView compatibility issue that causes: `"TypeError: Cannot set properties of null (setting '__vrv_devtools')"`. Do not re-enable without testing thoroughly.
@@ -159,11 +103,8 @@ The recommended deploy-time command is `npm --prefix frontend run build-only` be
 
 ### API not responding after restart
 ```bash
-sudo systemctl status navalivay-server --no-pager -n 50
-sudo journalctl -u navalivay-server -n 100 --no-pager
-ss -ltnp | grep 8082
-curl -fsS http://127.0.0.1:8082/api/health
+./ops/prod.sh doctor
+./ops/prod.sh logs api
 ```
 
-### Bot service missing
-If `navalivay-bot.service` is not installed on a server, skip bot restart and bot status checks.
+Bot unit в systemd должен быть `masked`; работой бота управляет `ops/prod.sh`.

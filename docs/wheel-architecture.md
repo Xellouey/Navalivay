@@ -643,9 +643,9 @@ JSON-ошибки выводят tag-only fallback.
 **Расположение.** События эмитятся ПОСЛЕ коммита транзакции — лог
 соответствует строке в БД (нет логов от откатанных спинов).
 
-**Фильтрация в pm2.**
+**Фильтрация в журнале API.**
 
 ```bash
-pm2 logs navalivay-server | grep '"ev":"wheel_'
-pm2 logs navalivay-server --nostream --lines 5000 | grep '"ev":"wheel_admin_action"'
+./ops/prod.sh logs api | grep '"ev":"wheel_'
+./ops/prod.sh logs api | grep '"ev":"wheel_admin_action"'
 ```

@@ -82,54 +82,17 @@ const fs = require('fs');
 
 ---
 
-## 🔴 CRITICAL: Server Management
+## 🔴 CRITICAL: Production Management
 
-### Finding running server:
-```bash
-lsof -i :8082 | grep LISTEN
-# or
-ps aux | grep "node index.js"
-```
-
-### Restarting server (REQUIRED after backend changes):
-```bash
-sudo systemctl restart navalivay-server
-sudo systemctl status navalivay-server --no-pager
-curl -sf http://127.0.0.1:8082/api/health
-```
-
-**Production rule:** do NOT run `nohup node index.js`, PM2, or any second manual server process on port `8082` alongside `systemd`. This causes `EADDRINUSE`, the `navalivay-server` unit enters `failed`, and nginx starts returning `502` for `/api`.
-
-### Checking server logs:
-```bash
-cat /tmp/server.log | tail -50
-# For errors:
-cat /tmp/server.log | grep -i "error" | tail -20
-```
-
-**Port:** 8082
+API `:8082` работает через systemd, Telegram-бот и userbot через PM2.
+Прямые команды запуска, рестарта и деплоя запрещены. Использовать только
+`ops/prod.sh`; единый регламент: `docs/DEPLOY_REBUILD_RESTART.md`.
 
 ---
 
 ## 🔴 CRITICAL: Frontend Build
 
-### Building frontend (REQUIRED after .vue file changes):
-```bash
-cd /var/www/NAVALIVAY/frontend
-NODE_OPTIONS="--max-old-space-size=2048" npm run build-only
-```
-
-**Note:** Use `--max-old-space-size=2048` to avoid "JavaScript heap out of memory" errors.
-
-### Quick build (skip type-check, faster):
-```bash
-npm run build-only
-```
-
-### Full build with type-check:
-```bash
-NODE_OPTIONS="--max-old-space-size=4096" npm run build
-```
+Production-сборку выполняет только `ops/prod.sh`. Локальные сборки не являются деплоем.
 
 ---
 
@@ -596,8 +559,8 @@ debugLog({location:'crm-finance.js:search',message:'Search params',data:{search,
 ```
 
 **Important:** After adding instrumentation, remember to:
-1. Rebuild frontend (`npm run build-only`)
-2. Restart server if backend was changed
+1. На production применить изменения только через `ops/prod.sh`
+2. Проверить нужный компонент через `./ops/prod.sh doctor`
 3. Clear debug log before each test run: `echo "" > /var/www/NAVALIVAY/.cursor/debug.log`
 4. Remove instrumentation after debugging is complete (search for `#region agent log`)
 

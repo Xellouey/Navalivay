@@ -1,5 +1,25 @@
 # NAVALIVAY Agent Notes
 
+## Production: обязательное правило
+
+| Компонент | Запуск |
+|---|---|
+| API `:8082` | systemd `navalivay-server` |
+| Telegram-бот | PM2 `navalivay-bot` |
+| Userbot `:8083` | PM2 `navalivay-userbot` |
+
+На production запрещены прямые команды рестарта, запуска и деплоя. Всегда использовать только:
+
+```bash
+./ops/prod.sh doctor
+./ops/prod.sh plan <полный-SHA>
+./ops/prod.sh deploy <полный-SHA>
+./ops/prod.sh restart api|bot|userbot
+./ops/prod.sh logs api|bot|userbot
+```
+
+Единственный источник истины: `docs/DEPLOY_REBUILD_RESTART.md`.
+
 ## Design Reference
 
 Before changing any customer-facing frontend UI, read `docs/frontend-design-reference-for-agents.md`.
@@ -36,6 +56,9 @@ Read these when the task touches the matching area:
   - CRM finance module `План пробития`
   - month plan/fact/recalculation rules
   - rounding, current-month additions, daily cash facts
+- `docs/inventory-rules.md`
+  - retail and warehouse stock separation
+  - stock transfers and procurement distribution
 
 ## Project Memory (migrated from editor configs and cloud-code)
 

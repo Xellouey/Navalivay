@@ -1,18 +1,13 @@
 /**
  * PM2 ecosystem для NAVALIVAY.
  *
- * Production на NavalivayNew (2026-06):
- *   - navalivay-api      → systemd (navalivay-server.service), НЕ PM2
+ * Production на NavalivayNew:
+ *   - API                → systemd (navalivay-server.service)
  *   - navalivay-bot      → PM2
  *   - navalivay-userbot  → PM2
  *
- * navalivay-api в этом файле — для dev / полностью PM2-окружений.
- * На prod не делать pm2 startOrReload всего ecosystem — поднимется
- * лишний API. Проверка: ./ops/check-prod-runtime.sh
- *
- * Деплой:
- *   pm2 startOrReload server/ecosystem.config.cjs --env production
- *   pm2 save
+ * API намеренно отсутствует: один компонент нельзя запускать двумя
+ * диспетчерами. Все действия на prod выполняются через ops/prod.sh.
  *
  * Лог-ротация (раз настраивается на сервере):
  *   pm2 install pm2-logrotate
@@ -25,24 +20,6 @@
  */
 module.exports = {
   apps: [
-    {
-      name: 'navalivay-api',
-      script: 'index.js',
-      cwd: __dirname,
-      env: {
-        NODE_ENV: 'production',
-        PORT: '8082',
-        // You can also set DATABASE_FILE absolute path if needed
-        // DATABASE_FILE: '/var/www/navalivay/server/data/navalivay.db',
-      },
-      instances: 1,
-      exec_mode: 'fork',
-      autorestart: true,
-      max_memory_restart: '300M',
-      out_file: 'logs/api-out.log',
-      error_file: 'logs/api-error.log',
-      log_date_format: 'YYYY-MM-DD HH:mm:ss',
-    },
     {
       name: 'navalivay-bot',
       script: 'bot.js',

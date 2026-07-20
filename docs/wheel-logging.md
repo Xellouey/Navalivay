@@ -4,7 +4,7 @@
 
 Все ключевые события рулетки (`server/wheel/wheel-service.js` и admin
 endpoints в `server/routes/wheel.js`) логируются в виде структурированного
-JSON в stdout. PM2/journald сохраняют полные строки, благодаря чему мы
+JSON в stdout. Journald сохраняет полные строки, благодаря чему мы
 можем грепать ленту фильтром `'"ev":"wheel_'`.
 
 Формат повторяет конвенцию userbot (см. `docs/userbot-logging.md`):
@@ -18,16 +18,16 @@ JSON в stdout. PM2/journald сохраняют полные строки, бл�
 
 ```bash
 # Последние события рулетки
-pm2 logs navalivay-server --nostream --lines 5000 | grep '"ev":"wheel_'
+./ops/prod.sh logs api | grep '"ev":"wheel_'
 
 # Только спины
-pm2 logs navalivay-server --nostream --lines 5000 | grep '"ev":"wheel_spin"'
+./ops/prod.sh logs api | grep '"ev":"wheel_spin"'
 
 # Только эпические выдачи
-pm2 logs navalivay-server --nostream --lines 5000 | grep '"ev":"wheel_epic_release"'
+./ops/prod.sh logs api | grep '"ev":"wheel_epic_release"'
 
 # Действия менеджеров за день
-pm2 logs navalivay-server --nostream --lines 50000 | grep '"ev":"wheel_admin_action"'
+./ops/prod.sh logs api | grep '"ev":"wheel_admin_action"'
 ```
 
 ## Event types

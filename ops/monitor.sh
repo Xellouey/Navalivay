@@ -14,9 +14,9 @@ echo -e "${BLUE}║   NAVALIVAY Статус системы             ║${NC}
 echo -e "${BLUE}╚════════════════════════════════════════╝${NC}\n"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-if [ -x "${SCRIPT_DIR}/check-prod-runtime.sh" ]; then
+if [ -f "${SCRIPT_DIR}/check-prod-runtime.sh" ]; then
     echo -e "${YELLOW}[0] Runtime topology (docs/DEPLOY_REBUILD_RESTART.md):${NC}"
-    if "${SCRIPT_DIR}/check-prod-runtime.sh"; then
+    if bash "${SCRIPT_DIR}/check-prod-runtime.sh"; then
         echo ""
     else
         echo -e "  ${RED}Есть расхождения — см. выше${NC}\n"
@@ -25,7 +25,7 @@ fi
 
 # 1. Статус systemd сервисов
 echo -e "${YELLOW}[1] Systemd сервисы:${NC}"
-for service in navalivay-server navalivay-bot; do
+for service in navalivay-server; do
     if ! systemctl list-unit-files --type=service --no-legend | awk '{print $1}' | grep -qx "${service}.service"; then
         echo -e "  $service: ${YELLOW}! Не установлен${NC}"
         continue
@@ -87,14 +87,19 @@ fi
 
 # 5. Последние логи (если есть ошибки)
 echo -e "\n${YELLOW}[5] Последние ошибки в логах:${NC}"
-errors=$(sudo journalctl -u navalivay-server -u navalivay-bot --since "1 hour ago" -p err --no-pager 2>/dev/null | wc -l)
+errors=$(journalctl -u navalivay-server --since "1 hour ago" -p err --no-pager 2>/dev/null | wc -l)
 if [ "$errors" -gt 0 ]; then
     echo -e "  ${RED}⚠ Найдено ошибок за последний час: ${errors}${NC}"
     echo -e "  Последние 3 ошибки:"
-    sudo journalctl -u navalivay-server -u navalivay-bot --since "1 hour ago" -p err --no-pager -n 3 2>/dev/null | sed 's/^/    /'
+    journalctl -u navalivay-server --since "1 hour ago" -p err --no-pager -n 3 2>/dev/null | sed 's/^/    /'
 else
     echo -e "  ${GREEN}✓ Ошибок не обнаружено${NC}"
 fi
+
+echo -e "  ${YELLOW}PM2 bot (последние error-строки):${NC}"
+pm2 logs navalivay-bot --err --lines 3 --nostream 2>/dev/null | sed 's/^/    /' || true
+echo -e "  ${YELLOW}PM2 userbot (последние error-строки):${NC}"
+pm2 logs navalivay-userbot --err --lines 3 --nostream 2>/dev/null | sed 's/^/    /' || true
 
 # 6. Nginx
 echo -e "\n${YELLOW}[6] Nginx:${NC}"
@@ -130,10 +135,10 @@ echo -e "  Активных соединений на порту 8082: ${connect
 
 echo -e "\n${BLUE}════════════════════════════════════════${NC}"
 echo -e "${GREEN}Полезные команды:${NC}"
-echo -e "  Логи API:     ${YELLOW}journalctl -u navalivay-server -f${NC}"
-echo -e "  Логи бота:    ${YELLOW}pm2 logs navalivay-bot${NC}"
-echo -e "  Рестарт API:  ${YELLOW}systemctl restart navalivay-server${NC}"
-echo -e "  Рестарт бота: ${YELLOW}pm2 restart navalivay-bot${NC}"
-echo -e "  Runtime check:${YELLOW}./ops/check-prod-runtime.sh${NC}"
+echo -e "  Логи API:     ${YELLOW}./ops/prod.sh logs api${NC}"
+echo -e "  Логи бота:    ${YELLOW}./ops/prod.sh logs bot${NC}"
+echo -e "  Рестарт API:  ${YELLOW}./ops/prod.sh restart api${NC}"
+echo -e "  Рестарт бота: ${YELLOW}./ops/prod.sh restart bot${NC}"
+echo -e "  Runtime check:${YELLOW}./ops/prod.sh doctor${NC}"
 echo -e "  Деплой:       ${YELLOW}docs/DEPLOY_REBUILD_RESTART.md${NC}"
 echo -e "  Бэкап:        ${YELLOW}./ops/backup.sh${NC}"

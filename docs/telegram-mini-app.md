@@ -10,7 +10,7 @@ Single reference for Telegram WebApp behavior, environment variables, public set
 - Public settings API: `GET /api/settings` in `server/routes/public.js`
 - Bot (`web_app` button URL, menu button): `server/bot.js`
 - Example env: `server/.env.example`
-- Optional systemd unit sample: `deploy/navalivay-bot.service`
+- Production-процессы и команды: [`DEPLOY_REBUILD_RESTART.md`](DEPLOY_REBUILD_RESTART.md)
 
 ## Environment variables (server)
 

@@ -29,9 +29,9 @@ function generateId(prefix) {
  *
  * Format follows the userbot logging convention (see
  * docs/userbot-logging.md): one line of JSON per event with `ev` and
- * `ts` always present, plus event-specific fields. PM2/journald keep
- * full lines, so we can grep `pm2 logs navalivay-server | grep '"ev":"wheel_'`
- * for a quick filtered stream.
+ * `ts` always present, plus event-specific fields. Journald keeps
+ * full lines, so a recent `./ops/prod.sh logs api` snapshot can be
+ * filtered by the `wheel_` prefix.
  *
  * Why structured: free-form `console.warn` strings drift across
  * commits and are hard to aggregate. Structured events let us answer
