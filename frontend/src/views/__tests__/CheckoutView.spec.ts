@@ -5,6 +5,7 @@ import CheckoutView from "@/views/CheckoutView.vue";
 import { useCartStore } from "@/stores/cart";
 import { useCatalogStore } from "@/stores/catalog";
 import { useSettingsStore } from "@/stores/settings";
+import { useWholesaleStore } from "@/stores/wholesale";
 
 const routerPush = vi.fn();
 
@@ -1019,6 +1020,186 @@ describe("CheckoutView order flows", () => {
     const deviceButton = wrapper.find(".loyalty-line-button");
     expect(deviceButton.exists()).toBe(true);
     expect(deviceButton.text()).toBe("Применить");
+
+    wrapper.unmount();
+  });
+
+  it("shows and applies a gift promo in wholesale checkout", async () => {
+    const cartStore = useCartStore();
+    const wholesaleStore = useWholesaleStore();
+    wholesaleStore.applyOrderWholesaleContext({
+      code: "500",
+      secret: "wholesale-secret",
+      label: "Опт от 500 BYN",
+      minOrderAmount: 500,
+    });
+    cartStore.replaceItemsFromOrder([
+      {
+        productId: "p-wholesale",
+        title: "Wholesale Liquid",
+        productTitle: "Wholesale Liquid",
+        groupName: "Жидкости",
+        priceRub: 9.5,
+        quantity: 60,
+        image: "/img/liquid.png",
+        variantId: null,
+        variantName: null,
+        groupId: "group-wholesale",
+        categoryId: "cat-wholesale",
+      },
+    ]);
+
+    let promoRequest: RequestInit | undefined;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.startsWith("/api/product/")) {
+        return createJsonResponse({ id: "p-wholesale", hasVariants: false, stock: 100 });
+      }
+      if (url === "/api/promo/validate") {
+        promoRequest = init;
+        const body = JSON.parse(String(init?.body || "{}"));
+        if (body.code === "REGULAR10") {
+          return createJsonResponse({
+            valid: false,
+            error: "wholesale_gift_promo_required",
+            message: "В оптовом заказе можно применить только промокод на подарок",
+          });
+        }
+        return createJsonResponse({
+          valid: true,
+          discount_type: "fixed",
+          discount_value: 25,
+          calculated_discount: 0,
+          customer_description: "Подарок из рулетки",
+          has_gift: 1,
+        });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const wrapper = mount(CheckoutView, {
+      global: {
+        stubs: {
+          MinDeliveryBanner: { template: "<div />" },
+          DeliveryConditionsBanner: { template: "<div />" },
+          AdminModal: { template: "<div><slot /></div>" },
+          CustomerModalShell: { template: "<div><slot /><slot name='footer' /></div>" },
+          LoyaltyBonusPopup: { template: "<div />" },
+          CheckoutAgreements: { template: "<div />" },
+        },
+      },
+    });
+
+    await flushPromises();
+    expect(wrapper.find(".promo-input").exists()).toBe(true);
+    await wrapper.find(".promo-input").setValue("WHOLESALEGIFT");
+    await wrapper.find(".promo-apply-btn").trigger("click");
+    await flushPromises();
+
+    expect(wrapper.text()).toContain("Подарок из рулетки");
+    expect(promoRequest?.headers).toEqual(expect.objectContaining({
+      "x-wholesale-code": "500",
+      "x-wholesale-secret": "wholesale-secret",
+    }));
+
+    await wrapper.find(".promo-cancel-btn").trigger("click");
+    await flushPromises();
+    expect(wrapper.find(".promo-input").exists()).toBe(true);
+
+    await wrapper.find(".promo-input").setValue("REGULAR10");
+    await wrapper.find(".promo-apply-btn").trigger("click");
+    await flushPromises();
+    expect(wrapper.text()).toContain("только промокод на подарок");
+    expect(wrapper.find(".promo-error-text").attributes("role")).toBe("alert");
+    expect(wrapper.find(".promo-input").attributes("aria-describedby")).toBe("checkout-promo-error");
+
+    wrapper.unmount();
+  });
+
+  it("restores a gift promo when editing a wholesale order", async () => {
+    const cartStore = useCartStore();
+    const wholesaleStore = useWholesaleStore();
+    const cartItem = {
+      productId: "p-wholesale-edit",
+      title: "Wholesale Liquid",
+      productTitle: "Wholesale Liquid",
+      groupName: "Жидкости",
+      priceRub: 9.5,
+      quantity: 60,
+      image: "/img/liquid.png",
+      variantId: null,
+      variantName: null,
+      groupId: "group-wholesale",
+      categoryId: "cat-wholesale",
+    };
+    cartStore.replaceItemsFromOrder([cartItem]);
+    cartStore.startOrderEdit("order-wholesale-edit", { promoCode: "WHOLESALEGIFT" });
+    wholesaleStore.applyOrderWholesaleContext({
+      code: "500",
+      secret: "wholesale-secret",
+      label: "Опт от 500 BYN",
+      minOrderAmount: 500,
+    });
+
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.startsWith("/api/product/")) {
+        return createJsonResponse({ id: "p-wholesale-edit", hasVariants: false, stock: 100 });
+      }
+      if (url.startsWith("/api/orders/my-active")) {
+        return createJsonResponse({
+          ...buildActiveOrder(),
+          id: "order-wholesale-edit",
+          total_amount: 570,
+          discount_amount: 0,
+          final_amount: 570,
+          promo_code_text: "WHOLESALEGIFT",
+          is_wholesale: true,
+          wholesale_code: "500",
+          wholesale_secret: "wholesale-secret",
+          wholesale_tier_label: "Опт от 500 BYN",
+          wholesale_min_amount: 500,
+          items: [{
+            ...buildActiveOrder().items[0],
+            product_id: "p-wholesale-edit",
+            quantity: 60,
+            price_per_unit: 9.5,
+            total_price: 570,
+            cart_item: cartItem,
+          }],
+        });
+      }
+      if (url === "/api/promo/validate") {
+        return createJsonResponse({
+          valid: true,
+          discount_type: "fixed",
+          discount_value: 25,
+          calculated_discount: 0,
+          customer_description: "Подарок из рулетки",
+          has_gift: 1,
+        });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const wrapper = mount(CheckoutView, {
+      global: {
+        stubs: {
+          MinDeliveryBanner: { template: "<div />" },
+          DeliveryConditionsBanner: { template: "<div />" },
+          AdminModal: { template: "<div><slot /></div>" },
+          CustomerModalShell: { template: "<div><slot /><slot name='footer' /></div>" },
+          LoyaltyBonusPopup: { template: "<div />" },
+        },
+      },
+    });
+
+    await flushPromises();
+    expect(wrapper.find(".promo-code-text").text()).toBe("WHOLESALEGIFT");
+    expect(wrapper.text()).toContain("Подарок будет добавлен к заказу");
+    expect(wrapper.text()).toContain("Подарок из рулетки");
 
     wrapper.unmount();
   });

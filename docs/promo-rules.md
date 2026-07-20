@@ -86,8 +86,11 @@ Current promo fields include:
   - `customer_description` (fallback to legacy `description`)
 - Order payload should send `promo_code` only for validated promo state.
 - Promo and loyalty cannot be combined in one order.
-- Promo codes are disabled in wholesale mode. See `docs/wholesale-rules.md`.
-- `POST /api/promo/validate` itself does not receive wholesale context. Final promo blocking in wholesale mode is enforced during order create/modify endpoints.
+- In wholesale mode only gift promos (`has_gift = 1`) are allowed.
+- A gift promo is attached to the wholesale order and reserves its usage, but its monetary discount is forced to `0` so wholesale pricing is unchanged.
+- Regular discount promos are rejected in wholesale validation and again during order create/modify.
+- Wholesale credentials are sent to `POST /api/promo/validate`; order create/modify remain the final authority.
+- A customer-bound wheel promo in wholesale validation requires verified Telegram Mini App auth; unsigned or unknown identities must be rejected before the UI shows success.
 
 ## CRM Rules
 
@@ -150,3 +153,6 @@ At minimum verify:
 - checkout shows customer description correctly
 - CRM order card/detail shows gift marker and manager instructions
 - old promos using legacy validity still validate as before
+- wholesale gift promo is saved and reserved without changing the wholesale total
+- wholesale discount promo and a wheel promo owned by another customer are rejected
+- unsigned Telegram data cannot validate a customer-bound wheel promo

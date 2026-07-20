@@ -125,7 +125,7 @@ function wholesaleHeaders(code, secret, identity) {
   };
 }
 
-async function createWholesaleOrder(identity, tier, quantity) {
+async function createWholesaleOrder(identity, tier, quantity, overrides = {}) {
   return requestJson("/api/orders", {
     method: "POST",
     headers: wholesaleHeaders(tier.code, tier.secret_key, identity),
@@ -142,8 +142,32 @@ async function createWholesaleOrder(identity, tier, quantity) {
           variant_name: null,
         },
       ],
+      ...overrides,
     }),
   });
+}
+
+function seedCustomer({ id, telegramId, username }) {
+  db.prepare(
+    `
+    INSERT OR REPLACE INTO customers (
+      id, telegram_id, telegram_username, first_name, last_name,
+      first_visit_at, last_visit_at, total_orders, total_spent
+    ) VALUES (?, ?, ?, 'Wholesale', 'Promo', DATETIME('now'), DATETIME('now'), 0, 0)
+  `,
+  ).run(id, String(telegramId), username);
+}
+
+function seedPromo({ id, code, hasGift, ownerCustomerId = null, discountValue = 25 }) {
+  db.prepare(
+    `
+    INSERT INTO promo_codes (
+      id, code, description, discount_type, discount_value, min_order_amount,
+      max_uses, current_uses, active, has_gift, is_wheel_template,
+      wheel_owner_customer_id, created_at
+    ) VALUES (?, ?, ?, 'fixed', ?, 0, 1, 0, 1, ?, 0, ?, DATETIME('now'))
+  `,
+  ).run(id, code, `${code} gift`, discountValue, hasGift ? 1 : 0, ownerCustomerId);
 }
 
 async function testWholesaleLinkValidation() {
@@ -302,12 +326,176 @@ async function testModifyWholesaleOrder() {
   assert.equal(items[0].price_per_unit, 9.5);
 }
 
+async function testWholesaleGiftPromoCreateAndAdversarialRules() {
+  const tier = getWholesaleTier("500");
+  const owner = {
+    id: "customer-wholesale-gift",
+    telegramId: "5010",
+    username: "wholesale_gift_owner",
+  };
+  seedCustomer(owner);
+  seedPromo({
+    id: "promo-wholesale-gift",
+    code: "WHOLESALEGIFT",
+    hasGift: true,
+    ownerCustomerId: owner.id,
+    discountValue: 25,
+  });
+
+  const created = await createWholesaleOrder(
+    {
+      telegram_id: owner.telegramId,
+      telegram_username: owner.username,
+    },
+    tier,
+    60,
+    { promo_code: "WHOLESALEGIFT" },
+  );
+
+  assert.equal(created.response.status, 200);
+  const order = getOrderById(created.data.order_id);
+  assert.equal(order.promo_code_text, "WHOLESALEGIFT");
+  assert.equal(order.discount_amount, 0, "gift promo must not discount wholesale price");
+  assert.equal(order.final_amount, 570);
+
+  const usage = db
+    .prepare("SELECT * FROM promo_usage WHERE order_id = ?")
+    .get(created.data.order_id);
+  assert.ok(usage, "gift promo usage must be reserved");
+  assert.equal(usage.status, "reserved");
+  assert.equal(usage.discount_applied, 0);
+
+  const validatedGift = await requestJson("/api/promo/validate", {
+    method: "POST",
+    headers: wholesaleHeaders(tier.code, tier.secret_key, {
+      telegram_id: owner.telegramId,
+      telegram_username: owner.username,
+    }),
+    body: JSON.stringify({
+      code: "WHOLESALEGIFT",
+      order_amount: 570,
+      editing_order_id: created.data.order_id,
+    }),
+  });
+  assert.equal(validatedGift.response.status, 200);
+  assert.equal(validatedGift.data.valid, true);
+  assert.equal(validatedGift.data.has_gift, 1);
+  assert.equal(validatedGift.data.calculated_discount, 0);
+
+  seedCustomer({
+    id: "customer-wholesale-foreign",
+    telegramId: "5013",
+    username: "wholesale_gift_foreign",
+  });
+  const foreignValidation = await requestJson("/api/promo/validate", {
+    method: "POST",
+    headers: wholesaleHeaders(tier.code, tier.secret_key, {
+      telegram_id: "5013",
+      telegram_username: "wholesale_gift_foreign",
+    }),
+    body: JSON.stringify({ code: "WHOLESALEGIFT", order_amount: 570 }),
+  });
+  assert.equal(foreignValidation.response.status, 200);
+  assert.equal(foreignValidation.data.valid, false);
+  assert.equal(foreignValidation.data.error, "wheel_promo_owner_mismatch");
+
+  const forgedInitData = new URLSearchParams({
+    user: JSON.stringify({ id: Number(owner.telegramId), username: owner.username }),
+  }).toString();
+  const forgedValidation = await requestJson("/api/promo/validate", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-wholesale-code": tier.code,
+      "x-wholesale-secret": tier.secret_key,
+      "x-telegram-init-data": forgedInitData,
+    },
+    body: JSON.stringify({ code: "WHOLESALEGIFT", order_amount: 570 }),
+  });
+  assert.equal(forgedValidation.response.status, 200);
+  assert.equal(forgedValidation.data.valid, false);
+  assert.equal(forgedValidation.data.error, "wheel_promo_auth_required");
+
+  const modified = await requestJson(
+    `/api/orders/${created.data.order_id}/modify-by-customer`,
+    {
+      method: "PUT",
+      headers: telegramHeaders({
+        telegram_id: owner.telegramId,
+        telegram_username: owner.username,
+      }),
+      body: JSON.stringify({
+        telegram_username: owner.username,
+        delivery_type: "pickup",
+        promo_code: "WHOLESALEGIFT",
+        items: [
+          {
+            product_id: "product-wholesale",
+            variant_id: null,
+            quantity: 70,
+            price_per_unit: 9.5,
+            product_title: "Wholesale liquid",
+            variant_name: null,
+          },
+        ],
+      }),
+    },
+  );
+  assert.equal(modified.response.status, 200);
+  const modifiedOrder = getOrderById(created.data.order_id);
+  assert.equal(modifiedOrder.promo_code_text, "WHOLESALEGIFT");
+  assert.equal(modifiedOrder.discount_amount, 0);
+  assert.equal(modifiedOrder.final_amount, 665);
+
+  seedPromo({
+    id: "promo-wholesale-discount",
+    code: "WHOLESALESAVE",
+    hasGift: false,
+  });
+  const rejectedByValidation = await requestJson("/api/promo/validate", {
+    method: "POST",
+    headers: wholesaleHeaders(tier.code, tier.secret_key, {
+      telegram_id: "5011",
+      telegram_username: "wholesale_discount_attack",
+    }),
+    body: JSON.stringify({ code: "WHOLESALESAVE", order_amount: 570 }),
+  });
+  assert.equal(rejectedByValidation.response.status, 200);
+  assert.equal(rejectedByValidation.data.valid, false);
+  assert.equal(rejectedByValidation.data.error, "wholesale_gift_promo_required");
+
+  const forgedDiscount = await createWholesaleOrder(
+    {
+      telegram_id: "5011",
+      telegram_username: "wholesale_discount_attack",
+    },
+    tier,
+    60,
+    { promo_code: "WHOLESALESAVE" },
+  );
+  assert.equal(forgedDiscount.response.status, 400);
+  assert.equal(forgedDiscount.data.error, "invalid_promo");
+
+  const stolenGift = await createWholesaleOrder(
+    {
+      telegram_id: "5012",
+      telegram_username: "wholesale_gift_attacker",
+    },
+    tier,
+    60,
+    { promo_code: "WHOLESALEGIFT" },
+  );
+  assert.equal(stolenGift.response.status, 400);
+  assert.equal(stolenGift.data.error, "invalid_promo");
+}
+
 async function main() {
   try {
     await testWholesaleLinkValidation();
     await testWholesaleContextAndCatalog();
     await testWholesaleOrderMinimumAndCreate();
     await testModifyWholesaleOrder();
+    await testWholesaleGiftPromoCreateAndAdversarialRules();
     console.log("[wholesale-smoke] OK");
   } finally {
     await new Promise((resolve, reject) => {

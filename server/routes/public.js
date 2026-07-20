@@ -2395,9 +2395,7 @@ publicRouter.put(
         }
         releaseOrderLoyaltyReservations(id);
 
-        const normalizedPromoCode = wholesaleContext
-          ? null
-          : normalizePromoCode(promo_code);
+        const normalizedPromoCode = normalizePromoCode(promo_code);
         const orderBuild = buildPublicOrderItems({
           items,
           customerId: order.customer_id || null,
@@ -2434,7 +2432,12 @@ publicRouter.put(
           nextPromoResult = validatePromoCodeForOrder(
             normalizedPromoCode,
             orderBuild.totalAmount,
-            { excludeOrderId: id, expectedCustomerId: order.customer_id || null },
+            {
+              excludeOrderId: id,
+              expectedCustomerId: order.customer_id || null,
+              isWholesale: Boolean(wholesaleContext),
+              requireCustomerForOwnedPromo: true,
+            },
           );
           if (!nextPromoResult.valid) {
             throwPromoValidationError(nextPromoResult);
@@ -2574,7 +2577,7 @@ publicRouter.put(
           );
         }
 
-        if (!wholesaleContext && nextPromoCodeId && nextPromoResult) {
+        if (nextPromoCodeId && nextPromoResult) {
           reservePromoUsageForOrder({
             promoCodeId: nextPromoCodeId,
             orderId: id,
@@ -2764,9 +2767,7 @@ publicRouter.post(
 
         const createdOrderId = generateId("order");
         const createdOrderNumber = getNextNumber("orders", "order_number");
-        const normalizedPromoCode = wholesaleContext
-          ? null
-          : normalizePromoCode(promo_code);
+        const normalizedPromoCode = normalizePromoCode(promo_code);
 
         const orderBuild = buildPublicOrderItems({
           items,
@@ -2803,7 +2804,11 @@ publicRouter.post(
           createdPromoResult = validatePromoCodeForOrder(
             normalizedPromoCode,
             orderBuild.totalAmount,
-            { expectedCustomerId: resolvedCustomerId || null },
+            {
+              expectedCustomerId: resolvedCustomerId || null,
+              isWholesale: Boolean(wholesaleContext),
+              requireCustomerForOwnedPromo: true,
+            },
           );
           if (!createdPromoResult.valid) {
             throwPromoValidationError(createdPromoResult);
@@ -2897,7 +2902,7 @@ publicRouter.post(
           });
         }
 
-        if (!wholesaleContext && createdPromoCodeId && createdPromoResult) {
+        if (createdPromoCodeId && createdPromoResult) {
           reservePromoUsageForOrder({
             promoCodeId: createdPromoCodeId,
             orderId: createdOrderId,
@@ -2985,86 +2990,71 @@ publicRouter.post(
 
 // Validate promo code (public endpoint)
 //
-// S2-N1: optionally enforce wheel_owner_customer_id when telegram auth
-// is present. The endpoint stays open to keep CRM-tester flows working,
-// but if a verified Telegram identity rides along (real Mini App
-// request), we resolve the customer and pass it to the validator so
-// wheel-owned codes get rejected for the wrong telegram user.
-publicRouter.post("/api/promo/validate", (req, res) => {
-  try {
-    const { code, order_amount = 0, order_id, editing_order_id } = req.body;
-    const expectedCustomerId = resolveCustomerIdFromAuth(req);
-    const result = validatePromoCodeForOrder(code, Number(order_amount), {
-      excludeOrderId:
-        typeof editing_order_id === "string" && editing_order_id.trim()
-          ? editing_order_id.trim()
-          : typeof order_id === "string" && order_id.trim()
-            ? order_id.trim()
-            : null,
-      expectedCustomerId,
-    });
-
-    if (result.valid) {
-      res.json({
-        valid: true,
-        discount_type: result.discount_type,
-        discount_value: result.discount_value,
-        calculated_discount: result.calculated_discount,
-        description: result.description,
-        customer_description: result.customer_description,
-        manager_description: result.manager_description,
-        has_gift: result.has_gift,
-        valid_from_date: result.valid_from_date,
-        duration_days: result.duration_days,
-        effective_valid_until_date: result.effective_valid_until_date,
+// Regular retail validation stays available without Telegram auth for CRM
+// tooling. Customer-bound wholesale prizes require a verified Mini App
+// identity before the UI may show a successful result.
+publicRouter.post(
+  "/api/promo/validate",
+  publicMiniAppReadLimiter,
+  optionalTelegramMiniAppAuth({ allowInsecureFallback: allowInsecureTelegramFallback }),
+  (req, res) => {
+    try {
+      const { code, order_amount = 0, order_id, editing_order_id } = req.body;
+      const wholesaleContext = resolveWholesaleContextOrSendError(req, res);
+      if (!wholesaleContext && res.headersSent) {
+        return;
+      }
+      const expectedCustomerId = resolveCustomerIdFromVerifiedAuth(req);
+      const result = validatePromoCodeForOrder(code, Number(order_amount), {
+        excludeOrderId:
+          typeof editing_order_id === "string" && editing_order_id.trim()
+            ? editing_order_id.trim()
+            : typeof order_id === "string" && order_id.trim()
+              ? order_id.trim()
+              : null,
+        expectedCustomerId,
+        isWholesale: Boolean(wholesaleContext),
+        requireCustomerForOwnedPromo: Boolean(wholesaleContext),
       });
-    } else {
-      res.json({
+
+      if (result.valid) {
+        res.json({
+          valid: true,
+          discount_type: result.discount_type,
+          discount_value: result.discount_value,
+          calculated_discount: result.calculated_discount,
+          description: result.description,
+          customer_description: result.customer_description,
+          manager_description: result.manager_description,
+          has_gift: result.has_gift,
+          valid_from_date: result.valid_from_date,
+          duration_days: result.duration_days,
+          effective_valid_until_date: result.effective_valid_until_date,
+        });
+      } else {
+        res.json({
+          valid: false,
+          error: result.error,
+          message: result.message,
+        });
+      }
+    } catch (error) {
+      console.error("[public] Validate promo error:", error);
+      res.status(500).json({
         valid: false,
-        error: result.error,
-        message: result.message,
+        error: "failed",
+        message: "Ошибка проверки промокода",
       });
     }
-  } catch (error) {
-    console.error("[public] Validate promo error:", error);
-    res.status(500).json({ valid: false, error: "failed", message: "Ошибка проверки промокода" });
-  }
-});
+  },
+);
 
-function resolveCustomerIdFromAuth(req) {
-  // Best-effort: look at request body / headers for any signal of a
-  // Telegram identity. We do not call requireTelegramMiniAppAuth — that
-  // would change the contract from "always 200" to "401 if no auth"
-  // and break downstream callers that don't carry headers.
-  try {
-    const headerValue = req.headers?.["x-telegram-init-data"];
-    if (typeof headerValue === "string" && headerValue.trim()) {
-      const params = new URLSearchParams(headerValue.trim());
-      const userJson = params.get("user");
-      if (userJson) {
-        const user = JSON.parse(userJson);
-        if (user?.id) {
-          const row = db
-            .prepare("SELECT id FROM customers WHERE telegram_id = ?")
-            .get(String(user.id));
-          if (row?.id) return row.id;
-        }
-      }
-    }
-    const testHeader = req.headers?.["x-test-telegram-auth"];
-    if (typeof testHeader === "string" && testHeader.trim()) {
-      const [id] = String(testHeader).split(":");
-      if (id) {
-        const row = db
-          .prepare("SELECT id FROM customers WHERE telegram_id = ?")
-          .get(String(id).trim());
-        if (row?.id) return row.id;
-      }
-    }
-  } catch (_error) {
-    // Any parse / malformed-input issue: fall back to anonymous validation.
-  }
-  return null;
+function resolveCustomerIdFromVerifiedAuth(req) {
+  const telegramId = String(req.telegramAuth?.telegramId || "").trim();
+  if (!telegramId) return null;
+  return (
+    db.prepare("SELECT id FROM customers WHERE telegram_id = ?").get(telegramId)?.id || null
+  );
 }
 
 function upsertPublicCustomer({

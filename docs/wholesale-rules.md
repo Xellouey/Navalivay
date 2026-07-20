@@ -92,7 +92,8 @@ Related documents:
 - In wholesale mode:
   - retail banners are hidden
   - loyalty mechanics are hidden and disabled
-  - promo-code mechanics are hidden and disabled
+  - the promo field is available for gift promos only
+  - regular promo discounts remain disabled
   - retail bottom navigation is hidden
   - wholesale status bar is shown on home and category screens
   - wholesale status bar is hidden on `product`, `checkout`, `my-order`, and `wholesale-entry` screens
@@ -109,9 +110,13 @@ Related documents:
 - The server is the final authority for:
   - wholesale price resolution
   - minimum amount validation
-  - disabling promo usage
+  - allowing only gift promos and forcing their monetary discount to zero
   - disabling loyalty usage
 - Minimum amount always comes from selected tier `wholesale_tiers.min_order_amount` (default seeded values: 100/250/500/1000 BYN).
+- Gift promos (`has_gift = 1`), including customer-bound roulette prizes, may be attached to wholesale orders.
+- Customer-bound roulette promos require verified Telegram Mini App identity during both validation and order submission.
+- Gift promo usage is reserved and consumed through the normal promo lifecycle.
+- Ordinary discount promos must be rejected even if a client sends one directly to the API.
 - The checkout UI must clearly show:
   - minimum wholesale amount
   - whether the minimum is already met

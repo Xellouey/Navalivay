@@ -186,18 +186,22 @@
           </p>
         </div>
 
-        <div v-if="!wholesaleStore.isWholesale" class="promo-card" :class="{ 'promo-card-applied': promoResult, 'promo-card-error': promoError }">
-          <p class="promo-label">Есть промокод?</p>
+        <div class="promo-card" :class="{ 'promo-card-applied': promoResult, 'promo-card-error': promoError }">
+          <label class="promo-label" for="checkout-promo-code">
+            {{ wholesaleStore.isWholesale ? 'Есть промокод на подарок?' : 'Есть промокод?' }}
+          </label>
 
           <div v-if="!promoResult" class="promo-input-row">
             <input
               ref="promoInputRef"
+              id="checkout-promo-code"
               v-model="promoCode"
               type="text"
               class="promo-input"
               placeholder="Введите промокод"
               enterkeyhint="done"
               :disabled="promoValidating"
+              :aria-describedby="promoError ? 'checkout-promo-error' : undefined"
               @keydown.enter="handlePromoApply"
               @input="promoError = ''"
             />
@@ -223,12 +227,27 @@
             <button class="promo-cancel-btn" @click="handlePromoClear">Убрать</button>
           </div>
 
-          <p v-if="promoError" class="promo-error-text">{{ promoError }}</p>
+          <p
+            v-if="promoError"
+            id="checkout-promo-error"
+            class="promo-error-text"
+            role="alert"
+          >
+            {{ promoError }}
+          </p>
 
           <p v-if="promoResult" class="promo-discount-text">
-            Скидка: -{{ formatPrice(promoResult.calculated_discount) }} BYN
-            <template v-if="promoResult.customer_description || promoResult.description">
-              - {{ promoResult.customer_description || promoResult.description }}
+            <template v-if="wholesaleStore.isWholesale">
+              Подарок будет добавлен к заказу
+              <template v-if="promoResult.customer_description || promoResult.description">
+                · {{ promoResult.customer_description || promoResult.description }}
+              </template>
+            </template>
+            <template v-else>
+              Скидка: -{{ formatPrice(promoResult.calculated_discount) }} BYN
+              <template v-if="promoResult.customer_description || promoResult.description">
+                · {{ promoResult.customer_description || promoResult.description }}
+              </template>
             </template>
           </p>
         </div>
@@ -611,6 +630,7 @@ const promoResult = ref<{
   discount_type: 'fixed' | 'percent';
   discount_value: number;
   calculated_discount: number;
+  has_gift: number;
   customer_description?: string;
   description?: string;
 } | null>(null);
@@ -916,7 +936,10 @@ async function handlePromoApply() {
   try {
     const response = await fetch('/api/promo/validate', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: withTelegramAuthHeaders({
+        'Content-Type': 'application/json',
+        ...wholesaleStore.buildHeaders(),
+      }),
       body: JSON.stringify({
         code,
         order_amount: cartStore.totalAmount,
@@ -932,6 +955,7 @@ async function handlePromoApply() {
         discount_type: data.discount_type,
         discount_value: data.discount_value,
         calculated_discount: data.calculated_discount,
+        has_gift: Number(data.has_gift || 0),
         customer_description: data.customer_description,
         description: data.description,
       };
@@ -1233,9 +1257,6 @@ onMounted(async () => {
   await fetchStockLimits();
   syncTelegramUserData({ trustCurrentUser: true });
   await hydrateEditingOrder();
-  if (wholesaleStore.isWholesale) {
-    handlePromoClear();
-  }
   await refreshLoyaltyPreview();
   if (!wholesaleStore.isWholesale) {
     try {
@@ -1311,7 +1332,6 @@ async function hydrateEditingOrder() {
         label: activeOrder.wholesale_tier_label,
         minOrderAmount: activeOrder.wholesale_min_amount,
       });
-      handlePromoClear();
     } else if (wholesaleStore.isWholesale) {
       wholesaleStore.clearContext();
     }
@@ -1326,8 +1346,7 @@ async function hydrateEditingOrder() {
       form.telegramUsername = orderUsername;
     }
 
-    const orderPromoCode =
-      activeOrder.is_wholesale ? "" : (activeOrder.promo_code_text || cartStore.editingPromoCode);
+    const orderPromoCode = activeOrder.promo_code_text || cartStore.editingPromoCode;
     if (orderPromoCode) {
       promoCode.value = orderPromoCode;
       cartStore.setEditingPromoCode(orderPromoCode);
@@ -1545,9 +1564,7 @@ async function submitOrder() {
       phone: form.deliveryType === "delivery" ? form.phone : undefined,
       notes: form.notes || undefined,
       promo_code:
-        wholesaleStore.isWholesale || !promoResult.value
-          ? undefined
-          : promoCode.value.trim(),
+        promoResult.value ? promoCode.value.trim() : undefined,
       items: cartStore.items.map((item) => ({
         product_id: item.productId,
         variant_id: item.variantId || null,
@@ -2060,6 +2077,7 @@ async function submitOrder() {
 }
 
 .promo-label {
+  display: block;
   font-family: "Montserrat", sans-serif;
   font-weight: 700;
   font-size: 16px;
@@ -2870,4 +2888,3 @@ async function submitOrder() {
   transform: translateY(-10px);
 }
 </style>
-

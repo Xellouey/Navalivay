@@ -282,7 +282,12 @@ export function releasePromoUsageForOrder(orderOrId) {
 export function validatePromoCode(
   code,
   orderAmount,
-  { excludeOrderId = null, expectedCustomerId = null } = {},
+  {
+    excludeOrderId = null,
+    expectedCustomerId = null,
+    isWholesale = false,
+    requireCustomerForOwnedPromo = false,
+  } = {},
 ) {
   const cleanCode = normalizePromoCode(code);
   if (!cleanCode) {
@@ -319,16 +324,24 @@ export function validatePromoCode(
   // The check is only enforced when both (a) the code carries an owner
   // and (b) the caller passed expectedCustomerId. Internal admin paths
   // that don't have a customer in scope (e.g. CRM testing) keep working.
-  if (
-    promo.wheel_owner_customer_id &&
-    expectedCustomerId &&
-    String(promo.wheel_owner_customer_id) !== String(expectedCustomerId)
-  ) {
-    return {
-      valid: false,
-      error: "wheel_promo_owner_mismatch",
-      message: "Этот промокод привязан к другому клиенту",
-    };
+  if (promo.wheel_owner_customer_id) {
+    if (requireCustomerForOwnedPromo && !expectedCustomerId) {
+      return {
+        valid: false,
+        error: "wheel_promo_auth_required",
+        message: "Для этого промокода нужна подтвержденная авторизация Telegram",
+      };
+    }
+    if (
+      expectedCustomerId &&
+      String(promo.wheel_owner_customer_id) !== String(expectedCustomerId)
+    ) {
+      return {
+        valid: false,
+        error: "wheel_promo_owner_mismatch",
+        message: "Этот промокод привязан к другому клиенту",
+      };
+    }
   }
 
   const now = new Date().toISOString();
@@ -397,6 +410,20 @@ export function validatePromoCode(
   } else if (promo.discount_type === "percent") {
     calculatedDiscount =
       Math.round(normalizedOrderAmount * Number(promo.discount_value || 0)) / 100;
+  }
+
+  if (isWholesale && Number(promo.has_gift || 0) !== 1) {
+    return {
+      valid: false,
+      error: "wholesale_gift_promo_required",
+      message: "В оптовом заказе можно применить только промокод на подарок",
+    };
+  }
+
+  // Оптовая цена уже специальная. Подарочный промокод сохраняем в заказе,
+  // но денежную скидку из его шаблона к оптовой цене не применяем.
+  if (isWholesale) {
+    calculatedDiscount = 0;
   }
 
   return {
