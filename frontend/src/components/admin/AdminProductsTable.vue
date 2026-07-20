@@ -19,27 +19,30 @@
       </template>
     </AdminSectionHero>
 
-    <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-      <div class="grid w-full grid-cols-2 rounded-2xl border border-gray-200 bg-white p-1 shadow-sm sm:w-[420px]">
+    <div class="inline-flex w-full flex-col gap-2 rounded-3xl border border-white/70 bg-white/85 p-2 shadow-xl backdrop-blur sm:w-auto sm:flex-row sm:items-center">
+      <div class="grid w-full grid-cols-2 rounded-2xl bg-gray-100/80 p-1 sm:w-[360px]">
         <button
           v-for="option in locationOptions"
           :key="option.value"
           type="button"
           :aria-pressed="location === option.value"
           :class="[
-            'rounded-xl px-5 py-3 text-sm font-semibold transition-all duration-200',
+            'rounded-xl px-5 py-3 text-sm font-semibold transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-rose-300/70 focus:ring-offset-1',
             location === option.value
-              ? 'bg-blue-600 text-white shadow-sm'
-              : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+              ? 'bg-brand-dark text-white shadow-md'
+              : 'text-gray-500 hover:bg-white/70 hover:text-gray-900'
           ]"
           @click="switchLocation(option.value)"
         >
           {{ option.label }}
         </button>
       </div>
+
+      <div class="hidden h-8 w-px bg-gray-200 sm:block"></div>
+
       <button
         type="button"
-        class="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-blue-700 sm:w-auto"
+        class="inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-brand-dark via-rose-500 to-brand-primary px-6 py-3 text-sm font-semibold text-white shadow-md transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-rose-300/70 focus:ring-offset-2 sm:w-auto"
         @click="$emit('transfer', location)"
       >
         <ArrowsRightLeftIcon class="h-5 w-5" />
