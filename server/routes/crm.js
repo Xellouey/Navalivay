@@ -95,6 +95,17 @@ import {
   isUserbotAvailable,
 } from '../utils/userbot-client.js';
 import { gateSendCustomTelegramForCrmBlock } from '../utils/crm-telegram-outbound.js';
+import {
+  addDisallowedInviterUsernames,
+  createInviteBan,
+  isReferralAuthorizationEnabled,
+  listDisallowedInviterUsernames,
+  listInviteBans,
+  listReferralAuthorizations,
+  removeDisallowedInviterUsername,
+  removeInviteBan,
+  setReferralAuthorizationEnabled,
+} from '../utils/referral-authorization.js';
 
 export const crmRouter = express.Router();
 
@@ -539,20 +550,36 @@ crmRouter.delete('/api/admin/crm/employees/:id', authMiddleware, (req, res) => {
 // =========================
 crmRouter.get('/api/admin/crm/customers', authMiddleware, (req, res) => {
   try {
-
     const { filter } = req.query;
+    const requestedLimit = Number.parseInt(String(req.query.limit || ''), 10);
+    const limit = Number.isFinite(requestedLimit) ? Math.min(Math.max(requestedLimit, 1), 100) : null;
+    const rawQuery = typeof req.query.q === 'string' ? req.query.q.trim().replace(/^@+/, '') : '';
+    const unprocessedOnly = parseTruthyParam(req.query.unprocessed);
     
-    let whereClause = '';
-    const now = new Date();
+    const conditions = [];
+    const params = {};
     
     if (filter === 'inactive') {
-      // Клиенты с последним заказом более 30 дней назад
-      const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-      whereClause = `WHERE last_order_at IS NOT NULL AND last_order_at < '${thirtyDaysAgo.toISOString()}'`;
+      conditions.push("c.last_order_at IS NOT NULL AND c.last_order_at < DATETIME('now', '-45 days')");
     } else if (filter === 'cold') {
-      // Холодные клиенты (зашли, но не заказали)
-      whereClause = `WHERE COALESCE(total_orders, 0) = 0`;
+      conditions.push('COALESCE(c.total_orders, 0) = 0');
     }
+    if (unprocessedOnly) {
+      conditions.push('NOT EXISTS (SELECT 1 FROM customer_feedbacks cf WHERE cf.customer_id = c.id)');
+    }
+    if (rawQuery) {
+      params.query = `%${rawQuery}%`;
+      conditions.push(`(
+        c.telegram_username LIKE @query COLLATE NOCASE
+        OR c.telegram_id LIKE @query
+        OR c.first_name LIKE @query COLLATE NOCASE
+        OR c.last_name LIKE @query COLLATE NOCASE
+        OR c.phone LIKE @query
+      )`);
+    }
+    const whereClause = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+    const limitClause = limit ? 'LIMIT @limit' : '';
+    if (limit) params.limit = limit;
 
     // Pavel 11.05.2026: «блокировка снялась, но повторно заблокать не могу,
     // пишет старая ещё активна». Причина — этот подзапрос считал ВСЕ блоки
@@ -571,22 +598,12 @@ crmRouter.get('/api/admin/crm/customers', authMiddleware, (req, res) => {
       FROM customers c
       ${whereClause}
       ORDER BY c.last_visit_at DESC, c.created_at DESC
-    `).all();
+      ${limitClause}
+    `).all(params);
 
-    const visitStmt = db.prepare(`
-      SELECT id, page_path, action, visited_at
-      FROM visit_logs
-      WHERE customer_id = ?
-      ORDER BY visited_at DESC
-      LIMIT 3
-    `);
-
-    const customersWithVisits = customers.map((customer) => ({
-      ...customer,
-      recent_visits: visitStmt.all(customer.id)
-    }));
-
-    res.json(customersWithVisits);
+    // Краткие списки раздела «Клиенты» не используют историю посещений.
+    // Без неё исчезает отдельный запрос к БД на каждую строку.
+    res.json(customers);
   } catch (error) {
     console.error('[crm] Get customers error:', error);
     res.status(500).json({ error: 'failed', message: error.message });
@@ -843,6 +860,117 @@ crmRouter.put('/api/admin/crm/block-reason-templates', authMiddleware, (req, res
     console.error('[crm] block-reason-templates PUT error:', err);
     res.status(500).json({ error: 'failed' });
   }
+});
+
+// ----- Авторизация через пригласившего -------------------------------------
+crmRouter.get('/api/admin/crm/referral-authorizations', authMiddleware, (_req, res) => {
+  try {
+    res.json({ items: listReferralAuthorizations() });
+  } catch (error) {
+    console.error('[crm] referral authorizations list error:', error);
+    res.status(500).json({ error: 'failed' });
+  }
+});
+
+crmRouter.get('/api/admin/crm/referral-authorization/settings', authMiddleware, (_req, res) => {
+  res.json({ enabled: isReferralAuthorizationEnabled() });
+});
+
+crmRouter.put('/api/admin/crm/referral-authorization/settings', authMiddleware, (req, res) => {
+  if (typeof req.body?.enabled !== 'boolean') {
+    return res.status(400).json({ error: 'enabled_must_be_boolean' });
+  }
+  const enabled = req.body.enabled;
+  setReferralAuthorizationEnabled(enabled);
+  return res.json({ enabled });
+});
+
+crmRouter.get('/api/admin/crm/referral-authorization/disallowed-usernames', authMiddleware, (_req, res) => {
+  return res.json({ items: listDisallowedInviterUsernames() });
+});
+
+crmRouter.post('/api/admin/crm/referral-authorization/disallowed-usernames', authMiddleware, (req, res) => {
+  try {
+    const items = addDisallowedInviterUsernames(req.body?.usernames, req.user?.u || 'admin');
+    return res.json({ items });
+  } catch (error) {
+    if (['usernames_must_be_array', 'usernames_count_invalid', 'username_invalid'].includes(error.code)) {
+      return res.status(400).json({ error: error.code });
+    }
+    console.error('[crm] add disallowed inviter usernames error:', error);
+    return res.status(500).json({ error: 'failed' });
+  }
+});
+
+crmRouter.delete('/api/admin/crm/referral-authorization/disallowed-usernames/:username', authMiddleware, (req, res) => {
+  const removed = removeDisallowedInviterUsername(req.params.username);
+  if (!removed) return res.status(404).json({ error: 'not_found' });
+  return res.json({ ok: true });
+});
+
+crmRouter.get('/api/admin/crm/invite-ban-reason-templates', authMiddleware, (_req, res) => {
+  try {
+    const row = db.prepare("SELECT value FROM settings WHERE key = 'invite_ban_reason_templates'").get();
+    res.json({ templates: row ? JSON.parse(row.value) : [] });
+  } catch (error) {
+    res.status(500).json({ error: 'failed' });
+  }
+});
+
+crmRouter.put('/api/admin/crm/invite-ban-reason-templates', authMiddleware, (req, res) => {
+  const templates = Array.isArray(req.body?.templates)
+    ? [...new Set(req.body.templates.map((item) => String(item).trim()).filter(Boolean))]
+    : null;
+  if (!templates) return res.status(400).json({ error: 'templates_must_be_array' });
+  if (templates.length > 20 || templates.some((item) => item.length > 200)) {
+    return res.status(400).json({ error: 'templates_too_large' });
+  }
+  db.prepare(`
+    INSERT INTO settings (key, value) VALUES ('invite_ban_reason_templates', ?)
+    ON CONFLICT(key) DO UPDATE SET value = excluded.value
+  `).run(JSON.stringify(templates));
+  return res.json({ templates });
+});
+
+crmRouter.get('/api/admin/crm/invite-bans', authMiddleware, (_req, res) => {
+  res.json({ items: listInviteBans() });
+});
+
+crmRouter.post('/api/admin/crm/invite-bans', authMiddleware, (req, res) => {
+  try {
+    let customerId = req.body?.customer_id ? String(req.body.customer_id) : null;
+    if (!customerId && req.body?.telegram_username) {
+      const username = String(req.body.telegram_username).trim().replace(/^@+/, '');
+      const matches = db.prepare(`
+        SELECT id FROM customers
+        WHERE telegram_username = ? COLLATE NOCASE AND deleted_at IS NULL
+      `).all(username);
+      if (matches.length > 1) return res.status(409).json({ error: 'username_ambiguous' });
+      customerId = matches[0]?.id || null;
+    }
+    if (!customerId) return res.status(400).json({ error: 'customer_required' });
+    const ban = createInviteBan({
+      customerId,
+      reason: req.body?.reason,
+      bannedBy: req.user?.u || 'admin',
+    });
+    return res.json({ ok: true, ban });
+  } catch (error) {
+    if (error.code === 'customer_not_found') return res.status(404).json({ error: error.code });
+    if (error.code === 'already_invite_banned') return res.status(409).json({ error: error.code });
+    if (error.code === 'reason_too_long') return res.status(400).json({ error: error.code });
+    console.error('[crm] create invite ban error:', error);
+    return res.status(500).json({ error: 'failed' });
+  }
+});
+
+crmRouter.delete('/api/admin/crm/invite-bans/:id', authMiddleware, (req, res) => {
+  const removed = removeInviteBan(req.params.id, {
+    unbannedBy: req.user?.u || 'admin',
+    reason: req.body?.reason,
+  });
+  if (!removed) return res.status(404).json({ error: 'not_found' });
+  return res.json({ ok: true });
 });
 
 // ----- Quick replies (FAQ) -------------------------------------------------
@@ -1159,9 +1287,8 @@ crmRouter.post('/api/admin/crm/bot/send-custom', authMiddleware, async (req, res
         chatId: String(customer.telegram_id),
         text,
         orderId,
-        // username — fallback для userbot: если entity не в кэше GramJS
-        // и не в userbot_entities, userbot резолвит через
-        // contacts.resolveUsername (только если verified=true).
+        // Получатель закреплён по Telegram ID. Username передаём только как
+        // справочные данные; send-message не делает скрытый resolveUsername.
         username: customer.telegram_username || null,
         // verified: клиент в CRM есть → это не холодная рассылка.
         verified: true,
@@ -1857,6 +1984,21 @@ crmRouter.delete('/api/admin/crm/customer-feedbacks/:id', authMiddleware, (req, 
 crmRouter.delete('/api/admin/crm/customers/:id', authMiddleware, (req, res) => {
   try {
     const { id } = req.params;
+
+    const activeBlock = getActiveBlockForCustomerId(id);
+    const blockedAuthorization = db.prepare(`
+      SELECT 1
+      FROM referral_auth_states ras
+      JOIN customers c ON c.telegram_id = ras.telegram_id
+      WHERE c.id = ? AND ras.status = 'blocked'
+      LIMIT 1
+    `).get(id);
+    if (activeBlock || blockedAuthorization) {
+      return res.status(400).json({
+        error: 'must_unblock_first',
+        message: 'Сначала снимите блокировку клиента',
+      });
+    }
     
     // Проверяем, есть ли у клиента заказы
     const orders = db.prepare('SELECT COUNT(*) as count FROM orders WHERE customer_id = ?').get(id);

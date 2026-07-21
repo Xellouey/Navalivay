@@ -339,6 +339,50 @@ function runTests() {
   });
   assertEq(newCustomerReply, null, 'новому клиенту quick reply не уходит');
 
+  db.prepare(`
+    UPDATE customers
+    SET access_authorized_at = DATETIME('now'), access_authorization_source = 'feature_disabled'
+    WHERE id = 'cust_new_qr'
+  `).run();
+  assertEq(
+    isReturningCustomerForQuickReply('91001'),
+    false,
+    'заказ при выключенной функции сохраняет старый порог сообщений',
+  );
+
+  db.prepare(`
+    UPDATE customers
+    SET access_authorized_at = DATETIME('now'), access_authorization_source = 'referral'
+    WHERE id = 'cust_new_qr'
+  `).run();
+  assertEq(isReturningCustomerForQuickReply('91001'), true, 'авторизованный новичок допущен');
+  const authorizedNewReply = handleIncomingBusinessMessage({
+    businessConnectionId: 'bc_test_1',
+    fromUserId: '91001',
+    ownerUserId: '123456789',
+    text: 'часы работы',
+  });
+  assert(authorizedNewReply, 'авторизованному новичку quick reply уходит');
+
+  db.prepare(`
+    INSERT INTO customer_blocks (id, customer_id, block_type, reason, active)
+    VALUES ('block_authorized_qr', 'cust_new_qr', 'delivery', 'обычный бан', 1)
+  `).run();
+  assertEq(isReturningCustomerForQuickReply('91001'), false, 'общий бан запрещает quick reply');
+  assertEq(handleIncomingBusinessMessage({
+    businessConnectionId: 'bc_test_1',
+    fromUserId: '91001',
+    ownerUserId: '123456789',
+    text: 'часы работы',
+  }), null, 'заблокированному клиенту quick reply не уходит');
+  db.prepare("UPDATE customer_blocks SET active = 0 WHERE id = 'block_authorized_qr'").run();
+  db.prepare(`
+    INSERT INTO customer_invite_bans (id, customer_id, reason, active)
+    VALUES ('invite_only_qr', 'cust_new_qr', 'только приглашения', 1)
+  `).run();
+  assertEq(isReturningCustomerForQuickReply('91001'), true, 'запрет приглашать не мешает сообщениям');
+  db.prepare("UPDATE customer_invite_bans SET active = 0 WHERE id = 'invite_only_qr'").run();
+
   console.log('\n=== Test 25c: in_progress без выданных — тоже null ===');
   db.prepare(`
     INSERT INTO customers (id, telegram_id, telegram_username, first_name, total_orders, total_spent, created_at, updated_at)

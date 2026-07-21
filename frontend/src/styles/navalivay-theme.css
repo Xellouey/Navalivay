@@ -62,6 +62,26 @@
   -webkit-tap-highlight-color: transparent;
 }
 
+/*
+ * Браузер не должен сам дорисовывать серые прямоугольники вокруг действий.
+ * Компонентные и utility-классы ниже по специфичности задают нужный дизайн
+ * обычным кнопкам, а текстовые действия остаются чистым текстом.
+ */
+button {
+  appearance: none;
+  -webkit-appearance: none;
+  margin: 0;
+  padding: 0;
+  border-width: 0;
+  border-style: solid;
+  border-color: #e5e7eb;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  color: inherit;
+  font: inherit;
+}
+
 body {
   font-family: var(--font-body);
   background: var(--navalivay-bg-gray);

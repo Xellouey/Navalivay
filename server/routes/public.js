@@ -50,8 +50,16 @@ import {
   confirmVerificationOnAccess,
   isCustomerVerified,
 } from "../utils/business-bot.js";
-import { resolveUsernameViaUserbot } from "../utils/userbot-client.js";
-import { autoNotifyOrderAccepted } from "../utils/auto-notify.js";
+import { autoNotifyOrderAcceptedAfterRecipientWarmup } from "../utils/auto-notify.js";
+import {
+  attachFirstOrderToReferral,
+  authorizeCustomerWithoutReferral,
+  getReferralAuthorizationStatus,
+  inspectInviter,
+  isReferralAuthorizationEnabled,
+  markReferralAuthorized,
+  recordReferralOutcome,
+} from "../utils/referral-authorization.js";
 import { getBusinessPeriodRange } from "../utils/business-time.js";
 import { queryTopSalesGroups } from "../utils/top-sales-groups.js";
 import { STOREFRONT_FILTER_PROFILES } from "../utils/storefront-filters.js";
@@ -119,7 +127,11 @@ const publicMiniAppReadLimiter = rateLimit({
 });
 const publicMiniAppMutationLimiter = rateLimit({
   windowMs: 60 * 1000,
-  max: 40,
+  // Один большой дымовой тест проверяет много независимых пользователей с
+  // одного loopback-IP. Остальные тесты и production сохраняют лимит 40.
+  max: process.env.NODE_ENV === "test"
+    ? Number(process.env.TEST_PUBLIC_MINIAPP_MUTATION_RATE_LIMIT_MAX || 40)
+    : 40,
   standardHeaders: true,
   legacyHeaders: false,
 });
@@ -1795,6 +1807,184 @@ publicRouter.get(
 );
 
 publicRouter.get(
+  "/api/referral-authorization/status",
+  publicMiniAppReadLimiter,
+  requireTelegramMiniAppAuth({ allowInsecureFallback: allowInsecureTelegramFallback }),
+  (req, res) => {
+    const telegramId = String(req.telegramAuth?.telegramId || "").trim();
+    return res.json(getReferralAuthorizationStatus(telegramId));
+  },
+);
+
+publicRouter.post(
+  "/api/referral-authorization/authorize",
+  publicMiniAppMutationLimiter,
+  requireTelegramMiniAppAuth({ allowInsecureFallback: allowInsecureTelegramFallback }),
+  (req, res) => {
+    try {
+      const telegramId = String(req.telegramAuth?.telegramId || "").trim();
+      const telegramUsername = normalizeTelegramUsername(req.telegramAuth?.telegramUsername);
+      const identity = {
+        telegramId,
+        telegramUsername,
+        firstName: req.telegramAuth?.firstName || null,
+        lastName: req.telegramAuth?.lastName || null,
+      };
+      const rawUsername = req.body?.inviter_username;
+      const currentStatus = getReferralAuthorizationStatus(telegramId);
+
+      if (!currentStatus.enabled || currentStatus.authorized) {
+        return res.json({ success: true, ...currentStatus });
+      }
+      if (currentStatus.blocked) {
+        const block = getActiveBlockForTelegramId(telegramId);
+        return res.status(403).json({
+          error: "customer_blocked",
+          message: "Авторизация не пройдена",
+          block: serializeBlock(block, "active"),
+          attempts_used: currentStatus.attempts_used,
+          attempts_remaining: 0,
+        });
+      }
+
+      const pendingBan = telegramUsername
+        ? getPendingBanForUsername(telegramUsername)
+        : null;
+      if (pendingBan) {
+        return res.status(403).json({
+          error: "customer_blocked",
+          block: serializeBlock(pendingBan, "pending"),
+        });
+      }
+      const activeBlock = getActiveBlockForTelegramId(telegramId);
+      if (activeBlock) {
+        return res.status(403).json({
+          error: "customer_blocked",
+          block: serializeBlock(activeBlock, "active"),
+        });
+      }
+
+      if (typeof rawUsername !== "string" || !rawUsername.trim()) {
+        return res.status(428).json({
+          error: "referral_authorization_required",
+          message: "Укажите username пригласившего",
+          attempts_used: currentStatus.attempts_used,
+          attempts_remaining: currentStatus.attempts_remaining,
+        });
+      }
+
+      const sendFailure = (inspected) => {
+        const nextStatus = recordReferralOutcome({
+          identity,
+          rawUsername,
+          result: inspected,
+        });
+        if (nextStatus.customer_blocked) {
+          const block = getActiveBlockForTelegramId(telegramId);
+          return res.status(403).json({
+            error: "customer_blocked",
+            block: serializeBlock(block, "active"),
+            attempts_used: nextStatus.attempts_used,
+            attempts_remaining: nextStatus.attempts_remaining,
+          });
+        }
+        if (nextStatus.blocked) {
+          const block = getActiveBlockForTelegramId(telegramId);
+          return res.status(403).json({
+            error: "customer_blocked",
+            message: "Авторизация не пройдена",
+            block: serializeBlock(block, "active"),
+            attempts_used: 3,
+            attempts_remaining: 0,
+          });
+        }
+        const messages = {
+          referral_username_invalid: "Проверьте username пригласившего",
+          referral_inviter_not_eligible: "Пользователь не найден или ещё не забирал заказ",
+          referral_self_invite: "Нельзя указать самого себя",
+          referral_inviter_blocked: "Пользователь заблокирован и не может быть пригласившим",
+          referral_inviter_forbidden: "Данный пользователь не может приглашать новых людей",
+          referral_inviter_reserved: "Данный пользователь не может приглашать новых людей",
+          referral_username_ambiguous: "Не удалось однозначно проверить username. Напишите менеджеру",
+        };
+        return res.status(422).json({
+          error: inspected.code,
+          message: messages[inspected.code] || "Не удалось проверить пригласившего",
+          attempts_used: nextStatus.attempts_used,
+          attempts_remaining: nextStatus.attempts_remaining,
+        });
+      };
+
+      const inspected = inspectInviter({
+        telegramId,
+        telegramUsername,
+        rawUsername,
+      });
+      if (!inspected.ok) return sendFailure(inspected);
+
+      const result = db.transaction(() => {
+        const finalStatus = getReferralAuthorizationStatus(telegramId);
+        if (!finalStatus.enabled || finalStatus.authorized) {
+          return { success: true, status: finalStatus };
+        }
+        if (finalStatus.blocked) return { blocked: true };
+
+        const finalInviter = inspectInviter({
+          telegramId,
+          telegramUsername,
+          rawUsername,
+        });
+        if (!finalInviter.ok) return { referralViolation: finalInviter };
+
+        const customerId = upsertPublicCustomer({
+          telegramId,
+          telegramUsername: telegramUsername || null,
+          firstName: identity.firstName,
+          lastName: identity.lastName,
+          phone: null,
+        });
+        const activatedBlock = getActiveBlockForTelegramId(telegramId);
+        if (activatedBlock) return { activatedBlock };
+
+        markReferralAuthorized({
+          customerId,
+          telegramId,
+          inviter: finalInviter.inviter,
+          submittedUsername: rawUsername,
+          orderId: null,
+        });
+        return { success: true, status: getReferralAuthorizationStatus(telegramId) };
+      }).immediate();
+
+      if (result.blocked) {
+        const block = getActiveBlockForTelegramId(telegramId);
+        return res.status(403).json({
+          error: "customer_blocked",
+          message: "Авторизация не пройдена",
+          block: serializeBlock(block, "active"),
+          attempts_used: 3,
+          attempts_remaining: 0,
+        });
+      }
+      if (result.activatedBlock) {
+        return res.status(403).json({
+          error: "customer_blocked",
+          block: serializeBlock(result.activatedBlock, "active"),
+        });
+      }
+      if (result.referralViolation) return sendFailure(result.referralViolation);
+      return res.json({ success: true, ...result.status });
+    } catch (error) {
+      console.error("[public] Referral authorization error:", error);
+      return res.status(500).json({
+        error: "referral_authorization_failed",
+        message: "Не удалось пройти авторизацию. Попробуйте ещё раз",
+      });
+    }
+  },
+);
+
+publicRouter.get(
   "/api/customer/me",
   publicMiniAppReadLimiter,
   requireTelegramMiniAppAuth({ allowInsecureFallback: allowInsecureTelegramFallback }),
@@ -2644,6 +2834,7 @@ publicRouter.post(
         items,
         promo_code,
         accepted_agreement_ids,
+        inviter_username,
       } = req.body || {};
 
       if (!Array.isArray(items) || items.length === 0) {
@@ -2746,6 +2937,111 @@ publicRouter.post(
         }
       }
 
+      const normalizedPromoCode = normalizePromoCode(promo_code);
+      const preflightCustomerId = resolveCustomerIdFromVerifiedAuth(req);
+      const runBusinessPreflight = () => validatePublicOrderPreflight({
+        items,
+        customerId: preflightCustomerId,
+        normalizedPromoCode,
+        wholesaleContext,
+        deliveryType: delivery_type,
+      });
+
+      // Ошибки товара, остатков, скидок и оптового минимума должны вернуться
+      // раньше проверки пригласившего и никогда не расходовать попытку.
+      db.transaction(runBusinessPreflight).immediate();
+
+      const referralStatus = getReferralAuthorizationStatus(telegramId);
+      if (referralStatus.blocked) {
+        const block = getActiveBlockForTelegramId(telegramId);
+        return res.status(403).json({
+          error: "customer_blocked",
+          message: "Авторизация не пройдена",
+          block: serializeBlock(block, "active"),
+          attempts_used: referralStatus.attempts_used,
+          attempts_remaining: 0,
+        });
+      }
+      const sendReferralFailure = (inspected) => {
+        const nextStatus = db.transaction(() => {
+          const agreementsCheck = validateAcceptedAgreementIds(accepted_agreement_ids);
+          if (!agreementsCheck.ok) {
+            const error = new Error("Подтвердите согласие для оформления заказа");
+            error.code = "agreements_required";
+            error.payload = {
+              error: "agreements_required",
+              message: error.message,
+              missing: agreementsCheck.missing,
+            };
+            throw error;
+          }
+          runBusinessPreflight();
+          return recordReferralOutcome({
+            identity: {
+              telegramId,
+              telegramUsername: verifiedTelegramUsername,
+              firstName: req.telegramAuth?.firstName || first_name || null,
+              lastName: req.telegramAuth?.lastName || last_name || null,
+            },
+            rawUsername: inviter_username,
+            result: inspected,
+          });
+        }).immediate();
+        if (nextStatus.customer_blocked) {
+          const block = getActiveBlockForTelegramId(telegramId);
+          return res.status(403).json({
+            error: "customer_blocked",
+            block: serializeBlock(block, "active"),
+            attempts_used: nextStatus.attempts_used,
+            attempts_remaining: nextStatus.attempts_remaining,
+          });
+        }
+        if (nextStatus.blocked) {
+          const block = getActiveBlockForTelegramId(telegramId);
+          return res.status(403).json({
+            error: "customer_blocked",
+            message: "Авторизация не пройдена",
+            block: serializeBlock(block, "active"),
+            attempts_used: 3,
+            attempts_remaining: 0,
+          });
+        }
+        const messages = {
+          referral_username_invalid: "Проверьте username пригласившего",
+          referral_inviter_not_eligible: "Пользователь не найден или ещё не забирал заказ",
+          referral_self_invite: "Нельзя указать самого себя",
+          referral_inviter_blocked: "Пользователь заблокирован и не может быть пригласившим",
+          referral_inviter_forbidden: "Данный пользователь не может приглашать новых людей",
+          referral_inviter_reserved: "Данный пользователь не может приглашать новых людей",
+          referral_username_ambiguous: "Не удалось однозначно проверить username. Напишите менеджеру",
+        };
+        return res.status(422).json({
+          error: inspected.code,
+          message: messages[inspected.code] || "Не удалось проверить пригласившего",
+          attempts_used: nextStatus.attempts_used,
+          attempts_remaining: nextStatus.attempts_remaining,
+        });
+      };
+      if (referralStatus.required) {
+        if (typeof inviter_username !== "string" || !inviter_username.trim()) {
+          return res.status(428).json({
+            error: "referral_authorization_required",
+            message: "Укажите username пригласившего",
+            attempts_used: referralStatus.attempts_used,
+            attempts_remaining: referralStatus.attempts_remaining,
+          });
+        }
+
+        const inspected = inspectInviter({
+          telegramId,
+          telegramUsername: verifiedTelegramUsername,
+          rawUsername: inviter_username,
+        });
+        if (!inspected.ok) {
+          return sendReferralFailure(inspected);
+        }
+      }
+
       const tx = db.transaction(() => {
         // Финальная проверка соглашений: повторяем под write-lock на случай,
         // если между preliminary-проверкой выше и стартом транзакции admin
@@ -2757,6 +3053,45 @@ publicRouter.post(
         }
         const acceptedAgreementsSnapshot = buildAcceptedSnapshot(accepted_agreement_ids);
 
+        // Повторная проверка уже под write-lock: параллельный запрос мог
+        // успеть создать заказ между внешней проверкой и транзакцией.
+        const concurrentActiveOrder = findOwnedActiveOrder({
+          telegramId,
+          telegramUsername: verifiedTelegramUsername,
+        });
+        if (concurrentActiveOrder) {
+          return {
+            activeOrderConflict: {
+              id: concurrentActiveOrder.id,
+              order_number: concurrentActiveOrder.order_number,
+            },
+          };
+        }
+
+        // Проверяем пригласившего повторно уже под write-lock. Менеджер мог
+        // успеть заблокировать его или запретить приглашения между запросами.
+        const finalReferralStatus = getReferralAuthorizationStatus(telegramId);
+        if (finalReferralStatus.blocked) {
+          return { referralBlocked: true };
+        }
+        if (
+          finalReferralStatus.required &&
+          (typeof inviter_username !== "string" || !inviter_username.trim())
+        ) {
+          return { referralRequired: finalReferralStatus };
+        }
+        let transactionInviter = null;
+        if (finalReferralStatus.required) {
+          transactionInviter = inspectInviter({
+            telegramId,
+            telegramUsername: verifiedTelegramUsername,
+            rawUsername: inviter_username,
+          });
+          if (!transactionInviter.ok) {
+            return { referralViolation: transactionInviter };
+          }
+        }
+
         const resolvedCustomerId = upsertPublicCustomer({
           telegramId,
           telegramUsername: verifiedTelegramUsername || null,
@@ -2767,8 +3102,6 @@ publicRouter.post(
 
         const createdOrderId = generateId("order");
         const createdOrderNumber = getNextNumber("orders", "order_number");
-        const normalizedPromoCode = normalizePromoCode(promo_code);
-
         const orderBuild = buildPublicOrderItems({
           items,
           customerId: resolvedCustomerId,
@@ -2864,6 +3197,19 @@ publicRouter.post(
           acceptedAgreementsSnapshot,
         );
 
+        if (transactionInviter?.ok) {
+          markReferralAuthorized({
+            customerId: resolvedCustomerId,
+            telegramId,
+            inviter: transactionInviter.inviter,
+            submittedUsername: inviter_username,
+            orderId: createdOrderId,
+          });
+        } else if (!isReferralAuthorizationEnabled()) {
+          authorizeCustomerWithoutReferral(resolvedCustomerId, "feature_disabled");
+        }
+        attachFirstOrderToReferral(resolvedCustomerId, createdOrderId);
+
         const createdItemStmt = db.prepare(`
           INSERT INTO order_items (
             id, order_id, product_id, product_title, group_name, base_product_title, base_product_id, variant_id, variant_name, quantity,
@@ -2928,7 +3274,7 @@ publicRouter.post(
         return { orderId: createdOrderId, orderNumber: createdOrderNumber };
       });
 
-      const created = tx();
+      const created = tx.immediate();
       // Sentinel из транзакции: если активировалось новое соглашение между
       // preliminary-проверкой и началом tx — возвращаем 400 с актуальным
       // missing[].
@@ -2939,12 +3285,38 @@ publicRouter.post(
           missing: created.agreementsViolation,
         });
       }
-      if (verifiedTelegramUsername) {
-        resolveUsernameViaUserbot({ username: verifiedTelegramUsername }).catch(() => {});
+      if (created?.activeOrderConflict) {
+        return res.status(409).json({
+          error: "active_order_exists",
+          message: "У вас уже есть активный заказ. Его можно только изменить или отменить.",
+          order_id: created.activeOrderConflict.id,
+          order_number: created.activeOrderConflict.order_number,
+        });
       }
-
+      if (created?.referralBlocked) {
+        const block = getActiveBlockForTelegramId(telegramId);
+        const latestStatus = getReferralAuthorizationStatus(telegramId);
+        return res.status(403).json({
+          error: "customer_blocked",
+          message: "Авторизация не пройдена",
+          block: serializeBlock(block, "active"),
+          attempts_used: latestStatus.attempts_used,
+          attempts_remaining: 0,
+        });
+      }
+      if (created?.referralRequired) {
+        return res.status(428).json({
+          error: "referral_authorization_required",
+          message: "Укажите username пригласившего",
+          attempts_used: created.referralRequired.attempts_used,
+          attempts_remaining: created.referralRequired.attempts_remaining,
+        });
+      }
+      if (created?.referralViolation) {
+        return sendReferralFailure(created.referralViolation);
+      }
       setImmediate(() => {
-        void autoNotifyOrderAccepted({ orderId: created.orderId }).catch((notifyErr) => {
+        void autoNotifyOrderAcceptedAfterRecipientWarmup({ orderId: created.orderId }).catch((notifyErr) => {
           console.error("[public] deferred order-accepted notify error:", notifyErr);
         });
       });
@@ -2956,6 +3328,9 @@ publicRouter.post(
       });
     } catch (error) {
       const errorCode = String(error.code || error.message || "");
+      if (error.payload?.error === "agreements_required") {
+        return res.status(400).json(error.payload);
+      }
       if (error.payload?.error === "min_delivery_amount_not_met") {
         return res.status(400).json(error.payload);
       }
@@ -3135,6 +3510,56 @@ function upsertPublicCustomer({
   });
 
   return customerId;
+}
+
+function validatePublicOrderPreflight({
+  items,
+  customerId,
+  normalizedPromoCode,
+  wholesaleContext,
+  deliveryType,
+}) {
+  const orderBuild = buildPublicOrderItems({
+    items,
+    customerId,
+    promoCodeText: normalizedPromoCode,
+    wholesaleContext,
+  });
+
+  if (deliveryType === "delivery") {
+    const minDeliveryError = ensureMinDeliveryAmountSatisfied(orderBuild.totalAmount);
+    if (minDeliveryError) {
+      const error = new Error(minDeliveryError.message);
+      error.code = minDeliveryError.error;
+      error.payload = minDeliveryError;
+      throw error;
+    }
+  }
+
+  const wholesaleMinError = validateWholesaleMinimum(orderBuild.totalAmount, wholesaleContext);
+  if (wholesaleMinError) {
+    const error = new Error(wholesaleMinError.message);
+    error.code = wholesaleMinError.error;
+    error.payload = wholesaleMinError;
+    throw error;
+  }
+
+  if (normalizedPromoCode) {
+    const promoResult = validatePromoCodeForOrder(
+      normalizedPromoCode,
+      orderBuild.totalAmount,
+      {
+        expectedCustomerId: customerId || null,
+        isWholesale: Boolean(wholesaleContext),
+        requireCustomerForOwnedPromo: true,
+      },
+    );
+    if (!promoResult.valid) {
+      throwPromoValidationError(promoResult);
+    }
+  }
+
+  return orderBuild;
 }
 
 function buildPublicOrderItems({

@@ -149,6 +149,7 @@ export function createBlock({
   block_until,
   reason,
   blocked_by,
+  block_type = 'delivery',
 }) {
   // Сценарий 1: явный customer_id
   if (customer_id) {
@@ -165,6 +166,7 @@ export function createBlock({
       block_until,
       reason,
       blocked_by,
+      block_type,
     });
   }
 
@@ -186,6 +188,7 @@ export function createBlock({
       block_until,
       reason,
       blocked_by,
+      block_type,
     });
   }
 
@@ -214,7 +217,7 @@ function generateBlockId() {
  *     успеет первым, наш INSERT упадёт с SQLITE_CONSTRAINT — мы это
  *     ловим и возвращаем `already_blocked` с текущим существующим блоком.
  */
-function insertCustomerBlock({ customer_id, block_until, reason, blocked_by }) {
+function insertCustomerBlock({ customer_id, block_until, reason, blocked_by, block_type = 'delivery' }) {
   const customerIdStr = String(customer_id);
   let inserted = null;
 
@@ -249,11 +252,12 @@ function insertCustomerBlock({ customer_id, block_until, reason, blocked_by }) {
     }
     const blockId = generateBlockId();
     db.prepare(
-      `INSERT INTO customer_blocks (id, customer_id, block_until, reason, blocked_by, active)
-       VALUES (?, ?, ?, ?, ?, 1)`,
+      `INSERT INTO customer_blocks (id, customer_id, block_type, block_until, reason, blocked_by, active)
+       VALUES (?, ?, ?, ?, ?, ?, 1)`,
     ).run(
       blockId,
       customerIdStr,
+      block_type,
       block_until ?? null,
       reason ?? null,
       blocked_by ?? null,
@@ -295,8 +299,9 @@ export function getCustomerBlockById(blockId) {
 export function unblockCustomerBlock(blockId, { unblocked_by, unblock_reason } = {}) {
   if (!blockId) return null;
   const id = String(blockId);
-  const result = db
-    .prepare(
+  return db.transaction(() => {
+    const result = db
+      .prepare(
       `UPDATE customer_blocks
        SET active = 0,
            unblocked_at = DATETIME('now'),
@@ -304,9 +309,32 @@ export function unblockCustomerBlock(blockId, { unblocked_by, unblock_reason } =
            unblock_reason = ?
        WHERE id = ? AND active = 1`,
     )
-    .run(unblocked_by ?? null, unblock_reason ?? null, id);
-  if (result.changes === 0) return null;
-  return db.prepare('SELECT * FROM customer_blocks WHERE id = ?').get(id);
+      .run(unblocked_by ?? null, unblock_reason ?? null, id);
+    if (result.changes === 0) return null;
+    const updated = db.prepare('SELECT * FROM customer_blocks WHERE id = ?').get(id);
+    if (updated?.block_type === 'authorization_failed') {
+      const customer = db
+        .prepare('SELECT telegram_id FROM customers WHERE id = ?')
+        .get(updated.customer_id);
+      if (customer?.telegram_id) {
+        db.prepare(`
+        INSERT INTO referral_auth_states (
+          telegram_id, customer_id, attempts_used, status, last_error_code,
+          last_username, blocked_at, updated_at
+        ) VALUES (?, ?, 0, 'pending', NULL, NULL, NULL, DATETIME('now'))
+        ON CONFLICT(telegram_id) DO UPDATE SET
+          customer_id = excluded.customer_id,
+          attempts_used = 0,
+          status = 'pending',
+          last_error_code = NULL,
+          last_username = NULL,
+          blocked_at = NULL,
+          updated_at = DATETIME('now')
+        `).run(String(customer.telegram_id), updated.customer_id);
+      }
+    }
+    return updated;
+  })();
 }
 
 /**

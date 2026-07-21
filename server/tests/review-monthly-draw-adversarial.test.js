@@ -211,6 +211,14 @@ console.log('--- A8: January and year rollover stay correct ---');
 console.log('--- A9: mid-month manual run stores current month, not previous ---');
 {
   seedReviews({ reviewCountByCustomer: { cust1: 1 } });
+  // Сценарий исторический: не оставляем дату отзыва зависимой от реального
+  // месяца, в котором запущен тест.
+  db.prepare(`
+    UPDATE product_reviews
+    SET created_at = '2026-06-15T10:00:00.000Z',
+        updated_at = '2026-06-15T10:00:00.000Z',
+        approved_at = '2026-06-15T10:00:00.000Z'
+  `).run();
   withMockedNow('2026-06-21T20:27:00+03:00', () => {
     const periodKey = getReviewPeriodKey(0);
     const draw = runMonthlyReviewDraw({ periodKey, seatCount: 1, rng: () => 0 });

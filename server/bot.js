@@ -9,6 +9,11 @@ import {
   logBotMessage,
 } from './utils/business-bot.js';
 import { resolveUsernameViaUserbot } from './utils/userbot-client.js';
+import {
+  attachFirstOrderToReferral,
+  authorizeCustomerWithoutReferral,
+  getReferralOrderCreationGate,
+} from './utils/referral-authorization.js';
 
 // Singleton прокси-агент для long-polling. См. комментарий ниже у Telegraf
 // init: на RU-хостинге без прокси bot не получает business updates.
@@ -70,7 +75,10 @@ function ensureCustomer(telegramUser) {
     // Проактивный резолв: новый клиент ещё не в кэше userbot'а.
     // Зарезолвим сейчас — к моменту заказа entity уже готова.
     if (telegramUser.username) {
-      resolveUsernameViaUserbot({ username: telegramUser.username }).catch(() => {});
+      resolveUsernameViaUserbot({
+        username: telegramUser.username,
+        expectedTelegramId: telegramId,
+      }).catch(() => {});
     }
   } else {
     db.prepare(`
@@ -106,7 +114,7 @@ function isDuplicateOrder(customerId, productId) {
   return Boolean(recent);
 }
 
-function createOrderFromBot({ customerId, product, quantity, telegramMessageId, originalMessage }) {
+export function createOrderFromBot({ customerId, product, quantity, telegramMessageId, originalMessage }) {
   const orderId = generateId('order');
   const orderNumber = getNextNumber('orders', 'order_number');
   const pricePerUnit = Number(product.priceRub) || 0;
@@ -117,6 +125,19 @@ function createOrderFromBot({ customerId, product, quantity, telegramMessageId, 
   const profit = finalAmount - totalCost;
 
   const tx = db.transaction(() => {
+    const currentCustomer = customerId
+      ? db.prepare('SELECT telegram_id FROM customers WHERE id = ?').get(customerId)
+      : null;
+    const currentGate = getReferralOrderCreationGate(String(currentCustomer?.telegram_id || ''));
+    if (!currentGate.allowed) {
+      const error = new Error(currentGate.reason || 'authorization_required');
+      error.code = currentGate.reason || 'authorization_required';
+      throw error;
+    }
+    if (customerId && !currentGate.status.enabled) {
+      authorizeCustomerWithoutReferral(customerId, 'feature_disabled');
+    }
+
     const latest = db.prepare('SELECT stock FROM products WHERE id = ?').get(product.id);
     const latestStock = typeof latest?.stock === 'number' ? latest.stock : 0;
     if (latestStock < quantity) {
@@ -139,6 +160,8 @@ function createOrderFromBot({ customerId, product, quantity, telegramMessageId, 
         .filter(Boolean)
         .join(' | ')
     );
+
+    attachFirstOrderToReferral(customerId, orderId);
 
     db.prepare(`
       INSERT INTO order_items (
@@ -173,7 +196,7 @@ function createOrderFromBot({ customerId, product, quantity, telegramMessageId, 
     }
   });
 
-  tx();
+  tx.immediate();
 
   return {
     orderId,
@@ -285,6 +308,21 @@ if (!BOT_TOKEN) {
 
     const customer = ensureCustomer(ctx.from);
 
+    const referralGate = getReferralOrderCreationGate(String(ctx.from?.id || ''));
+    if (!referralGate.allowed && referralGate.reason === 'authorization_failed') {
+      await ctx.reply('Авторизация не пройдена. Напишите менеджеру, чтобы восстановить доступ.');
+      return;
+    }
+    if (!referralGate.allowed) {
+      await ctx.reply(
+        'Первый заказ оформите в каталоге и укажите, кто вас пригласил.',
+        Markup.inlineKeyboard([
+          [Markup.button.webApp('🛍 Открыть каталог', getStoreWebAppUrl())],
+        ]),
+      );
+      return;
+    }
+
     if (isDuplicateOrder(customer?.id ?? null, product.id)) {
       await ctx.reply('Мы уже получили заявку на этот товар. Менеджер скоро свяжется с вами.');
       return;
@@ -312,9 +350,19 @@ if (!BOT_TOKEN) {
       // Проактивный резолв username через userbot: к моменту первой смены
       // статуса entity уже в кэше GramJS → auto-notify уйдёт мгновенно.
       if (customer?.telegram_username) {
-        resolveUsernameViaUserbot({ username: customer.telegram_username }).catch(() => {});
+        resolveUsernameViaUserbot({
+          username: customer.telegram_username,
+          expectedTelegramId: customer.telegram_id,
+        }).catch(() => {});
       }
     } catch (error) {
+      if (
+        error instanceof Error &&
+        ['authorization_required', 'authorization_failed'].includes(error.code || error.message)
+      ) {
+        await ctx.reply('Первый заказ оформите в каталоге и укажите, кто вас пригласил.');
+        return;
+      }
       if (error instanceof Error && error.message === 'insufficient_stock') {
         await ctx.reply('Похоже, товар только что закончился. Мы уведомим менеджера и уточним наличие.');
         return;

@@ -3,21 +3,28 @@
     <div class="mx-auto w-full max-w-7xl space-y-8">
       <div>
         <h1 class="text-2xl font-bold text-gray-900 sm:text-3xl">Клиенты</h1>
-        <p class="mt-2 text-sm text-gray-600 sm:text-base">Работа с пропавшими клиентами</p>
+        <p class="mt-2 text-sm text-gray-600 sm:text-base">Клиенты, авторизации и ограничения</p>
       </div>
 
       <!-- Tabs -->
       <div class="flex flex-wrap gap-2">
-        <button @click="activeTab = 'inactive'" :class="tabButtonClass('inactive')">
+        <button type="button" @click="activeTab = 'inactive'" :class="tabButtonClass('inactive')" :aria-pressed="activeTab === 'inactive'">
           Не заказывали более 45 дней
         </button>
-        <button @click="activeTab = 'processed'" :class="tabButtonClass('processed')">
+        <button type="button" @click="activeTab = 'processed'" :class="tabButtonClass('processed')" :aria-pressed="activeTab === 'processed'">
           Обработанные
         </button>
-        <button @click="activeTab = 'all'" :class="tabButtonClass('all')">
+        <button type="button" @click="activeTab = 'all'" :class="tabButtonClass('all')" :aria-pressed="activeTab === 'all'">
           Все клиенты
         </button>
-        <button @click="activeTab = 'blocked'" :class="tabButtonClass('blocked')">
+        <button type="button" @click="activeTab = 'authorization'" :class="tabButtonClass('authorization')" :aria-pressed="activeTab === 'authorization'">
+          Авторизация
+          <span
+            v-if="pendingAuthorizationCount"
+            class="ml-1 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-700"
+          >{{ pendingAuthorizationCount }}</span>
+        </button>
+        <button type="button" @click="activeTab = 'blocked'" :class="tabButtonClass('blocked')" :aria-pressed="activeTab === 'blocked'">
           Заблокированные
           <span
             v-if="blockedTotalCount > 0"
@@ -35,8 +42,154 @@
       </div>
 
       <template v-else>
+        <div v-if="activeTab === 'authorization'" class="space-y-4">
+          <section class="rounded-lg bg-white p-4 shadow-sm sm:p-5" aria-labelledby="disallowed-inviters-title">
+            <div class="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between sm:gap-6">
+              <div>
+                <h2 id="disallowed-inviters-title" class="text-base font-semibold text-gray-900">
+                  Запрещённые пригласители
+                </h2>
+                <p class="mt-1 text-sm text-gray-500">
+                  Эти username нельзя указать при входе. Ошибка не расходует попытку клиента.
+                </p>
+              </div>
+              <span class="mt-1 text-sm text-gray-500 sm:whitespace-nowrap">
+                {{ disallowedInviterUsernames.length }} в списке
+              </span>
+            </div>
+
+            <form class="mt-4 flex flex-col gap-2 sm:flex-row" @submit.prevent="addDisallowedInviters">
+              <label class="sr-only" for="disallowed-inviter-input">Username, которые нельзя указывать</label>
+              <textarea
+                id="disallowed-inviter-input"
+                v-model="disallowedInviterInput"
+                rows="2"
+                autocomplete="off"
+                autocapitalize="none"
+                spellcheck="false"
+                class="min-h-11 min-w-0 flex-1 resize-y rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                placeholder="@username или несколько через запятую"
+                :disabled="savingDisallowedInviters"
+                :aria-invalid="Boolean(disallowedInviterError)"
+                aria-describedby="disallowed-inviter-help disallowed-inviter-error"
+                @input="clearDisallowedInviterFeedback"
+              ></textarea>
+              <button
+                type="submit"
+                class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:cursor-wait disabled:opacity-60"
+                :disabled="savingDisallowedInviters || !disallowedInviterInput.trim()"
+              >
+                {{ savingDisallowedInviters ? 'Сохраняем...' : 'Добавить' }}
+              </button>
+            </form>
+
+            <p id="disallowed-inviter-help" class="mt-2 text-xs text-gray-500">
+              Можно вставить список через пробел, запятую или с новой строки.
+            </p>
+            <p v-if="disallowedInviterError" id="disallowed-inviter-error" class="mt-2 text-sm text-red-600" role="alert">
+              {{ disallowedInviterError }}
+            </p>
+            <p v-else-if="disallowedInviterSaved" class="mt-2 text-sm text-emerald-600" role="status">
+              Список сохранён
+            </p>
+
+            <div
+              v-if="disallowedInviterLoadError"
+              class="mt-4 flex items-center justify-between gap-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700"
+              role="alert"
+            >
+              <span>{{ disallowedInviterLoadError }}</span>
+              <button type="button" class="shrink-0 font-semibold underline" @click="fetchDisallowedInviters">
+                Повторить
+              </button>
+            </div>
+            <div v-if="loadingDisallowedInviters" class="mt-4 text-sm text-gray-500">Загрузка списка...</div>
+            <ul v-else-if="disallowedInviterUsernames.length" class="mt-4 divide-y divide-gray-100 border-t border-gray-100">
+              <li
+                v-for="item in disallowedInviterUsernames"
+                :key="item.username"
+                class="flex items-center justify-between gap-3 py-2.5"
+              >
+                <span class="min-w-0 truncate text-sm font-medium text-gray-800">@{{ item.username }}</span>
+                <button
+                  type="button"
+                  class="min-h-11 shrink-0 rounded-md px-3 py-2 text-sm font-medium text-red-600 transition-colors hover:bg-red-50 disabled:cursor-wait disabled:opacity-50"
+                  :disabled="Boolean(removingDisallowedInviter)"
+                  :aria-label="`Удалить @${item.username} из запрещённых пригласителей`"
+                  @click="removeDisallowedInviter(item.username)"
+                >
+                  {{ removingDisallowedInviter === item.username ? 'Удаляем...' : 'Удалить' }}
+                </button>
+              </li>
+            </ul>
+            <p v-else-if="!disallowedInviterLoadError" class="mt-4 border-t border-gray-100 pt-4 text-sm text-gray-500">
+              Список пока пуст
+            </p>
+          </section>
+
+          <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div class="flex flex-wrap gap-2">
+              <button
+                v-for="filter in authorizationFilters"
+                :key="filter.value"
+                type="button"
+                class="rounded-lg px-3 py-2 text-sm font-medium"
+                :class="authorizationFilter === filter.value ? 'bg-blue-600 text-white' : 'bg-white text-gray-700'"
+                :aria-pressed="authorizationFilter === filter.value"
+                @click="authorizationFilter = filter.value"
+              >{{ filter.label }}</button>
+            </div>
+            <input
+              v-model.trim="authorizationSearch"
+              type="search"
+              class="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm sm:max-w-xs"
+              placeholder="Поиск клиента или пригласившего"
+              aria-label="Поиск по авторизациям"
+            />
+          </div>
+          <p v-if="!loadingAuthorizations && !authorizationLoadError && filteredAuthorizations.length" class="text-sm text-gray-500">
+            Показано {{ visibleAuthorizations.length }} из {{ filteredAuthorizations.length }}
+          </p>
+          <div v-if="authorizationLoadError" class="flex items-center justify-between gap-3 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">
+            <span>{{ authorizationLoadError }}</span>
+            <button class="font-semibold underline" @click="fetchReferralAuthorizations">Повторить</button>
+          </div>
+          <div v-if="loadingAuthorizations" class="rounded-lg bg-white p-8 text-center text-gray-500">Загрузка...</div>
+          <div v-else-if="!authorizationLoadError" class="overflow-x-auto rounded-lg bg-white shadow-sm">
+            <table class="w-full min-w-[760px] text-sm">
+              <thead class="border-b bg-gray-50 text-left text-xs uppercase text-gray-500">
+                <tr>
+                  <th class="px-4 py-3">Клиент</th>
+                  <th class="px-4 py-3">Состояние</th>
+                  <th class="px-4 py-3">Попытки</th>
+                  <th class="px-4 py-3">Пригласивший</th>
+                  <th class="px-4 py-3">Обновлено</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y">
+                <tr v-for="item in visibleAuthorizations" :key="item.telegram_id">
+                  <td class="px-4 py-3">
+                    <div class="font-medium text-gray-900">{{ item.first_name || 'Без имени' }} {{ item.last_name || '' }}</div>
+                    <div class="text-gray-500">{{ item.telegram_username ? `@${item.telegram_username}` : item.telegram_id }}</div>
+                  </td>
+                  <td class="px-4 py-3">{{ authorizationStateLabel(item) }}</td>
+                  <td class="px-4 py-3">{{ item.attempts_used }}/3</td>
+                  <td class="px-4 py-3">{{ item.inviter_username ? `@${item.inviter_username}` : '—' }}</td>
+                  <td class="px-4 py-3 text-gray-500">{{ formatDate(item.updated_at) }}</td>
+                </tr>
+                <tr v-if="!visibleAuthorizations.length">
+                  <td colspan="5" class="px-4 py-10 text-center text-gray-500">
+                    {{ authorizationSearch ? 'По запросу ничего не найдено' : 'Нет клиентов в этом состоянии' }}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
         <!-- Inactive Customers (>45 days) -->
         <div v-if="activeTab === 'inactive'" class="space-y-4">
+          <p class="text-sm text-gray-500">Показано до {{ CUSTOMER_LIST_LIMIT }} клиентов</p>
           <div v-if="inactiveCustomers.length > 0" class="rounded-lg bg-white shadow-sm">
             <div class="overflow-x-auto">
               <table class="w-full min-w-[600px]">
@@ -87,6 +240,9 @@
 
         <!-- Processed Customers -->
         <div v-if="activeTab === 'processed'" class="space-y-6">
+          <p v-if="displayedFeedbackCount" class="text-sm text-gray-500">
+            Показаны последние {{ displayedFeedbackCount }} записей
+          </p>
           <div v-if="groupedFeedbacks.length > 0">
             <div v-for="group in groupedFeedbacks" :key="group.date" class="mb-6">
               <h3 class="text-lg font-semibold text-gray-900 mb-3">{{ group.date }}</h3>
@@ -136,11 +292,15 @@
           <div class="bg-white rounded-lg shadow-sm p-4">
             <input
               v-model="searchQuery"
-              type="text"
-              placeholder="Поиск по username..."
+              type="search"
+              placeholder="Имя, username, телефон или Telegram ID"
+              aria-label="Поиск клиентов"
               class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
           </div>
+          <p class="text-sm text-gray-500">
+            Показано до {{ CUSTOMER_LIST_LIMIT }} клиентов. Для уточнения списка используйте поиск.
+          </p>
           <div v-if="filteredAllCustomers.length > 0" class="rounded-lg bg-white shadow-sm">
             <div class="overflow-x-auto">
               <table class="w-full min-w-[720px]">
@@ -206,7 +366,7 @@
             </div>
           </div>
           <div v-else class="text-center py-12 bg-white rounded-lg shadow-sm">
-            <p class="text-gray-600">Клиентов не найдено</p>
+            <p class="text-gray-600">{{ searchQuery.trim() ? 'По запросу ничего не найдено' : 'Клиентов пока нет' }}</p>
           </div>
         </div>
 
@@ -224,7 +384,8 @@
               <div v-if="blocksList.active.length === 0" class="px-6 py-8 text-center text-sm text-gray-500">
                 Нет активных блокировок
               </div>
-              <table v-else class="w-full min-w-[720px]">
+              <div v-else class="overflow-x-auto">
+              <table class="w-full min-w-[720px]">
                 <thead class="bg-gray-50 border-b">
                   <tr>
                     <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Клиент</th>
@@ -235,7 +396,7 @@
                   </tr>
                 </thead>
                 <tbody class="divide-y divide-gray-200">
-                  <tr v-for="block in blocksList.active" :key="block.id" class="hover:bg-gray-50">
+                  <tr v-for="block in visibleActiveBlocks" :key="block.id" class="hover:bg-gray-50">
                     <td class="px-6 py-4">
                       <a
                         v-if="block.customer?.telegram_username"
@@ -268,6 +429,7 @@
                   </tr>
                 </tbody>
               </table>
+              </div>
             </div>
 
             <!-- Pending (превентивные баны) -->
@@ -281,7 +443,8 @@
               <div v-if="blocksList.pending.length === 0" class="px-6 py-8 text-center text-sm text-gray-500">
                 Нет превентивных банов
               </div>
-              <table v-else class="w-full min-w-[640px]">
+              <div v-else class="overflow-x-auto">
+              <table class="w-full min-w-[640px]">
                 <thead class="bg-gray-50 border-b">
                   <tr>
                     <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">@username</th>
@@ -292,7 +455,7 @@
                   </tr>
                 </thead>
                 <tbody class="divide-y divide-gray-200">
-                  <tr v-for="pb in blocksList.pending" :key="`p-${pb.id}`" class="hover:bg-gray-50">
+                  <tr v-for="pb in visiblePendingBlocks" :key="`p-${pb.id}`" class="hover:bg-gray-50">
                     <td class="px-6 py-4 text-sm text-gray-900">@{{ pb.telegram_username }}</td>
                     <td class="px-6 py-4 text-sm text-gray-700 max-w-xs truncate" :title="pb.reason || ''">
                       {{ pb.reason || '—' }}
@@ -313,6 +476,41 @@
                   </tr>
                 </tbody>
               </table>
+              </div>
+            </div>
+
+            <div class="rounded-lg bg-white shadow-sm">
+              <div class="border-b bg-gray-50 px-6 py-3 text-sm font-semibold text-gray-700">
+                Запрет приглашать ({{ inviteBans.length }})
+              </div>
+              <div v-if="!inviteBans.length && !inviteBansLoadError" class="px-6 py-8 text-center text-sm text-gray-500">
+                {{ loadingInviteBans ? 'Загрузка списка...' : 'Нет запретов приглашать' }}
+              </div>
+              <div v-if="inviteBansLoadError" class="flex items-center justify-between gap-3 bg-red-50 px-6 py-3 text-sm text-red-700">
+                <span>{{ inviteBansLoadError }}</span>
+                <button class="font-semibold underline" @click="fetchInviteBans">Повторить</button>
+              </div>
+              <div v-if="inviteBans.length" class="overflow-x-auto">
+              <table class="w-full min-w-[640px]">
+                <thead class="border-b bg-gray-50 text-left text-xs uppercase text-gray-500">
+                  <tr><th class="px-6 py-3">Клиент</th><th class="px-6 py-3">Причина</th><th class="px-6 py-3">Создан</th><th class="px-6 py-3 text-right">Действия</th></tr>
+                </thead>
+                <tbody class="divide-y">
+                  <tr v-for="ban in visibleInviteBans" :key="ban.id">
+                    <td class="px-6 py-4">{{ ban.telegram_username ? `@${ban.telegram_username}` : ban.first_name || 'Без username' }}</td>
+                    <td class="px-6 py-4">{{ ban.reason || '—' }}</td>
+                    <td class="px-6 py-4 text-gray-500">{{ formatDate(ban.banned_at) }}</td>
+                    <td class="px-6 py-4 text-right">
+                      <button
+                        class="rounded bg-green-50 px-3 py-1 text-green-700 disabled:opacity-50"
+                        :disabled="removingInviteBanId === ban.id"
+                        @click="removeInviteBanFromList(ban.id)"
+                      >{{ removingInviteBanId === ban.id ? 'Снимаем...' : 'Снять запрет' }}</button>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+              </div>
             </div>
           </template>
         </div>
@@ -461,6 +659,11 @@ import { ref, onMounted, computed, watch } from 'vue'
 import { useCrmStore } from '@/stores/crm'
 import { storeToRefs } from 'pinia'
 import type { Customer, CustomerFeedback } from '@/stores/crm'
+import {
+  findInvalidDisallowedInviterUsernames,
+  parseDisallowedInviterUsernames,
+  validateDisallowedInviterUsernames,
+} from '@/utils/referralInviterSettings'
 
 const crmStore = useCrmStore()
 const {
@@ -472,22 +675,223 @@ const {
   loadingCustomerBlocks,
 } = storeToRefs(crmStore)
 
-const activeTab = ref<'inactive' | 'processed' | 'all' | 'blocked'>('inactive')
+type AuthorizationItem = {
+  telegram_id: string
+  telegram_username: string | null
+  first_name: string | null
+  last_name: string | null
+  status: 'pending' | 'authorized' | 'blocked'
+  attempts_used: number
+  inviter_username: string | null
+  has_issued_order: number
+  updated_at: string
+}
+
+type DisallowedInviterUsername = {
+  username: string
+  added_at: string
+  added_by: string | null
+}
+
+const activeTab = ref<'inactive' | 'processed' | 'all' | 'blocked' | 'authorization'>('inactive')
+const referralAuthorizations = ref<AuthorizationItem[]>([])
+const loadingAuthorizations = ref(false)
+const authorizationLoadError = ref('')
+const inviteBans = ref<Array<{ id: string; telegram_username: string | null; first_name: string | null; reason: string | null; banned_at: string }>>([])
+const inviteBansLoadError = ref('')
+const loadingInviteBans = ref(false)
+const removingInviteBanId = ref<string | null>(null)
+const authorizationFilter = ref<'new' | 'pending' | 'blocked'>('new')
+const authorizationSearch = ref('')
+const disallowedInviterUsernames = ref<DisallowedInviterUsername[]>([])
+const disallowedInviterInput = ref('')
+const loadingDisallowedInviters = ref(false)
+const savingDisallowedInviters = ref(false)
+const removingDisallowedInviter = ref<string | null>(null)
+const disallowedInviterError = ref('')
+const disallowedInviterLoadError = ref('')
+const disallowedInviterSaved = ref(false)
+const authorizationFilters = [
+  { value: 'new' as const, label: 'Новые' },
+  { value: 'pending' as const, label: '1–2 ошибки' },
+  { value: 'blocked' as const, label: 'Заблокированы' },
+]
+
+const pendingAuthorizationCount = computed(() =>
+  referralAuthorizations.value.filter((item) => item.status === 'pending' && item.attempts_used > 0).length,
+)
+const filteredAuthorizations = computed(() => referralAuthorizations.value.filter((item) => {
+  const inState = authorizationFilter.value === 'new'
+    ? item.status === 'authorized' && !item.has_issued_order
+    : authorizationFilter.value === 'blocked'
+      ? item.status === 'blocked'
+      : item.status === 'pending' && item.attempts_used > 0
+  if (!inState) return false
+  const query = authorizationSearch.value.trim().toLowerCase().replace(/^@+/, '')
+  if (!query) return true
+  return [item.telegram_id, item.telegram_username, item.first_name, item.last_name, item.inviter_username]
+    .filter(Boolean)
+    .some((value) => String(value).toLowerCase().includes(query))
+}))
+const visibleAuthorizations = computed(() => filteredAuthorizations.value.slice(0, CUSTOMER_LIST_LIMIT))
+
+function authorizationStateLabel(item: AuthorizationItem) {
+  if (item.status === 'blocked') return 'Авторизация не пройдена'
+  if (item.status === 'authorized') return item.has_issued_order ? 'Постоянный' : 'Новый клиент'
+  return 'Не завершил авторизацию'
+}
+
+async function fetchReferralAuthorizations() {
+  loadingAuthorizations.value = true
+  authorizationLoadError.value = ''
+  try {
+    const response = await fetch('/api/admin/crm/referral-authorizations', { credentials: 'include' })
+    if (!response.ok) throw new Error('failed')
+    referralAuthorizations.value = (await response.json()).items || []
+  } catch {
+    authorizationLoadError.value = 'Не удалось загрузить авторизации'
+  } finally {
+    loadingAuthorizations.value = false
+  }
+}
+
+function clearDisallowedInviterFeedback() {
+  disallowedInviterError.value = ''
+  disallowedInviterSaved.value = false
+}
+
+async function fetchDisallowedInviters() {
+  loadingDisallowedInviters.value = true
+  disallowedInviterLoadError.value = ''
+  try {
+    const response = await fetch('/api/admin/crm/referral-authorization/disallowed-usernames', {
+      credentials: 'include',
+    })
+    if (!response.ok) throw new Error('failed')
+    disallowedInviterUsernames.value = (await response.json()).items || []
+  } catch {
+    disallowedInviterLoadError.value = 'Не удалось загрузить запрещённые username'
+  } finally {
+    loadingDisallowedInviters.value = false
+  }
+}
+
+async function addDisallowedInviters() {
+  if (savingDisallowedInviters.value) return
+  clearDisallowedInviterFeedback()
+  const usernames = parseDisallowedInviterUsernames(disallowedInviterInput.value)
+  if (usernames.length > 100) {
+    disallowedInviterError.value = 'За один раз можно добавить не более 100 username'
+    return
+  }
+  const invalid = findInvalidDisallowedInviterUsernames(usernames)
+  if (invalid.length) {
+    disallowedInviterError.value = `Некорректные username: ${invalid.map((item) => `@${item}`).join(', ')}`
+    return
+  }
+  if (!validateDisallowedInviterUsernames(usernames)) {
+    disallowedInviterError.value = 'Username должен содержать 5–32 латинских символа, цифры или знак подчёркивания'
+    return
+  }
+
+  savingDisallowedInviters.value = true
+  try {
+    const response = await fetch('/api/admin/crm/referral-authorization/disallowed-usernames', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ usernames }),
+    })
+    if (!response.ok) throw new Error('failed')
+    disallowedInviterUsernames.value = (await response.json()).items || []
+    disallowedInviterLoadError.value = ''
+    disallowedInviterInput.value = ''
+    disallowedInviterSaved.value = true
+  } catch {
+    disallowedInviterError.value = 'Не удалось сохранить список'
+  } finally {
+    savingDisallowedInviters.value = false
+  }
+}
+
+async function removeDisallowedInviter(username: string) {
+  if (
+    removingDisallowedInviter.value
+    || !window.confirm(`Разрешить использовать @${username} как пригласившего?`)
+  ) return
+  removingDisallowedInviter.value = username
+  clearDisallowedInviterFeedback()
+  try {
+    const response = await fetch(
+      `/api/admin/crm/referral-authorization/disallowed-usernames/${encodeURIComponent(username)}`,
+      { method: 'DELETE', credentials: 'include' },
+    )
+    if (!response.ok) throw new Error('failed')
+    disallowedInviterUsernames.value = disallowedInviterUsernames.value
+      .filter((item) => item.username !== username)
+    disallowedInviterSaved.value = true
+  } catch {
+    disallowedInviterError.value = `Не удалось удалить @${username}`
+  } finally {
+    removingDisallowedInviter.value = null
+  }
+}
+
+async function fetchInviteBans() {
+  loadingInviteBans.value = true
+  inviteBansLoadError.value = ''
+  try {
+    const response = await fetch('/api/admin/crm/invite-bans', { credentials: 'include' })
+    if (!response.ok) throw new Error('failed')
+    inviteBans.value = (await response.json()).items || []
+  } catch {
+    inviteBansLoadError.value = 'Не удалось загрузить запреты приглашать'
+  } finally {
+    loadingInviteBans.value = false
+  }
+}
+
+async function removeInviteBanFromList(id: string) {
+  if (removingInviteBanId.value || !window.confirm('Снять запрет приглашать?')) return
+  removingInviteBanId.value = id
+  try {
+    const response = await fetch(`/api/admin/crm/invite-bans/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({}),
+    })
+    if (!response.ok) throw new Error('failed')
+    await fetchInviteBans()
+  } catch {
+    inviteBansLoadError.value = 'Не удалось снять запрет'
+  } finally {
+    removingInviteBanId.value = null
+  }
+}
 
 // Список блокировок (active + pending) — для таба «Заблокированные»
 const blocksList = computed(() => customerBlocksList.value)
 const loadingBlocks = computed(() => loadingCustomerBlocks.value)
 const blockedTotalCount = computed(
-  () => blocksList.value.active.length + blocksList.value.pending.length,
+  () => blocksList.value.active.length + blocksList.value.pending.length + inviteBans.value.length,
 )
+const visibleActiveBlocks = computed(() => blocksList.value.active.slice(0, CUSTOMER_LIST_LIMIT))
+const visiblePendingBlocks = computed(() => blocksList.value.pending.slice(0, CUSTOMER_LIST_LIMIT))
+const visibleInviteBans = computed(() => inviteBans.value.slice(0, CUSTOMER_LIST_LIMIT))
 const removingBlockId = ref<string | null>(null)
 
 // Реактивно подгружаем при переключении на таб
 watch(activeTab, (tab) => {
+  void loadActiveTab(tab)
   if (tab === 'blocked') {
     crmStore.fetchCustomerBlocksList().catch((err) => {
       console.error('[crm-customers] failed to load blocks list', err)
     })
+    void fetchInviteBans()
+  }
+  if (tab === 'authorization') {
+    void Promise.all([fetchReferralAuthorizations(), fetchDisallowedInviters()])
   }
 })
 
@@ -498,6 +902,7 @@ async function handleUnblock(blockId: string | number) {
   try {
     await crmStore.removeCustomerBlock(blockId)
     await crmStore.fetchCustomerBlocksList()
+    await fetchReferralAuthorizations()
   } catch (err: any) {
     console.error('[crm-customers] unblock failed', err)
     window.alert(err?.message || 'Не удалось снять блок')
@@ -536,7 +941,13 @@ const submittingFeedback = ref(false)
 const deletingFeedback = ref(false)
 const deletingCustomer = ref(false)
 const searchQuery = ref('')
-const loading = computed(() => loadingCustomers.value || loadingCustomerFeedbacks.value)
+const loading = computed(() => {
+  if (activeTab.value === 'inactive' || activeTab.value === 'all') return loadingCustomers.value
+  if (activeTab.value === 'processed') return loadingCustomerFeedbacks.value
+  return false
+})
+const CUSTOMER_LIST_LIMIT = 50
+let searchTimer: ReturnType<typeof setTimeout> | undefined
 
 type InactiveCustomer = Customer
 
@@ -547,28 +958,35 @@ function getDaysSinceLastOrder(c: Customer) {
 }
 
 const inactiveCustomers = computed<InactiveCustomer[]>(() => {
-  const processedCustomerIds = new Set(
-    customerFeedbacks.value.map((f) => f.customer_id)
-  )
   return customers.value
     .filter((c) => Boolean(c.last_order_at))
     .filter((c) => getDaysSinceLastOrder(c) >= 45)
-    .filter((c) => !processedCustomerIds.has(c.id))
     .sort((a, b) => getDaysSinceLastOrder(b) - getDaysSinceLastOrder(a))
 })
 
 const filteredAllCustomers = computed(() => {
-  // В UI username отображается с префиксом "@", в БД хранится без него.
-  // Принимаем обе формы запроса: "@polizhzw" и "polizhzw".
-  const q = searchQuery.value.trim().toLowerCase().replace(/^@+/, '')
-  const list = customers.value
-  if (!q) return list
-  return list.filter((c) => (c.telegram_username || '').toLowerCase().includes(q))
+  return customers.value
+})
+
+async function loadActiveTab(tab = activeTab.value) {
+  if (tab === 'inactive') {
+    await crmStore.fetchCustomers('inactive', { limit: CUSTOMER_LIST_LIMIT, unprocessed: true })
+  } else if (tab === 'processed') {
+    await crmStore.fetchCustomerFeedbacks()
+  } else if (tab === 'all') {
+    await crmStore.fetchCustomers(undefined, { limit: CUSTOMER_LIST_LIMIT, query: searchQuery.value.trim() })
+  }
+}
+
+watch(searchQuery, () => {
+  if (activeTab.value !== 'all') return
+  clearTimeout(searchTimer)
+  searchTimer = setTimeout(() => void loadActiveTab('all'), 300)
 })
 
 const groupedFeedbacks = computed(() => {
   const groups: Record<string, CustomerFeedback[]> = {}
-  for (const item of customerFeedbacks.value) {
+  for (const item of customerFeedbacks.value.slice(0, CUSTOMER_LIST_LIMIT)) {
     const d = new Date(item.processed_at || item.created_at)
     const label = d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' })
     if (!groups[label]) groups[label] = []
@@ -576,10 +994,11 @@ const groupedFeedbacks = computed(() => {
   }
   return Object.entries(groups).map(([date, items]) => ({ date, items }))
 })
+const displayedFeedbackCount = computed(() => Math.min(customerFeedbacks.value.length, CUSTOMER_LIST_LIMIT))
 
-function tabButtonClass(tab: 'inactive' | 'processed' | 'all' | 'blocked') {
+function tabButtonClass(tab: 'inactive' | 'processed' | 'all' | 'blocked' | 'authorization') {
   return [
-    'w-full rounded-lg px-4 py-2 text-sm font-medium transition-colors sm:w-auto',
+    'w-full rounded-lg px-4 py-2 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 sm:w-auto',
     activeTab.value === tab ? 'bg-blue-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-100'
   ]
 }
@@ -596,7 +1015,7 @@ async function confirmBlock() {
     blockingInProgress.value = true
     await crmStore.blockCustomer(customerToBlock.value.id, blockReason.value)
     showBlockModal.value = false
-    await crmStore.fetchCustomers()
+    await loadActiveTab('all')
   } catch (e) {
     alert('Ошибка блокировки')
   } finally {
@@ -607,7 +1026,7 @@ async function confirmBlock() {
 async function unblockCustomer(customer: Customer) {
   if (!confirm('Разблокировать доставку для этого клиента?')) return
   await crmStore.unblockCustomer(customer.id)
-  await crmStore.fetchCustomers()
+  await loadActiveTab('all')
 }
 
 function openFeedbackModal(customer: Customer) {
@@ -630,7 +1049,7 @@ async function submitFeedback() {
       reason: feedbackReason.value.trim()
     })
     showFeedbackModal.value = false
-    await Promise.all([crmStore.fetchCustomerFeedbacks(), crmStore.fetchCustomers()])
+    await loadActiveTab('inactive')
   } catch (e) {
     alert('Не удалось сохранить итог')
   } finally {
@@ -668,7 +1087,7 @@ async function confirmDeleteCustomer() {
   deletingCustomer.value = true
   try {
     await crmStore.deleteCustomer(customerToDelete.value.id)
-    await crmStore.fetchCustomers()
+    await loadActiveTab('all')
     showDeleteCustomerModal.value = false
     customerToDelete.value = null
   } catch (e) {
@@ -679,10 +1098,16 @@ async function confirmDeleteCustomer() {
 }
 
 function formatDate(dateString: string): string {
-  return new Date(dateString).toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' })
+  const normalized = dateString.includes('T') ? dateString : `${dateString.replace(' ', 'T')}Z`
+  return new Date(normalized).toLocaleDateString('ru-RU', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    timeZone: 'Europe/Minsk',
+  })
 }
 
 onMounted(() => {
-  void Promise.all([crmStore.fetchCustomers(), crmStore.fetchCustomerFeedbacks()])
+  void loadActiveTab()
 })
 </script>

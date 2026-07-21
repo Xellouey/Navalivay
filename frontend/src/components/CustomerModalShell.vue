@@ -8,7 +8,7 @@
         role="dialog"
         aria-modal="true"
         :aria-labelledby="titleId"
-        @click.self="emit('close')"
+        @click.self="requestClose"
       >
         <section
           ref="cardRef"
@@ -20,11 +20,13 @@
           <div class="customer-modal-header">
             <h2 :id="titleId" class="customer-modal-title">{{ title }}</h2>
             <button
+              v-if="closable"
               ref="closeButtonRef"
               type="button"
               class="customer-modal-close"
               :aria-label="closeLabel"
-              @click="emit('close')"
+              :disabled="closeDisabled"
+              @click="requestClose"
             >
               <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
                 <path
@@ -60,6 +62,8 @@ interface Props {
   maxWidth?: string;
   reserveTabBar?: boolean;
   compact?: boolean;
+  closeDisabled?: boolean;
+  closable?: boolean;
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -67,6 +71,8 @@ const props = withDefaults(defineProps<Props>(), {
   maxWidth: "361px",
   reserveTabBar: false,
   compact: false,
+  closeDisabled: false,
+  closable: true,
 });
 
 const emit = defineEmits<{
@@ -108,7 +114,7 @@ function getFocusableElements(): HTMLElement[] {
 function onKeydown(event: KeyboardEvent) {
   if (event.key === "Escape") {
     event.stopPropagation();
-    emit("close");
+    if (props.closable) requestClose();
     return;
   }
   if (event.key !== "Tab") return;
@@ -132,6 +138,10 @@ function onKeydown(event: KeyboardEvent) {
     event.preventDefault();
     first.focus();
   }
+}
+
+function requestClose() {
+  if (props.closable && !props.closeDisabled) emit("close");
 }
 
 function syncScrollLock(isOpen: boolean) {
@@ -247,6 +257,11 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: center;
   cursor: pointer;
+}
+
+.customer-modal-close:disabled {
+  cursor: wait;
+  opacity: 0.4;
 }
 
 /* S2-3: visual button stays at 40×40, expand actual hit-target to 44×44

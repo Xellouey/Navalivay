@@ -20,7 +20,9 @@ initDb();
 const { upsertStatusTemplate } = await import('../utils/business-bot.js');
 const {
   autoNotifyOrderAccepted,
+  autoNotifyOrderAcceptedAfterRecipientWarmup,
   autoNotifyForStatusChange,
+  _resetRecipientWarmupsForTests,
   isReturningCustomer,
   ORDER_ACCEPTED_EVENT,
 } = await import('../utils/auto-notify.js');
@@ -29,6 +31,7 @@ const { enrichOrdersWithRelations } = await import('../utils/crm-order-enrichmen
 const { _resetHealthCacheForTests } = await import('../utils/userbot-client.js');
 
 const results = { passed: 0, failed: 0 };
+const origFetch = globalThis.fetch;
 function assertEq(actual, expected, msg) {
   const ok = JSON.stringify(actual) === JSON.stringify(expected);
   if (ok) {
@@ -44,6 +47,7 @@ function assert(cond, msg) {
 }
 
 function resetDb() {
+  _resetRecipientWarmupsForTests();
   db.exec(`DELETE FROM pending_notifications;`);
   db.exec(`DELETE FROM bot_message_log;`);
   db.exec(`DELETE FROM customer_blocks;`);
@@ -57,13 +61,93 @@ function resetDb() {
   });
 }
 
-function mockUserbotOk({ captureBody = null } = {}) {
+// --- T2f: два первых события делят один resolve и оба ждут его ---
+console.log('\n=== T2f: concurrent accepted + assembled share recipient warmup ===');
+resetDb();
+{
+  db.prepare(`
+    INSERT INTO customers (
+      id, telegram_id, telegram_username, first_name, total_orders,
+      access_authorized_at, access_authorization_source
+    ) VALUES ('c_warmup_race', '227', 'warmup_race', 'Новый', 0, DATETIME('now'), 'referral')
+  `).run();
+  db.prepare(`
+    INSERT INTO orders (id, order_number, customer_id, status, total_amount, final_amount)
+    VALUES ('o_warmup_race', 1007, 'c_warmup_race', 'in_progress', 100, 100)
+  `).run();
+  upsertStatusTemplate('order_assembled', {
+    title: 'Заказ собран',
+    body: 'Заказ №{order_number} собран.',
+    is_active: 1,
+  });
+
+  const calls = [];
+  globalThis.fetch = async (url, init = {}) => {
+    const u = String(url);
+    if (u.includes('/resolve-username')) {
+      calls.push('resolve_start');
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      calls.push('resolve_done');
+      return {
+        ok: true,
+        status: 200,
+        async json() { return { ok: true, telegram_id: '227' }; },
+      };
+    }
+    if (u.includes('/health')) {
+      calls.push('health');
+      return { ok: true, async json() { return { ok: true, connected: true }; } };
+    }
+    if (u.includes('/send-message')) {
+      calls.push(`send:${JSON.parse(init.body).text}`);
+      return { ok: true, async json() { return { ok: true, telegram_message_id: 227 }; } };
+    }
+    throw new Error(`unexpected ${u}`);
+  };
+  _resetHealthCacheForTests();
+  try {
+    const [accepted, assembled] = await Promise.all([
+      autoNotifyOrderAcceptedAfterRecipientWarmup({ orderId: 'o_warmup_race' }),
+      autoNotifyForStatusChange({
+        orderId: 'o_warmup_race',
+        previousStatus: 'new',
+        newStatus: 'in_progress',
+      }),
+    ]);
+    assertEq(accepted.sent, true, 'order_accepted отправлен');
+    assertEq(assembled.sent, true, 'order_assembled отправлен');
+    assertEq(calls.filter((item) => item === 'resolve_start').length, 1, 'resolve вызван ровно один раз');
+    const resolveDoneIndex = calls.indexOf('resolve_done');
+    const sendIndexes = calls
+      .map((item, index) => item.startsWith('send:') ? index : -1)
+      .filter((index) => index >= 0);
+    assertEq(sendIndexes.length, 2, 'выполнены две отправки');
+    assert(sendIndexes.every((index) => index > resolveDoneIndex), 'обе отправки начались после resolve');
+  } finally {
+    globalThis.fetch = origFetch;
+    _resetHealthCacheForTests();
+    _resetRecipientWarmupsForTests();
+  }
+}
+
+function mockUserbotOk({ captureBody = null, captureCalls = null } = {}) {
   return async (url, init) => {
     const u = String(url);
+    if (u.includes('127.0.0.1') && u.includes('/resolve-username')) {
+      if (captureCalls) captureCalls.push('resolve');
+      const body = JSON.parse(init.body);
+      return {
+        ok: true,
+        status: 200,
+        async json() { return { ok: true, telegram_id: String(body.expected_telegram_id) }; },
+      };
+    }
     if (u.includes('127.0.0.1') && u.includes('/health')) {
+      if (captureCalls) captureCalls.push('health');
       return { ok: true, async json() { return { ok: true, connected: true }; } };
     }
     if (u.includes('127.0.0.1') && u.includes('/send-message')) {
+      if (captureCalls) captureCalls.push('send');
       if (captureBody) captureBody.value = JSON.parse(init.body);
       return { ok: true, async json() { return { ok: true, telegram_message_id: 9001 }; } };
     }
@@ -99,8 +183,8 @@ console.log('\n=== T1: returning customer → sent order_accepted ===');
 resetDb();
 const returning = makeReturningCustomer();
 let sendBody = { value: null };
-const origFetch = globalThis.fetch;
-globalThis.fetch = mockUserbotOk({ captureBody: sendBody });
+const t1Calls = [];
+globalThis.fetch = mockUserbotOk({ captureBody: sendBody, captureCalls: t1Calls });
 _resetHealthCacheForTests();
 try {
   const result = await autoNotifyOrderAccepted({ orderId: returning.orderId });
@@ -108,6 +192,7 @@ try {
   assertEq(result.event, ORDER_ACCEPTED_EVENT, 'event=order_accepted');
   assertEq(sendBody.value?.chat_id, returning.telegramId, 'chat_id корректный');
   assert(sendBody.value?.text?.includes('1001'), 'текст содержит order_number');
+  assertEq(t1Calls, ['resolve', 'health', 'send'], 'постоянный клиент отправлен только после resolve');
 } finally {
   globalThis.fetch = origFetch;
   _resetHealthCacheForTests();
@@ -143,6 +228,146 @@ resetDb();
     const result = await autoNotifyOrderAccepted({ orderId: 'o_newbie' });
     assertEq(result.skipped, true, 'skipped=true');
     assertEq(result.reason, 'new_customer_no_dialog', 'reason=new_customer_no_dialog');
+    assertEq(sendHits, 0, 'send не вызывался');
+  } finally {
+    globalThis.fetch = origFetch;
+    _resetHealthCacheForTests();
+  }
+}
+
+// --- T2b: referral-authorized customer → send without issued history ---
+console.log('\n=== T2b: referral-authorized new customer → sent ===');
+resetDb();
+{
+  db.prepare(`
+    INSERT INTO customers (
+      id, telegram_id, telegram_username, first_name, total_orders,
+      access_authorized_at, access_authorization_source
+    ) VALUES ('c_referral_new', '223', 'referral_new', 'Новый', 0, DATETIME('now'), 'referral')
+  `).run();
+  db.prepare(`
+    INSERT INTO orders (id, order_number, customer_id, status, total_amount, final_amount)
+    VALUES ('o_referral_new', 1003, 'c_referral_new', 'new', 100, 100)
+  `).run();
+  globalThis.fetch = mockUserbotOk();
+  _resetHealthCacheForTests();
+  try {
+    const result = await autoNotifyOrderAccepted({ orderId: 'o_referral_new' });
+    assertEq(result.sent, true, 'авторизованному новичку сообщение отправлено');
+  } finally {
+    globalThis.fetch = origFetch;
+    _resetHealthCacheForTests();
+  }
+}
+
+// --- T2d: сначала resolve по username+Telegram ID, потом отправка ---
+console.log('\n=== T2d: recipient warmup finishes before first auto-notify ===');
+resetDb();
+{
+  db.prepare(`
+    INSERT INTO customers (
+      id, telegram_id, telegram_username, first_name, total_orders,
+      access_authorized_at, access_authorization_source
+    ) VALUES ('c_warmup', '225', 'warmup_user', 'Новый', 0, DATETIME('now'), 'referral')
+  `).run();
+  db.prepare(`
+    INSERT INTO orders (id, order_number, customer_id, status, total_amount, final_amount)
+    VALUES ('o_warmup', 1005, 'c_warmup', 'new', 100, 100)
+  `).run();
+  const calls = [];
+  globalThis.fetch = async (url, init = {}) => {
+    const u = String(url);
+    if (u.includes('/resolve-username')) {
+      const body = JSON.parse(init.body);
+      calls.push({ kind: 'resolve', body });
+      return {
+        ok: true,
+        status: 200,
+        async json() { return { ok: true, telegram_id: '225' }; },
+      };
+    }
+    if (u.includes('/health')) {
+      calls.push({ kind: 'health' });
+      return { ok: true, async json() { return { ok: true, connected: true }; } };
+    }
+    if (u.includes('/send-message')) {
+      calls.push({ kind: 'send' });
+      return { ok: true, async json() { return { ok: true, telegram_message_id: 225 }; } };
+    }
+    throw new Error(`unexpected ${u}`);
+  };
+  _resetHealthCacheForTests();
+  try {
+    const result = await autoNotifyOrderAcceptedAfterRecipientWarmup({ orderId: 'o_warmup' });
+    assertEq(result.sent, true, 'первое сообщение отправлено');
+    assertEq(calls.map((item) => item.kind), ['resolve', 'health', 'send'], 'resolve завершён до send');
+    assertEq(calls[0].body.username, 'warmup_user', 'username передан для подготовки entity');
+    assertEq(calls[0].body.expected_telegram_id, '225', 'получатель закреплён по Telegram ID');
+  } finally {
+    globalThis.fetch = origFetch;
+    _resetHealthCacheForTests();
+  }
+}
+
+// --- T2e: без username отправляем по Telegram ID; invite-ban не мешает ---
+console.log('\n=== T2e: Telegram ID works without username and invite-only ban does not block ===');
+resetDb();
+{
+  db.prepare(`
+    INSERT INTO customers (
+      id, telegram_id, first_name, total_orders,
+      access_authorized_at, access_authorization_source
+    ) VALUES ('c_id_only', '226', 'Без username', 0, DATETIME('now'), 'referral')
+  `).run();
+  db.prepare(`
+    INSERT INTO customer_invite_bans (id, customer_id, reason, active)
+    VALUES ('invite_ban_id_only', 'c_id_only', 'только приглашения', 1)
+  `).run();
+  db.prepare(`
+    INSERT INTO orders (id, order_number, customer_id, status, total_amount, final_amount)
+    VALUES ('o_id_only', 1006, 'c_id_only', 'new', 100, 100)
+  `).run();
+  const sentBody = { value: null };
+  globalThis.fetch = mockUserbotOk({ captureBody: sentBody });
+  _resetHealthCacheForTests();
+  try {
+    const result = await autoNotifyOrderAcceptedAfterRecipientWarmup({ orderId: 'o_id_only' });
+    assertEq(result.sent, true, 'сообщение отправлено без собственного username');
+    assertEq(sentBody.value?.chat_id, '226', 'получатель выбран по Telegram ID');
+  } finally {
+    globalThis.fetch = origFetch;
+    _resetHealthCacheForTests();
+  }
+}
+
+// --- T2c: feature disabled keeps legacy message threshold ---
+console.log('\n=== T2c: feature-disabled new customer → no early message ===');
+resetDb();
+{
+  db.prepare(`
+    INSERT INTO customers (
+      id, telegram_id, telegram_username, first_name, total_orders,
+      access_authorized_at, access_authorization_source
+    ) VALUES ('c_feature_disabled', '224', 'feature_disabled_new', 'Новый', 1, DATETIME('now'), 'feature_disabled')
+  `).run();
+  db.prepare(`
+    INSERT INTO orders (id, order_number, customer_id, status, total_amount, final_amount)
+    VALUES ('o_feature_disabled', 1004, 'c_feature_disabled', 'new', 100, 100)
+  `).run();
+  let sendHits = 0;
+  globalThis.fetch = async (url) => {
+    const u = String(url);
+    if (u.includes('/health')) {
+      return { ok: true, async json() { return { ok: true, connected: true }; } };
+    }
+    if (u.includes('/send-message')) sendHits += 1;
+    throw new Error(`unexpected ${u}`);
+  };
+  _resetHealthCacheForTests();
+  try {
+    const result = await autoNotifyOrderAccepted({ orderId: 'o_feature_disabled' });
+    assertEq(result.skipped, true, 'skipped=true');
+    assertEq(result.reason, 'new_customer_no_dialog', 'legacy reason');
     assertEq(sendHits, 0, 'send не вызывался');
   } finally {
     globalThis.fetch = origFetch;
@@ -266,8 +491,8 @@ resetDb();
   assertEq(isReturningCustomer(customerId, { excludeOrderId: 'o_only' }), true, 'есть prior → true');
 }
 
-// --- T8: not verified returning → skip ---
-console.log('\n=== T8: returning but not verified → customer_not_verified ===');
+// --- T8: выданный заказ сам подтверждает старого клиента ---
+console.log('\n=== T8: issued customer sends even without old bot_verified flag ===');
 resetDb();
 {
   const customerId = 'c_unverified';
@@ -286,7 +511,7 @@ resetDb();
   globalThis.fetch = mockUserbotOk();
   try {
     const result = await autoNotifyOrderAccepted({ orderId: 'o_new_uv' });
-    assertEq(result.reason, 'customer_not_verified', 'not verified');
+    assertEq(result.sent, true, 'выданный заказ снимает старое ограничение bot_verified');
   } finally {
     globalThis.fetch = origFetch;
     _resetHealthCacheForTests();

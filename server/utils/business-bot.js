@@ -20,6 +20,8 @@
  */
 import crypto from 'crypto';
 import { db } from '../db.js';
+import { isCustomerAccessAuthorized } from './referral-authorization.js';
+import { getActiveBlockForCustomerId } from './customer-blocks.js';
 
 // =============================================================================
 // Константы
@@ -799,14 +801,20 @@ export function prepareStatusNotification({ orderId, event, storeName } = {}) {
 }
 
 /**
- * Постоянный клиент для quick reply: есть хотя бы один completed/delivered заказ.
- * Неизвестный telegram_id (ещё нет в customers) — FAQ до первого заказа разрешён.
+ * Доступ к quick reply: авторизованный клиент либо клиент с ранее выданным
+ * заказом. Неизвестный telegram_id разрешён для старого входного FAQ-потока.
  */
 export function isReturningCustomerForQuickReply(telegramId) {
   const customer = db
-    .prepare(`SELECT id FROM customers WHERE telegram_id = ?`)
+    .prepare(`
+      SELECT id, access_authorized_at, access_authorization_source
+      FROM customers
+      WHERE telegram_id = ?
+    `)
     .get(String(telegramId));
   if (!customer) return true;
+  if (getActiveBlockForCustomerId(customer.id)) return false;
+  if (isCustomerAccessAuthorized(customer)) return true;
   const prior = db
     .prepare(
       `SELECT 1 FROM orders
@@ -826,7 +834,7 @@ export function isReturningCustomerForQuickReply(telegramId) {
  * Решает:
  *   - master switch выключен → null
  *   - сообщение от самого менеджера (не от клиента) → null
- *   - новый клиент в БД без выданных заказов → null
+ *   - неавторизованный клиент без выданных заказов → null
  *   - матч quick reply → payload с текстом
  *   - нет матча → null (но input уже залогирован вызывающей стороной)
  */

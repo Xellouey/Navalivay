@@ -23,12 +23,16 @@ vi.mock("@/composables/useCustomerBlock", () => ({
   }),
 }));
 
+vi.mock("@/stores/user", () => ({
+  useUserStore: () => ({ fetchProfile: vi.fn().mockResolvedValue(undefined) }),
+}));
+
 describe("App shell visibility", () => {
   beforeEach(() => {
     routePath.value = "/";
   });
 
-  function mountApp() {
+  function mountApp(unlockCustomerContent = true) {
     return mount(App, {
       global: {
         stubs: {
@@ -37,10 +41,31 @@ describe("App shell visibility", () => {
           ReviewPromptModal: true,
           WheelHomeWidget: true,
           BlockedScreen: true,
+          ReferralAuthorizationGate: unlockCustomerContent
+            ? {
+                emits: ["gate-active"],
+                template: "<div class='referral-gate-stub' />",
+                mounted() {
+                  this.$emit("gate-active", false);
+                },
+              }
+            : { template: "<div class='referral-gate-stub' />" },
         },
       },
     });
   }
+
+  it("does not mount the catalog or prices before authorization", async () => {
+    const wrapper = mountApp(false);
+    await flushPromises();
+
+    expect(wrapper.find(".referral-gate-stub").exists()).toBe(true);
+    expect(wrapper.find(".router-view-stub").exists()).toBe(false);
+    expect(wrapper.find("bottom-tab-bar-stub").exists()).toBe(false);
+    expect(wrapper.find("wheel-home-widget-stub").exists()).toBe(false);
+
+    wrapper.unmount();
+  });
 
   it("shows review prompt modal host and wheel widget on home", async () => {
     const wrapper = mountApp();

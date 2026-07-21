@@ -1,0 +1,471 @@
+import { db } from '../db.js';
+import {
+  createBlock,
+  getActiveBlockForCustomerId,
+  normalizeUsername,
+} from './customer-blocks.js';
+
+export const REFERRAL_MAX_ATTEMPTS = 3;
+export const AUTHORIZATION_FAILED_REASON = 'Авторизация не пройдена';
+const USERNAME_RE = /^[a-zA-Z0-9_]{5,32}$/;
+
+export function isReferralAuthorizationEnabled() {
+  const row = db
+    .prepare("SELECT value FROM settings WHERE key = 'referral_authorization_enabled'")
+    .get();
+  return String(row?.value || '0') === '1';
+}
+
+export function setReferralAuthorizationEnabled(enabled) {
+  db.transaction(() => {
+    // Пока выключатель был отключён, люди могли оформить заказ по старому
+    // сценарию. К моменту включения они уже являются существующими клиентами:
+    // разрешаем им доступ и сообщения так же, как старой базе при миграции.
+    if (enabled) {
+      db.prepare(`
+        UPDATE customers
+        SET access_authorization_source = 'legacy',
+            updated_at = DATETIME('now')
+        WHERE access_authorized_at IS NOT NULL
+          AND access_authorization_source = 'feature_disabled'
+          AND EXISTS (
+            SELECT 1 FROM orders o
+            WHERE o.customer_id = customers.id
+              AND o.status IN ('completed', 'delivered')
+          )
+      `).run();
+    }
+    db.prepare(`
+      INSERT INTO settings (key, value) VALUES ('referral_authorization_enabled', ?)
+      ON CONFLICT(key) DO UPDATE SET value = excluded.value
+    `).run(enabled ? '1' : '0');
+  }).immediate();
+  return enabled;
+}
+
+export function isCustomerAccessAuthorized(customerOrId) {
+  if (!customerOrId) return false;
+  const customer = typeof customerOrId === 'object'
+    ? customerOrId
+    : db.prepare('SELECT * FROM customers WHERE id = ?').get(String(customerOrId));
+  const hasIssuedOrder = customer?.id
+    ? Boolean(db.prepare(`
+        SELECT 1 FROM orders
+        WHERE customer_id = ? AND status IN ('completed', 'delivered')
+        LIMIT 1
+      `).get(customer.id))
+    : false;
+  // При выключенной функции заказ сохраняется как разрешённый на будущее,
+  // но старый порядок сообщений остаётся прежним: до выдачи заказа бот молчит.
+  // Выданный заказ всегда достаточен, независимо от старого источника.
+  if (hasIssuedOrder) return true;
+  if (customer?.access_authorization_source === 'feature_disabled') return false;
+  // legacy означает именно наличие выданного заказа до выкладки. Так даже ранний
+  // ошибочный backfill не откроет клиентскую запись с нулём заказов.
+  if (customer?.access_authorization_source === 'legacy') return false;
+  if (customer?.access_authorized_at) return true;
+  // Страховка для нестандартной старой базы с повреждённым маркером миграции.
+  return isReferralAuthorizationEnabled() && hasIssuedOrder;
+}
+
+export function getReferralAuthorizationStatus(telegramId) {
+  const enabled = isReferralAuthorizationEnabled();
+  if (!telegramId) {
+    return { enabled, required: enabled, attempts_used: 0, attempts_remaining: 3 };
+  }
+  const customer = db
+    .prepare('SELECT id, access_authorized_at, access_authorization_source FROM customers WHERE telegram_id = ?')
+    .get(String(telegramId));
+  const state = db
+    .prepare('SELECT * FROM referral_auth_states WHERE telegram_id = ?')
+    .get(String(telegramId));
+  const attemptsUsed = Math.max(0, Math.min(3, Number(state?.attempts_used || 0)));
+  const authorized = Boolean(isCustomerAccessAuthorized(customer) || state?.status === 'authorized');
+  const blocked = state?.status === 'blocked' || attemptsUsed >= REFERRAL_MAX_ATTEMPTS;
+  return {
+    enabled,
+    required: enabled && !authorized && !blocked,
+    authorized,
+    blocked,
+    attempts_used: attemptsUsed,
+    attempts_remaining: Math.max(0, REFERRAL_MAX_ATTEMPTS - attemptsUsed),
+  };
+}
+
+export function getReferralOrderCreationGate(telegramId) {
+  const status = getReferralAuthorizationStatus(telegramId);
+  if (!status.enabled || status.authorized) {
+    return { allowed: true, reason: null, status };
+  }
+  return {
+    allowed: false,
+    reason: status.blocked ? 'authorization_failed' : 'authorization_required',
+    status,
+  };
+}
+
+export function getActiveInviteBan(customerId) {
+  if (!customerId) return null;
+  return db.prepare(`
+    SELECT * FROM customer_invite_bans
+    WHERE customer_id = ? AND active = 1
+    ORDER BY banned_at DESC, id DESC
+    LIMIT 1
+  `).get(String(customerId)) || null;
+}
+
+export function listDisallowedInviterUsernames() {
+  return db.prepare(`
+    SELECT username, added_at, added_by
+    FROM referral_disallowed_inviter_usernames
+    ORDER BY username COLLATE NOCASE ASC
+  `).all();
+}
+
+export function addDisallowedInviterUsernames(rawUsernames, addedBy = null) {
+  if (!Array.isArray(rawUsernames)) {
+    throw Object.assign(new Error('usernames_must_be_array'), { code: 'usernames_must_be_array' });
+  }
+  if (rawUsernames.length === 0 || rawUsernames.length > 100) {
+    throw Object.assign(new Error('usernames_count_invalid'), { code: 'usernames_count_invalid' });
+  }
+
+  const usernames = [...new Set(rawUsernames.map(normalizeUsername))];
+  if (usernames.some((username) => !username || !USERNAME_RE.test(username))) {
+    throw Object.assign(new Error('username_invalid'), { code: 'username_invalid' });
+  }
+
+  const insert = db.prepare(`
+    INSERT INTO referral_disallowed_inviter_usernames (username, added_by)
+    VALUES (?, ?)
+    ON CONFLICT(username) DO NOTHING
+  `);
+  db.transaction(() => {
+    for (const username of usernames) insert.run(username, addedBy || null);
+  }).immediate();
+  return listDisallowedInviterUsernames();
+}
+
+export function removeDisallowedInviterUsername(rawUsername) {
+  const username = normalizeUsername(rawUsername);
+  if (!username || !USERNAME_RE.test(username)) return false;
+  return db.prepare(`
+    DELETE FROM referral_disallowed_inviter_usernames WHERE username = ? COLLATE NOCASE
+  `).run(username).changes > 0;
+}
+
+export function isDisallowedInviterUsername(rawUsername) {
+  const username = normalizeUsername(rawUsername);
+  if (!username) return false;
+  return Boolean(db.prepare(`
+    SELECT 1 FROM referral_disallowed_inviter_usernames
+    WHERE username = ? COLLATE NOCASE
+  `).get(username));
+}
+
+/** Чистая проверка. Никаких Telegram-вызовов и списания попыток. */
+export function inspectInviter({ telegramId, telegramUsername, rawUsername }) {
+  if (typeof rawUsername !== 'string' || /^\s*@@/.test(rawUsername)) {
+    return { ok: false, code: 'referral_username_invalid', consumesAttempt: true };
+  }
+  const username = normalizeUsername(rawUsername);
+  if (!username || !USERNAME_RE.test(username)) {
+    return { ok: false, code: 'referral_username_invalid', consumesAttempt: true };
+  }
+  if (isDisallowedInviterUsername(username)) {
+    return { ok: false, code: 'referral_inviter_reserved', consumesAttempt: false };
+  }
+
+  const candidates = db.prepare(`
+    SELECT id, telegram_id, telegram_username, deleted_at
+    FROM customers
+    WHERE telegram_username = ? COLLATE NOCASE
+      AND deleted_at IS NULL
+    ORDER BY updated_at DESC, id DESC
+  `).all(username);
+
+  if (candidates.length > 1) {
+    return { ok: false, code: 'referral_username_ambiguous', consumesAttempt: false };
+  }
+  if (candidates.length === 0) {
+    return { ok: false, code: 'referral_inviter_not_eligible', consumesAttempt: true };
+  }
+
+  const inviter = candidates[0];
+  const requesterUsername = normalizeUsername(telegramUsername);
+  if (
+    String(inviter.telegram_id || '') === String(telegramId || '') ||
+    (requesterUsername && normalizeUsername(inviter.telegram_username) === requesterUsername)
+  ) {
+    return { ok: false, code: 'referral_self_invite', consumesAttempt: true };
+  }
+
+  const hasIssuedOrder = db.prepare(`
+    SELECT 1 FROM orders
+    WHERE customer_id = ? AND status IN ('completed', 'delivered')
+    LIMIT 1
+  `).get(inviter.id);
+  if (!hasIssuedOrder) {
+    return { ok: false, code: 'referral_inviter_not_eligible', consumesAttempt: true };
+  }
+
+  if (getActiveBlockForCustomerId(inviter.id)) {
+    return { ok: false, code: 'referral_inviter_blocked', consumesAttempt: false };
+  }
+  if (getActiveInviteBan(inviter.id)) {
+    return { ok: false, code: 'referral_inviter_forbidden', consumesAttempt: false };
+  }
+
+  return { ok: true, username, inviter };
+}
+
+function ensureUnauthorizedCustomer(identity) {
+  const telegramId = String(identity.telegramId || '');
+  let customer = db.prepare('SELECT * FROM customers WHERE telegram_id = ?').get(telegramId);
+  if (customer) return customer;
+  const id = `cust_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  db.prepare(`
+    INSERT INTO customers (
+      id, telegram_id, telegram_username, first_name, last_name,
+      first_visit_at, last_visit_at, total_orders, total_spent
+    ) VALUES (?, ?, ?, ?, ?, DATETIME('now'), DATETIME('now'), 0, 0)
+  `).run(
+    id,
+    telegramId,
+    normalizeUsername(identity.telegramUsername),
+    identity.firstName || null,
+    identity.lastName || null,
+  );
+  return db.prepare('SELECT * FROM customers WHERE id = ?').get(id);
+}
+
+export function recordReferralOutcome({ identity, rawUsername, result }) {
+  const telegramId = String(identity?.telegramId || '');
+  if (!telegramId) throw new Error('telegram_id_required');
+  const submitted = normalizeUsername(rawUsername);
+
+  if (!result?.consumesAttempt) {
+    db.prepare(`
+      INSERT INTO referral_auth_events (
+        telegram_id, submitted_username, outcome, attempt_number
+      ) VALUES (?, ?, ?, NULL)
+    `).run(telegramId, submitted, result?.code || 'technical_error');
+    return getReferralAuthorizationStatus(telegramId);
+  }
+
+  const recordConsumedAttempt = () => {
+    const current = db
+      .prepare('SELECT * FROM referral_auth_states WHERE telegram_id = ?')
+      .get(telegramId);
+    const authorizationCustomer = db
+      .prepare('SELECT * FROM customers WHERE telegram_id = ?')
+      .get(telegramId);
+    const alreadyAuthorized = current?.status === 'authorized'
+      || isCustomerAccessAuthorized(authorizationCustomer);
+    if (alreadyAuthorized) {
+      db.prepare(`
+        INSERT INTO referral_auth_events (
+          telegram_id, customer_id, submitted_username, outcome, attempt_number
+        ) VALUES (?, ?, ?, 'ignored_after_authorization', NULL)
+      `).run(telegramId, current?.customer_id || null, submitted);
+      return getReferralAuthorizationStatus(telegramId);
+    }
+
+    // Между предварительной проверкой API и записью результата менеджер мог
+    // заблокировать клиента. Повторно проверяем это уже под IMMEDIATE-транзакцией:
+    // обычный бан не должен превращать третью ошибку в неснимаемый auth-бан.
+    const existingCustomer = current?.customer_id
+      ? db.prepare('SELECT id FROM customers WHERE id = ?').get(current.customer_id)
+      : authorizationCustomer;
+    const activeCustomerBlock = existingCustomer
+      ? getActiveBlockForCustomerId(existingCustomer.id)
+      : null;
+    if (activeCustomerBlock) {
+      db.prepare(`
+        INSERT INTO referral_auth_events (
+          telegram_id, customer_id, submitted_username, outcome, attempt_number
+        ) VALUES (?, ?, ?, 'customer_blocked_during_authorization', NULL)
+      `).run(telegramId, existingCustomer.id, submitted);
+      return {
+        ...getReferralAuthorizationStatus(telegramId),
+        customer_blocked: true,
+      };
+    }
+
+    const nextAttempts = Math.min(3, Number(current?.attempts_used || 0) + 1);
+    const blocked = nextAttempts >= REFERRAL_MAX_ATTEMPTS;
+    let customerId = current?.customer_id || null;
+
+    if (blocked) {
+      const customer = ensureUnauthorizedCustomer(identity);
+      customerId = customer.id;
+      const active = getActiveBlockForCustomerId(customer.id);
+      if (!active) {
+        createBlock({
+          customer_id: customer.id,
+          reason: AUTHORIZATION_FAILED_REASON,
+          blocked_by: 'system',
+          block_until: null,
+          block_type: 'authorization_failed',
+        });
+      }
+    }
+
+    db.prepare(`
+      INSERT INTO referral_auth_states (
+        telegram_id, customer_id, attempts_used, status, last_error_code,
+        last_username, blocked_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, DATETIME('now'))
+      ON CONFLICT(telegram_id) DO UPDATE SET
+        customer_id = excluded.customer_id,
+        attempts_used = excluded.attempts_used,
+        status = excluded.status,
+        last_error_code = excluded.last_error_code,
+        last_username = excluded.last_username,
+        blocked_at = excluded.blocked_at,
+        updated_at = DATETIME('now')
+    `).run(
+      telegramId,
+      customerId,
+      nextAttempts,
+      blocked ? 'blocked' : 'pending',
+      result.code,
+      submitted,
+      blocked ? new Date().toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, '') : null,
+    );
+    db.prepare(`
+      INSERT INTO referral_auth_events (
+        telegram_id, customer_id, submitted_username, outcome, attempt_number
+      ) VALUES (?, ?, ?, ?, ?)
+    `).run(telegramId, customerId, submitted, result.code, nextAttempts);
+    return getReferralAuthorizationStatus(telegramId);
+  };
+  if (db.inTransaction) return recordConsumedAttempt();
+  return db.transaction(recordConsumedAttempt).immediate();
+}
+
+export function markReferralAuthorized({ customerId, telegramId, inviter, submittedUsername, orderId }) {
+  const username = normalizeUsername(submittedUsername);
+  db.prepare(`
+    UPDATE customers
+    SET access_authorized_at = COALESCE(access_authorized_at, DATETIME('now')),
+        access_authorization_source = 'referral',
+        updated_at = DATETIME('now')
+    WHERE id = ?
+  `).run(customerId);
+  db.prepare(`
+    INSERT INTO customer_referrals (
+      invitee_customer_id, inviter_customer_id, inviter_username_snapshot,
+      submitted_username, first_order_id
+    ) VALUES (?, ?, ?, ?, ?)
+    ON CONFLICT(invitee_customer_id) DO NOTHING
+  `).run(customerId, inviter.id, normalizeUsername(inviter.telegram_username) || username, username, orderId);
+  db.prepare(`
+    INSERT INTO referral_auth_states (
+      telegram_id, customer_id, attempts_used, status, last_error_code,
+      last_username, blocked_at, updated_at
+    ) VALUES (?, ?, 0, 'authorized', NULL, ?, NULL, DATETIME('now'))
+    ON CONFLICT(telegram_id) DO UPDATE SET
+      customer_id = excluded.customer_id,
+      status = 'authorized',
+      last_error_code = NULL,
+      last_username = excluded.last_username,
+      blocked_at = NULL,
+      updated_at = DATETIME('now')
+  `).run(String(telegramId), customerId, username);
+  db.prepare(`
+    INSERT INTO referral_auth_events (
+      telegram_id, customer_id, submitted_username, outcome, attempt_number, inviter_customer_id
+    ) VALUES (?, ?, ?, 'authorized', NULL, ?)
+  `).run(String(telegramId), customerId, username, inviter.id);
+}
+
+export function authorizeCustomerWithoutReferral(customerId, source = 'staff') {
+  if (!customerId) return;
+  const normalizedSource = ['referral', 'staff', 'legacy', 'feature_disabled'].includes(source)
+    ? source
+    : 'staff';
+  db.prepare(`
+    UPDATE customers
+    SET access_authorized_at = COALESCE(access_authorized_at, DATETIME('now')),
+        access_authorization_source = CASE
+          WHEN access_authorization_source = 'referral' OR ? = 'referral' THEN 'referral'
+          WHEN access_authorization_source = 'staff' OR ? = 'staff' THEN 'staff'
+          WHEN access_authorization_source = 'legacy' OR ? = 'legacy' THEN 'legacy'
+          ELSE 'feature_disabled'
+        END,
+        updated_at = DATETIME('now')
+    WHERE id = ?
+  `).run(normalizedSource, normalizedSource, normalizedSource, String(customerId));
+}
+
+/** Запоминает первый заказ авторизованного новичка независимо от канала создания. */
+export function attachFirstOrderToReferral(customerId, orderId) {
+  if (!customerId || !orderId) return false;
+  const result = db.prepare(`
+    UPDATE customer_referrals
+    SET first_order_id = ?
+    WHERE invitee_customer_id = ? AND first_order_id IS NULL
+  `).run(String(orderId), String(customerId));
+  return result.changes > 0;
+}
+
+function inviteBanId() {
+  return `invite_ban_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+export function createInviteBan({ customerId, reason, bannedBy }) {
+  const customer = db.prepare('SELECT id FROM customers WHERE id = ? AND deleted_at IS NULL').get(String(customerId));
+  if (!customer) throw Object.assign(new Error('customer_not_found'), { code: 'customer_not_found' });
+  if (getActiveInviteBan(customer.id)) throw Object.assign(new Error('already_invite_banned'), { code: 'already_invite_banned' });
+  const normalizedReason = String(reason || '').trim();
+  if (normalizedReason.length > 1000) {
+    throw Object.assign(new Error('reason_too_long'), { code: 'reason_too_long' });
+  }
+  const id = inviteBanId();
+  db.prepare(`
+    INSERT INTO customer_invite_bans (id, customer_id, reason, banned_by)
+    VALUES (?, ?, ?, ?)
+  `).run(id, customer.id, normalizedReason || null, bannedBy || null);
+  return db.prepare('SELECT * FROM customer_invite_bans WHERE id = ?').get(id);
+}
+
+export function removeInviteBan(id, { unbannedBy, reason } = {}) {
+  const result = db.prepare(`
+    UPDATE customer_invite_bans
+    SET active = 0, unbanned_at = DATETIME('now'), unbanned_by = ?, unban_reason = ?
+    WHERE id = ? AND active = 1
+  `).run(unbannedBy || null, String(reason || '').trim() || null, String(id));
+  return result.changes > 0;
+}
+
+export function listInviteBans() {
+  return db.prepare(`
+    SELECT ib.*, c.telegram_id, c.telegram_username, c.first_name, c.last_name
+    FROM customer_invite_bans ib
+    JOIN customers c ON c.id = ib.customer_id
+    WHERE ib.active = 1
+    ORDER BY ib.banned_at DESC
+  `).all();
+}
+
+export function listReferralAuthorizations() {
+  return db.prepare(`
+    SELECT
+      ras.*,
+      c.telegram_username,
+      c.first_name,
+      c.last_name,
+      cr.inviter_customer_id,
+      COALESCE(NULLIF(TRIM(ic.telegram_username), ''), cr.inviter_username_snapshot) AS inviter_username,
+      CASE WHEN EXISTS (
+        SELECT 1 FROM orders o
+        WHERE o.customer_id = c.id AND o.status IN ('completed', 'delivered')
+      ) THEN 1 ELSE 0 END AS has_issued_order
+    FROM referral_auth_states ras
+    LEFT JOIN customers c ON c.telegram_id = ras.telegram_id
+    LEFT JOIN customer_referrals cr ON cr.invitee_customer_id = c.id
+    LEFT JOIN customers ic ON ic.id = cr.inviter_customer_id
+    ORDER BY ras.updated_at DESC
+  `).all();
+}

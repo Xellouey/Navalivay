@@ -306,6 +306,11 @@ export function createOrMergePosCustomer({ name, phone, createdBy } = {}) {
         `UPDATE customers
             SET first_name = COALESCE(NULLIF(first_name, ''), NULLIF(?, '')),
                 last_name  = COALESCE(NULLIF(last_name, ''), NULLIF(?, '')),
+                access_authorized_at = COALESCE(access_authorized_at, DATETIME('now')),
+                access_authorization_source = CASE
+                  WHEN access_authorization_source = 'referral' THEN 'referral'
+                  ELSE 'staff'
+                END,
                 last_visit_at = DATETIME('now'),
                 updated_at = DATETIME('now')
           WHERE id = ?`,
@@ -323,13 +328,13 @@ export function createOrMergePosCustomer({ name, phone, createdBy } = {}) {
          first_name, last_name, phone,
          first_visit_at, last_visit_at,
          total_orders, total_spent,
-         notes
+         notes, access_authorized_at, access_authorization_source
        ) VALUES (
          ?, NULL, NULL,
          ?, ?, ?,
          DATETIME('now'), DATETIME('now'),
          0, 0,
-         ?
+         ?, DATETIME('now'), 'staff'
        )`,
     ).run(
       customerId,

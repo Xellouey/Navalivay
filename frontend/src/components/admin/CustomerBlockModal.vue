@@ -11,7 +11,8 @@
             type="text"
             placeholder="polizhzw"
             autocomplete="off"
-            class="w-full rounded-lg border border-gray-300 bg-white pl-7 pr-3 py-2 text-sm focus:border-brand-primary focus:outline-none focus:ring-2 focus:ring-brand-primary/30"
+            :disabled="Boolean(customerId)"
+            class="w-full rounded-lg border border-gray-300 bg-white pl-7 pr-3 py-2 text-sm focus:border-brand-primary focus:outline-none focus:ring-2 focus:ring-brand-primary/30 disabled:bg-gray-50 disabled:text-gray-500"
             required
           />
         </div>
@@ -59,14 +60,10 @@
           <label class="block text-sm font-medium text-gray-700">Причина (видна клиенту)</label>
           <button
             type="button"
-            class="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-2.5 py-1 text-xs font-medium transition"
-            :class="editTemplates ? 'border-brand-primary text-brand-dark bg-brand-primary/5' : 'text-gray-500 shadow-sm hover:border-gray-300 hover:text-gray-700'"
+            class="text-xs font-medium text-blue-600 transition-colors hover:text-blue-800 hover:underline focus-visible:text-blue-800 focus-visible:underline"
             @click="editTemplates = !editTemplates"
             title="Редактировать шаблоны"
           >
-            <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-            </svg>
             {{ editTemplates ? 'Готово' : 'Изменить' }}
           </button>
         </div>
@@ -161,6 +158,8 @@ const props = defineProps<{
   isOpen: boolean
   // Опционально: предзаполнить username (например, из карточки клиента)
   prefillUsername?: string
+  // Из карточки заказа блокируем именно клиента, а не совпавший старый username.
+  customerId?: string | null
 }>()
 
 const emit = defineEmits<{
@@ -278,7 +277,7 @@ const unitLabelGenitive = computed(() => {
 })
 
 const canSubmit = computed(() => {
-  if (!formUsername.value.trim()) return false
+  if (!props.customerId && !formUsername.value.trim()) return false
   if (durationUnit.value !== 'forever' && (!Number.isFinite(durationValue.value) || durationValue.value <= 0)) {
     return false
   }
@@ -328,7 +327,8 @@ async function submit() {
     // дополнительный strip — на случай ручного редактирования.
     const username = stripAt(formUsername.value)
     const result = await crmStore.createCustomerBlock({
-      telegram_username: username,
+      customer_id: props.customerId || undefined,
+      telegram_username: props.customerId ? undefined : username,
       reason: reason.value.trim() || null,
       duration,
     })

@@ -1,17 +1,34 @@
 <script setup lang="ts">
 import { RouterView } from "vue-router";
-import { computed, onMounted } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import { useRoute } from "vue-router";
 import VapeSmoke from "@/components/VapeSmoke.vue";
 import BottomTabBar from "@/components/BottomTabBar.vue";
 import BlockedScreen from "@/components/BlockedScreen.vue";
 import WheelHomeWidget from "@/components/wheel/WheelHomeWidget.vue";
 import ReviewPromptModal from "@/components/reviews/ReviewPromptModal.vue";
+import ReferralAuthorizationGate from "@/components/ReferralAuthorizationGate.vue";
 import { useCustomerBlock } from "@/composables/useCustomerBlock";
 import { useUserStore } from "@/stores/user";
 const route = useRoute();
 const { currentBlock, isBlocked, refreshBlock } = useCustomerBlock();
 const userStore = useUserStore();
+const isAdminRoute = computed(() => route.path.startsWith("/admin"));
+// Клиентская часть закрыта до ответа сервера: каталог и цены даже не
+// монтируются, пока новый клиент не пройдёт обязательную авторизацию.
+const referralGateActive = ref(!isAdminRoute.value);
+
+const showCustomerContent = computed(
+  () => isAdminRoute.value || (!referralGateActive.value && !isBlocked.value),
+);
+
+watch(isAdminRoute, (isAdmin, wasAdmin) => {
+  if (isAdmin) {
+    referralGateActive.value = false;
+  } else if (wasAdmin) {
+    referralGateActive.value = true;
+  }
+});
 
 // Экран блокировки клиента не показываем в админке —
 // у админа другая аутентификация, а не клиентский telegram_id.
@@ -30,6 +47,13 @@ const showTabBar = computed(() => {
 });
 
 const showReviewPrompt = computed(() => showTabBar.value);
+const showReferralGate = computed(
+  () => !isAdminRoute.value && !isBlocked.value,
+);
+
+function handleReferralGateActive(active: boolean) {
+  referralGateActive.value = active;
+}
 
 // Глобальный плавающий виджет рулетки. Показываем на всех customer-
 // экранах, кроме самой рулетки, чекаута, оформленного заказа,
@@ -63,20 +87,26 @@ onMounted(() => {
 <template>
   <div
     class="app-shell"
-    :class="{ 'app-shell--with-tab-bar': showTabBar }"
+    :class="{ 'app-shell--with-tab-bar': showCustomerContent && showTabBar }"
     style="background: var(--app-page-background, #ffffff)"
   >
-    <div class="app-shell__content">
-      <RouterView v-slot="{ Component, route: viewRoute }">
-        <Transition name="page-fade" mode="out-in">
-          <component :is="Component" :key="viewRoute.fullPath" />
-        </Transition>
-      </RouterView>
+    <div v-if="showCustomerContent" class="app-shell__protected">
+      <div class="app-shell__content">
+        <RouterView v-slot="{ Component, route: viewRoute }">
+          <Transition name="page-fade" mode="out-in">
+            <component :is="Component" :key="viewRoute.fullPath" />
+          </Transition>
+        </RouterView>
+      </div>
+      <VapeSmoke />
+      <BottomTabBar v-if="showTabBar" />
+      <ReviewPromptModal v-if="showReviewPrompt" />
+      <WheelHomeWidget v-if="showWheelWidget" />
     </div>
-    <VapeSmoke />
-    <BottomTabBar v-if="showTabBar" />
-    <ReviewPromptModal v-if="showReviewPrompt" />
-    <WheelHomeWidget v-if="showWheelWidget" />
+    <ReferralAuthorizationGate
+      v-if="showReferralGate"
+      @gate-active="handleReferralGateActive"
+    />
     <BlockedScreen
       v-if="showBlockedScreen"
       :reason="currentBlock?.reason ?? null"
@@ -125,4 +155,3 @@ body,
   opacity: 0;
 }
 </style>
-

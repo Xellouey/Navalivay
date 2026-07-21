@@ -393,6 +393,7 @@ export function buildOrderSummaryFromLines(
     const categoryName = line.category_name?.trim();
 
     const key = line.group_id || line.category_id;
+    if (!key) continue;
     if (seen.has(key)) continue;
     seen.add(key);
     thumbs.push({
@@ -556,4 +557,3 @@ export function buildFulfillmentTimelineLines(
 
   return lines;
 }
-

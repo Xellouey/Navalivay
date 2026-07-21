@@ -218,7 +218,14 @@ describe("useCustomerOrders", () => {
 
     expect(data.review_count).toBe(1);
     expect(data.items[0].reviewer.display_name).toBe("Покупатель");
-    expect(fetchMock).toHaveBeenCalledWith("/api/groups/grp1/reviews?limit=10");
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/groups/grp1/reviews?limit=10",
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          "X-Telegram-Init-Data": "signed_init_data",
+        }),
+      }),
+    );
   });
 
   it("deduplicates parallel fetchReviewPrompt calls", async () => {
@@ -301,7 +308,14 @@ describe("useCustomerOrders", () => {
     const summary = await fetchGroupReviewSummary("grp1");
 
     expect(summary.review_count).toBe(12);
-    expect(fetchMock).toHaveBeenCalledWith("/api/groups/grp1/reviews?limit=1");
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/groups/grp1/reviews?limit=1",
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          "X-Telegram-Init-Data": "signed_init_data",
+        }),
+      }),
+    );
   });
 
   it("updateReviewPreferences syncs local state", async () => {

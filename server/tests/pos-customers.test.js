@@ -128,8 +128,14 @@ function runTests() {
   assertEq(r1.customer.last_name, 'Сидоров', 'last_name из остальных слов');
   assertEq(r1.customer.phone, '+375 33 444-55-66', 'phone сохранён как ввели');
   assertEq(r1.customer.telegram_id, null, 'telegram_id = null (POS-only)');
+  assertEq(r1.customer.access_authorization_source, 'staff', 'нового клиента явно разрешил сотрудник');
 
   console.log('\n=== Test 5: merge — НЕ затирает имя существующего клиента (regression C2) ===');
+  db.prepare(`
+    UPDATE customers
+    SET access_authorized_at = DATETIME('now'), access_authorization_source = 'legacy'
+    WHERE id = 'c_alice'
+  `).run();
   const r2 = createOrMergePosCustomer({
     name: 'Аня', // другое имя на тот же phone
     phone: '+375 (33) 111-22-33', // тот же что у c_alice (Алиса Иванова)
@@ -138,6 +144,7 @@ function runTests() {
   assertEq(r2.customer.id, 'c_alice', 'возвращает существующего c_alice');
   assertEq(r2.customer.first_name, 'Алиса', 'first_name НЕ затёрт (был "Алиса", остался "Алиса")');
   assertEq(r2.customer.last_name, 'Иванова', 'last_name НЕ затёрт');
+  assertEq(r2.customer.access_authorization_source, 'staff', 'явное разрешение сотрудника заменило legacy');
 
   console.log('\n=== Test 5b: merge — заполняет ПУСТЫЕ поля (Кэрол без фамилии) ===');
   const r2b = createOrMergePosCustomer({

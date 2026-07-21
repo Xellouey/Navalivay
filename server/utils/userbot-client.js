@@ -162,10 +162,8 @@ export async function sendViaUserbot({
       method: 'POST',
       headers,
       // `auto` — признак авто-уведомления для фильтра в crm-operations.js
-      // (плашка failed на карточке). `username` + `verified` используются
-      // userbot'ом для attempt 4 (resolveUsername): только для verified
-      // клиентов (total_orders>0 или bot_verified_at) резолвим username
-      // через contacts.resolveUsername, если entity не в кэше.
+      // (плашка failed на карточке). Получатель всегда задаётся chat_id;
+      // username не используется userbot'ом для скрытого resolve при отправке.
       body: JSON.stringify({
         chat_id: String(chatId),
         text: String(text),
@@ -217,20 +215,22 @@ export async function sendViaUserbot({
 }
 
 /**
- * Проактивный резолв username через userbot — чтобы entity был в кэше GramJS
- * до первого auto-notify. Вызывается при создании заказа, fire-and-forget.
+ * Явная подготовка Telegram entity перед первым auto-notify. В критической
+ * цепочке caller обязан дождаться результата; второстепенные места могут
+ * запускать её заранее без ожидания.
  *
  * Контракт:
- *   - resolveUsernameViaUserbot({ username }) → Promise<{ ok, error? }>
+ *   - resolveUsernameViaUserbot({ username, expectedTelegramId? }) → Promise<{ ok, error? }>
  *   - Без таймаута на уровне caller'а — 5s AbortSignal внутри.
  *   - Не бросает исключений (все ошибки возвращаются в { ok: false }).
  *   - Не влияет на основной поток создания заказа.
  *
  * @param {object} args
  * @param {string} args.username — telegram username без @
+ * @param {string|null} [args.expectedTelegramId] — подписанный Telegram ID клиента
  * @returns {Promise<{ ok: boolean, error?: string, telegram_id?: string }>}
  */
-export async function resolveUsernameViaUserbot({ username } = {}) {
+export async function resolveUsernameViaUserbot({ username, expectedTelegramId = null } = {}) {
   if (!username) {
     return { ok: false, error: 'username_required' };
   }
@@ -240,11 +240,25 @@ export async function resolveUsernameViaUserbot({ username } = {}) {
     const response = await fetch(`${USERBOT_BASE}/resolve-username`, {
       method: 'POST',
       headers,
-      body: JSON.stringify({ username: String(username).replace(/^@/, '') }),
+      body: JSON.stringify({
+        username: String(username).replace(/^@/, ''),
+        expected_telegram_id: expectedTelegramId ? String(expectedTelegramId) : null,
+      }),
       signal: AbortSignal.timeout(5000),
     });
     const data = await response.json();
     if (response.ok && data?.ok) {
+      if (
+        expectedTelegramId &&
+        data.telegram_id &&
+        String(data.telegram_id) !== String(expectedTelegramId)
+      ) {
+        return {
+          ok: false,
+          error: 'telegram_id_mismatch',
+          telegram_id: String(data.telegram_id),
+        };
+      }
       return { ok: true, telegram_id: data.telegram_id };
     }
     return { ok: false, error: data?.error || `http_${response.status}` };

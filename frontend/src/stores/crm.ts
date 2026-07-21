@@ -152,6 +152,15 @@ export interface Order {
   has_userbot_access?: boolean;
   /** Внутренняя заметка менеджера о клиенте (customers.notes). */
   customer_notes?: string | null;
+  referral?: {
+    invitee_customer_id: string;
+    inviter_customer_id: string | null;
+    inviter_username: string | null;
+    inviter_first_name: string | null;
+    inviter_last_name: string | null;
+    inviter_invite_ban_id: string | null;
+    inviter_is_invite_banned: number;
+  } | null;
 }
 
 export interface PendingCustomerNote {
@@ -1265,20 +1274,29 @@ export const useCrmStore = defineStore("crm", () => {
   const customers = ref<Customer[]>([]);
   const currentCustomer = ref<Customer | null>(null);
   const loadingCustomers = ref(false);
+  let customersRequestId = 0;
 
   // Customer Feedbacks
   const customerFeedbacks = ref<CustomerFeedback[]>([]);
   const loadingCustomerFeedbacks = ref(false);
 
-  async function fetchCustomers(filter?: "inactive" | "cold") {
+  async function fetchCustomers(
+    filter?: "inactive" | "cold",
+    options: { limit?: number; query?: string; unprocessed?: boolean } = {},
+  ) {
+    const requestId = ++customersRequestId;
     loadingCustomers.value = true;
     try {
-      const url = filter
-        ? `${API_BASE}/customers?filter=${filter}`
-        : `${API_BASE}/customers`;
-      customers.value = await fetchAPI<Customer[]>(url);
+      const params = new URLSearchParams();
+      if (filter) params.set("filter", filter);
+      if (options.limit) params.set("limit", String(options.limit));
+      if (options.query) params.set("q", options.query);
+      if (options.unprocessed) params.set("unprocessed", "1");
+      const suffix = params.size ? `?${params.toString()}` : "";
+      const result = await fetchAPI<Customer[]>(`${API_BASE}/customers${suffix}`);
+      if (requestId === customersRequestId) customers.value = result;
     } finally {
-      loadingCustomers.value = false;
+      if (requestId === customersRequestId) loadingCustomers.value = false;
     }
   }
 

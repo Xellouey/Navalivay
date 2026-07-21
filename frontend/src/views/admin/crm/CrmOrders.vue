@@ -683,11 +683,7 @@
                             : 'bg-red-100 text-red-700'
                         ]"
                         :title="order.is_returning_customer ? 'У клиента уже были завершённые заказы' : 'Первый заказ клиента - обратить внимание'"
-                      >{{ order.is_returning_customer ? 'Постоянный' : 'Новый' }}</span>
-                      <span v-if="!order.has_userbot_access && order.telegram_username"
-                        class="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-800"
-                        title="Клиент не в кэше юзербота. Авто-уведомления не дойдут - напишите вручную."
-                      >Вручную</span>
+                      >{{ order.is_returning_customer ? 'Постоянный' : 'Первый заказ' }}</span>
                       <button
                         v-if="order.customer_id"
                         type="button"
@@ -740,6 +736,76 @@
                           : "Написать"
                       }}</span>
                     </button>
+                  </div>
+                  <div
+                    v-if="order.referral?.inviter_username"
+                    class="relative flex min-h-5 min-w-0 items-center gap-1 text-[11px] leading-5"
+                    data-inviter-menu
+                  >
+                    <span class="shrink-0 font-medium text-slate-500">Пригласивший:</span>
+                    <button
+                      :id="`inviter-trigger-${order.id}`"
+                      type="button"
+                      class="inviter-trigger group inline-flex min-w-0 items-center gap-0.5 font-semibold text-blue-600 underline decoration-blue-200 decoration-1 underline-offset-2 outline-none transition-colors hover:text-blue-800 hover:decoration-blue-500 focus-visible:text-blue-800 focus-visible:decoration-blue-600"
+                      :aria-expanded="activeInviterMenuOrderId === order.id"
+                      aria-haspopup="menu"
+                      :aria-controls="`inviter-menu-${order.id}`"
+                      :aria-label="`Действия с пригласившим @${order.referral.inviter_username}`"
+                      :title="`@${order.referral.inviter_username}`"
+                      @click.stop="toggleInviterMenu(order.id, $event)"
+                    >
+                      <span class="truncate">@{{ order.referral.inviter_username }}</span>
+                      <svg
+                        aria-hidden="true"
+                        viewBox="0 0 20 20"
+                        fill="currentColor"
+                        class="h-3 w-3 text-blue-400 transition-transform duration-150 group-hover:text-blue-600"
+                        :class="activeInviterMenuOrderId === order.id ? 'rotate-180' : ''"
+                      >
+                        <path fill-rule="evenodd" d="M5.22 7.22a.75.75 0 0 1 1.06 0L10 10.94l3.72-3.72a.75.75 0 1 1 1.06 1.06l-4.25 4.25a.75.75 0 0 1-1.06 0L5.22 8.28a.75.75 0 0 1 0-1.06Z" clip-rule="evenodd" />
+                      </svg>
+                    </button>
+                    <Teleport to="body">
+                      <Transition
+                        enter-active-class="transition duration-150 ease-out"
+                        enter-from-class="translate-y-1 scale-[0.98] opacity-0"
+                        enter-to-class="translate-y-0 scale-100 opacity-100"
+                        leave-active-class="transition duration-100 ease-in"
+                        leave-from-class="translate-y-0 scale-100 opacity-100"
+                        leave-to-class="translate-y-1 scale-[0.98] opacity-0"
+                      >
+                        <div
+                          v-if="activeInviterMenuOrderId === order.id"
+                          :id="`inviter-menu-${order.id}`"
+                          role="menu"
+                          data-inviter-menu
+                          :aria-label="`Действия с пригласившим @${order.referral.inviter_username}`"
+                          :style="{ top: `${inviterMenuPosition.top}px`, left: `${inviterMenuPosition.left}px` }"
+                          class="fixed z-[100] flex w-60 origin-top-left flex-col rounded-xl border border-slate-200/80 bg-white p-1.5 text-xs shadow-xl shadow-slate-900/10"
+                          @click.stop
+                          @focusout="handleInviterMenuFocusOut(order.id, $event)"
+                          @keydown="handleInviterMenuKeydown(order.id, $event)"
+                        >
+                          <button role="menuitem" class="min-h-9 cursor-pointer rounded-lg border-0 bg-transparent px-2.5 py-2 text-left font-medium text-slate-700 transition-colors hover:bg-slate-100 focus-visible:bg-slate-100 focus-visible:outline-none" @click="copyInviter(order, $event)">Скопировать</button>
+                          <button role="menuitem" class="min-h-9 cursor-pointer rounded-lg border-0 bg-transparent px-2.5 py-2 text-left font-medium text-slate-700 transition-colors hover:bg-blue-50 hover:text-blue-700 focus-visible:bg-blue-50 focus-visible:text-blue-700 focus-visible:outline-none" @click="openInviterMessage(order)">Написать пригласившему</button>
+                          <div class="my-1 h-px bg-slate-100" aria-hidden="true"></div>
+                          <button role="menuitem" class="min-h-9 cursor-pointer rounded-lg border-0 bg-transparent px-2.5 py-2 text-left font-medium text-slate-600 transition-colors hover:bg-red-50 hover:text-red-700 focus-visible:bg-red-50 focus-visible:text-red-700 focus-visible:outline-none" @click="openInviterBlockModal(order)">Заблокировать пригласившего</button>
+                          <button
+                            v-if="!order.referral.inviter_is_invite_banned"
+                            role="menuitem"
+                            class="min-h-9 cursor-pointer rounded-lg border-0 bg-transparent px-2.5 py-2 text-left font-medium text-slate-600 transition-colors hover:bg-red-50 hover:text-red-700 focus-visible:bg-red-50 focus-visible:text-red-700 focus-visible:outline-none"
+                            @click="openInviteBanModal(order)"
+                          >Запретить приглашать</button>
+                          <button
+                            v-else
+                            role="menuitem"
+                            class="min-h-9 cursor-pointer rounded-lg border-0 bg-transparent px-2.5 py-2 text-left font-medium text-slate-600 transition-colors hover:bg-emerald-50 hover:text-emerald-700 focus-visible:bg-emerald-50 focus-visible:text-emerald-700 focus-visible:outline-none disabled:cursor-default disabled:opacity-50"
+                            :disabled="removingInviterBanId === order.referral.inviter_invite_ban_id"
+                            @click="removeInviterBan(order)"
+                          >{{ removingInviterBanId === order.referral.inviter_invite_ban_id ? 'Снимаем…' : 'Разрешить приглашать' }}</button>
+                        </div>
+                      </Transition>
+                    </Teleport>
                   </div>
                   <div
                     v-if="order.auto_notification?.status === 'pending_retry'"
@@ -1296,10 +1362,45 @@
     <CustomerBlockModal
       :is-open="showBlockModal"
       :prefill-username="blockPrefillUsername"
+      :customer-id="blockCustomerId"
       @close="showBlockModal = false"
       @created="handleBlockCreated"
       @notify-result="handleBlockNotifyResult"
     />
+
+    <CustomerInviteBanModal
+      :is-open="showInviteBanModal"
+      :customer-id="inviteBanCustomerId"
+      :username="inviteBanUsername"
+      @close="showInviteBanModal = false"
+      @created="handleInviteBanChanged"
+    />
+
+    <AdminModal
+      :is-open="showInviterMessageModal"
+      title="Написать пригласившему"
+      :description="inviterMessageUsername ? `@${inviterMessageUsername}` : undefined"
+      size="sm"
+      :show-actions="false"
+      @close="closeInviterMessage"
+    >
+      <form class="space-y-3" @submit.prevent="sendInviterMessage">
+        <textarea
+          v-model.trim="inviterMessageText"
+          rows="5"
+          class="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
+          placeholder="Текст сообщения"
+        />
+        <div class="flex justify-end gap-2">
+          <button type="button" class="rounded-lg border px-4 py-2 text-sm" @click="closeInviterMessage">Отмена</button>
+          <button
+            type="submit"
+            :disabled="sendingInviterMessage || !inviterMessageText.trim()"
+            class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+          >{{ sendingInviterMessage ? 'Отправляем...' : 'Отправить' }}</button>
+        </div>
+      </form>
+    </AdminModal>
 
     <CustomerNoteModal
       :is-open="showNoteModal"
@@ -1488,7 +1589,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from "vue";
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import { storeToRefs } from "pinia";
 import type { Order } from "@/stores/crm";
@@ -1499,6 +1600,7 @@ import ManagerActionSummary from "@/components/crm/ManagerActionSummary.vue";
 import AdminModal from "@/components/AdminModal.vue";
 import CustomerBlockModal from "@/components/admin/CustomerBlockModal.vue";
 import CustomerNoteModal from "@/components/admin/CustomerNoteModal.vue";
+import CustomerInviteBanModal from "@/components/admin/CustomerInviteBanModal.vue";
 import { LockClosedIcon, NoSymbolIcon } from "@heroicons/vue/24/outline";
 import { buildAutoNotifyToast } from "@/utils/auto-notify-message";
 import CrmProfitPasswordField from "@/components/crm/CrmProfitPasswordField.vue";
@@ -1564,9 +1666,211 @@ const showCreateModal = ref(false);
 // Модалка блокировки клиента
 const showBlockModal = ref(false);
 const blockPrefillUsername = ref<string>('');
-function openBlockModal(prefill?: string) {
+const blockCustomerId = ref<string | null>(null);
+const activeInviterMenuOrderId = ref<string | null>(null);
+const inviterMenuPosition = ref({ top: 0, left: 0 });
+const showInviteBanModal = ref(false);
+const inviteBanCustomerId = ref<string | null>(null);
+const inviteBanUsername = ref('');
+const showInviterMessageModal = ref(false);
+const inviterMessageCustomerId = ref<string | null>(null);
+const inviterMessageUsername = ref('');
+const inviterMessageText = ref('');
+const sendingInviterMessage = ref(false);
+const removingInviterBanId = ref<string | null>(null);
+
+function openBlockModal(prefill?: string, customerId: string | null = null) {
   blockPrefillUsername.value = prefill ?? '';
+  blockCustomerId.value = customerId;
   showBlockModal.value = true;
+}
+
+async function toggleInviterMenu(orderId: string, event: Event) {
+  if (activeInviterMenuOrderId.value === orderId) {
+    activeInviterMenuOrderId.value = null;
+    return;
+  }
+  const trigger = event.currentTarget as HTMLElement | null;
+  if (!trigger) return;
+  const triggerRect = trigger.getBoundingClientRect();
+  const viewportMargin = 8;
+  inviterMenuPosition.value = {
+    top: triggerRect.bottom + 4,
+    left: Math.max(viewportMargin, Math.min(triggerRect.left, window.innerWidth - 248)),
+  };
+  activeInviterMenuOrderId.value = orderId;
+  await nextTick();
+  const menu = document.getElementById(`inviter-menu-${orderId}`);
+  if (!menu) return;
+  const menuRect = menu.getBoundingClientRect();
+  const below = triggerRect.bottom + 4;
+  const above = triggerRect.top - menuRect.height - 4;
+  inviterMenuPosition.value = {
+    top: below + menuRect.height <= window.innerHeight - viewportMargin
+      ? below
+      : Math.max(viewportMargin, above),
+    left: Math.max(
+      viewportMargin,
+      Math.min(triggerRect.left, window.innerWidth - menuRect.width - viewportMargin),
+    ),
+  };
+  await nextTick();
+  menu.querySelector<HTMLElement>('button')?.focus();
+}
+
+async function closeInviterMenu(orderId: string, restoreFocus = false) {
+  activeInviterMenuOrderId.value = null;
+  if (!restoreFocus) return;
+  await nextTick();
+  document.getElementById(`inviter-trigger-${orderId}`)?.focus({ preventScroll: true });
+}
+
+function handleInviterMenuFocusOut(orderId: string, event: FocusEvent) {
+  const menu = event.currentTarget as HTMLElement | null;
+  const nextTarget = event.relatedTarget as Node | null;
+  const trigger = document.getElementById(`inviter-trigger-${orderId}`);
+  if (nextTarget && (menu?.contains(nextTarget) || trigger?.contains(nextTarget))) return;
+  activeInviterMenuOrderId.value = null;
+}
+
+function handleInviterMenuKeydown(orderId: string, event: KeyboardEvent) {
+  const menu = event.currentTarget as HTMLElement | null;
+  if (!menu) return;
+  const items = Array.from(
+    menu.querySelectorAll<HTMLElement>('[role="menuitem"]:not([disabled])'),
+  );
+  if (!items.length) return;
+
+  if (event.key === 'Escape') {
+    event.preventDefault();
+    event.stopPropagation();
+    void closeInviterMenu(orderId, true);
+    return;
+  }
+
+  const currentIndex = items.indexOf(document.activeElement as HTMLElement);
+  let nextIndex: number | null = null;
+  if (event.key === 'ArrowDown') nextIndex = (currentIndex + 1) % items.length;
+  if (event.key === 'ArrowUp') nextIndex = (currentIndex - 1 + items.length) % items.length;
+  if (event.key === 'Home') nextIndex = 0;
+  if (event.key === 'End') nextIndex = items.length - 1;
+  if (nextIndex === null) return;
+
+  event.preventDefault();
+  event.stopPropagation();
+  items[nextIndex]?.focus();
+}
+
+async function copyInviter(order: Order, event: MouseEvent) {
+  const username = order.referral?.inviter_username;
+  if (!username) return;
+  const text = `@${username}`;
+  let copied = false;
+  try {
+    await navigator.clipboard.writeText(text);
+    copied = true;
+  } catch {
+    const input = document.createElement('textarea');
+    input.value = text;
+    input.style.position = 'fixed';
+    input.style.opacity = '0';
+    document.body.appendChild(input);
+    try {
+      input.select();
+      copied = document.execCommand('copy');
+    } catch {
+      copied = false;
+    } finally {
+      input.remove();
+    }
+  }
+  if (!copied) {
+    window.prompt('Скопируйте username', text);
+  } else {
+    showOrderToast({ kind: 'success', message: `${text} скопирован` });
+  }
+  // После обычного клика не возвращаем программный фокус на ссылку — именно
+  // он создавал тяжёлую синюю рамку на карточке. Для клавиатуры фокус сохраняем.
+  await closeInviterMenu(order.id, event.detail === 0);
+}
+
+function openInviterBlockModal(order: Order) {
+  activeInviterMenuOrderId.value = null;
+  openBlockModal(
+    order.referral?.inviter_username || '',
+    order.referral?.inviter_customer_id || null,
+  );
+}
+
+function openInviteBanModal(order: Order) {
+  inviteBanCustomerId.value = order.referral?.inviter_customer_id || null;
+  inviteBanUsername.value = order.referral?.inviter_username || '';
+  showInviteBanModal.value = true;
+  activeInviterMenuOrderId.value = null;
+}
+
+async function removeInviterBan(order: Order) {
+  const id = order.referral?.inviter_invite_ban_id;
+  if (!id || removingInviterBanId.value || !window.confirm('Снять запрет приглашать?')) return;
+  removingInviterBanId.value = id;
+  try {
+    const response = await fetch(`/api/admin/crm/invite-bans/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({}),
+    });
+    if (!response.ok) throw new Error('failed');
+    await handleInviteBanChanged();
+    showOrderToast({ kind: 'success', message: 'Запрет приглашать снят' });
+  } catch {
+    showOrderToast({ kind: 'error', message: 'Не удалось снять запрет' });
+  } finally {
+    removingInviterBanId.value = null;
+  }
+}
+
+async function handleInviteBanChanged() {
+  showInviteBanModal.value = false;
+  activeInviterMenuOrderId.value = null;
+  await refreshOrders({ skipNotify: true });
+}
+
+function openInviterMessage(order: Order) {
+  inviterMessageCustomerId.value = order.referral?.inviter_customer_id || null;
+  inviterMessageUsername.value = order.referral?.inviter_username || '';
+  inviterMessageText.value = '';
+  showInviterMessageModal.value = true;
+  activeInviterMenuOrderId.value = null;
+}
+
+function closeInviterMessage() {
+  if (sendingInviterMessage.value) return;
+  showInviterMessageModal.value = false;
+}
+
+async function sendInviterMessage() {
+  if (!inviterMessageCustomerId.value || !inviterMessageText.value.trim() || sendingInviterMessage.value) return;
+  sendingInviterMessage.value = true;
+  try {
+    const response = await fetch('/api/admin/crm/bot/send-custom', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({
+        customer_id: inviterMessageCustomerId.value,
+        text: inviterMessageText.value.trim(),
+      }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data?.ok) throw new Error(data?.message || data?.error || 'send_failed');
+    showInviterMessageModal.value = false;
+    showOrderToast({ kind: 'success', message: 'Сообщение отправлено' });
+  } catch (error: any) {
+    showOrderToast({ kind: 'error', message: error?.message || 'Не удалось отправить сообщение' });
+  } finally {
+    sendingInviterMessage.value = false;
+  }
 }
 
 const showNoteModal = ref(false);
@@ -2354,6 +2658,8 @@ onMounted(async () => {
 
   // Close dropdowns on click outside
   document.addEventListener('click', handleClickOutside);
+  window.addEventListener('scroll', handleInviterViewportChange, true);
+  window.addEventListener('resize', handleInviterViewportChange);
 });
 
 onUnmounted(() => {
@@ -2379,10 +2685,20 @@ onUnmounted(() => {
     pollActivityRefreshTimer = null;
   }
   document.removeEventListener('click', handleClickOutside);
+  window.removeEventListener('scroll', handleInviterViewportChange, true);
+  window.removeEventListener('resize', handleInviterViewportChange);
 });
+
+function handleInviterViewportChange() {
+  const orderId = activeInviterMenuOrderId.value;
+  if (orderId) void closeInviterMenu(orderId, true);
+}
 
 function handleClickOutside(event: MouseEvent) {
   const target = event.target as Node;
+  if (!(event.target as HTMLElement | null)?.closest('[data-inviter-menu]')) {
+    activeInviterMenuOrderId.value = null;
+  }
   if (settingsDropdownRef.value && !settingsDropdownRef.value.contains(target)) {
     settingsDropdownOpen.value = false;
   }
@@ -2570,6 +2886,22 @@ async function confirmCancelOrder() {
 </script>
 
 <style scoped>
+.inviter-trigger,
+.inviter-trigger:hover,
+.inviter-trigger:focus,
+.inviter-trigger:active {
+  appearance: none !important;
+  -webkit-appearance: none !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  outline: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  -webkit-tap-highlight-color: transparent;
+}
+
 /* Toast notification animation */
 .toast-slide-enter-active {
   animation: toast-in 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);

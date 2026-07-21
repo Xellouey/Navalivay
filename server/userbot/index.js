@@ -646,8 +646,12 @@ const rateLimitedDelay = createRateLimiter({ maxPerSecond: MAX_SENDS_PER_SECOND 
 app.post('/resolve-username', checkSecret, async (req, res) => {
   try {
     const username = String(req.body?.username || '').trim().replace(/^@/, '');
+    const expectedTelegramId = parseUserChatId(req.body?.expected_telegram_id);
     if (!username) {
       return res.status(400).json({ ok: false, error: 'username_required' });
+    }
+    if (req.body?.expected_telegram_id && !expectedTelegramId) {
+      return res.status(400).json({ ok: false, error: 'expected_telegram_id_invalid' });
     }
     // Гард остаётся даже после разбана 16.05.2026: если Telegram снова
     // прилетит с FloodWait на resolveUsername, флаг можно дёрнуть в false
@@ -671,12 +675,25 @@ app.post('/resolve-username', checkSecret, async (req, res) => {
       new Api.contacts.ResolveUsername({ username }),
     );
     if (result?.users && result.users.length > 0) {
-      for (const user of result.users) {
-        rememberEntity(user, 'proactive_order_create');
-      }
       const resolvedId = result.users[0]?.id
         ? String(result.users[0].id)
         : null;
+      if (expectedTelegramId && resolvedId !== expectedTelegramId) {
+        logEvent('resolve', {
+          username,
+          outcome: 'telegram_id_mismatch',
+          telegram_id: resolvedId,
+          expected_telegram_id: expectedTelegramId,
+        });
+        return res.status(409).json({
+          ok: false,
+          error: 'telegram_id_mismatch',
+          telegram_id: resolvedId,
+        });
+      }
+      for (const user of result.users) {
+        rememberEntity(user, 'proactive_order_create');
+      }
       logEvent('resolve', { username, outcome: 'ok', telegram_id: resolvedId });
       return res.json({ ok: true, telegram_id: resolvedId });
     }

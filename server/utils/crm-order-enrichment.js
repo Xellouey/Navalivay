@@ -18,7 +18,9 @@ export function describeAutoNotifyReason(reason, error) {
     case 'customer_blocked':
       return 'Клиент заблокирован, уведомления ему не уходят.';
     case 'customer_not_verified':
-      return 'Клиент ещё не подтвердил Telegram. Пусть нажмёт /start в боте.';
+      return 'Telegram клиента ещё не подтверждён.';
+    case 'new_customer_no_dialog':
+      return 'Клиент ещё не прошёл авторизацию.';
     case 'userbot_ambiguous':
       return 'Telegram не ответил вовремя. Проверьте чат с клиентом перед повторной отправкой.';
     case 'userbot_unavailable':
@@ -149,6 +151,7 @@ export function enrichOrdersWithRelations(db, orders) {
   }
 
   const blockedMap = new Map();
+  const referralMap = new Map();
   if (customerIds.length > 0) {
     const cidPlaceholders2 = customerIds.map(() => '?').join(',');
     const blockedRows = db
@@ -166,6 +169,25 @@ export function enrichOrdersWithRelations(db, orders) {
     for (const row of blockedRows) {
       blockedMap.set(row.customer_id, true);
     }
+
+    const referralRows = db.prepare(`
+      SELECT
+        cr.invitee_customer_id,
+        cr.inviter_customer_id,
+        COALESCE(NULLIF(TRIM(ic.telegram_username), ''), cr.inviter_username_snapshot) AS inviter_username,
+        ic.first_name AS inviter_first_name,
+        ic.last_name AS inviter_last_name,
+        cib.id AS inviter_invite_ban_id,
+        CASE WHEN cib.id IS NOT NULL THEN 1 ELSE 0 END AS inviter_is_invite_banned
+      FROM customer_referrals cr
+      LEFT JOIN customers ic ON ic.id = cr.inviter_customer_id
+      LEFT JOIN customer_invite_bans cib
+        ON cib.customer_id = cr.inviter_customer_id AND cib.active = 1
+      WHERE cr.invitee_customer_id IN (${cidPlaceholders2})
+    `).all(...customerIds);
+    for (const row of referralRows) {
+      referralMap.set(row.invitee_customer_id, row);
+    }
   }
 
   return orders.map((order) => {
@@ -180,6 +202,7 @@ export function enrichOrdersWithRelations(db, orders) {
       auto_notification: notifyByOrder.get(order.id) || null,
       is_returning_customer: returningMap.get(order.customer_id) || false,
       is_blocked: blockedMap.get(order.customer_id) || false,
+      referral: referralMap.get(order.customer_id) || null,
       has_userbot_access: order.has_userbot_access === 1,
       customer_notes: customerNotes,
     };

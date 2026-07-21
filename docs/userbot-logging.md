@@ -68,7 +68,8 @@ Fired when the customer has an active CRM block. Userbot returns 403 without sen
 {"ev":"resolve","ts":"...","username":"someuser","outcome":"not_found"}
 ```
 
-Currently gated by `RESOLVE_USERNAME_ENABLED = false` — returns 503 immediately.
+Currently `RESOLVE_USERNAME_ENABLED = true`. Endpoint сверяет найденный аккаунт
+с ожидаемым Telegram ID и не сохраняет entity при несовпадении.
 
 ### `session_dead` — Telegram session invalidated
 
@@ -101,7 +102,7 @@ Attempt 4 (`contacts.resolveUsername`) was removed — was causing FloodWait cas
 | Guard | Scope | Details |
 |-------|-------|---------|
 | `floodWaitUntil` | Global (send-message) | Set on any FloodWait from send-message. Blocks all sends until expiry. |
-| `RESOLVE_USERNAME_ENABLED` | resolve-username only | `false` until Telegram lifts rate limit on @Rez0nsky (enabled manually). |
+| `RESOLVE_USERNAME_ENABLED` | resolve-username only | `true`; при новом FloodWait выключается вручную, не блокируя обычные отправки. |
 | `FLOOD_WAIT_CAP_SEC` | 1800s (30 min) | Caps any FloodWait to prevent multi-hour blocks. |
 
 ## Logged in parallel to bot_message_log DB
@@ -199,6 +200,11 @@ Telegram обычно снимает rate-limit на resolveUsername через 
 967 entity в кэше GramJS из userbot_entities + seed при старте.
 ~791 диалог в кэше (топ-700 + 91 архивных).
 Все клиенты, кто когда-либо писал менеджеру или был отрезолвлен ранее — обслуживаются через attempt 1-3.
-Авто-уведомления шлются ТОЛЬКО тем, у кого есть completed/delivered заказы (постоянные клиенты).
+Автоуведомления разрешены сразу после успешной реферальной авторизации, даже
+если у клиента ещё нет выданных заказов. Получатель всегда выбирается по
+Telegram ID. Актуальный username используется только для безопасной подготовки
+`access_hash`; найденный через username Telegram ID обязан совпасть с ID клиента.
 
-Новые клиенты (без диалога, без выданных заказов) — авто-уведомления не получают. Это штатное поведение, не ошибка. Менеджеры пишут им вручную через кнопку «Написать».
+Если обязательная авторизация выключена, сохраняется старый порог: до первого
+выданного заказа автоматические сообщения не отправляются. Общий бан запрещает
+сообщения, отдельный запрет приглашать на сообщения не влияет.

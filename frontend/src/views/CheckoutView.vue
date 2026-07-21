@@ -1629,6 +1629,14 @@ async function submitOrder() {
         );
         return;
       }
+      if (
+        result?.error === "referral_authorization_required" ||
+        String(result?.error || "").startsWith("referral_")
+      ) {
+        window.dispatchEvent(new CustomEvent("referral-authorization-required"));
+        showToast("Сначала пройдите обязательную авторизацию", "error");
+        return;
+      }
       if (result?.error === "min_delivery_amount_not_met") {
         showMinDeliveryBanner.value = true;
         form.deliveryType = "pickup";
@@ -2742,6 +2750,11 @@ async function submitOrder() {
   font-size: 16px;
   line-height: 20px;
   cursor: pointer;
+}
+
+.checkout-modal-cta:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
 }
 
 @media (max-width: 768px) {

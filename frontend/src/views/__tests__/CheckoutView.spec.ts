@@ -666,6 +666,65 @@ describe("CheckoutView order flows", () => {
     wrapper.unmount();
   });
 
+  it("reopens the global authorization gate if the server starts requiring it", async () => {
+    const cartStore = useCartStore();
+    cartStore.replaceItemsFromOrder([{
+      productId: "p-referral",
+      title: "Liquid",
+      productTitle: "Liquid",
+      groupName: "Liquids",
+      priceRub: 15,
+      quantity: 1,
+      image: "/img/liquid.png",
+      variantId: null,
+      variantName: null,
+      groupId: "group-1",
+      categoryId: "c_liquids_salt",
+    }]);
+
+    let submittedBody: any = null;
+    const gateRequired = vi.fn();
+    window.addEventListener("referral-authorization-required", gateRequired);
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.startsWith("/api/product/")) {
+        return createJsonResponse({ id: "p-referral", hasVariants: false, stock: 10 });
+      }
+      if (url.startsWith("/api/loyalty/me")) return createJsonResponse(buildLoyaltySnapshot());
+      if (url === "/api/loyalty/checkout-preview") return createJsonResponse(buildLoyaltyPreview(0));
+      if (url === "/api/orders" && init?.method === "POST") {
+        submittedBody = JSON.parse(String(init.body || "{}"));
+        return createJsonResponse({
+          error: "referral_authorization_required",
+          message: "Укажите username пригласившего",
+          attempts_used: 0,
+          attempts_remaining: 3,
+        }, false, 428);
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const wrapper = mount(CheckoutView, {
+      global: { stubs: {
+        MinDeliveryBanner: { template: "<div />" },
+        DeliveryConditionsBanner: { template: "<div />" },
+        CustomerModalShell: { template: "<div><slot /><slot name='footer' /></div>" },
+        LoyaltyBonusPopup: { template: "<div />" },
+        CheckoutAgreements: { template: "<div />" },
+      } },
+    });
+
+    await flushPromises();
+    await wrapper.find(".submit-button").trigger("click");
+    await flushPromises();
+    expect(submittedBody.inviter_username).toBeUndefined();
+    expect(gateRequired).toHaveBeenCalledTimes(1);
+    expect(routerPush).not.toHaveBeenCalledWith("/my-order");
+    window.removeEventListener("referral-authorization-required", gateRequired);
+    wrapper.unmount();
+  });
+
   it("shows loyalty preview widget in browser without Telegram", async () => {
     const cartStore = useCartStore();
     cartStore.replaceItemsFromOrder([

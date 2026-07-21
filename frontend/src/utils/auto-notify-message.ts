@@ -61,12 +61,12 @@ export function buildAutoNotifyToast(
     return { kind: 'success', message: `${base}. Клиенту отправили.` }
   }
   if (notify.skipped) {
-    // new_customer_no_dialog — штатная логика, не ошибка.
-    // Показываем информационный тост без красной плашки, с автоскрытием.
+    // Этот ответ возможен только в старом потоке с выключенной обязательной
+    // авторизацией. Авторизованным клиентам возраст заказа не мешает.
     if (notify.reason === 'new_customer_no_dialog') {
       return {
         kind: 'info',
-        message: `${base}. Уведомление не отправлено: у клиента нет завершённых заказов.`,
+        message: `${base}. Клиент ещё не прошёл авторизацию.`,
       }
     }
     const tail = describeSkipReason(notify.reason)
@@ -88,7 +88,7 @@ export function describeSkipReason(reason: string | undefined): string {
     case 'customer_blocked':
       return 'Клиент заблокирован, уведомления ему не уходят.'
     case 'customer_not_verified':
-      return 'Клиент ещё не активировал промо-код из прайса.'
+      return 'Telegram клиента ещё не подтверждён.'
     case 'customer_has_no_telegram_id':
       return 'У клиента не привязан Telegram.'
     case 'order_has_no_customer':

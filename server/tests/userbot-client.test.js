@@ -57,6 +57,7 @@ globalThis.fetch = async (url, init) => {
 const {
   sendViaUserbot,
   isUserbotAvailable,
+  resolveUsernameViaUserbot,
   _resetHealthCacheForTests,
 } = await import('../utils/userbot-client.js');
 
@@ -274,6 +275,44 @@ console.log('\n=== Test 1.12: auto в теле — сравнение строг
   });
   await sendViaUserbot({ chatId: '1', text: 'x', auto: true });
   assertEq(bodies[0].auto, true, 'auto=true → в теле true (boolean)');
+}
+
+console.log('\n=== Test 1.13: resolve username закреплён за ожидаемым Telegram ID ===');
+{
+  setMockResponses({
+    '/resolve-username': async (url, init) => {
+      const body = JSON.parse(init.body);
+      assertEq(body.username, 'client_name', '@ удаляется перед resolve');
+      assertEq(body.expected_telegram_id, '123456', 'ожидаемый Telegram ID передан');
+      return {
+        ok: true,
+        status: 200,
+        async json() { return { ok: true, telegram_id: '123456' }; },
+      };
+    },
+  });
+  const resolved = await resolveUsernameViaUserbot({
+    username: '@client_name',
+    expectedTelegramId: '123456',
+  });
+  assertEq(resolved.ok, true, 'совпавший Telegram ID принят');
+}
+
+console.log('\n=== Test 1.14: несовпавший Telegram ID отклоняется ===');
+{
+  setMockResponses({
+    '/resolve-username': async () => ({
+      ok: true,
+      status: 200,
+      async json() { return { ok: true, telegram_id: '999999' }; },
+    }),
+  });
+  const resolved = await resolveUsernameViaUserbot({
+    username: 'changed_name',
+    expectedTelegramId: '123456',
+  });
+  assertEq(resolved.ok, false, 'несовпавший Telegram ID отклонён');
+  assertEq(resolved.error, 'telegram_id_mismatch', 'причина mismatch сохранена');
 }
 
 // =============================================================================

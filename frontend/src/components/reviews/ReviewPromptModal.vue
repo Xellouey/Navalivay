@@ -77,7 +77,7 @@ const shouldOffer = computed(() =>
   isReviewPromptModalVisible(
     {
       path: route.path,
-      name: route.name,
+      name: typeof route.name === "string" ? route.name : undefined,
       params: route.params,
     },
     prompt.value,

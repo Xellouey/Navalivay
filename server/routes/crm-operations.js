@@ -18,7 +18,10 @@ import {
   releasePromoUsageForOrder,
   reservePromoUsageForOrder,
 } from "../promo-code-service.js";
-import { autoNotifyForStatusChange } from "../utils/auto-notify.js";
+import {
+  autoNotifyForStatusChange,
+  autoNotifyOrderAcceptedAfterRecipientWarmup,
+} from "../utils/auto-notify.js";
 import { buildCrmOrderPollSummary } from "../utils/crm-order-polling.js";
 import { buildCrmOrdersSearch } from "../utils/crm-order-search.js";
 import {
@@ -32,6 +35,7 @@ import {
 } from "../utils/crm-kanban-board.js";
 import { buildTotalControlGroups } from "../utils/total-control-groups.js";
 import { syncGroupParking } from "../utils/group-parking.js";
+import { attachFirstOrderToReferral } from "../utils/referral-authorization.js";
 
 export const crmOperationsRouter = express.Router();
 
@@ -841,6 +845,8 @@ crmOperationsRouter.post(
           notes || null,
         );
 
+        attachFirstOrderToReferral(customer_id, orderId);
+
         // Вставляем позиции
         const itemStmt = db.prepare(`
         INSERT INTO order_items (
@@ -916,18 +922,12 @@ crmOperationsRouter.post(
 
       res.json({ ...order, items: items_result });
 
-      // Проактивный резолв username через userbot: к моменту первой смены
-      // статуса entity будет в кэше GramJS → auto-notify уйдёт мгновенно
-      // через attempt 1 без задержки resolveUsername (attempt 4).
       if (customer_id) {
-        const custRow = db.prepare(
-          `SELECT telegram_username FROM customers WHERE id = ? AND telegram_username IS NOT NULL`,
-        ).get(customer_id);
-        if (custRow?.telegram_username) {
-          import("../utils/userbot-client.js").then(({ resolveUsernameViaUserbot }) =>
-            resolveUsernameViaUserbot({ username: custRow.telegram_username }).catch(() => {}),
-          );
-        }
+        setImmediate(() => {
+          void autoNotifyOrderAcceptedAfterRecipientWarmup({ orderId }).catch((notifyErr) => {
+            console.error("[crm] deferred order-accepted notify error:", notifyErr);
+          });
+        });
       }
     } catch (error) {
       console.error("[crm] Create order error:", error);

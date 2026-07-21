@@ -5,8 +5,8 @@
  * «нужно нажали собрано → ему отослалось». Теперь триггер — сам PATCH
  * статуса заказа.
  *
- * Дополнительно: `order_accepted` — сообщение постоянному клиенту сразу
- * после оформления заказа через mini-app (POST /api/orders).
+ * Дополнительно: `order_accepted` — сообщение авторизованному или постоянному
+ * клиенту сразу после оформления заказа.
  *
  * Контракт: вернуть { sent, reason?, telegram_message_id?, event?, skipped? }
  * вместо throw — caller не должен падать, если уведомление не ушло.
@@ -17,15 +17,49 @@ import {
   isCustomerVerified,
   logBotMessage,
 } from './business-bot.js';
-import { sendViaUserbot, isUserbotAvailable } from './userbot-client.js';
+import {
+  sendViaUserbot,
+  isUserbotAvailable,
+  resolveUsernameViaUserbot,
+} from './userbot-client.js';
 import { getActiveBlockForCustomerId } from './customer-blocks.js';
 import {
   scheduleAutoNotifyRetry,
   hasAutoNotifyBeenSent,
 } from './auto-notify-retry.js';
 import { db } from '../db.js';
+import { isCustomerAccessAuthorized } from './referral-authorization.js';
 
 export const ORDER_ACCEPTED_EVENT = 'order_accepted';
+
+// Один общий прогрев на Telegram ID. Пока resolve идёт, все быстрые смены
+// статуса ждут тот же Promise; после успеха повторный resolve этому клиенту
+// до перезапуска API не нужен.
+const recipientWarmups = new Map();
+
+function warmupRecipient({ telegramId, username }) {
+  const key = String(telegramId || '');
+  if (!key || !username) return Promise.resolve({ ok: false, error: 'recipient_username_missing' });
+  const existing = recipientWarmups.get(key);
+  if (existing) return existing;
+
+  const pending = resolveUsernameViaUserbot({
+    username,
+    expectedTelegramId: key,
+  }).then((result) => {
+    if (!result?.ok) recipientWarmups.delete(key);
+    return result;
+  }).catch((error) => {
+    recipientWarmups.delete(key);
+    return { ok: false, error: error?.message || String(error) };
+  });
+  recipientWarmups.set(key, pending);
+  return pending;
+}
+
+export function _resetRecipientWarmupsForTests() {
+  recipientWarmups.clear();
+}
 
 /**
  * Маппинг статусов заказа на event-ключи в bot_status_templates.
@@ -178,13 +212,25 @@ export async function executeAutoNotify({ orderId, event, fromRetry = false } = 
     return { sent: false, skipped: true, reason: 'customer_blocked', event };
   }
 
-  if (!isCustomerVerified(prepared.customerTelegramId)) {
+  const accessAuthorized = isCustomerAccessAuthorized(prepared.customerId);
+  if (!isCustomerVerified(prepared.customerTelegramId) && !accessAuthorized) {
     safeLog({ outcome: 'skipped', reason: 'customer_not_verified' });
     return { sent: false, skipped: true, reason: 'customer_not_verified', event };
   }
 
-  if (!isReturningCustomer(prepared.customerId, { excludeOrderId: orderId })) {
+  const returningCustomer = isReturningCustomer(prepared.customerId, { excludeOrderId: orderId });
+  if (!accessAuthorized && !returningCustomer) {
     return { sent: false, skipped: true, reason: 'new_customer_no_dialog', event };
+  }
+
+  // Entity может отсутствовать и у нового, и у постоянного клиента после
+  // очистки кэша. Все параллельные события ждут один resolve на Telegram ID;
+  // Map не даёт повторять его перед каждым статусом.
+  if (prepared.customerUsername) {
+    await warmupRecipient({
+      telegramId: prepared.customerTelegramId,
+      username: prepared.customerUsername,
+    });
   }
 
   if (!(await isUserbotAvailable())) {
@@ -302,8 +348,7 @@ export async function autoNotifyForStatusChange({
 }
 
 /**
- * Сообщение «заказ принят» постоянному клиенту после оформления через mini-app.
- * Только POST /api/orders — CRM-ручное создание не триггерит.
+ * Сообщение «заказ принят» после оформления через mini-app или CRM.
  */
 export async function autoNotifyOrderAccepted({ orderId } = {}) {
   if (!orderId) {
@@ -338,4 +383,12 @@ export async function autoNotifyOrderAccepted({ orderId } = {}) {
     releaseOrderAcceptedClaim(orderId);
     throw err;
   }
+}
+
+/**
+ * Совместимое имя для точек создания заказа. Общий прогрев теперь находится
+ * внутри executeAutoNotify, поэтому его также ждут быстрые смены статуса.
+ */
+export async function autoNotifyOrderAcceptedAfterRecipientWarmup({ orderId } = {}) {
+  return autoNotifyOrderAccepted({ orderId });
 }
