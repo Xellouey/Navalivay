@@ -176,6 +176,37 @@ describe("ReferralAuthorizationGate", () => {
     wrapper.unmount();
   });
 
+  it("waits for a real tap before focusing the username field in Telegram on Android", async () => {
+    window.Telegram!.WebApp.platform = "android";
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response({
+      enabled: true,
+      required: true,
+      attempts_used: 0,
+      attempts_remaining: 3,
+    })));
+
+    const sentinel = document.createElement("button");
+    document.body.appendChild(sentinel);
+    sentinel.focus();
+    const wrapper = mount(ReferralAuthorizationGate, {
+      attachTo: document.body,
+      global: { stubs: { CustomerModalShell: shellStub } },
+    });
+    await flushPromises();
+
+    const input = wrapper.find("input");
+    const inputElement = input.element as HTMLInputElement;
+    expect(document.activeElement).toBe(wrapper.find("button[type='submit']").element);
+    expect(document.activeElement).not.toBe(inputElement);
+
+    inputElement.focus();
+    await input.setValue("r");
+    expect(document.activeElement).toBe(inputElement);
+    expect(input.element).toBe(inputElement);
+    wrapper.unmount();
+    sentinel.remove();
+  });
+
   it("does not call the server for an empty username and returns focus to the input", async () => {
     const fetchMock = vi.fn().mockResolvedValue(response({
       enabled: true,

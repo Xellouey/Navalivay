@@ -51,6 +51,7 @@
       <div class="referral-gate__actions">
         <button
           v-if="phase === 'required'"
+          ref="submitButtonRef"
           form="referral-authorization-form"
           type="submit"
           class="referral-gate__cta"
@@ -112,6 +113,7 @@ const errorMessage = ref("");
 const attemptsRemaining = ref(3);
 const submitting = ref(false);
 const inputRef = ref<HTMLInputElement | null>(null);
+const submitButtonRef = ref<HTMLButtonElement | null>(null);
 const retryButtonRef = ref<HTMLButtonElement | null>(null);
 let refreshRunId = 0;
 let activeRefreshController: AbortController | null = null;
@@ -124,6 +126,10 @@ const modalTitle = computed(() => {
 });
 
 const canCloseMiniApp = computed(() => typeof window.Telegram?.WebApp?.close === "function");
+const isTelegramAndroid = computed(() => {
+  const platform = String(window.Telegram?.WebApp?.platform || "").toLowerCase();
+  return platform === "android" || /android/i.test(window.navigator.userAgent);
+});
 
 function wait(ms: number, signal: AbortSignal) {
   return new Promise<boolean>((resolve) => {
@@ -273,7 +279,13 @@ watch(
   async (nextPhase) => {
     emit("gate-active", nextPhase !== "hidden");
     await nextTick();
-    if (nextPhase === "required") inputRef.value?.focus();
+    // Android Telegram WebView can create an unstable input connection when a
+    // field is focused before a real tap: the keyboard then closes on the
+    // first typed character. Let the user's tap establish focus on Android.
+    if (nextPhase === "required") {
+      if (isTelegramAndroid.value) submitButtonRef.value?.focus({ preventScroll: true });
+      else inputRef.value?.focus();
+    }
     if (nextPhase === "error") retryButtonRef.value?.focus();
   },
   { immediate: true },
@@ -313,8 +325,7 @@ async function submit() {
   if (submitting.value) return;
   if (!normalizedUsername) {
     errorMessage.value = "Введите username пригласившего";
-    await nextTick();
-    inputRef.value?.focus();
+    inputRef.value?.focus({ preventScroll: true });
     return;
   }
   submittedInputValue = inputRef.value?.value || "";
