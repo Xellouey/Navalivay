@@ -542,6 +542,7 @@ async function testReferralAuthorizationOrderFlow() {
       headers: telegramHeaders(liveUsernameIdentity),
     });
     assert.equal(liveCheck.response.status, 200);
+    assert.match(liveCheck.response.headers.get('cache-control') || '', /no-store/);
     assert.equal(liveCheck.data.hasUsername, true);
     assert.equal(liveCheck.data.username, 'fresh_live_username');
 

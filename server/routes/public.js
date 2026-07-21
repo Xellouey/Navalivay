@@ -159,7 +159,7 @@ async function fetchTelegramChat(telegramId) {
   }
 
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 7000);
+  const timeout = setTimeout(() => controller.abort(), 12000);
   timeout.unref?.();
   let response;
   let payload;
@@ -1736,6 +1736,8 @@ publicRouter.get(
   requireTelegramMiniAppAuth({ allowInsecureFallback: allowInsecureTelegramFallback }),
   async (req, res) => {
     try {
+      res.set("Cache-Control", "no-store, max-age=0");
+      res.set("Pragma", "no-cache");
       const telegramId = String(req.telegramAuth?.telegramId || "").trim();
       return res.json(await resolveTelegramUsernameStatus(telegramId));
     } catch (error) {
