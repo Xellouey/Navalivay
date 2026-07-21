@@ -34,8 +34,11 @@
           autocomplete="off"
           autocapitalize="none"
           spellcheck="false"
-          placeholder="@username"
+          placeholder="@username или username"
           aria-describedby="global-referral-feedback"
+          @pointerdown="handleInputPointerDown"
+          @pointercancel="handleInputPointerCancel"
+          @focus="handleInputFocus"
           @beforeinput="handleBeforeInput"
           @input="handleInput"
           @paste="handlePaste"
@@ -102,6 +105,8 @@ type GatePhase = "hidden" | "checking" | "required" | "error";
 const USERNAME_RETRY_DELAYS_MS = [0, 1200, 2400, 4000] as const;
 const USERNAME_RETRY_TIMEOUT_MS = 16000;
 const STATUS_CHECK_TIMEOUT_MS = 14000;
+const ANDROID_INPUT_REFOCUS_DELAY_MS = 100;
+const ANDROID_INPUT_INTENT_TIMEOUT_MS = 800;
 
 const emit = defineEmits<{
   authorized: [];
@@ -118,6 +123,11 @@ const retryButtonRef = ref<HTMLButtonElement | null>(null);
 let refreshRunId = 0;
 let activeRefreshController: AbortController | null = null;
 let submittedInputValue = "";
+let androidInputFocusIntent: HTMLInputElement | null = null;
+let androidInputFocusReadyFor: HTMLInputElement | null = null;
+let androidInputFocusPendingFor: HTMLInputElement | null = null;
+let androidInputFocusTimer: number | null = null;
+let androidInputFocusIntentTimer: number | null = null;
 
 const modalTitle = computed(() => {
   if (phase.value === "checking") return "Проверяем доступ";
@@ -278,6 +288,7 @@ watch(
   phase,
   async (nextPhase) => {
     emit("gate-active", nextPhase !== "hidden");
+    if (nextPhase !== "required") resetAndroidInputFocusWorkaround();
     await nextTick();
     // Android Telegram WebView can create an unstable input connection when a
     // field is focused before a real tap: the keyboard then closes on the
@@ -293,6 +304,70 @@ watch(
 
 function handleBeforeInput(event: InputEvent) {
   if (submitting.value) event.preventDefault();
+}
+
+function resetAndroidInputFocusWorkaround() {
+  if (androidInputFocusTimer !== null) window.clearTimeout(androidInputFocusTimer);
+  if (androidInputFocusIntentTimer !== null) window.clearTimeout(androidInputFocusIntentTimer);
+  androidInputFocusTimer = null;
+  androidInputFocusIntentTimer = null;
+  androidInputFocusIntent = null;
+  androidInputFocusPendingFor = null;
+  androidInputFocusReadyFor = null;
+}
+
+function handleInputPointerDown(event: PointerEvent) {
+  if (!isTelegramAndroid.value) return;
+  androidInputFocusIntent = event.currentTarget as HTMLInputElement | null;
+  if (androidInputFocusIntentTimer !== null) window.clearTimeout(androidInputFocusIntentTimer);
+  androidInputFocusIntentTimer = window.setTimeout(() => {
+    androidInputFocusIntentTimer = null;
+    androidInputFocusIntent = null;
+  }, ANDROID_INPUT_INTENT_TIMEOUT_MS);
+}
+
+function handleInputPointerCancel(event: PointerEvent) {
+  if (androidInputFocusIntent !== event.currentTarget) return;
+  if (androidInputFocusIntentTimer !== null) window.clearTimeout(androidInputFocusIntentTimer);
+  androidInputFocusIntentTimer = null;
+  androidInputFocusIntent = null;
+}
+
+function handleInputFocus(event: FocusEvent) {
+  const input = event.currentTarget as HTMLInputElement | null;
+  if (
+    !input
+    || !isTelegramAndroid.value
+    || androidInputFocusIntent !== input
+    || androidInputFocusReadyFor === input
+  ) return;
+
+  androidInputFocusIntent = null;
+  if (androidInputFocusIntentTimer !== null) window.clearTimeout(androidInputFocusIntentTimer);
+  androidInputFocusIntentTimer = null;
+  if (androidInputFocusTimer !== null) window.clearTimeout(androidInputFocusTimer);
+  const selectionStart = input.selectionStart;
+  const selectionEnd = input.selectionEnd;
+  androidInputFocusPendingFor = input;
+  input.blur();
+  androidInputFocusTimer = window.setTimeout(() => {
+    androidInputFocusTimer = null;
+    if (
+      phase.value !== "required"
+      || androidInputFocusPendingFor !== input
+      || !input.isConnected
+      || (document.activeElement !== document.body && document.activeElement !== null)
+    ) {
+      if (androidInputFocusPendingFor === input) androidInputFocusPendingFor = null;
+      return;
+    }
+    androidInputFocusPendingFor = null;
+    androidInputFocusReadyFor = input;
+    input.focus({ preventScroll: true });
+    if (selectionStart !== null && selectionEnd !== null) {
+      input.setSelectionRange(selectionStart, selectionEnd);
+    }
+  }, ANDROID_INPUT_REFOCUS_DELAY_MS);
 }
 
 function handleInput() {
@@ -369,6 +444,7 @@ onBeforeUnmount(() => {
   refreshRunId += 1;
   activeRefreshController?.abort();
   activeRefreshController = null;
+  resetAndroidInputFocusWorkaround();
   window.removeEventListener("referral-authorization-required", handleAuthorizationRequired);
   window.Telegram?.WebApp?.offEvent?.("activated", handleTelegramActivated);
 });

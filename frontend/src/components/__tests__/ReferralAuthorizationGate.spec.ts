@@ -177,6 +177,7 @@ describe("ReferralAuthorizationGate", () => {
   });
 
   it("waits for a real tap before focusing the username field in Telegram on Android", async () => {
+    vi.useFakeTimers();
     window.Telegram!.WebApp.platform = "android";
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response({
       enabled: true,
@@ -198,13 +199,96 @@ describe("ReferralAuthorizationGate", () => {
     const inputElement = input.element as HTMLInputElement;
     expect(document.activeElement).toBe(wrapper.find("button[type='submit']").element);
     expect(document.activeElement).not.toBe(inputElement);
+    expect(input.attributes("placeholder")).toBe("@username или username");
 
+    // Keyboard/TalkBack focus must not trigger the Android-only pointer workaround.
     inputElement.focus();
+    expect(document.activeElement).toBe(inputElement);
+    (wrapper.find("button[type='submit']").element as HTMLButtonElement).focus();
+
+    await input.trigger("pointerdown");
+    await input.trigger("pointercancel");
+    inputElement.focus();
+    expect(document.activeElement).toBe(inputElement);
+    (wrapper.find("button[type='submit']").element as HTMLButtonElement).focus();
+
+    await input.trigger("pointerdown");
+    await vi.advanceTimersByTimeAsync(800);
+    inputElement.focus();
+    expect(document.activeElement).toBe(inputElement);
+    (wrapper.find("button[type='submit']").element as HTMLButtonElement).focus();
+
+    await input.trigger("pointerdown");
+    inputElement.focus();
+    expect(document.activeElement).not.toBe(inputElement);
+    // Do not steal focus back if the customer moved elsewhere during the delay.
+    (wrapper.find("button[type='submit']").element as HTMLButtonElement).focus();
+    await vi.advanceTimersByTimeAsync(100);
+    expect(document.activeElement).toBe(wrapper.find("button[type='submit']").element);
+
+    await input.trigger("pointerdown");
+    inputElement.focus();
+    expect(document.activeElement).not.toBe(inputElement);
+    await vi.advanceTimersByTimeAsync(100);
+    expect(document.activeElement).toBe(inputElement);
     await input.setValue("r");
     expect(document.activeElement).toBe(inputElement);
     expect(input.element).toBe(inputElement);
     wrapper.unmount();
     sentinel.remove();
+  });
+
+  it("reapplies the Android input workaround when the authorization form is recreated", async () => {
+    vi.useFakeTimers();
+    window.Telegram!.WebApp.platform = "android";
+    let resolveRefresh!: (value: Response) => void;
+    const refreshResponse = new Promise<Response>((resolve) => {
+      resolveRefresh = resolve;
+    });
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(response({
+        enabled: true,
+        required: true,
+        attempts_used: 0,
+        attempts_remaining: 3,
+      }))
+      .mockReturnValueOnce(refreshResponse);
+    vi.stubGlobal("fetch", fetchMock);
+
+    const wrapper = mount(ReferralAuthorizationGate, {
+      attachTo: document.body,
+      global: { stubs: { CustomerModalShell: shellStub } },
+    });
+    await flushPromises();
+
+    const firstInput = wrapper.find("input");
+    const firstInputElement = firstInput.element as HTMLInputElement;
+    await firstInput.trigger("pointerdown");
+    firstInputElement.focus();
+    await vi.advanceTimersByTimeAsync(100);
+    expect(document.activeElement).toBe(firstInputElement);
+
+    window.dispatchEvent(new CustomEvent("referral-authorization-required"));
+    await wrapper.vm.$nextTick();
+    expect(wrapper.find("input").exists()).toBe(false);
+
+    resolveRefresh(response({
+      enabled: true,
+      required: true,
+      attempts_used: 0,
+      attempts_remaining: 3,
+    }));
+    await flushPromises();
+
+    const nextInput = wrapper.find("input");
+    const nextInputElement = nextInput.element as HTMLInputElement;
+    expect(nextInputElement).not.toBe(firstInputElement);
+    await nextInput.trigger("pointerdown");
+    nextInputElement.focus();
+    expect(document.activeElement).not.toBe(nextInputElement);
+    await vi.advanceTimersByTimeAsync(100);
+    expect(document.activeElement).toBe(nextInputElement);
+    wrapper.unmount();
   });
 
   it("does not call the server for an empty username and returns focus to the input", async () => {
