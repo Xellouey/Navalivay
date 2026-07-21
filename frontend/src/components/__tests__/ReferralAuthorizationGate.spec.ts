@@ -129,6 +129,197 @@ describe("ReferralAuthorizationGate", () => {
     wrapper.unmount();
   });
 
+  it("pastes a Telegram username with @ from the clipboard without spending an attempt", async () => {
+    const readText = vi.fn().mockResolvedValue("  @Good_User  ");
+    vi.stubGlobal("navigator", { clipboard: { readText } });
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(response({
+        enabled: true,
+        required: true,
+        attempts_used: 0,
+        attempts_remaining: 3,
+      }))
+      .mockResolvedValueOnce(response({
+        success: true,
+        authorized: true,
+        required: false,
+        attempts_remaining: 3,
+      }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const wrapper = mount(ReferralAuthorizationGate, {
+      global: { stubs: { CustomerModalShell: shellStub } },
+    });
+    await flushPromises();
+
+    await wrapper.find(".referral-gate__paste").trigger("click");
+    await flushPromises();
+
+    expect(readText).toHaveBeenCalledOnce();
+    expect((wrapper.find("input").element as HTMLInputElement).value).toBe("Good_User");
+    expect(wrapper.text()).toContain("Username вставлен");
+    expect(wrapper.text()).toContain("Осталось попыток: 3");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    await wrapper.find("form").trigger("submit");
+    await flushPromises();
+    expect(JSON.parse(String(fetchMock.mock.calls[1][1]?.body))).toEqual({
+      inviter_username: "Good_User",
+    });
+    wrapper.unmount();
+  });
+
+  it("uses Telegram clipboard fallback and accepts a copied t.me link", async () => {
+    vi.stubGlobal("navigator", {
+      clipboard: { readText: vi.fn().mockRejectedValue(new DOMException("denied")) },
+    });
+    window.Telegram!.WebApp.readTextFromClipboard = vi.fn((callback) => {
+      callback?.("https://t.me/Link_User?start=copy");
+    });
+    const fetchMock = vi.fn().mockResolvedValue(response({
+      enabled: true,
+      required: true,
+      attempts_used: 0,
+      attempts_remaining: 3,
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const wrapper = mount(ReferralAuthorizationGate, {
+      global: { stubs: { CustomerModalShell: shellStub } },
+    });
+    await flushPromises();
+
+    await wrapper.find(".referral-gate__paste").trigger("click");
+    await flushPromises();
+
+    expect(window.Telegram!.WebApp.readTextFromClipboard).toHaveBeenCalledOnce();
+    expect((wrapper.find("input").element as HTMLInputElement).value).toBe("Link_User");
+    wrapper.unmount();
+  });
+
+  it("uses Telegram fallback when the browser clipboard never settles", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("navigator", {
+      clipboard: { readText: vi.fn(() => new Promise<string>(() => undefined)) },
+    });
+    window.Telegram!.WebApp.readTextFromClipboard = vi.fn((callback) => {
+      callback?.("@Fallback_User");
+    });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response({
+      enabled: true,
+      required: true,
+      attempts_used: 0,
+      attempts_remaining: 3,
+    })));
+
+    const wrapper = mount(ReferralAuthorizationGate, {
+      global: { stubs: { CustomerModalShell: shellStub } },
+    });
+    await flushPromises();
+
+    await wrapper.find(".referral-gate__paste").trigger("click");
+    expect(wrapper.find(".referral-gate__paste").attributes("aria-busy")).toBe("true");
+    await vi.advanceTimersByTimeAsync(2500);
+    await flushPromises();
+
+    expect(window.Telegram!.WebApp.readTextFromClipboard).toHaveBeenCalledOnce();
+    expect((wrapper.find("input").element as HTMLInputElement).value).toBe("Fallback_User");
+    expect(wrapper.find(".referral-gate__paste").attributes("aria-busy")).toBe("false");
+    wrapper.unmount();
+  });
+
+  it("does not insert arbitrary clipboard text or spend an authorization attempt", async () => {
+    vi.stubGlobal("navigator", {
+      clipboard: { readText: vi.fn().mockResolvedValue("not a telegram username") },
+    });
+    const fetchMock = vi.fn().mockResolvedValue(response({
+      enabled: true,
+      required: true,
+      attempts_used: 0,
+      attempts_remaining: 3,
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const wrapper = mount(ReferralAuthorizationGate, {
+      global: { stubs: { CustomerModalShell: shellStub } },
+    });
+    await flushPromises();
+
+    await wrapper.find(".referral-gate__paste").trigger("click");
+    await flushPromises();
+
+    expect((wrapper.find("input").element as HTMLInputElement).value).toBe("");
+    expect(wrapper.text()).toContain("Удерживайте поле");
+    expect(wrapper.text()).toContain("Осталось попыток: 3");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    wrapper.unmount();
+  });
+
+  it.each(["proxy", "confirmphone", "boost", "oauth"])(
+    "does not accept the Telegram service link %s as an inviter username",
+    async (servicePath) => {
+      vi.stubGlobal("navigator", {
+        clipboard: { readText: vi.fn().mockResolvedValue(`https://t.me/${servicePath}?value=example`) },
+      });
+      const fetchMock = vi.fn().mockResolvedValue(response({
+        enabled: true,
+        required: true,
+        attempts_used: 0,
+        attempts_remaining: 3,
+      }));
+      vi.stubGlobal("fetch", fetchMock);
+
+      const wrapper = mount(ReferralAuthorizationGate, {
+        global: { stubs: { CustomerModalShell: shellStub } },
+      });
+      await flushPromises();
+
+      await wrapper.find(".referral-gate__paste").trigger("click");
+      await flushPromises();
+
+      expect((wrapper.find("input").element as HTMLInputElement).value).toBe("");
+      expect(wrapper.text()).toContain("Удерживайте поле");
+      expect(wrapper.text()).toContain("Осталось попыток: 3");
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      wrapper.unmount();
+    },
+  );
+
+  it("does not overwrite a username typed while clipboard reading is pending", async () => {
+    let resolveClipboard: (value: string) => void = () => undefined;
+    const clipboardPromise = new Promise<string>((resolve) => {
+      resolveClipboard = resolve;
+    });
+    const readText = vi.fn().mockReturnValue(clipboardPromise);
+    vi.stubGlobal("navigator", { clipboard: { readText } });
+    const fetchMock = vi.fn().mockResolvedValue(response({
+      enabled: true,
+      required: true,
+      attempts_used: 0,
+      attempts_remaining: 3,
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const wrapper = mount(ReferralAuthorizationGate, {
+      global: { stubs: { CustomerModalShell: shellStub } },
+    });
+    await flushPromises();
+
+    await wrapper.find("input").setValue("Existing_User");
+    await wrapper.find(".referral-gate__paste").trigger("click");
+    expect(wrapper.find(".referral-gate__paste").attributes("aria-busy")).toBe("true");
+    expect(wrapper.find(".referral-gate__cta").attributes()).toHaveProperty("disabled");
+    await wrapper.find("form").trigger("submit");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    await wrapper.find("input").setValue("Manual_User");
+    resolveClipboard("@Late_User");
+    await flushPromises();
+
+    expect((wrapper.find("input").element as HTMLInputElement).value).toBe("Manual_User");
+    expect(wrapper.find(".referral-gate__paste").attributes("aria-busy")).toBe("false");
+    wrapper.unmount();
+  });
+
   it("fails closed when opened outside Telegram", async () => {
     Object.defineProperty(window, "Telegram", {
       configurable: true,

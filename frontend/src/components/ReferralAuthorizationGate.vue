@@ -41,9 +41,20 @@
           aria-describedby="global-referral-feedback"
           @input="handleInput"
         />
+        <button
+          type="button"
+          class="referral-gate__paste"
+          :aria-busy="clipboardBusy"
+          :aria-disabled="submitting || clipboardBusy"
+          aria-label="Вставить username из буфера обмена"
+          @click="pasteInviterUsername"
+        >
+          {{ clipboardBusy ? "Читаем…" : "Вставить" }}
+        </button>
       </div>
       <div id="global-referral-feedback" aria-live="polite">
         <p v-if="errorMessage" class="referral-gate__error" role="alert">{{ errorMessage }}</p>
+        <p v-if="clipboardHint" class="referral-gate__clipboard-hint">{{ clipboardHint }}</p>
         <p class="referral-gate__attempts">Осталось попыток: {{ attemptsRemaining }}</p>
       </div>
     </form>
@@ -55,7 +66,7 @@
           form="referral-authorization-form"
           type="submit"
           class="referral-gate__cta"
-          :disabled="submitting || !inviterUsername.trim()"
+          :disabled="submitting || clipboardBusy || !inviterUsername.trim()"
         >
           {{ submitting ? "Проверяем…" : "Пройти авторизацию" }}
         </button>
@@ -102,6 +113,36 @@ type GatePhase = "hidden" | "checking" | "required" | "error";
 const USERNAME_RETRY_DELAYS_MS = [0, 1200, 2400, 4000] as const;
 const USERNAME_RETRY_TIMEOUT_MS = 16000;
 const STATUS_CHECK_TIMEOUT_MS = 14000;
+const TELEGRAM_SERVICE_PATHS = new Set([
+  "a",
+  "addemoji",
+  "addlist",
+  "addstickers",
+  "addstyle",
+  "addtheme",
+  "auction",
+  "auth",
+  "boost",
+  "call",
+  "confirmphone",
+  "contact",
+  "giftcode",
+  "invoice",
+  "iv",
+  "joinchat",
+  "k",
+  "login",
+  "m",
+  "newbot",
+  "nft",
+  "oauth",
+  "proxy",
+  "setlanguage",
+  "share",
+  "socks",
+  "web",
+  "z",
+]);
 
 const emit = defineEmits<{
   authorized: [];
@@ -113,9 +154,12 @@ const inviterUsername = ref("");
 const errorMessage = ref("");
 const attemptsRemaining = ref(3);
 const submitting = ref(false);
+const clipboardBusy = ref(false);
+const clipboardHint = ref("");
 const inputRef = ref<HTMLInputElement | null>(null);
 const retryButtonRef = ref<HTMLButtonElement | null>(null);
 let refreshRunId = 0;
+let clipboardRunId = 0;
 let activeRefreshController: AbortController | null = null;
 
 const modalTitle = computed(() => {
@@ -272,6 +316,10 @@ function handleAuthorizationRequired() {
 watch(
   phase,
   async (nextPhase) => {
+    if (nextPhase !== "required") {
+      clipboardRunId += 1;
+      clipboardBusy.value = false;
+    }
     emit("gate-active", nextPhase !== "hidden");
     await nextTick();
     if (nextPhase === "required") inputRef.value?.focus();
@@ -281,13 +329,88 @@ watch(
 );
 
 function handleInput(event: Event) {
+  clipboardRunId += 1;
+  clipboardBusy.value = false;
   const input = event.target as HTMLInputElement | null;
   inviterUsername.value = String(input?.value || "").trimStart().replace(/^@+/, "");
   errorMessage.value = "";
+  clipboardHint.value = "";
+}
+
+function normalizeClipboardUsername(value: unknown) {
+  const text = String(value || "").trim();
+  if (!text) return "";
+
+  let candidate = text.replace(/^@+/, "");
+  const link = text.match(/^(?:https?:\/\/)?(?:www\.)?(?:t\.me|telegram\.me)\/([^/?#]+)\/?(?:[?#].*)?$/i);
+  if (link?.[1]) {
+    candidate = link[1];
+    if (TELEGRAM_SERVICE_PATHS.has(candidate.toLowerCase())) return "";
+  }
+  return /^[a-zA-Z0-9_]{5,32}$/.test(candidate) ? candidate : "";
+}
+
+function readTelegramClipboard() {
+  const webApp = window.Telegram?.WebApp;
+  const readText = webApp?.readTextFromClipboard;
+  if (typeof readText !== "function") return Promise.resolve<string | null>(null);
+
+  return new Promise<string | null>((resolve) => {
+    let settled = false;
+    const finish = (value: string | null) => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timeout);
+      resolve(value);
+    };
+    const timeout = window.setTimeout(() => finish(null), 1500);
+    try {
+      readText.call(webApp, (value) => finish(value || null));
+    } catch {
+      finish(null);
+    }
+  });
+}
+
+async function readClipboardText() {
+  try {
+    if (typeof navigator.clipboard?.readText === "function") {
+      const value = await Promise.race([
+        navigator.clipboard.readText(),
+        new Promise<null>((resolve) => window.setTimeout(() => resolve(null), 2500)),
+      ]);
+      if (value) return value;
+    }
+  } catch {
+    // Telegram API below is a fallback for supported launch modes.
+  }
+  return await readTelegramClipboard();
+}
+
+async function pasteInviterUsername() {
+  if (clipboardBusy.value || submitting.value) return;
+  const runId = ++clipboardRunId;
+  window.Telegram?.WebApp?.HapticFeedback?.impactOccurred("light");
+  clipboardBusy.value = true;
+  clipboardHint.value = "";
+  try {
+    const username = normalizeClipboardUsername(await readClipboardText());
+    if (runId !== clipboardRunId || phase.value !== "required") return;
+    if (!username) {
+      clipboardHint.value = "Не получилось вставить. Удерживайте поле и выберите «Вставить».";
+      return;
+    }
+    inviterUsername.value = username;
+    errorMessage.value = "";
+    clipboardHint.value = "Username вставлен";
+    window.Telegram?.WebApp?.HapticFeedback?.notificationOccurred("success");
+  } finally {
+    if (runId === clipboardRunId) clipboardBusy.value = false;
+  }
 }
 
 async function submit() {
-  if (submitting.value || !inviterUsername.value.trim()) return;
+  if (submitting.value || clipboardBusy.value || !inviterUsername.value.trim()) return;
   submitting.value = true;
   errorMessage.value = "";
   try {
@@ -325,6 +448,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   refreshRunId += 1;
+  clipboardRunId += 1;
   activeRefreshController?.abort();
   activeRefreshController = null;
   window.removeEventListener("referral-authorization-required", handleAuthorizationRequired);
@@ -379,6 +503,7 @@ onBeforeUnmount(() => {
 }
 
 .referral-gate__input {
+  min-width: 0;
   width: 100%;
   border: 0;
   outline: 0;
@@ -386,6 +511,35 @@ onBeforeUnmount(() => {
   font: inherit;
   font-size: 16px;
   color: #191919;
+}
+
+.referral-gate__paste {
+  min-height: 44px;
+  min-width: 66px;
+  flex: 0 0 auto;
+  padding: 0 2px 0 10px;
+  border: 0;
+  background: transparent;
+  color: #d20a09;
+  font-family: "SF Pro Display", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.referral-gate__paste:active:not([aria-disabled="true"]) {
+  opacity: 0.58;
+}
+
+.referral-gate__paste:focus-visible {
+  outline: 2px solid rgba(210, 10, 9, 0.32);
+  outline-offset: 2px;
+  border-radius: 8px;
+}
+
+.referral-gate__paste[aria-disabled="true"] {
+  cursor: wait;
+  opacity: 0.48;
 }
 
 .referral-gate__error {
@@ -396,6 +550,11 @@ onBeforeUnmount(() => {
 .referral-gate__attempts {
   margin-top: 6px;
   color: #7a828e;
+}
+
+.referral-gate__clipboard-hint {
+  margin-top: 8px;
+  color: #626975;
 }
 
 .referral-gate__cta {

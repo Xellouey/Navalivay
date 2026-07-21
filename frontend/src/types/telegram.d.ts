@@ -139,7 +139,7 @@ declare global {
         closeScanQrPopup(): void
         
         // Clipboard
-        readTextFromClipboard(callback?: (data: string) => void): void
+        readTextFromClipboard?(callback?: (data: string | null) => void): void
         
         // Biometry
         BiometricManager?: {
