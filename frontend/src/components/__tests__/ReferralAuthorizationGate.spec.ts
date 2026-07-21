@@ -148,6 +148,33 @@ describe("ReferralAuthorizationGate", () => {
     wrapper.unmount();
   });
 
+  it("asks Telegram users without a username to set one in Telegram settings", async () => {
+    Object.defineProperty(window, "Telegram", {
+      configurable: true,
+      value: {
+        WebApp: {
+          initData: "signed-init-data",
+          initDataUnsafe: {
+            user: { id: 990000031, first_name: "No Username" },
+          },
+        },
+      },
+    });
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const wrapper = mount(ReferralAuthorizationGate, {
+      global: { stubs: { CustomerModalShell: shellStub } },
+    });
+    await flushPromises();
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(wrapper.find(".modal-shell").exists()).toBe(true);
+    expect(wrapper.text()).toContain("Установите имя пользователя @username в настройках Telegram");
+    expect(wrapper.emitted("gate-active")?.at(-1)).toEqual([true]);
+    wrapper.unmount();
+  });
+
   it("switches an authorization ban to the common block screen", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response({
       enabled: true,

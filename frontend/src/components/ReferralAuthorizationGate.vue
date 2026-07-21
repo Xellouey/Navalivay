@@ -76,7 +76,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue"
 import CustomerModalShell from "@/components/CustomerModalShell.vue";
 import { useCustomerBlock } from "@/composables/useCustomerBlock";
 import { getTelegramIdentity } from "@/utils/customerOrders";
-import { withTelegramAuthHeaders } from "@/utils/telegramAuth";
+import { getTelegramInitData, withTelegramAuthHeaders } from "@/utils/telegramAuth";
 
 type GatePhase = "hidden" | "checking" | "required" | "error";
 
@@ -104,8 +104,13 @@ function hasTelegramIdentity() {
 }
 
 async function refreshStatus() {
-  if (!hasTelegramIdentity()) {
+  if (!getTelegramInitData() || !hasTelegramIdentity()) {
     errorMessage.value = "Откройте приложение через Telegram, чтобы пройти авторизацию.";
+    phase.value = "error";
+    return;
+  }
+  if (!getTelegramIdentity().telegramUsername) {
+    errorMessage.value = "Установите имя пользователя @username в настройках Telegram";
     phase.value = "error";
     return;
   }
