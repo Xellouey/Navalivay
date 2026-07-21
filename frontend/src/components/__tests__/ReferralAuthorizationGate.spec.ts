@@ -154,12 +154,17 @@ describe("ReferralAuthorizationGate", () => {
 
     const input = wrapper.find("input");
     const inputElement = input.element as HTMLInputElement;
+    const submitButton = wrapper.find("button[type='submit']");
+    const submitButtonElement = submitButton.element;
+    expect(submitButton.attributes("disabled")).toBeUndefined();
     inputElement.focus();
     for (const value of ["@r", "@rk", "@rk0", "@rk", "@r", ""]) {
       await input.setValue(value);
       expect(input.element).toBe(inputElement);
       expect(document.activeElement).toBe(inputElement);
       expect(inputElement.value).toBe(value);
+      expect(wrapper.find("button[type='submit']").element).toBe(submitButtonElement);
+      expect(wrapper.find("button[type='submit']").attributes("disabled")).toBeUndefined();
     }
 
     await input.setValue("  @Good_User  ");
@@ -168,6 +173,31 @@ describe("ReferralAuthorizationGate", () => {
     expect(JSON.parse(String(fetchMock.mock.calls[1][1]?.body))).toEqual({
       inviter_username: "Good_User",
     });
+    wrapper.unmount();
+  });
+
+  it("does not call the server for an empty username and returns focus to the input", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(response({
+      enabled: true,
+      required: true,
+      attempts_used: 0,
+      attempts_remaining: 3,
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const wrapper = mount(ReferralAuthorizationGate, {
+      attachTo: document.body,
+      global: { stubs: { CustomerModalShell: shellStub } },
+    });
+    await flushPromises();
+
+    const inputElement = wrapper.find("input").element as HTMLInputElement;
+    await wrapper.find("form").trigger("submit");
+    await flushPromises();
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(wrapper.text()).toContain("Введите username пригласившего");
+    expect(document.activeElement).toBe(inputElement);
     wrapper.unmount();
   });
 
@@ -559,15 +589,68 @@ describe("ReferralAuthorizationGate", () => {
       }, false, 422)));
 
     const wrapper = mount(ReferralAuthorizationGate, {
+      attachTo: document.body,
       global: { stubs: { CustomerModalShell: shellStub } },
     });
     await flushPromises();
-    await wrapper.find("input").setValue("missing_user");
+    const input = wrapper.find("input");
+    const inputElement = input.element as HTMLInputElement;
+    inputElement.focus();
+    await input.setValue("missing_user");
     await wrapper.find("form").trigger("submit");
     await flushPromises();
 
     expect(wrapper.find(".modal-shell").exists()).toBe(true);
     expect(wrapper.text()).toContain("Осталось попыток: 2");
+    expect(wrapper.text()).toContain("Пользователь не найден");
+    expect(input.attributes("disabled")).toBeUndefined();
+    expect(document.activeElement).toBe(inputElement);
+
+    await input.setValue("corrected_user");
+    expect(wrapper.text()).not.toContain("Пользователь не найден");
+    expect(document.activeElement).toBe(inputElement);
+    wrapper.unmount();
+  });
+
+  it("keeps the submitted username unchanged while the server checks it", async () => {
+    let resolveAuthorization!: (value: Response) => void;
+    const authorizationResponse = new Promise<Response>((resolve) => {
+      resolveAuthorization = resolve;
+    });
+    vi.stubGlobal("fetch", vi.fn()
+      .mockResolvedValueOnce(response({ enabled: true, required: true, attempts_remaining: 3 }))
+      .mockReturnValueOnce(authorizationResponse));
+
+    const wrapper = mount(ReferralAuthorizationGate, {
+      attachTo: document.body,
+      global: { stubs: { CustomerModalShell: shellStub } },
+    });
+    await flushPromises();
+
+    const input = wrapper.find("input");
+    const inputElement = input.element as HTMLInputElement;
+    inputElement.focus();
+    await input.setValue("first_user");
+    await wrapper.find("form").trigger("submit");
+
+    const beforeInput = new InputEvent("beforeinput", {
+      bubbles: true,
+      cancelable: true,
+      data: "x",
+      inputType: "insertText",
+    });
+    expect(inputElement.dispatchEvent(beforeInput)).toBe(false);
+    inputElement.value = "changed_user";
+    inputElement.dispatchEvent(new Event("input", { bubbles: true }));
+    expect(inputElement.value).toBe("first_user");
+    expect(document.activeElement).toBe(inputElement);
+
+    resolveAuthorization(response({
+      error: "referral_inviter_not_eligible",
+      message: "Пользователь не найден",
+      attempts_remaining: 2,
+    }, false, 422));
+    await flushPromises();
     expect(wrapper.text()).toContain("Пользователь не найден");
     wrapper.unmount();
   });

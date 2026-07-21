@@ -25,24 +25,18 @@
         Username пригласившего
       </label>
       <div class="referral-gate__input-wrap">
-        <span
-          class="referral-gate__prefix"
-          :class="{ 'referral-gate__prefix--hidden': hasTypedAtPrefix }"
-          aria-hidden="true"
-        >@</span>
         <input
           id="global-referral-username"
           ref="inputRef"
-          v-model="inviterUsername"
           class="referral-gate__input"
           type="text"
           inputmode="text"
           autocomplete="off"
           autocapitalize="none"
           spellcheck="false"
-          placeholder="username"
-          :disabled="submitting"
+          placeholder="@username"
           aria-describedby="global-referral-feedback"
+          @beforeinput="handleBeforeInput"
           @input="handleInput"
           @paste="handlePaste"
         />
@@ -60,7 +54,7 @@
           form="referral-authorization-form"
           type="submit"
           class="referral-gate__cta"
-          :disabled="submitting || !normalizedInviterUsername"
+          :disabled="submitting"
         >
           {{ submitting ? "Проверяем…" : "Пройти авторизацию" }}
         </button>
@@ -114,7 +108,6 @@ const emit = defineEmits<{
 }>();
 const { applyBlockFromResponse } = useCustomerBlock();
 const phase = ref<GatePhase>("checking");
-const inviterUsername = ref("");
 const errorMessage = ref("");
 const attemptsRemaining = ref(3);
 const submitting = ref(false);
@@ -122,6 +115,7 @@ const inputRef = ref<HTMLInputElement | null>(null);
 const retryButtonRef = ref<HTMLButtonElement | null>(null);
 let refreshRunId = 0;
 let activeRefreshController: AbortController | null = null;
+let submittedInputValue = "";
 
 const modalTitle = computed(() => {
   if (phase.value === "checking") return "Проверяем доступ";
@@ -130,10 +124,6 @@ const modalTitle = computed(() => {
 });
 
 const canCloseMiniApp = computed(() => typeof window.Telegram?.WebApp?.close === "function");
-const normalizedInviterUsername = computed(() => (
-  inviterUsername.value.trim().replace(/^@+/, "")
-));
-const hasTypedAtPrefix = computed(() => inviterUsername.value.trimStart().startsWith("@"));
 
 function wait(ms: number, signal: AbortSignal) {
   return new Promise<boolean>((resolve) => {
@@ -289,11 +279,23 @@ watch(
   { immediate: true },
 );
 
+function handleBeforeInput(event: InputEvent) {
+  if (submitting.value) event.preventDefault();
+}
+
 function handleInput() {
-  errorMessage.value = "";
+  if (submitting.value && inputRef.value) {
+    inputRef.value.value = submittedInputValue;
+    return;
+  }
+  if (errorMessage.value) errorMessage.value = "";
 }
 
 function handlePaste(event: ClipboardEvent) {
+  if (submitting.value) {
+    event.preventDefault();
+    return;
+  }
   const input = event.currentTarget as HTMLInputElement | null;
   const clipboardText = event.clipboardData?.getData("text");
   if (!input || typeof clipboardText !== "string") return;
@@ -303,13 +305,19 @@ function handlePaste(event: ClipboardEvent) {
   const selectionEnd = input.selectionEnd ?? selectionStart;
   event.preventDefault();
   input.setRangeText(normalizedPaste, selectionStart, selectionEnd, "end");
-  inviterUsername.value = input.value;
-  errorMessage.value = "";
+  if (errorMessage.value) errorMessage.value = "";
 }
 
 async function submit() {
-  const normalizedUsername = normalizedInviterUsername.value;
-  if (submitting.value || !normalizedUsername) return;
+  const normalizedUsername = String(inputRef.value?.value || "").trim().replace(/^@+/, "");
+  if (submitting.value) return;
+  if (!normalizedUsername) {
+    errorMessage.value = "Введите username пригласившего";
+    await nextTick();
+    inputRef.value?.focus();
+    return;
+  }
+  submittedInputValue = inputRef.value?.value || "";
   submitting.value = true;
   errorMessage.value = "";
   try {
@@ -336,6 +344,7 @@ async function submit() {
     errorMessage.value = "Не удалось проверить доступ. Проверьте интернет и повторите.";
   } finally {
     submitting.value = false;
+    submittedInputValue = "";
   }
 }
 
@@ -408,18 +417,6 @@ onBeforeUnmount(() => {
   font: inherit;
   font-size: 16px;
   color: #191919;
-}
-
-.referral-gate__prefix {
-  flex: 0 0 auto;
-  width: 10px;
-}
-
-.referral-gate__prefix--hidden {
-  visibility: hidden;
-  width: 0;
-  margin-right: -4px;
-  overflow: hidden;
 }
 
 .referral-gate__error {
