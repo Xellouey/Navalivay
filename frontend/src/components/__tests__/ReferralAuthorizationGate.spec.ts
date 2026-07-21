@@ -79,7 +79,7 @@ describe("ReferralAuthorizationGate", () => {
     expect(document.activeElement).toBe(wrapper.find("input").element);
 
     await wrapper.find("input").setValue("@Good_User");
-    expect((wrapper.find("input").element as HTMLInputElement).value).toBe("Good_User");
+    expect((wrapper.find("input").element as HTMLInputElement).value).toBe("@Good_User");
     await wrapper.find("form").trigger("submit");
     await flushPromises();
 
@@ -126,6 +126,82 @@ describe("ReferralAuthorizationGate", () => {
       inviter_username: "Good_User",
     });
     expect(wrapper.find(".modal-shell").exists()).toBe(false);
+    wrapper.unmount();
+  });
+
+  it("keeps the same focused input while typing and deleting characters", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(response({
+        enabled: true,
+        required: true,
+        attempts_used: 0,
+        attempts_remaining: 3,
+      }))
+      .mockResolvedValueOnce(response({
+        success: true,
+        enabled: true,
+        authorized: true,
+        required: false,
+        attempts_remaining: 3,
+      }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const wrapper = mount(ReferralAuthorizationGate, {
+      attachTo: document.body,
+      global: { stubs: { CustomerModalShell: shellStub } },
+    });
+    await flushPromises();
+
+    const input = wrapper.find("input");
+    const inputElement = input.element as HTMLInputElement;
+    inputElement.focus();
+    for (const value of ["@r", "@rk", "@rk0", "@rk", "@r", ""]) {
+      await input.setValue(value);
+      expect(input.element).toBe(inputElement);
+      expect(document.activeElement).toBe(inputElement);
+      expect(inputElement.value).toBe(value);
+    }
+
+    await input.setValue("  @Good_User  ");
+    await wrapper.find("form").trigger("submit");
+    await flushPromises();
+    expect(JSON.parse(String(fetchMock.mock.calls[1][1]?.body))).toEqual({
+      inviter_username: "Good_User",
+    });
+    wrapper.unmount();
+  });
+
+  it("removes @ only when a username is pasted and keeps the input focused", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response({
+      enabled: true,
+      required: true,
+      attempts_used: 0,
+      attempts_remaining: 3,
+    })));
+
+    const wrapper = mount(ReferralAuthorizationGate, {
+      attachTo: document.body,
+      global: { stubs: { CustomerModalShell: shellStub } },
+    });
+    await flushPromises();
+
+    const input = wrapper.find("input");
+    const inputElement = input.element as HTMLInputElement;
+    inputElement.focus();
+    inputElement.setSelectionRange(0, 0);
+    await input.trigger("paste", {
+      clipboardData: { getData: () => "  @rk0ff  " },
+    });
+    expect(inputElement.value).toBe("rk0ff");
+    expect(document.activeElement).toBe(inputElement);
+
+    await input.setValue("");
+    inputElement.setSelectionRange(0, 0);
+    await input.trigger("paste", {
+      clipboardData: { getData: () => "plain_user" },
+    });
+    expect(inputElement.value).toBe("plain_user");
+    expect(document.activeElement).toBe(inputElement);
     wrapper.unmount();
   });
 

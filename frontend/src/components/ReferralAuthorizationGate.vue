@@ -25,11 +25,15 @@
         Username пригласившего
       </label>
       <div class="referral-gate__input-wrap">
-        <span aria-hidden="true">@</span>
+        <span
+          class="referral-gate__prefix"
+          :class="{ 'referral-gate__prefix--hidden': hasTypedAtPrefix }"
+          aria-hidden="true"
+        >@</span>
         <input
           id="global-referral-username"
           ref="inputRef"
-          v-model.trim="inviterUsername"
+          v-model="inviterUsername"
           class="referral-gate__input"
           type="text"
           inputmode="text"
@@ -40,6 +44,7 @@
           :disabled="submitting"
           aria-describedby="global-referral-feedback"
           @input="handleInput"
+          @paste="handlePaste"
         />
       </div>
       <div id="global-referral-feedback" aria-live="polite">
@@ -55,7 +60,7 @@
           form="referral-authorization-form"
           type="submit"
           class="referral-gate__cta"
-          :disabled="submitting || !inviterUsername.trim()"
+          :disabled="submitting || !normalizedInviterUsername"
         >
           {{ submitting ? "Проверяем…" : "Пройти авторизацию" }}
         </button>
@@ -125,6 +130,10 @@ const modalTitle = computed(() => {
 });
 
 const canCloseMiniApp = computed(() => typeof window.Telegram?.WebApp?.close === "function");
+const normalizedInviterUsername = computed(() => (
+  inviterUsername.value.trim().replace(/^@+/, "")
+));
+const hasTypedAtPrefix = computed(() => inviterUsername.value.trimStart().startsWith("@"));
 
 function wait(ms: number, signal: AbortSignal) {
   return new Promise<boolean>((resolve) => {
@@ -280,14 +289,27 @@ watch(
   { immediate: true },
 );
 
-function handleInput(event: Event) {
-  const input = event.target as HTMLInputElement | null;
-  inviterUsername.value = String(input?.value || "").trimStart().replace(/^@+/, "");
+function handleInput() {
+  errorMessage.value = "";
+}
+
+function handlePaste(event: ClipboardEvent) {
+  const input = event.currentTarget as HTMLInputElement | null;
+  const clipboardText = event.clipboardData?.getData("text");
+  if (!input || typeof clipboardText !== "string") return;
+
+  const normalizedPaste = clipboardText.trim().replace(/^@+/, "");
+  const selectionStart = input.selectionStart ?? input.value.length;
+  const selectionEnd = input.selectionEnd ?? selectionStart;
+  event.preventDefault();
+  input.setRangeText(normalizedPaste, selectionStart, selectionEnd, "end");
+  inviterUsername.value = input.value;
   errorMessage.value = "";
 }
 
 async function submit() {
-  if (submitting.value || !inviterUsername.value.trim()) return;
+  const normalizedUsername = normalizedInviterUsername.value;
+  if (submitting.value || !normalizedUsername) return;
   submitting.value = true;
   errorMessage.value = "";
   try {
@@ -295,7 +317,7 @@ async function submit() {
       method: "POST",
       headers: withTelegramAuthHeaders({ "Content-Type": "application/json" }),
       credentials: "include",
-      body: JSON.stringify({ inviter_username: inviterUsername.value.trim() }),
+      body: JSON.stringify({ inviter_username: normalizedUsername }),
     });
     const result = await response.json().catch(() => ({}));
     if (!response.ok) {
@@ -386,6 +408,18 @@ onBeforeUnmount(() => {
   font: inherit;
   font-size: 16px;
   color: #191919;
+}
+
+.referral-gate__prefix {
+  flex: 0 0 auto;
+  width: 10px;
+}
+
+.referral-gate__prefix--hidden {
+  visibility: hidden;
+  width: 0;
+  margin-right: -4px;
+  overflow: hidden;
 }
 
 .referral-gate__error {
