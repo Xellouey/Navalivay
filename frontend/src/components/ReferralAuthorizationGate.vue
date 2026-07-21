@@ -25,24 +25,21 @@
         Username пригласившего
       </label>
       <div class="referral-gate__input-wrap">
+        <span aria-hidden="true">@</span>
         <input
           id="global-referral-username"
           ref="inputRef"
+          v-model.trim="inviterUsername"
           class="referral-gate__input"
           type="text"
           inputmode="text"
           autocomplete="off"
           autocapitalize="none"
           spellcheck="false"
-          placeholder="@username или username"
+          placeholder="username"
+          :disabled="submitting"
           aria-describedby="global-referral-feedback"
-          @pointerdown="handleInputPointerDown"
-          @pointercancel="handleInputPointerCancel"
-          @focus="handleInputFocus"
-          @blur="handleInputBlur"
-          @beforeinput="handleBeforeInput"
           @input="handleInput"
-          @paste="handlePaste"
         />
       </div>
       <div id="global-referral-feedback" aria-live="polite">
@@ -55,11 +52,10 @@
       <div class="referral-gate__actions">
         <button
           v-if="phase === 'required'"
-          ref="submitButtonRef"
           form="referral-authorization-form"
           type="submit"
           class="referral-gate__cta"
-          :disabled="submitting"
+          :disabled="submitting || !inviterUsername.trim()"
         >
           {{ submitting ? "Проверяем…" : "Пройти авторизацию" }}
         </button>
@@ -102,23 +98,10 @@ import { getTelegramIdentity } from "@/utils/customerOrders";
 import { getTelegramInitData, withTelegramAuthHeaders } from "@/utils/telegramAuth";
 
 type GatePhase = "hidden" | "checking" | "required" | "error";
-type InputDiagnosticEvent = {
-  name: string;
-  at_ms: number;
-  active: string;
-  related?: string;
-  input_type?: string;
-  composing?: boolean;
-  connected: boolean;
-  inner_height: number;
-  visual_height: number | null;
-};
 
 const USERNAME_RETRY_DELAYS_MS = [0, 1200, 2400, 4000] as const;
 const USERNAME_RETRY_TIMEOUT_MS = 16000;
 const STATUS_CHECK_TIMEOUT_MS = 14000;
-const ANDROID_INPUT_REFOCUS_DELAY_MS = 100;
-const ANDROID_INPUT_INTENT_TIMEOUT_MS = 800;
 
 const emit = defineEmits<{
   authorized: [];
@@ -126,27 +109,14 @@ const emit = defineEmits<{
 }>();
 const { applyBlockFromResponse } = useCustomerBlock();
 const phase = ref<GatePhase>("checking");
+const inviterUsername = ref("");
 const errorMessage = ref("");
 const attemptsRemaining = ref(3);
 const submitting = ref(false);
 const inputRef = ref<HTMLInputElement | null>(null);
-const submitButtonRef = ref<HTMLButtonElement | null>(null);
 const retryButtonRef = ref<HTMLButtonElement | null>(null);
 let refreshRunId = 0;
 let activeRefreshController: AbortController | null = null;
-let submittedInputValue = "";
-let androidInputFocusIntent: HTMLInputElement | null = null;
-let androidInputFocusReadyFor: HTMLInputElement | null = null;
-let androidInputFocusPendingFor: HTMLInputElement | null = null;
-let androidInputFocusTimer: number | null = null;
-let androidInputFocusIntentTimer: number | null = null;
-const inputDiagnosticStartedAt = performance.now();
-const inputDiagnosticSessionId = globalThis.crypto?.randomUUID?.()
-  ?? `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
-const inputDiagnosticEvents: InputDiagnosticEvent[] = [];
-let inputDiagnosticReportTimer: number | null = null;
-let inputDiagnosticHasInput = false;
-let inputDiagnosticSent = false;
 
 const modalTitle = computed(() => {
   if (phase.value === "checking") return "Проверяем доступ";
@@ -155,10 +125,6 @@ const modalTitle = computed(() => {
 });
 
 const canCloseMiniApp = computed(() => typeof window.Telegram?.WebApp?.close === "function");
-const isTelegramAndroid = computed(() => {
-  const platform = String(window.Telegram?.WebApp?.platform || "").toLowerCase();
-  return platform === "android" || /android/i.test(window.navigator.userAgent);
-});
 
 function wait(ms: number, signal: AbortSignal) {
   return new Promise<boolean>((resolve) => {
@@ -307,206 +273,21 @@ watch(
   phase,
   async (nextPhase) => {
     emit("gate-active", nextPhase !== "hidden");
-    if (nextPhase !== "required") resetAndroidInputFocusWorkaround();
     await nextTick();
-    // Android Telegram WebView can create an unstable input connection when a
-    // field is focused before a real tap: the keyboard then closes on the
-    // first typed character. Let the user's tap establish focus on Android.
-    if (nextPhase === "required") {
-      if (isTelegramAndroid.value) submitButtonRef.value?.focus({ preventScroll: true });
-      else inputRef.value?.focus();
-    }
+    if (nextPhase === "required") inputRef.value?.focus();
     if (nextPhase === "error") retryButtonRef.value?.focus();
   },
   { immediate: true },
 );
 
-function handleBeforeInput(event: InputEvent) {
-  recordInputDiagnostic("beforeinput", {
-    input_type: event.inputType,
-    composing: event.isComposing,
-  });
-  if (submitting.value) event.preventDefault();
-}
-
-function activeElementLabel(element: EventTarget | Element | null = document.activeElement) {
-  if (!(element instanceof Element)) return "none";
-  const id = element.id ? `#${element.id}` : "";
-  return `${element.tagName.toLowerCase()}${id}`.slice(0, 48);
-}
-
-function recordInputDiagnostic(
-  name: string,
-  extra: Partial<Pick<InputDiagnosticEvent, "related" | "input_type" | "composing">> = {},
-) {
-  if (inputDiagnosticSent || inputDiagnosticEvents.length >= 30) return;
-  inputDiagnosticEvents.push({
-    name,
-    at_ms: Math.round(performance.now() - inputDiagnosticStartedAt),
-    active: activeElementLabel(),
-    connected: Boolean(inputRef.value?.isConnected),
-    inner_height: Math.round(window.innerHeight),
-    visual_height: window.visualViewport ? Math.round(window.visualViewport.height) : null,
-    ...extra,
-  });
-}
-
-function sendInputDiagnostic() {
-  if (inputDiagnosticSent || !inputDiagnosticHasInput) return;
-  inputDiagnosticSent = true;
-  if (inputDiagnosticReportTimer !== null) window.clearTimeout(inputDiagnosticReportTimer);
-  inputDiagnosticReportTimer = null;
-  const telegram = window.Telegram?.WebApp;
-  try {
-    void Promise.resolve(fetch("/api/referral-authorization/input-diagnostic", {
-      method: "POST",
-      headers: withTelegramAuthHeaders({ "Content-Type": "application/json" }),
-      credentials: "include",
-      keepalive: true,
-      body: JSON.stringify({
-        context: {
-          session_id: inputDiagnosticSessionId,
-          telegram_platform: telegram?.platform || "",
-          telegram_version: telegram?.version || "",
-          screen: `${window.screen.width}x${window.screen.height}@${window.devicePixelRatio}`,
-        },
-        events: inputDiagnosticEvents,
-      }),
-    })).catch(() => undefined);
-  } catch {
-    // Диагностика не должна влиять на авторизацию даже при сломанном fetch.
-  }
-}
-
-function scheduleInputDiagnostic() {
-  if (inputDiagnosticSent) return;
-  if (inputDiagnosticReportTimer !== null) window.clearTimeout(inputDiagnosticReportTimer);
-  inputDiagnosticReportTimer = window.setTimeout(sendInputDiagnostic, 900);
-}
-
-function handleInputBlur(event: FocusEvent) {
-  recordInputDiagnostic("blur", { related: activeElementLabel(event.relatedTarget) });
-  if (inputDiagnosticHasInput) scheduleInputDiagnostic();
-}
-
-function handleInputViewportChange() {
-  recordInputDiagnostic("viewport_resize");
-}
-
-function handleInputVisibilityChange() {
-  recordInputDiagnostic(`visibility_${document.visibilityState}`);
-}
-
-function resetAndroidInputFocusWorkaround() {
-  if (androidInputFocusTimer !== null) window.clearTimeout(androidInputFocusTimer);
-  if (androidInputFocusIntentTimer !== null) window.clearTimeout(androidInputFocusIntentTimer);
-  androidInputFocusTimer = null;
-  androidInputFocusIntentTimer = null;
-  androidInputFocusIntent = null;
-  androidInputFocusPendingFor = null;
-  androidInputFocusReadyFor = null;
-}
-
-function handleInputPointerDown(event: PointerEvent) {
-  recordInputDiagnostic("pointerdown");
-  if (!isTelegramAndroid.value) return;
-  androidInputFocusIntent = event.currentTarget as HTMLInputElement | null;
-  if (androidInputFocusIntentTimer !== null) window.clearTimeout(androidInputFocusIntentTimer);
-  androidInputFocusIntentTimer = window.setTimeout(() => {
-    androidInputFocusIntentTimer = null;
-    androidInputFocusIntent = null;
-  }, ANDROID_INPUT_INTENT_TIMEOUT_MS);
-}
-
-function handleInputPointerCancel(event: PointerEvent) {
-  recordInputDiagnostic("pointercancel");
-  if (androidInputFocusIntent !== event.currentTarget) return;
-  if (androidInputFocusIntentTimer !== null) window.clearTimeout(androidInputFocusIntentTimer);
-  androidInputFocusIntentTimer = null;
-  androidInputFocusIntent = null;
-}
-
-function handleInputFocus(event: FocusEvent) {
-  recordInputDiagnostic("focus");
-  const input = event.currentTarget as HTMLInputElement | null;
-  if (
-    !input
-    || !isTelegramAndroid.value
-    || androidInputFocusIntent !== input
-    || androidInputFocusReadyFor === input
-  ) return;
-
-  androidInputFocusIntent = null;
-  if (androidInputFocusIntentTimer !== null) window.clearTimeout(androidInputFocusIntentTimer);
-  androidInputFocusIntentTimer = null;
-  if (androidInputFocusTimer !== null) window.clearTimeout(androidInputFocusTimer);
-  const selectionStart = input.selectionStart;
-  const selectionEnd = input.selectionEnd;
-  androidInputFocusPendingFor = input;
-  recordInputDiagnostic("workaround_blur");
-  input.blur();
-  androidInputFocusTimer = window.setTimeout(() => {
-    androidInputFocusTimer = null;
-    if (
-      phase.value !== "required"
-      || androidInputFocusPendingFor !== input
-      || !input.isConnected
-      || (document.activeElement !== document.body && document.activeElement !== null)
-    ) {
-      if (androidInputFocusPendingFor === input) androidInputFocusPendingFor = null;
-      return;
-    }
-    androidInputFocusPendingFor = null;
-    androidInputFocusReadyFor = input;
-    recordInputDiagnostic("workaround_refocus");
-    input.focus({ preventScroll: true });
-    if (selectionStart !== null && selectionEnd !== null) {
-      input.setSelectionRange(selectionStart, selectionEnd);
-    }
-  }, ANDROID_INPUT_REFOCUS_DELAY_MS);
-}
-
 function handleInput(event: Event) {
-  const inputEvent = event as InputEvent;
-  inputDiagnosticHasInput = true;
-  recordInputDiagnostic("input", {
-    input_type: inputEvent.inputType,
-    composing: inputEvent.isComposing,
-  });
-  scheduleInputDiagnostic();
-  if (submitting.value && inputRef.value) {
-    inputRef.value.value = submittedInputValue;
-    return;
-  }
-  if (errorMessage.value) errorMessage.value = "";
-}
-
-function handlePaste(event: ClipboardEvent) {
-  if (submitting.value) {
-    event.preventDefault();
-    return;
-  }
-  const input = event.currentTarget as HTMLInputElement | null;
-  const clipboardText = event.clipboardData?.getData("text");
-  if (!input || typeof clipboardText !== "string") return;
-
-  const normalizedPaste = clipboardText.trim().replace(/^@+/, "");
-  const selectionStart = input.selectionStart ?? input.value.length;
-  const selectionEnd = input.selectionEnd ?? selectionStart;
-  event.preventDefault();
-  input.setRangeText(normalizedPaste, selectionStart, selectionEnd, "end");
-  if (errorMessage.value) errorMessage.value = "";
+  const input = event.target as HTMLInputElement | null;
+  inviterUsername.value = String(input?.value || "").trimStart().replace(/^@+/, "");
+  errorMessage.value = "";
 }
 
 async function submit() {
-  const normalizedUsername = String(inputRef.value?.value || "").trim().replace(/^@+/, "");
-  if (submitting.value) return;
-  if (!normalizedUsername) {
-    errorMessage.value = "Введите username пригласившего";
-    inputRef.value?.focus({ preventScroll: true });
-    return;
-  }
-  submittedInputValue = inputRef.value?.value || "";
+  if (submitting.value || !inviterUsername.value.trim()) return;
   submitting.value = true;
   errorMessage.value = "";
   try {
@@ -514,7 +295,7 @@ async function submit() {
       method: "POST",
       headers: withTelegramAuthHeaders({ "Content-Type": "application/json" }),
       credentials: "include",
-      body: JSON.stringify({ inviter_username: normalizedUsername }),
+      body: JSON.stringify({ inviter_username: inviterUsername.value.trim() }),
     });
     const result = await response.json().catch(() => ({}));
     if (!response.ok) {
@@ -533,16 +314,12 @@ async function submit() {
     errorMessage.value = "Не удалось проверить доступ. Проверьте интернет и повторите.";
   } finally {
     submitting.value = false;
-    submittedInputValue = "";
   }
 }
 
 onMounted(() => {
   window.addEventListener("referral-authorization-required", handleAuthorizationRequired);
   window.Telegram?.WebApp?.onEvent?.("activated", handleTelegramActivated);
-  window.addEventListener("resize", handleInputViewportChange);
-  window.visualViewport?.addEventListener("resize", handleInputViewportChange);
-  document.addEventListener("visibilitychange", handleInputVisibilityChange);
   void refreshStatus();
 });
 
@@ -550,15 +327,8 @@ onBeforeUnmount(() => {
   refreshRunId += 1;
   activeRefreshController?.abort();
   activeRefreshController = null;
-  if (inputDiagnosticHasInput) sendInputDiagnostic();
-  if (inputDiagnosticReportTimer !== null) window.clearTimeout(inputDiagnosticReportTimer);
-  inputDiagnosticReportTimer = null;
-  resetAndroidInputFocusWorkaround();
   window.removeEventListener("referral-authorization-required", handleAuthorizationRequired);
   window.Telegram?.WebApp?.offEvent?.("activated", handleTelegramActivated);
-  window.removeEventListener("resize", handleInputViewportChange);
-  window.visualViewport?.removeEventListener("resize", handleInputViewportChange);
-  document.removeEventListener("visibilitychange", handleInputVisibilityChange);
 });
 </script>
 
