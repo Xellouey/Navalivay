@@ -629,6 +629,22 @@ async function testReferralAuthorizationOrderFlow() {
   assert.equal(status.response.status, 200);
   assert.equal(status.data.required, true);
 
+  const unsignedInputDiagnostic = await requestJson('/api/referral-authorization/input-diagnostic', {
+    method: 'POST',
+    headers: jsonHeaders(),
+    body: JSON.stringify({ events: [] }),
+  });
+  assert.equal(unsignedInputDiagnostic.response.status, 401);
+  const signedInputDiagnostic = await requestJson('/api/referral-authorization/input-diagnostic', {
+    method: 'POST',
+    headers: telegramHeaders(identity),
+    body: JSON.stringify({
+      context: { session_id: 'test-session', telegram_platform: 'android' },
+      events: [{ name: 'input', at_ms: 100, active: 'input#field', inner_height: 700 }],
+    }),
+  });
+  assert.equal(signedInputDiagnostic.response.status, 204);
+
   const visitIdentity = { telegram_id: '7150', telegram_username: 'visit_only_new' };
   const visit = await requestJson('/api/visits/log', {
     method: 'POST',

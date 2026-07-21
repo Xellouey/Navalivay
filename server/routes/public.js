@@ -135,6 +135,12 @@ const publicMiniAppMutationLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
 });
+const referralInputDiagnosticLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 120,
+  standardHeaders: true,
+  legacyHeaders: false,
+});
 
 function generateId(prefix) {
   return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
@@ -1820,6 +1826,47 @@ publicRouter.get(
   (req, res) => {
     const telegramId = String(req.telegramAuth?.telegramId || "").trim();
     return res.json(getReferralAuthorizationStatus(telegramId));
+  },
+);
+
+// Временная безопасная диагностика Android WebView: фиксируем только события
+// фокуса и размеры окна. Введённый текст и initData сюда не передаются.
+publicRouter.post(
+  "/api/referral-authorization/input-diagnostic",
+  referralInputDiagnosticLimiter,
+  requireTelegramMiniAppAuth({ allowInsecureFallback: allowInsecureTelegramFallback }),
+  (req, res) => {
+    const telegramId = String(req.telegramAuth?.telegramId || "").trim();
+    const rawEvents = Array.isArray(req.body?.events) ? req.body.events.slice(0, 30) : [];
+    const events = rawEvents.map((event) => ({
+      name: String(event?.name || "").slice(0, 32),
+      at_ms: Number.isFinite(Number(event?.at_ms)) ? Math.max(0, Math.round(Number(event.at_ms))) : 0,
+      active: String(event?.active || "").slice(0, 48),
+      related: String(event?.related || "").slice(0, 48),
+      input_type: String(event?.input_type || "").slice(0, 32),
+      composing: Boolean(event?.composing),
+      connected: Boolean(event?.connected),
+      inner_height: Number.isFinite(Number(event?.inner_height)) ? Math.round(Number(event.inner_height)) : null,
+      visual_height: Number.isFinite(Number(event?.visual_height)) ? Math.round(Number(event.visual_height)) : null,
+    }));
+    const context = req.body?.context && typeof req.body.context === "object"
+      ? {
+          session_id: String(req.body.context.session_id || "").slice(0, 48),
+          telegram_platform: String(req.body.context.telegram_platform || "").slice(0, 24),
+          telegram_version: String(req.body.context.telegram_version || "").slice(0, 24),
+          screen: String(req.body.context.screen || "").slice(0, 32),
+        }
+      : {};
+
+    console.log(JSON.stringify({
+      ev: "referral_input_diagnostic",
+      ts: new Date().toISOString(),
+      telegram_id: telegramId,
+      user_agent: String(req.get("user-agent") || "").slice(0, 240),
+      context,
+      events,
+    }));
+    return res.status(204).end();
   },
 );
 

@@ -129,6 +129,38 @@ describe("ReferralAuthorizationGate", () => {
     wrapper.unmount();
   });
 
+  it("reports first-input focus diagnostics without sending the entered username", async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(response({
+        enabled: true,
+        required: true,
+        attempts_used: 0,
+        attempts_remaining: 3,
+      }))
+      .mockResolvedValueOnce(response(null, true, 204));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const wrapper = mount(ReferralAuthorizationGate, {
+      attachTo: document.body,
+      global: { stubs: { CustomerModalShell: shellStub } },
+    });
+    await flushPromises();
+
+    await wrapper.find("input").setValue("@SecretInviter");
+    await vi.advanceTimersByTimeAsync(900);
+    await flushPromises();
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls[1][0]).toBe("/api/referral-authorization/input-diagnostic");
+    const diagnosticBody = String(fetchMock.mock.calls[1][1]?.body);
+    expect(diagnosticBody).not.toContain("SecretInviter");
+    expect(JSON.parse(diagnosticBody).events).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: "input" }),
+    ]));
+    wrapper.unmount();
+  });
+
   it("keeps the same focused input while typing and deleting characters", async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(response({

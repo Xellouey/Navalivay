@@ -39,6 +39,7 @@
           @pointerdown="handleInputPointerDown"
           @pointercancel="handleInputPointerCancel"
           @focus="handleInputFocus"
+          @blur="handleInputBlur"
           @beforeinput="handleBeforeInput"
           @input="handleInput"
           @paste="handlePaste"
@@ -101,6 +102,17 @@ import { getTelegramIdentity } from "@/utils/customerOrders";
 import { getTelegramInitData, withTelegramAuthHeaders } from "@/utils/telegramAuth";
 
 type GatePhase = "hidden" | "checking" | "required" | "error";
+type InputDiagnosticEvent = {
+  name: string;
+  at_ms: number;
+  active: string;
+  related?: string;
+  input_type?: string;
+  composing?: boolean;
+  connected: boolean;
+  inner_height: number;
+  visual_height: number | null;
+};
 
 const USERNAME_RETRY_DELAYS_MS = [0, 1200, 2400, 4000] as const;
 const USERNAME_RETRY_TIMEOUT_MS = 16000;
@@ -128,6 +140,13 @@ let androidInputFocusReadyFor: HTMLInputElement | null = null;
 let androidInputFocusPendingFor: HTMLInputElement | null = null;
 let androidInputFocusTimer: number | null = null;
 let androidInputFocusIntentTimer: number | null = null;
+const inputDiagnosticStartedAt = performance.now();
+const inputDiagnosticSessionId = globalThis.crypto?.randomUUID?.()
+  ?? `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+const inputDiagnosticEvents: InputDiagnosticEvent[] = [];
+let inputDiagnosticReportTimer: number | null = null;
+let inputDiagnosticHasInput = false;
+let inputDiagnosticSent = false;
 
 const modalTitle = computed(() => {
   if (phase.value === "checking") return "Проверяем доступ";
@@ -303,7 +322,79 @@ watch(
 );
 
 function handleBeforeInput(event: InputEvent) {
+  recordInputDiagnostic("beforeinput", {
+    input_type: event.inputType,
+    composing: event.isComposing,
+  });
   if (submitting.value) event.preventDefault();
+}
+
+function activeElementLabel(element: EventTarget | Element | null = document.activeElement) {
+  if (!(element instanceof Element)) return "none";
+  const id = element.id ? `#${element.id}` : "";
+  return `${element.tagName.toLowerCase()}${id}`.slice(0, 48);
+}
+
+function recordInputDiagnostic(
+  name: string,
+  extra: Partial<Pick<InputDiagnosticEvent, "related" | "input_type" | "composing">> = {},
+) {
+  if (inputDiagnosticSent || inputDiagnosticEvents.length >= 30) return;
+  inputDiagnosticEvents.push({
+    name,
+    at_ms: Math.round(performance.now() - inputDiagnosticStartedAt),
+    active: activeElementLabel(),
+    connected: Boolean(inputRef.value?.isConnected),
+    inner_height: Math.round(window.innerHeight),
+    visual_height: window.visualViewport ? Math.round(window.visualViewport.height) : null,
+    ...extra,
+  });
+}
+
+function sendInputDiagnostic() {
+  if (inputDiagnosticSent || !inputDiagnosticHasInput) return;
+  inputDiagnosticSent = true;
+  if (inputDiagnosticReportTimer !== null) window.clearTimeout(inputDiagnosticReportTimer);
+  inputDiagnosticReportTimer = null;
+  const telegram = window.Telegram?.WebApp;
+  try {
+    void Promise.resolve(fetch("/api/referral-authorization/input-diagnostic", {
+      method: "POST",
+      headers: withTelegramAuthHeaders({ "Content-Type": "application/json" }),
+      credentials: "include",
+      keepalive: true,
+      body: JSON.stringify({
+        context: {
+          session_id: inputDiagnosticSessionId,
+          telegram_platform: telegram?.platform || "",
+          telegram_version: telegram?.version || "",
+          screen: `${window.screen.width}x${window.screen.height}@${window.devicePixelRatio}`,
+        },
+        events: inputDiagnosticEvents,
+      }),
+    })).catch(() => undefined);
+  } catch {
+    // Диагностика не должна влиять на авторизацию даже при сломанном fetch.
+  }
+}
+
+function scheduleInputDiagnostic() {
+  if (inputDiagnosticSent) return;
+  if (inputDiagnosticReportTimer !== null) window.clearTimeout(inputDiagnosticReportTimer);
+  inputDiagnosticReportTimer = window.setTimeout(sendInputDiagnostic, 900);
+}
+
+function handleInputBlur(event: FocusEvent) {
+  recordInputDiagnostic("blur", { related: activeElementLabel(event.relatedTarget) });
+  if (inputDiagnosticHasInput) scheduleInputDiagnostic();
+}
+
+function handleInputViewportChange() {
+  recordInputDiagnostic("viewport_resize");
+}
+
+function handleInputVisibilityChange() {
+  recordInputDiagnostic(`visibility_${document.visibilityState}`);
 }
 
 function resetAndroidInputFocusWorkaround() {
@@ -317,6 +408,7 @@ function resetAndroidInputFocusWorkaround() {
 }
 
 function handleInputPointerDown(event: PointerEvent) {
+  recordInputDiagnostic("pointerdown");
   if (!isTelegramAndroid.value) return;
   androidInputFocusIntent = event.currentTarget as HTMLInputElement | null;
   if (androidInputFocusIntentTimer !== null) window.clearTimeout(androidInputFocusIntentTimer);
@@ -327,6 +419,7 @@ function handleInputPointerDown(event: PointerEvent) {
 }
 
 function handleInputPointerCancel(event: PointerEvent) {
+  recordInputDiagnostic("pointercancel");
   if (androidInputFocusIntent !== event.currentTarget) return;
   if (androidInputFocusIntentTimer !== null) window.clearTimeout(androidInputFocusIntentTimer);
   androidInputFocusIntentTimer = null;
@@ -334,6 +427,7 @@ function handleInputPointerCancel(event: PointerEvent) {
 }
 
 function handleInputFocus(event: FocusEvent) {
+  recordInputDiagnostic("focus");
   const input = event.currentTarget as HTMLInputElement | null;
   if (
     !input
@@ -349,6 +443,7 @@ function handleInputFocus(event: FocusEvent) {
   const selectionStart = input.selectionStart;
   const selectionEnd = input.selectionEnd;
   androidInputFocusPendingFor = input;
+  recordInputDiagnostic("workaround_blur");
   input.blur();
   androidInputFocusTimer = window.setTimeout(() => {
     androidInputFocusTimer = null;
@@ -363,6 +458,7 @@ function handleInputFocus(event: FocusEvent) {
     }
     androidInputFocusPendingFor = null;
     androidInputFocusReadyFor = input;
+    recordInputDiagnostic("workaround_refocus");
     input.focus({ preventScroll: true });
     if (selectionStart !== null && selectionEnd !== null) {
       input.setSelectionRange(selectionStart, selectionEnd);
@@ -370,7 +466,14 @@ function handleInputFocus(event: FocusEvent) {
   }, ANDROID_INPUT_REFOCUS_DELAY_MS);
 }
 
-function handleInput() {
+function handleInput(event: Event) {
+  const inputEvent = event as InputEvent;
+  inputDiagnosticHasInput = true;
+  recordInputDiagnostic("input", {
+    input_type: inputEvent.inputType,
+    composing: inputEvent.isComposing,
+  });
+  scheduleInputDiagnostic();
   if (submitting.value && inputRef.value) {
     inputRef.value.value = submittedInputValue;
     return;
@@ -437,6 +540,9 @@ async function submit() {
 onMounted(() => {
   window.addEventListener("referral-authorization-required", handleAuthorizationRequired);
   window.Telegram?.WebApp?.onEvent?.("activated", handleTelegramActivated);
+  window.addEventListener("resize", handleInputViewportChange);
+  window.visualViewport?.addEventListener("resize", handleInputViewportChange);
+  document.addEventListener("visibilitychange", handleInputVisibilityChange);
   void refreshStatus();
 });
 
@@ -444,9 +550,15 @@ onBeforeUnmount(() => {
   refreshRunId += 1;
   activeRefreshController?.abort();
   activeRefreshController = null;
+  if (inputDiagnosticHasInput) sendInputDiagnostic();
+  if (inputDiagnosticReportTimer !== null) window.clearTimeout(inputDiagnosticReportTimer);
+  inputDiagnosticReportTimer = null;
   resetAndroidInputFocusWorkaround();
   window.removeEventListener("referral-authorization-required", handleAuthorizationRequired);
   window.Telegram?.WebApp?.offEvent?.("activated", handleTelegramActivated);
+  window.removeEventListener("resize", handleInputViewportChange);
+  window.visualViewport?.removeEventListener("resize", handleInputViewportChange);
+  document.removeEventListener("visibilitychange", handleInputVisibilityChange);
 });
 </script>
 
