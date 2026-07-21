@@ -160,6 +160,38 @@ try {
   assert.equal(legacyStyleItem.category_name, regularDisplay.category_name);
   assert.equal(legacyStyleItem.group_name, regularDisplay.group_name);
   assert.equal(legacyStyleItem.product_image, '/uploads/regular-transfer.jpg');
+  db.prepare('DELETE FROM product_images WHERE productId = ?').run('product_regular');
+  db.prepare('UPDATE category_groups SET cover_image = ? WHERE id = ?')
+    .run('/uploads/group-transfer.jpg', regularDisplay.group_id);
+  const fallbackTransfer = await requestJson(`/api/admin/inventory/transfers/${moveToWarehouse.data.id}`);
+  const fallbackTransferItem = fallbackTransfer.data.items.find((item) => item.product_id === 'product_regular');
+  assert.equal(fallbackTransferItem.product_image, '/uploads/group-transfer.jpg');
+  db.prepare('INSERT INTO product_images (productId, url, position) VALUES (?, ?, ?)')
+    .run('product_regular', '/uploads/regular-transfer.jpg', 0);
+  db.prepare('UPDATE category_groups SET cover_image = NULL WHERE id = ?').run(regularDisplay.group_id);
+
+  db.prepare('DELETE FROM product_images WHERE productId = ? AND variant_id IS NULL').run('product_variant');
+  db.prepare('UPDATE category_groups SET cover_image = ? WHERE id = ?')
+    .run('/uploads/group-transfer.jpg', regularDisplay.group_id);
+  const variantFallbackMove = await requestJson('/api/admin/inventory/transfers', {
+    method: 'POST',
+    body: JSON.stringify({
+      source_location: 'retail',
+      destination_location: 'warehouse',
+      items: [{ product_id: 'product_variant', variant_id: 'variant_white', quantity: 1 }],
+    }),
+  });
+  assert.equal(variantFallbackMove.response.status, 200);
+  assert.equal(variantFallbackMove.data.items[0].product_image, '/uploads/group-transfer.jpg');
+  assert.equal(
+    db.prepare('SELECT image_url FROM stock_transfer_items WHERE transfer_id = ?').get(variantFallbackMove.data.id).image_url,
+    '/uploads/group-transfer.jpg',
+  );
+  db.prepare('DELETE FROM stock_transfer_items WHERE transfer_id = ?').run(variantFallbackMove.data.id);
+  db.prepare('DELETE FROM stock_transfers WHERE id = ?').run(variantFallbackMove.data.id);
+  db.prepare('INSERT INTO product_images (productId, variant_id, url, position) VALUES (?, ?, ?, ?)')
+    .run('product_variant', null, '/uploads/variant-base.jpg', 0);
+  db.prepare('UPDATE category_groups SET cover_image = NULL WHERE id = ?').run(regularDisplay.group_id);
   assert.deepEqual(regularStock(), { stock: 10, warehouse_stock: 0 });
   assert.deepEqual(variantStock(), { stock: 10, warehouse_stock: 0 });
   assert.equal(db.prepare('SELECT COUNT(*) AS count FROM stock_transfer_items').get().count, 2);
@@ -182,6 +214,9 @@ try {
   });
   assert.equal(cancelCompletedMove.response.status, 409);
 
+  db.prepare('DELETE FROM product_images WHERE productId = ?').run('product_regular');
+  db.prepare('UPDATE category_groups SET cover_image = ? WHERE id = ?')
+    .run('/uploads/group-transfer.jpg', regularDisplay.group_id);
   const cancelledMove = await requestJson('/api/admin/inventory/transfers', {
     method: 'POST',
     body: JSON.stringify({
@@ -191,6 +226,14 @@ try {
     }),
   });
   assert.equal(cancelledMove.response.status, 200);
+  assert.equal(cancelledMove.data.items[0].product_image, '/uploads/group-transfer.jpg');
+  assert.equal(
+    db.prepare('SELECT image_url FROM stock_transfer_items WHERE transfer_id = ?').get(cancelledMove.data.id).image_url,
+    '/uploads/group-transfer.jpg',
+  );
+  db.prepare('INSERT INTO product_images (productId, url, position) VALUES (?, ?, ?)')
+    .run('product_regular', '/uploads/regular-transfer.jpg', 0);
+  db.prepare('UPDATE category_groups SET cover_image = NULL WHERE id = ?').run(regularDisplay.group_id);
   const cancelMove = await requestJson(`/api/admin/inventory/transfers/${cancelledMove.data.id}/cancel`, {
     method: 'POST',
   });

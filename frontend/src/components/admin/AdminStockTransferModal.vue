@@ -9,18 +9,17 @@
     @close="closeModal"
     @cancel="closeModal"
   >
-    <div v-if="view === 'list'" class="space-y-5">
-      <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h4 class="text-base font-semibold text-gray-900">Заявки на перемещение</h4>
-          <p class="text-sm text-gray-500">Черновики не меняют остатки.</p>
-        </div>
+    <div v-if="view === 'list'" class="space-y-4">
+      <div class="flex">
         <button
           type="button"
-          class="rounded-xl bg-brand-dark px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-brand-dark/90"
+          class="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-brand-dark px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-brand-dark/90 disabled:opacity-50 sm:ml-auto sm:w-auto"
           :disabled="loadingTransfers || loadingMore"
           @click="openCreate"
         >
+          <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+          </svg>
           Новая заявка
         </button>
       </div>
@@ -37,12 +36,12 @@
         <p class="font-medium text-gray-900">Заявок пока нет</p>
         <p class="mt-1 text-sm text-gray-500">Создайте первую заявку на перемещение.</p>
       </div>
-      <div v-if="!loadingTransfers && transfers.length" class="overflow-hidden rounded-2xl border border-gray-200">
+      <div v-if="!loadingTransfers && transfers.length" class="transfer-scroll space-y-2 sm:max-h-[58vh] sm:overflow-y-auto sm:pr-2">
         <button
           v-for="transfer in transfers"
           :key="transfer.id"
           type="button"
-          class="grid w-full gap-2 border-b border-gray-100 px-4 py-4 text-left transition last:border-b-0 hover:bg-gray-50 disabled:cursor-wait disabled:opacity-60 sm:grid-cols-[1fr,auto] sm:items-center"
+          class="grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded-xl border border-gray-200 bg-white px-4 py-3.5 text-left transition hover:border-gray-300 hover:bg-gray-50 disabled:cursor-wait disabled:opacity-60"
           :disabled="Boolean(openingTransferId) || loadingMore"
           @click="openDetails(transfer.id)"
         >
@@ -54,13 +53,16 @@
               </span>
             </span>
             <span class="mt-1 block text-sm text-gray-600">
-              {{ locationLabel(transfer.source_location) }} → {{ locationLabel(transfer.destination_location) }} · {{ Number(transfer.total_quantity || 0) }} шт
+              {{ locationLabel(transfer.source_location) }} → {{ locationLabel(transfer.destination_location) }} · {{ positionsLabel(Number(transfer.item_count || 0)) }} · {{ Number(transfer.total_quantity || 0) }} шт
             </span>
-            <span class="mt-1 block text-xs text-gray-400">
+            <span class="mt-1 block text-xs text-gray-500">
               {{ formatDate(transfer.created_at) }} · создал {{ transfer.created_by || 'администратор' }}
             </span>
           </span>
-          <span class="text-sm font-semibold text-brand-dark">{{ openingTransferId === transfer.id ? 'Открываем…' : 'Открыть' }}</span>
+          <svg v-if="openingTransferId !== transfer.id" class="h-5 w-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m9 18 6-6-6-6" />
+          </svg>
+          <span v-else class="h-5 w-5 animate-spin rounded-full border-2 border-gray-200 border-t-brand-dark" aria-label="Открываем"></span>
         </button>
       </div>
       <div v-if="loadMoreError" class="flex items-center justify-between gap-3 rounded-xl bg-red-50 px-4 py-3 text-sm text-red-700">
@@ -78,15 +80,15 @@
       </button>
     </div>
 
-    <div v-else-if="view === 'details' && activeTransfer" class="space-y-5">
-      <button type="button" class="inline-flex w-fit items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 transition hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-rose-200" @click="backToList">
+    <div v-else-if="view === 'details' && activeTransfer" class="space-y-4">
+      <button type="button" class="inline-flex w-fit items-center gap-2 rounded-lg px-1 py-1 text-sm font-semibold text-gray-600 transition hover:text-brand-dark focus:outline-none focus:ring-2 focus:ring-rose-200" @click="backToList">
         <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
         </svg>
         Все перемещения
       </button>
 
-      <div class="rounded-2xl border border-gray-200 bg-gray-50/70 p-4">
+      <div class="rounded-2xl border border-gray-200 bg-gray-50/60 p-4">
         <div class="flex flex-wrap items-center justify-between gap-3">
           <div>
             <div class="text-xs font-semibold uppercase tracking-wide text-gray-500">Маршрут</div>
@@ -98,8 +100,8 @@
             {{ statusLabel(activeTransfer.status) }}
           </span>
         </div>
-        <p v-if="activeTransfer.comment" class="mt-3 text-sm text-gray-600">{{ activeTransfer.comment }}</p>
-        <div class="mt-3 space-y-1 text-xs text-gray-500">
+        <p v-if="activeTransfer.comment" class="mt-2 text-sm text-gray-600">{{ activeTransfer.comment }}</p>
+        <div class="mt-2 space-y-1 text-xs text-gray-500">
           <div>Создал: {{ activeTransfer.created_by || 'администратор' }} · {{ formatDate(activeTransfer.created_at) }}</div>
           <div v-if="activeTransfer.completed_at">Оприходовал: {{ activeTransfer.completed_by || 'администратор' }} · {{ formatDate(activeTransfer.completed_at) }}</div>
           <div v-if="activeTransfer.cancelled_at">Отменил: {{ activeTransfer.cancelled_by || 'администратор' }} · {{ formatDate(activeTransfer.cancelled_at) }}</div>
@@ -107,26 +109,27 @@
       </div>
 
       <div class="overflow-hidden rounded-2xl border border-gray-200">
-        <div class="border-b border-gray-200 bg-gray-50 px-4 py-3 text-sm font-semibold text-gray-900">
-          Товары: {{ Number(activeTransfer.total_quantity || 0) }} шт
+        <div class="border-b border-gray-200 bg-white px-4 py-3 text-sm font-semibold text-gray-900">
+          {{ positionsLabel(activeTransfer.items?.length || 0) }} · {{ Number(activeTransfer.total_quantity || 0) }} шт
         </div>
-        <div class="divide-y divide-gray-100">
+        <div class="transfer-scroll divide-y divide-gray-100 sm:max-h-[42vh] sm:overflow-y-auto">
           <div v-for="item in activeTransfer.items" :key="item.id" class="flex items-center justify-between gap-4 px-4 py-3 text-sm">
             <div class="flex min-w-0 items-center gap-3">
               <img
-                v-if="item.product_image"
+                v-if="item.product_image && !failedImageIds.has(item.id)"
                 :src="item.product_image"
                 :alt="item.product_title"
                 class="h-11 w-11 flex-shrink-0 rounded-lg object-cover ring-1 ring-gray-200"
                 loading="lazy"
+                @error="markImageFailed(item.id)"
               />
-              <div v-else class="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-lg bg-gray-100" aria-hidden="true">
+              <div v-else class="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-lg bg-gray-100" aria-label="Фото отсутствует">
                 <svg class="h-5 w-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 002 2z" />
                 </svg>
               </div>
               <div class="min-w-0">
-                <div class="truncate font-medium text-gray-900">
+                <div class="max-w-prose whitespace-normal break-words font-medium leading-snug text-gray-900">
                   {{ item.product_title }}<span v-if="item.variant_name" class="font-normal text-gray-600">, {{ item.variant_name }}</span>
                 </div>
                 <div v-if="item.group_name" class="truncate text-xs font-semibold text-brand-dark">{{ item.group_name }}</div>
@@ -145,24 +148,6 @@
         {{ errorMessage }}
       </p>
 
-      <div v-if="activeTransfer.status === 'draft'" class="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
-        <button
-          type="button"
-          class="rounded-xl border border-red-200 px-5 py-2.5 text-sm font-semibold text-red-600 transition hover:bg-red-50"
-          :disabled="actionSubmitting"
-          @click="cancelTransfer"
-        >
-          Отменить заявку
-        </button>
-        <button
-          type="button"
-          class="rounded-xl bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:bg-emerald-300"
-          :disabled="actionSubmitting"
-          @click="completeTransfer"
-        >
-          {{ actionSubmitting ? 'Оприходуем…' : 'Оприходовать' }}
-        </button>
-      </div>
     </div>
 
     <div v-else class="space-y-6">
@@ -300,6 +285,27 @@
         </button>
       </div>
     </div>
+
+    <template v-if="view === 'details' && activeTransfer?.status === 'draft'" #footer>
+      <div class="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+        <button
+          type="button"
+          class="rounded-xl border border-red-200 px-5 py-2.5 text-sm font-semibold text-red-600 transition hover:bg-red-50"
+          :disabled="actionSubmitting"
+          @click="cancelTransfer"
+        >
+          Отменить заявку
+        </button>
+        <button
+          type="button"
+          class="rounded-xl bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:bg-emerald-300"
+          :disabled="actionSubmitting"
+          @click="completeTransfer"
+        >
+          {{ actionSubmitting ? 'Оприходуем…' : `Оприходовать ${Number(activeTransfer.total_quantity || 0)} шт` }}
+        </button>
+      </div>
+    </template>
   </AdminModal>
 </template>
 
@@ -384,6 +390,7 @@ const detailError = ref('')
 const openingTransferId = ref('')
 const actionSubmitting = ref(false)
 const actionMessage = ref('')
+const failedImageIds = ref<Set<string>>(new Set())
 const sourceLocation = ref<Location>('retail')
 const destinationLocation = computed<Location>(() => sourceLocation.value === 'retail' ? 'warehouse' : 'retail')
 const comment = ref('')
@@ -420,6 +427,24 @@ function statusClass(status: TransferStatus) {
   if (status === 'completed') return 'bg-emerald-100 text-emerald-700'
   if (status === 'cancelled') return 'bg-gray-100 text-gray-500'
   return 'bg-amber-100 text-amber-700'
+}
+
+function positionsLabel(count: number) {
+  const normalized = Math.max(0, Math.floor(Number(count || 0)))
+  const mod100 = normalized % 100
+  const mod10 = normalized % 10
+  const word = mod100 >= 11 && mod100 <= 14
+    ? 'позиций'
+    : mod10 === 1
+      ? 'позиция'
+      : mod10 >= 2 && mod10 <= 4
+        ? 'позиции'
+        : 'позиций'
+  return `${normalized} ${word}`
+}
+
+function markImageFailed(itemId: string) {
+  failedImageIds.value = new Set([...failedImageIds.value, itemId])
 }
 
 function formatDate(value?: string | null) {
@@ -490,6 +515,7 @@ async function openDetails(id: string) {
   if (openingTransferId.value) return
   invalidateTransferLoads()
   const currentRequest = ++detailsRequestId
+  failedImageIds.value = new Set()
   actionMessage.value = ''
   errorMessage.value = ''
   detailError.value = ''
@@ -583,6 +609,7 @@ function openCreate() {
   openingTransferId.value = ''
   activeTransfer.value = null
   detailError.value = ''
+  failedImageIds.value = new Set()
   resetForm()
   view.value = 'create'
   void loadItems()
@@ -597,6 +624,7 @@ function backToList() {
   actionMessage.value = ''
   errorMessage.value = ''
   detailError.value = ''
+  failedImageIds.value = new Set()
   resetForm()
   view.value = 'list'
   void loadTransfers()
@@ -695,9 +723,11 @@ watch(() => props.isOpen, (open) => {
     resetForm()
     view.value = 'list'
     activeTransfer.value = null
+    failedImageIds.value = new Set()
     return
   }
   detailError.value = ''
+  failedImageIds.value = new Set()
   loadMoreError.value = ''
   resetForm()
   void loadTransfers()
@@ -714,3 +744,29 @@ onUnmounted(() => {
   requestId += 1
 })
 </script>
+
+<style scoped>
+@media (min-width: 640px) {
+  .transfer-scroll {
+    scrollbar-color: #cbd5e1 transparent;
+    scrollbar-width: thin;
+  }
+
+  .transfer-scroll::-webkit-scrollbar {
+    width: 7px;
+  }
+
+  .transfer-scroll::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .transfer-scroll::-webkit-scrollbar-thumb {
+    background: #cbd5e1;
+    border-radius: 999px;
+  }
+
+  .transfer-scroll::-webkit-scrollbar-thumb:hover {
+    background: #94a3b8;
+  }
+}
+</style>

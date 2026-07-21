@@ -58,6 +58,10 @@
               <div ref="scrollContainerRef" class="flex-1 overflow-y-auto overflow-x-hidden mb-2 w-full -mx-1 px-1">
                 <slot />
               </div>
+
+              <div v-if="$slots.footer" class="flex-shrink-0 border-t border-gray-100 bg-white pt-4 pb-[max(0.25rem,env(safe-area-inset-bottom))]">
+                <slot name="footer" />
+              </div>
               
               <!-- Actions - УЛУЧШЕННЫЕ -->
               <div v-if="showActions" class="flex flex-col-reverse sm:flex-row justify-end gap-3 pt-6 border-t border-gray-100 flex-shrink-0">

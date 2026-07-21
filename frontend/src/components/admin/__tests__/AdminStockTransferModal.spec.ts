@@ -43,7 +43,7 @@ describe('AdminStockTransferModal', () => {
           AdminModal: {
             props: ['isOpen'],
             emits: ['close'],
-            template: '<section v-if="isOpen"><slot /><button data-test="modal-close" @click="$emit(\'close\')">x</button></section>',
+            template: '<section v-if="isOpen"><slot /><slot name="footer" /><button data-test="modal-close" @click="$emit(\'close\')">x</button></section>',
           },
         },
       },
@@ -115,10 +115,12 @@ describe('AdminStockTransferModal', () => {
     await wrapper.setProps({ isOpen: true })
     await flushPromises()
     expect(wrapper.text()).toContain('15:00')
+    expect(wrapper.text()).toContain('1 позиция · 2 шт')
+    expect(wrapper.text()).not.toContain('Открыть')
     const openButton = wrapper.findAll('button').find((button) => button.text().includes('Перемещение №1'))
     await openButton!.trigger('click')
     await flushPromises()
-    const completeButton = wrapper.findAll('button').find((button) => button.text() === 'Оприходовать')
+    const completeButton = wrapper.findAll('button').find((button) => button.text() === 'Оприходовать 2 шт')
     await completeButton!.trigger('click')
     await flushPromises()
 

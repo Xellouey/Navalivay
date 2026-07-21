@@ -20,6 +20,7 @@ import {
 } from '../wholesale-service.js';
 import { syncGroupParking, syncParkingFromFlattened } from '../utils/group-parking.js';
 import { searchProductsForAdmin, searchProductsForCrm, syncProductSearchIndex } from '../services/product-search-service.js';
+import { resolveFirstImageThumbnail } from '../services/image-thumbnail-service.js';
 import {
   COMPLETENESS_FIELD_LABELS,
   computeIncompleteGroups,
@@ -1219,7 +1220,7 @@ adminRouter.get('/api/admin/inventory/items', authMiddleware, async (req, res) =
   }
 });
 
-function getInventoryTransfer(id) {
+async function getInventoryTransfer(id) {
   const transfer = db.prepare(`
     SELECT st.*,
            COUNT(sti.id) AS item_count,
@@ -1230,21 +1231,24 @@ function getInventoryTransfer(id) {
     GROUP BY st.id
   `).get(id);
   if (!transfer) return null;
-  transfer.items = db.prepare(`
+  const items = db.prepare(`
     SELECT sti.id,
            sti.product_id,
            sti.variant_id,
            sti.product_title,
            sti.variant_name,
            sti.quantity,
+           p.categoryId AS category_id,
+           p.groupId AS group_id,
            COALESCE(sti.category_name, c.name) AS category_name,
            COALESCE(sti.group_name, cg.name) AS group_name,
+           sti.image_url AS snapshot_image,
            COALESCE(
-             sti.image_url,
              (SELECT url FROM product_images WHERE productId = sti.product_id AND variant_id = sti.variant_id ORDER BY position LIMIT 1),
-             (SELECT url FROM product_images WHERE productId = sti.product_id AND variant_id IS NULL ORDER BY position LIMIT 1),
-             (SELECT url FROM product_images WHERE productId = sti.product_id ORDER BY position LIMIT 1)
-           ) AS product_image
+             (SELECT url FROM product_images WHERE productId = sti.product_id AND variant_id IS NULL ORDER BY position LIMIT 1)
+           ) AS product_image,
+           cg.cover_image AS group_image,
+           c.cover_image AS category_image
     FROM stock_transfer_items sti
     LEFT JOIN products p ON p.id = sti.product_id
     LEFT JOIN categories c ON c.id = p.categoryId
@@ -1252,6 +1256,23 @@ function getInventoryTransfer(id) {
     WHERE sti.transfer_id = ?
     ORDER BY sti.rowid ASC
   `).all(id);
+  transfer.items = await Promise.all(items.map(async (item) => {
+    const {
+      snapshot_image: snapshotImage,
+      group_image: groupImage,
+      category_image: categoryImage,
+      category_id: categoryId,
+      group_id: groupId,
+      ...details
+    } = item;
+    const productImage = await resolveFirstImageThumbnail([
+      { source: snapshotImage, meta: { sourceType: 'transfer', sourceId: item.id, sourceField: 'stock_transfer_items.image_url' } },
+      { source: item.product_image, meta: { sourceType: 'product', sourceId: item.product_id, sourceField: 'product_images.url' } },
+      { source: groupImage, meta: { sourceType: 'group', sourceId: groupId, sourceField: 'category_groups.cover_image' } },
+      { source: categoryImage, meta: { sourceType: 'category', sourceId: categoryId, sourceField: 'categories.cover_image' } },
+    ]);
+    return { ...details, product_image: productImage };
+  }));
   return transfer;
 }
 
@@ -1286,13 +1307,18 @@ adminRouter.get('/api/admin/inventory/transfers', authMiddleware, (req, res) => 
   });
 });
 
-adminRouter.get('/api/admin/inventory/transfers/:id', authMiddleware, (req, res) => {
-  const transfer = getInventoryTransfer(req.params.id);
-  if (!transfer) return res.status(404).json({ error: 'not_found' });
-  res.json(transfer);
+adminRouter.get('/api/admin/inventory/transfers/:id', authMiddleware, async (req, res) => {
+  try {
+    const transfer = await getInventoryTransfer(req.params.id);
+    if (!transfer) return res.status(404).json({ error: 'not_found' });
+    res.json(transfer);
+  } catch (error) {
+    console.error('[admin] Get inventory transfer error:', error);
+    res.status(500).json({ error: 'failed', message: error.message });
+  }
 });
 
-adminRouter.post('/api/admin/inventory/transfers', authMiddleware, (req, res) => {
+adminRouter.post('/api/admin/inventory/transfers', authMiddleware, async (req, res) => {
   try {
     const { source_location: source, destination_location: destination, comment, items } = req.body || {};
     const locations = new Set(['retail', 'warehouse']);
@@ -1338,7 +1364,9 @@ adminRouter.post('/api/admin/inventory/transfers', authMiddleware, (req, res) =>
                  p.has_variants,
                  p.groupId,
                  c.name AS category_name,
-                 cg.name AS group_name
+                 c.cover_image AS category_image,
+                 cg.name AS group_name,
+                 cg.cover_image AS group_image
           FROM products p
           LEFT JOIN categories c ON c.id = p.categoryId
           LEFT JOIN category_groups cg ON cg.id = p.groupId
@@ -1363,14 +1391,14 @@ adminRouter.post('/api/admin/inventory/transfers', authMiddleware, (req, res) =>
           SELECT url
           FROM product_images
           WHERE productId = ?
+            AND (variant_id = ? OR variant_id IS NULL)
           ORDER BY CASE
                      WHEN variant_id = ? THEN 0
                      WHEN variant_id IS NULL THEN 1
-                     ELSE 2
                    END,
                    position ASC
           LIMIT 1
-        `).get(productId, variantId)?.url || null;
+        `).get(productId, variantId, variantId)?.url || null;
 
         const stockRow = db.prepare(`SELECT ${sourceColumn} AS available FROM ${table} WHERE id = ?`).get(rowId);
         if (Number(stockRow?.available || 0) < quantity) {
@@ -1386,14 +1414,14 @@ adminRouter.post('/api/admin/inventory/transfers', authMiddleware, (req, res) =>
           variantName,
           product.category_name || null,
           product.group_name || null,
-          productImage,
+          productImage || product.group_image || product.category_image || null,
           quantity,
         );
       }
     });
 
     tx();
-    res.json(getInventoryTransfer(transferId));
+    res.json(await getInventoryTransfer(transferId));
   } catch (error) {
     console.error('[admin] Create inventory transfer error:', error);
     const clientError = String(error.message || '');
@@ -1407,7 +1435,7 @@ adminRouter.post('/api/admin/inventory/transfers', authMiddleware, (req, res) =>
   }
 });
 
-adminRouter.post('/api/admin/inventory/transfers/:id/complete', authMiddleware, (req, res) => {
+adminRouter.post('/api/admin/inventory/transfers/:id/complete', authMiddleware, async (req, res) => {
   const affectedGroupIds = new Set();
   try {
     const tx = db.transaction(() => {
@@ -1464,7 +1492,7 @@ adminRouter.post('/api/admin/inventory/transfers/:id/complete', authMiddleware, 
         console.error('[admin] Inventory transfer group parking sync failed:', error);
       }
     });
-    res.json(getInventoryTransfer(req.params.id));
+    res.json(await getInventoryTransfer(req.params.id));
   } catch (error) {
     console.error('[admin] Complete inventory transfer error:', error);
     const clientError = String(error.message || '');
@@ -1480,7 +1508,7 @@ adminRouter.post('/api/admin/inventory/transfers/:id/complete', authMiddleware, 
   }
 });
 
-adminRouter.post('/api/admin/inventory/transfers/:id/cancel', authMiddleware, (req, res) => {
+adminRouter.post('/api/admin/inventory/transfers/:id/cancel', authMiddleware, async (req, res) => {
   try {
     const updated = db.prepare(`
       UPDATE stock_transfers
@@ -1491,7 +1519,7 @@ adminRouter.post('/api/admin/inventory/transfers/:id/cancel', authMiddleware, (r
       const exists = db.prepare('SELECT 1 FROM stock_transfers WHERE id = ?').get(req.params.id);
       return res.status(exists ? 409 : 404).json({ error: exists ? 'invalid_status' : 'not_found' });
     }
-    res.json(getInventoryTransfer(req.params.id));
+    res.json(await getInventoryTransfer(req.params.id));
   } catch (error) {
     console.error('[admin] Cancel inventory transfer error:', error);
     res.status(500).json({ error: 'failed', message: error.message });
