@@ -40,6 +40,7 @@
           :disabled="submitting"
           aria-describedby="global-referral-feedback"
           @input="handleInput"
+          @paste="handleNativePaste"
         />
         <button
           type="button"
@@ -113,6 +114,8 @@ type GatePhase = "hidden" | "checking" | "required" | "error";
 const USERNAME_RETRY_DELAYS_MS = [0, 1200, 2400, 4000] as const;
 const USERNAME_RETRY_TIMEOUT_MS = 16000;
 const STATUS_CHECK_TIMEOUT_MS = 14000;
+const BROWSER_CLIPBOARD_TIMEOUT_MS = 1200;
+const TELEGRAM_CLIPBOARD_TIMEOUT_MS = 800;
 const TELEGRAM_SERVICE_PATHS = new Set([
   "a",
   "addemoji",
@@ -300,6 +303,10 @@ function handleRetry() {
 }
 
 function handleTelegramActivated() {
+  if (phase.value === "required") {
+    window.requestAnimationFrame(() => focusInviterInput());
+    return;
+  }
   if (phase.value === "error" && !getTelegramIdentity().telegramUsername) {
     void refreshStatus({ retryUsername: true });
   }
@@ -337,6 +344,18 @@ function handleInput(event: Event) {
   clipboardHint.value = "";
 }
 
+function focusInviterInput(selectExisting = false) {
+  const input = inputRef.value;
+  if (!input || phase.value !== "required") return;
+  input.focus({ preventScroll: true });
+  if (selectExisting && input.value) {
+    input.select();
+    return;
+  }
+  const end = input.value.length;
+  input.setSelectionRange(end, end);
+}
+
 function normalizeClipboardUsername(value: unknown) {
   const text = String(value || "").trim();
   if (!text) return "";
@@ -348,6 +367,60 @@ function normalizeClipboardUsername(value: unknown) {
     if (TELEGRAM_SERVICE_PATHS.has(candidate.toLowerCase())) return "";
   }
   return /^[a-zA-Z0-9_]{5,32}$/.test(candidate) ? candidate : "";
+}
+
+function applyPastedUsername(username: string) {
+  inviterUsername.value = username;
+  errorMessage.value = "";
+  clipboardHint.value = "Username вставлен";
+  window.Telegram?.WebApp?.HapticFeedback?.notificationOccurred("success");
+  void nextTick(() => focusInviterInput());
+}
+
+function handleNativePaste(event: ClipboardEvent) {
+  event.preventDefault();
+  const clipboardText = event.clipboardData?.getData("text") || "";
+  clipboardRunId += 1;
+  clipboardBusy.value = false;
+  if (!clipboardText) {
+    clipboardHint.value = "Не удалось прочитать вставку. Скопируйте username и повторите.";
+    window.Telegram?.WebApp?.HapticFeedback?.notificationOccurred("error");
+    focusInviterInput(true);
+    return;
+  }
+  const username = normalizeClipboardUsername(clipboardText);
+  if (!username) {
+    clipboardHint.value = "В буфере нет корректного Telegram username.";
+    window.Telegram?.WebApp?.HapticFeedback?.notificationOccurred("error");
+    focusInviterInput(true);
+    return;
+  }
+  applyPastedUsername(username);
+}
+
+function settleWithin<T>(promise: Promise<T>, timeoutMs: number) {
+  return new Promise<T | null>((resolve) => {
+    let settled = false;
+    const finish = (value: T | null) => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timeout);
+      resolve(value);
+    };
+    const timeout = window.setTimeout(() => finish(null), timeoutMs);
+    promise.then((value) => finish(value), () => finish(null));
+  });
+}
+
+function readBrowserClipboard() {
+  if (typeof navigator.clipboard?.readText !== "function") {
+    return Promise.resolve<string | null>(null);
+  }
+  try {
+    return settleWithin(navigator.clipboard.readText(), BROWSER_CLIPBOARD_TIMEOUT_MS);
+  } catch {
+    return Promise.resolve<string | null>(null);
+  }
 }
 
 function readTelegramClipboard() {
@@ -363,7 +436,7 @@ function readTelegramClipboard() {
       window.clearTimeout(timeout);
       resolve(value);
     };
-    const timeout = window.setTimeout(() => finish(null), 1500);
+    const timeout = window.setTimeout(() => finish(null), TELEGRAM_CLIPBOARD_TIMEOUT_MS);
     try {
       readText.call(webApp, (value) => finish(value || null));
     } catch {
@@ -372,38 +445,39 @@ function readTelegramClipboard() {
   });
 }
 
-async function readClipboardText() {
-  try {
-    if (typeof navigator.clipboard?.readText === "function") {
-      const value = await Promise.race([
-        navigator.clipboard.readText(),
-        new Promise<null>((resolve) => window.setTimeout(() => resolve(null), 2500)),
-      ]);
-      if (value) return value;
-    }
-  } catch {
-    // Telegram API below is a fallback for supported launch modes.
-  }
-  return await readTelegramClipboard();
+async function readClipboardUsername() {
+  const [browserValue, telegramValue] = await Promise.all([
+    readBrowserClipboard(),
+    readTelegramClipboard(),
+  ]);
+  const browserText = String(browserValue || "").trim();
+  const telegramText = String(telegramValue || "").trim();
+  const browserUsername = normalizeClipboardUsername(browserText);
+  if (browserUsername) return { username: browserUsername, hasText: true };
+  const telegramUsername = normalizeClipboardUsername(telegramText);
+  if (telegramUsername) return { username: telegramUsername, hasText: true };
+  return { username: "", hasText: Boolean(browserText || telegramText) };
 }
 
 async function pasteInviterUsername() {
   if (clipboardBusy.value || submitting.value) return;
   const runId = ++clipboardRunId;
   window.Telegram?.WebApp?.HapticFeedback?.impactOccurred("light");
+  focusInviterInput(true);
   clipboardBusy.value = true;
   clipboardHint.value = "";
   try {
-    const username = normalizeClipboardUsername(await readClipboardText());
+    const { username, hasText } = await readClipboardUsername();
     if (runId !== clipboardRunId || phase.value !== "required") return;
     if (!username) {
-      clipboardHint.value = "Не получилось вставить. Удерживайте поле и выберите «Вставить».";
+      clipboardHint.value = hasText
+        ? "В буфере нет корректного Telegram username."
+        : "Telegram защищает буфер. Зажмите поле и выберите «Вставить».";
+      window.Telegram?.WebApp?.HapticFeedback?.notificationOccurred("warning");
+      focusInviterInput(true);
       return;
     }
-    inviterUsername.value = username;
-    errorMessage.value = "";
-    clipboardHint.value = "Username вставлен";
-    window.Telegram?.WebApp?.HapticFeedback?.notificationOccurred("success");
+    applyPastedUsername(username);
   } finally {
     if (runId === clipboardRunId) clipboardBusy.value = false;
   }
@@ -466,7 +540,8 @@ onBeforeUnmount(() => {
 .referral-gate__copy,
 .referral-gate__status p,
 .referral-gate__attempts,
-.referral-gate__error {
+.referral-gate__error,
+.referral-gate__clipboard-hint {
   margin: 0;
   font-family: "SF Pro Display", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   font-size: 14px;

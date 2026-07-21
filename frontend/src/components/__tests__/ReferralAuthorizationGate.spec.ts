@@ -19,6 +19,15 @@ function response(body: unknown, ok = true, status = 200) {
   } as Response;
 }
 
+function dispatchNativePaste(element: Element, text: string) {
+  const event = new Event("paste", { bubbles: true, cancelable: true });
+  Object.defineProperty(event, "clipboardData", {
+    value: { getData: (type: string) => type === "text" ? text : "" },
+  });
+  element.dispatchEvent(event);
+  return event;
+}
+
 const shellStub = {
   props: ["open", "title", "closable", "closeDisabled"],
   template: `
@@ -47,6 +56,7 @@ describe("ReferralAuthorizationGate", () => {
 
   afterEach(() => {
     vi.useRealTimers();
+    vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });
 
@@ -151,6 +161,7 @@ describe("ReferralAuthorizationGate", () => {
       global: { stubs: { CustomerModalShell: shellStub } },
     });
     await flushPromises();
+    await wrapper.find("input").setValue("Existing_User");
 
     await wrapper.find(".referral-gate__paste").trigger("click");
     await flushPromises();
@@ -197,7 +208,36 @@ describe("ReferralAuthorizationGate", () => {
     wrapper.unmount();
   });
 
-  it("uses Telegram fallback when the browser clipboard never settles", async () => {
+  it("uses Telegram fallback when the WebView throws synchronously while reading clipboard", async () => {
+    vi.stubGlobal("navigator", {
+      clipboard: {
+        readText: vi.fn(() => {
+          throw new DOMException("denied", "SecurityError");
+        }),
+      },
+    });
+    window.Telegram!.WebApp.readTextFromClipboard = vi.fn((callback) => callback?.("@Sync_Fallback"));
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response({
+      enabled: true,
+      required: true,
+      attempts_used: 0,
+      attempts_remaining: 3,
+    })));
+
+    const wrapper = mount(ReferralAuthorizationGate, {
+      global: { stubs: { CustomerModalShell: shellStub } },
+    });
+    await flushPromises();
+
+    await wrapper.find(".referral-gate__paste").trigger("click");
+    await flushPromises();
+
+    expect(window.Telegram!.WebApp.readTextFromClipboard).toHaveBeenCalledOnce();
+    expect((wrapper.find("input").element as HTMLInputElement).value).toBe("Sync_Fallback");
+    wrapper.unmount();
+  });
+
+  it("uses Telegram clipboard after the browser clipboard times out", async () => {
     vi.useFakeTimers();
     vi.stubGlobal("navigator", {
       clipboard: { readText: vi.fn(() => new Promise<string>(() => undefined)) },
@@ -219,11 +259,76 @@ describe("ReferralAuthorizationGate", () => {
 
     await wrapper.find(".referral-gate__paste").trigger("click");
     expect(wrapper.find(".referral-gate__paste").attributes("aria-busy")).toBe("true");
-    await vi.advanceTimersByTimeAsync(2500);
+    await vi.advanceTimersByTimeAsync(1200);
     await flushPromises();
 
     expect(window.Telegram!.WebApp.readTextFromClipboard).toHaveBeenCalledOnce();
     expect((wrapper.find("input").element as HTMLInputElement).value).toBe("Fallback_User");
+    expect(wrapper.find(".referral-gate__paste").attributes("aria-busy")).toBe("false");
+    wrapper.unmount();
+  });
+
+  it("deterministically prefers the browser clipboard when both sources disagree", async () => {
+    let resolveBrowserClipboard: (value: string) => void = () => undefined;
+    vi.stubGlobal("navigator", {
+      clipboard: {
+        readText: vi.fn(() => new Promise<string>((resolve) => {
+          resolveBrowserClipboard = resolve;
+        })),
+      },
+    });
+    window.Telegram!.WebApp.readTextFromClipboard = vi.fn((callback) => callback?.("@Telegram_User"));
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response({
+      enabled: true,
+      required: true,
+      attempts_used: 0,
+      attempts_remaining: 3,
+    })));
+
+    const wrapper = mount(ReferralAuthorizationGate, {
+      global: { stubs: { CustomerModalShell: shellStub } },
+    });
+    await flushPromises();
+
+    await wrapper.find(".referral-gate__paste").trigger("click");
+    expect(wrapper.find(".referral-gate__paste").attributes("aria-busy")).toBe("true");
+    resolveBrowserClipboard("@Browser_User");
+    await flushPromises();
+
+    expect((wrapper.find("input").element as HTMLInputElement).value).toBe("Browser_User");
+    expect(wrapper.text()).not.toContain("Telegram_User");
+    wrapper.unmount();
+  });
+
+  it("focuses the input and explains native paste when both clipboard APIs are unavailable", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("navigator", {
+      clipboard: { readText: vi.fn(() => new Promise<string>(() => undefined)) },
+    });
+    window.Telegram!.WebApp.readTextFromClipboard = vi.fn((callback) => callback?.(null));
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response({
+      enabled: true,
+      required: true,
+      attempts_used: 0,
+      attempts_remaining: 3,
+    })));
+
+    const wrapper = mount(ReferralAuthorizationGate, {
+      attachTo: document.body,
+      global: { stubs: { CustomerModalShell: shellStub } },
+    });
+    await flushPromises();
+    await wrapper.find("input").setValue("Existing_User");
+
+    await wrapper.find(".referral-gate__paste").trigger("click");
+    expect(wrapper.find(".referral-gate__paste").attributes("aria-busy")).toBe("true");
+    await vi.advanceTimersByTimeAsync(1200);
+    await flushPromises();
+
+    expect(wrapper.text()).toContain("Зажмите поле");
+    expect(document.activeElement).toBe(wrapper.find("input").element);
+    expect((wrapper.find("input").element as HTMLInputElement).selectionStart).toBe(0);
+    expect((wrapper.find("input").element as HTMLInputElement).selectionEnd).toBe("Existing_User".length);
     expect(wrapper.find(".referral-gate__paste").attributes("aria-busy")).toBe("false");
     wrapper.unmount();
   });
@@ -249,8 +354,88 @@ describe("ReferralAuthorizationGate", () => {
     await flushPromises();
 
     expect((wrapper.find("input").element as HTMLInputElement).value).toBe("");
-    expect(wrapper.text()).toContain("Удерживайте поле");
+    expect(wrapper.text()).toContain("В буфере нет корректного Telegram username");
     expect(wrapper.text()).toContain("Осталось попыток: 3");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    wrapper.unmount();
+  });
+
+  it.each([
+    ["@Native_User", "Native_User"],
+    ["Native_User", "Native_User"],
+    ["https://t.me/Native_User?start=copy", "Native_User"],
+  ])("normalizes native paste %s without spending an attempt", async (clipboardText, expectedUsername) => {
+    const fetchMock = vi.fn().mockResolvedValue(response({
+      enabled: true,
+      required: true,
+      attempts_used: 0,
+      attempts_remaining: 3,
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const wrapper = mount(ReferralAuthorizationGate, {
+      global: { stubs: { CustomerModalShell: shellStub } },
+    });
+    await flushPromises();
+
+    const event = dispatchNativePaste(wrapper.find("input").element, clipboardText);
+    await flushPromises();
+
+    expect(event.defaultPrevented).toBe(true);
+    expect((wrapper.find("input").element as HTMLInputElement).value).toBe(expectedUsername);
+    expect(wrapper.text()).toContain("Username вставлен");
+    expect(wrapper.text()).toContain("Осталось попыток: 3");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    wrapper.unmount();
+  });
+
+  it("blocks invalid native paste without changing the field or spending an attempt", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(response({
+      enabled: true,
+      required: true,
+      attempts_used: 0,
+      attempts_remaining: 3,
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const wrapper = mount(ReferralAuthorizationGate, {
+      global: { stubs: { CustomerModalShell: shellStub } },
+    });
+    await flushPromises();
+    await wrapper.find("input").setValue("Existing_User");
+
+    const event = dispatchNativePaste(wrapper.find("input").element, "not a telegram username");
+    await flushPromises();
+
+    expect(event.defaultPrevented).toBe(true);
+    expect((wrapper.find("input").element as HTMLInputElement).value).toBe("Existing_User");
+    expect(wrapper.text()).toContain("В буфере нет корректного Telegram username");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    wrapper.unmount();
+  });
+
+  it("blocks native paste with unavailable clipboard data", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(response({
+      enabled: true,
+      required: true,
+      attempts_used: 0,
+      attempts_remaining: 3,
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const wrapper = mount(ReferralAuthorizationGate, {
+      global: { stubs: { CustomerModalShell: shellStub } },
+    });
+    await flushPromises();
+    await wrapper.find("input").setValue("Existing_User");
+
+    const event = new Event("paste", { bubbles: true, cancelable: true });
+    wrapper.find("input").element.dispatchEvent(event);
+    await flushPromises();
+
+    expect(event.defaultPrevented).toBe(true);
+    expect((wrapper.find("input").element as HTMLInputElement).value).toBe("Existing_User");
+    expect(wrapper.text()).toContain("Не удалось прочитать вставку");
     expect(fetchMock).toHaveBeenCalledTimes(1);
     wrapper.unmount();
   });
@@ -278,7 +463,7 @@ describe("ReferralAuthorizationGate", () => {
       await flushPromises();
 
       expect((wrapper.find("input").element as HTMLInputElement).value).toBe("");
-      expect(wrapper.text()).toContain("Удерживайте поле");
+      expect(wrapper.text()).toContain("В буфере нет корректного Telegram username");
       expect(wrapper.text()).toContain("Осталось попыток: 3");
       expect(fetchMock).toHaveBeenCalledTimes(1);
       wrapper.unmount();
@@ -545,6 +730,52 @@ describe("ReferralAuthorizationGate", () => {
     expect(wrapper.text()).toContain("Кто порекомендовал нас?");
     expect(wrapper.text()).not.toContain("Установите имя пользователя");
     wrapper.unmount();
+  });
+
+  it("returns focus to the inviter field when the required gate is restored", async () => {
+    let activatedHandler: (() => void) | undefined;
+    const onEvent = vi.fn((eventType: string, handler: () => void) => {
+      if (eventType === "activated") activatedHandler = handler;
+    });
+    Object.defineProperty(window, "Telegram", {
+      configurable: true,
+      value: {
+        WebApp: {
+          initData: "signed-init-data",
+          initDataUnsafe: {
+            user: { id: 990000036, username: "focus_user", first_name: "Focus" },
+          },
+          onEvent,
+          offEvent: vi.fn(),
+        },
+      },
+    });
+    const requestAnimationFrameSpy = vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+      callback(0);
+      return 1;
+    });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response({
+      enabled: true,
+      required: true,
+      attempts_remaining: 3,
+    })));
+
+    const outsideButton = document.createElement("button");
+    document.body.appendChild(outsideButton);
+    const wrapper = mount(ReferralAuthorizationGate, {
+      attachTo: document.body,
+      global: { stubs: { CustomerModalShell: shellStub } },
+    });
+    await flushPromises();
+    outsideButton.focus();
+    expect(document.activeElement).toBe(outsideButton);
+
+    activatedHandler?.();
+
+    expect(document.activeElement).toBe(wrapper.find("input").element);
+    wrapper.unmount();
+    outsideButton.remove();
+    requestAnimationFrameSpy.mockRestore();
   });
 
   it("automatically rechecks when the Mini App returns from a minimized state", async () => {
