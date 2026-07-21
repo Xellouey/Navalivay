@@ -172,37 +172,12 @@ function ensureSearchIndexReady() {
   }
 }
 
-function subsequenceScore(haystack, needle) {
-  if (!needle) return 0;
-  let index = 0;
-  for (const char of haystack) {
-    if (char === needle[index]) index += 1;
-    if (index >= needle.length) return 0.35;
-  }
-  return 0;
-}
-
-function scoreRow(row, rawQuery, tokens) {
-  const normalizedQuery = normalizeText(rawQuery);
-  const haystack = normalizeText(`${row.title || ''} ${row.searchable_text || ''}`);
-  let score = 0;
-  if (normalizedQuery && haystack.includes(normalizedQuery)) score += 8;
-  for (const token of tokens) {
-    if (haystack.includes(token)) {
-      score += 3;
-    } else {
-      score += subsequenceScore(haystack, token);
-    }
-  }
-  if (normalizeText(row.title).startsWith(normalizedQuery)) score += 4;
-  return score;
-}
-
-function findIndexRows({ search, limit, categoryId, groupId, location, includeVariants = true, maxLimit = 200 }) {
+function findIndexRows({ search, limit, offset = 0, categoryId, groupId, location, includeVariants = true, maxLimit = 200 }) {
   ensureSearchIndexReady();
   const normalizedSearch = normalizeText(search);
   const tokens = buildSearchTokens(normalizedSearch);
   const safeLimit = Math.min(Math.max(Number(limit || 25), 1), Number(maxLimit));
+  const safeOffset = Math.max(Math.trunc(Number(offset) || 0), 0);
   const params = [];
   const filters = [];
 
@@ -242,22 +217,23 @@ function findIndexRows({ search, limit, categoryId, groupId, location, includeVa
         FROM product_search_index
         WHERE product_search_index MATCH ?
           ${filters.length ? `AND ${filters.join(' AND ')}` : ''}
-        LIMIT ?
-      `).all(matchQuery, ...params, Math.max(safeLimit * 4, 80));
+        ORDER BY rank, title COLLATE NOCASE, item_id
+        LIMIT ? OFFSET ?
+      `).all(matchQuery, ...params, safeLimit, safeOffset);
     }
   } else {
     rows = db.prepare(`
       SELECT *, 0 AS rank
       FROM product_search_index
       ${filters.length ? `WHERE ${filters.join(' AND ')}` : ''}
-      LIMIT ?
-    `).all(...params, safeLimit);
+      ORDER BY title COLLATE NOCASE, item_id
+      LIMIT ? OFFSET ?
+    `).all(...params, safeLimit, safeOffset);
+
+    return rows;
   }
 
-  return rows
-    .map((row) => ({ ...row, score: scoreRow(row, normalizedSearch, tokens) }))
-    .sort((a, b) => (b.score - a.score) || (a.rank - b.rank) || String(a.title).localeCompare(String(b.title), 'ru'))
-    .slice(0, safeLimit);
+  return rows;
 }
 
 function fetchProductDetails(indexRows) {
@@ -389,9 +365,12 @@ async function toCrmSearchDto(indexRow, detail) {
 
 export async function searchProductsForCrm(options = {}) {
   const requestedLimit = Math.min(Math.max(Number(options.limit || 25), 1), 200);
+  const rawOffset = Number(options.offset);
+  const requestedOffset = Number.isFinite(rawOffset) ? Math.max(Math.trunc(rawOffset), 0) : 0;
   const rows = findIndexRows({
     search: options.search,
     limit: requestedLimit,
+    offset: requestedOffset,
     maxLimit: 200,
     categoryId: options.categoryId,
     groupId: options.groupId,

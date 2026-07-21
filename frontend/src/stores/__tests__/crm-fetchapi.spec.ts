@@ -133,4 +133,24 @@ describe("crm.fetchAPI — обработка 401", () => {
     await crmStore.fetchEmployees();
     expect(adminStore.isAuthenticated).toBe(true);
   });
+
+  it("передаёт смещение при догрузке товаров", async () => {
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify([]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const crmStore = useCrmStore();
+    await crmStore.searchCrmProducts({ search: "манго", limit: 51, offset: 50 });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const requestedUrl = String(fetchMock.mock.calls[0]?.[0]);
+    expect(requestedUrl).toContain("search=%D0%BC%D0%B0%D0%BD%D0%B3%D0%BE");
+    expect(requestedUrl).toContain("limit=51");
+    expect(requestedUrl).toContain("offset=50");
+  });
 });

@@ -79,8 +79,11 @@
     </div>
 
     <div v-else-if="view === 'details' && activeTransfer" class="space-y-5">
-      <button type="button" class="text-sm font-semibold text-brand-dark hover:underline" @click="backToList">
-        ← Все перемещения
+      <button type="button" class="inline-flex w-fit items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 transition hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-rose-200" @click="backToList">
+        <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+        </svg>
+        Все перемещения
       </button>
 
       <div class="rounded-2xl border border-gray-200 bg-gray-50/70 p-4">
@@ -109,9 +112,26 @@
         </div>
         <div class="divide-y divide-gray-100">
           <div v-for="item in activeTransfer.items" :key="item.id" class="flex items-center justify-between gap-4 px-4 py-3 text-sm">
-            <div class="min-w-0">
-              <div class="truncate font-medium text-gray-900">{{ item.product_title }}</div>
-              <div v-if="item.variant_name" class="truncate text-xs text-gray-500">{{ item.variant_name }}</div>
+            <div class="flex min-w-0 items-center gap-3">
+              <img
+                v-if="item.product_image"
+                :src="item.product_image"
+                :alt="item.product_title"
+                class="h-11 w-11 flex-shrink-0 rounded-lg object-cover ring-1 ring-gray-200"
+                loading="lazy"
+              />
+              <div v-else class="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-lg bg-gray-100" aria-hidden="true">
+                <svg class="h-5 w-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 002 2z" />
+                </svg>
+              </div>
+              <div class="min-w-0">
+                <div class="truncate font-medium text-gray-900">
+                  {{ item.product_title }}<span v-if="item.variant_name" class="font-normal text-gray-600">, {{ item.variant_name }}</span>
+                </div>
+                <div v-if="item.group_name" class="truncate text-xs font-semibold text-brand-dark">{{ item.group_name }}</div>
+                <div v-if="item.category_name" class="truncate text-xs text-gray-500">{{ item.category_name }}</div>
+              </div>
             </div>
             <div class="flex-shrink-0 font-semibold text-gray-900">{{ item.quantity }} шт</div>
           </div>
@@ -146,8 +166,11 @@
     </div>
 
     <div v-else class="space-y-6">
-      <button type="button" class="text-sm font-semibold text-brand-dark hover:underline" @click="backToList">
-        ← Все перемещения
+      <button type="button" class="inline-flex w-fit items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 transition hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-rose-200" @click="backToList">
+        <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+        </svg>
+        Все перемещения
       </button>
 
       <div class="grid gap-3 sm:grid-cols-[1fr,auto,1fr] sm:items-end">
@@ -206,11 +229,16 @@
             <li v-for="item in results" :key="item.id" class="grid grid-cols-1 gap-3 px-4 py-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
               <div class="flex min-w-0 items-center gap-3">
                 <img v-if="item.image" :src="item.image" :alt="item.title" class="h-10 w-10 flex-shrink-0 rounded-lg object-cover" />
+                <div v-else data-test="transfer-search-image-placeholder" class="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg bg-gray-100" aria-hidden="true">
+                  <svg class="h-5 w-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 002 2z" />
+                  </svg>
+                </div>
                 <div class="min-w-0">
                   <div class="truncate text-sm font-medium text-gray-900">{{ item.title }}</div>
-                  <div class="truncate text-xs text-gray-500">
-                    <span v-if="item.group_name">{{ item.group_name }} · </span>Доступно: {{ item.available_stock }} шт
-                  </div>
+                  <div v-if="item.group_name" class="truncate text-xs font-semibold text-brand-dark">{{ item.group_name }}</div>
+                  <div v-if="item.category_name" class="truncate text-xs text-gray-500">{{ item.category_name }}</div>
+                  <div class="truncate text-xs text-gray-500">Доступно: {{ item.available_stock }} шт</div>
                 </div>
               </div>
               <div class="flex flex-shrink-0 items-center gap-1 justify-self-end rounded-xl bg-gray-100 p-1">
@@ -229,13 +257,27 @@
         </div>
         <div v-if="!selectedItems.length" class="px-4 py-8 text-center text-sm text-gray-500">Добавьте товары из списка выше</div>
         <div v-else class="overflow-x-auto">
-          <table class="w-full min-w-[560px] text-sm">
+          <table class="w-full min-w-[560px] table-fixed text-sm">
             <thead class="border-b border-gray-100 text-left text-xs uppercase text-gray-500">
-              <tr><th class="px-4 py-3">Товар</th><th class="px-4 py-3">Доступно</th><th class="px-4 py-3">Количество</th><th class="px-4 py-3"></th></tr>
+              <tr><th class="w-[280px] px-4 py-3">Товар</th><th class="w-[90px] px-4 py-3">Доступно</th><th class="w-[120px] px-4 py-3">Количество</th><th class="w-[70px] px-4 py-3"></th></tr>
             </thead>
             <tbody class="divide-y divide-gray-100">
               <tr v-for="item in selectedItems" :key="item.key">
-                <td class="px-4 py-3 font-medium text-gray-900">{{ item.title }}</td>
+                <td class="px-4 py-3">
+                  <div class="flex min-w-0 items-center gap-3">
+                    <img v-if="item.image" :src="item.image" :alt="item.title" class="h-10 w-10 flex-shrink-0 rounded-lg object-cover ring-1 ring-gray-200" loading="lazy" />
+                    <div v-else data-test="transfer-selected-image-placeholder" class="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg bg-gray-100" aria-hidden="true">
+                      <svg class="h-5 w-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 002 2z" />
+                      </svg>
+                    </div>
+                    <div class="min-w-0">
+                      <div class="truncate font-medium text-gray-900">{{ item.title }}</div>
+                      <div v-if="item.groupName" class="truncate text-xs font-semibold text-brand-dark">{{ item.groupName }}</div>
+                      <div v-if="item.categoryName" class="truncate text-xs text-gray-500">{{ item.categoryName }}</div>
+                    </div>
+                  </div>
+                </td>
                 <td class="px-4 py-3 text-gray-600">{{ item.available }} шт</td>
                 <td class="px-4 py-3">
                   <input v-model.number="item.quantity" type="number" min="1" :max="item.available" :disabled="submitting" class="w-24 rounded-lg border border-gray-300 px-2 py-1.5 focus:border-rose-400 focus:outline-none" @change="clampQuantity(item)" />
@@ -275,6 +317,7 @@ interface InventoryItem {
   id: string
   product_id?: string
   title: string
+  category_name?: string | null
   group_name?: string | null
   is_variant?: boolean
   image?: string | null
@@ -286,6 +329,9 @@ interface SelectedItem {
   productId: string
   variantId: string | null
   title: string
+  categoryName: string | null
+  groupName: string | null
+  image: string | null
   available: number
   quantity: number
 }
@@ -305,7 +351,15 @@ interface StockTransfer {
   cancelled_by?: string | null
   total_quantity: number
   item_count: number
-  items?: Array<{ id: string; product_title: string; variant_name?: string | null; quantity: number }>
+  items?: Array<{
+    id: string
+    product_title: string
+    variant_name?: string | null
+    category_name?: string | null
+    group_name?: string | null
+    product_image?: string | null
+    quantity: number
+  }>
 }
 
 const props = defineProps<{ isOpen: boolean; initialSource?: Location }>()
@@ -480,7 +534,17 @@ function addItem(item: InventoryItem) {
     existing.quantity = Math.min(existing.quantity + 1, existing.available)
     return
   }
-  selectedItems.value.push({ key: itemKey(item), productId: String(item.product_id || item.id), variantId: item.is_variant ? String(item.id) : null, title: item.title, available, quantity: 1 })
+  selectedItems.value.push({
+    key: itemKey(item),
+    productId: String(item.product_id || item.id),
+    variantId: item.is_variant ? String(item.id) : null,
+    title: item.title,
+    categoryName: item.category_name || null,
+    groupName: item.group_name || null,
+    image: item.image || null,
+    available,
+    quantity: 1,
+  })
 }
 
 function decreaseResultItem(item: InventoryItem) {

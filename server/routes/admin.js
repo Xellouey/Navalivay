@@ -1206,6 +1206,7 @@ adminRouter.get('/api/admin/inventory/items', authMiddleware, async (req, res) =
 
     res.json(items.map((item) => ({
       ...item,
+      category_name: item.category_name || null,
       retail_stock: Number(item.stock || 0),
       warehouse_stock: Number(item.warehouse_stock || 0),
       available_stock: location === 'warehouse'
@@ -1230,10 +1231,26 @@ function getInventoryTransfer(id) {
   `).get(id);
   if (!transfer) return null;
   transfer.items = db.prepare(`
-    SELECT id, product_id, variant_id, product_title, variant_name, quantity
-    FROM stock_transfer_items
-    WHERE transfer_id = ?
-    ORDER BY rowid ASC
+    SELECT sti.id,
+           sti.product_id,
+           sti.variant_id,
+           sti.product_title,
+           sti.variant_name,
+           sti.quantity,
+           COALESCE(sti.category_name, c.name) AS category_name,
+           COALESCE(sti.group_name, cg.name) AS group_name,
+           COALESCE(
+             sti.image_url,
+             (SELECT url FROM product_images WHERE productId = sti.product_id AND variant_id = sti.variant_id ORDER BY position LIMIT 1),
+             (SELECT url FROM product_images WHERE productId = sti.product_id AND variant_id IS NULL ORDER BY position LIMIT 1),
+             (SELECT url FROM product_images WHERE productId = sti.product_id ORDER BY position LIMIT 1)
+           ) AS product_image
+    FROM stock_transfer_items sti
+    LEFT JOIN products p ON p.id = sti.product_id
+    LEFT JOIN categories c ON c.id = p.categoryId
+    LEFT JOIN category_groups cg ON cg.id = p.groupId
+    WHERE sti.transfer_id = ?
+    ORDER BY sti.rowid ASC
   `).all(id);
   return transfer;
 }
@@ -1301,8 +1318,9 @@ adminRouter.post('/api/admin/inventory/transfers', authMiddleware, (req, res) =>
 
       const insertItem = db.prepare(`
         INSERT INTO stock_transfer_items (
-          id, transfer_id, product_id, variant_id, product_title, variant_name, quantity
-        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+          id, transfer_id, product_id, variant_id, product_title, variant_name,
+          category_name, group_name, image_url, quantity
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
 
       const seenItems = new Set();
@@ -1314,7 +1332,18 @@ adminRouter.post('/api/admin/inventory/transfers', authMiddleware, (req, res) =>
           throw new Error('invalid_item');
         }
 
-        const product = db.prepare('SELECT id, title, has_variants, groupId FROM products WHERE id = ?').get(productId);
+        const product = db.prepare(`
+          SELECT p.id,
+                 p.title,
+                 p.has_variants,
+                 p.groupId,
+                 c.name AS category_name,
+                 cg.name AS group_name
+          FROM products p
+          LEFT JOIN categories c ON c.id = p.categoryId
+          LEFT JOIN category_groups cg ON cg.id = p.groupId
+          WHERE p.id = ?
+        `).get(productId);
         if (!product) throw new Error('product_not_found');
 
         const table = variantId ? 'product_variants' : 'products';
@@ -1330,6 +1359,19 @@ adminRouter.post('/api/admin/inventory/transfers', authMiddleware, (req, res) =>
           throw new Error('variant_required');
         }
 
+        const productImage = db.prepare(`
+          SELECT url
+          FROM product_images
+          WHERE productId = ?
+          ORDER BY CASE
+                     WHEN variant_id = ? THEN 0
+                     WHEN variant_id IS NULL THEN 1
+                     ELSE 2
+                   END,
+                   position ASC
+          LIMIT 1
+        `).get(productId, variantId)?.url || null;
+
         const stockRow = db.prepare(`SELECT ${sourceColumn} AS available FROM ${table} WHERE id = ?`).get(rowId);
         if (Number(stockRow?.available || 0) < quantity) {
           throw new Error(`insufficient_stock:${rowId}`);
@@ -1342,6 +1384,9 @@ adminRouter.post('/api/admin/inventory/transfers', authMiddleware, (req, res) =>
           variantId,
           product.title || productId,
           variantName,
+          product.category_name || null,
+          product.group_name || null,
+          productImage,
           quantity,
         );
       }

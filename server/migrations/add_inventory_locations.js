@@ -82,6 +82,18 @@ export function migrateInventoryLocations() {
     WHERE status = 'draft' AND created_by IS NULL
   `);
 
+  const transferItemDisplayColumns = [
+    ['category_name', 'TEXT'],
+    ['group_name', 'TEXT'],
+    ['image_url', 'TEXT'],
+  ];
+  for (const [column, definition] of transferItemDisplayColumns) {
+    if (!hasColumn('stock_transfer_items', column)) {
+      db.exec(`ALTER TABLE stock_transfer_items ADD COLUMN ${column} ${definition}`);
+      console.log(`[migration] Added stock_transfer_items.${column}`);
+    }
+  }
+
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_stock_transfers_status_created
       ON stock_transfers(status, created_at DESC);

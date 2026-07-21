@@ -14,7 +14,15 @@ const draftTransfer = {
   created_by: 'admin',
   total_quantity: 2,
   item_count: 1,
-  items: [{ id: 'item_1', product_title: 'Манго', quantity: 2 }],
+  items: [{
+    id: 'item_1',
+    product_title: 'Манго',
+    variant_name: 'Холодный манго',
+    category_name: 'Жидкости',
+    group_name: 'PODONKI PODGON',
+    product_image: '/uploads/mango.jpg',
+    quantity: 2,
+  }],
 }
 
 describe('AdminStockTransferModal', () => {
@@ -51,6 +59,9 @@ describe('AdminStockTransferModal', () => {
     vi.spyOn(store, 'fetchInventoryItems').mockResolvedValue([{
       id: 'product_1',
       title: 'Манго',
+      category_name: 'Жидкости',
+      group_name: 'PODONKI PODGON',
+      image: null,
       available_stock: 5,
     }] as any)
     const createTransfer = vi.spyOn(store, 'createInventoryTransfer').mockResolvedValue(draftTransfer as any)
@@ -67,6 +78,11 @@ describe('AdminStockTransferModal', () => {
     await increaseButton.trigger('click')
     await increaseButton.trigger('click')
     expect(wrapper.text()).toContain('2 шт')
+    expect(wrapper.text()).toContain('PODONKI PODGON')
+    expect(wrapper.text()).toContain('Жидкости')
+    expect(wrapper.get('[data-test="transfer-search-image-placeholder"]').exists()).toBe(true)
+    expect(wrapper.get('[data-test="transfer-selected-image-placeholder"]').exists()).toBe(true)
+    expect(wrapper.get('table').classes()).toContain('table-fixed')
 
     const saveButton = wrapper.findAll('button').find((button) => button.text().includes('Создать заявку'))
     await saveButton!.trigger('click')
@@ -75,7 +91,7 @@ describe('AdminStockTransferModal', () => {
     expect(createTransfer).toHaveBeenCalledWith(expect.objectContaining({
       source_location: 'warehouse',
       destination_location: 'retail',
-      items: [expect.objectContaining({ product_id: 'product_1', quantity: 2 })],
+      items: [{ product_id: 'product_1', variant_id: null, quantity: 2 }],
     }))
     expect(wrapper.emitted('saved')).toEqual([[{ number: 1 }]])
     expect(wrapper.emitted('completed')).toBeUndefined()
@@ -109,6 +125,10 @@ describe('AdminStockTransferModal', () => {
     expect(completeTransfer).toHaveBeenCalledWith('move_1')
     expect(wrapper.emitted('completed')).toEqual([[{ quantity: 2, destination: 'retail' }]])
     expect(wrapper.text()).toContain('Оприходовано')
+    expect(wrapper.text()).toContain('Манго, Холодный манго')
+    expect(wrapper.text()).toContain('PODONKI PODGON')
+    expect(wrapper.text()).toContain('Жидкости')
+    expect(wrapper.get('img[alt="Манго"]').attributes('src')).toBe('/uploads/mango.jpg')
     await wrapper.get('[data-test="modal-close"]').trigger('click')
     expect(wrapper.emitted('close')).toHaveLength(1)
   })

@@ -116,7 +116,7 @@ interface Props {
   isOpen: boolean
   title: string
   description?: string
-  size?: 'sm' | 'md' | 'lg' | 'xl' | '2xl'
+  size?: 'sm' | 'md' | 'lg' | 'xl' | '2xl' | 'wide'
   showCloseButton?: boolean
   showActions?: boolean
   showCancelButton?: boolean
@@ -176,7 +176,8 @@ const panelClasses = computed(() => {
     md: 'sm:max-w-lg lg:max-w-xl',
     lg: 'sm:max-w-xl lg:max-w-2xl',
     xl: 'sm:max-w-2xl lg:max-w-3xl',
-    '2xl': 'sm:max-w-3xl lg:max-w-4xl'
+    '2xl': 'sm:max-w-3xl lg:max-w-4xl',
+    wide: 'sm:!w-[min(96vw,1600px)] sm:!max-w-[min(96vw,1600px)]'
   }
 
   return `${baseClasses} ${sizeClasses[props.size]}`

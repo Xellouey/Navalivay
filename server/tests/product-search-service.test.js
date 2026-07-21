@@ -82,6 +82,21 @@ try {
   seedBaseCatalog();
   syncProductSearchIndex();
 
+  const firstPage = await searchProductsForCrm({ limit: 2, offset: 0 });
+  const secondPage = await searchProductsForCrm({ limit: 2, offset: 2 });
+  assert.equal(firstPage.length, 2);
+  assert.equal(secondPage.length, 2);
+  assert.equal(
+    firstPage.some((product) => secondPage.some((nextProduct) => nextProduct.id === product.id)),
+    false,
+  );
+
+  const firstPeach = await searchProductsForCrm({ search: "персик", limit: 1, offset: 0 });
+  const secondPeach = await searchProductsForCrm({ search: "персик", limit: 1, offset: 1 });
+  assert.equal(firstPeach.length, 1);
+  assert.equal(secondPeach.length, 1);
+  assert.notEqual(firstPeach[0].id, secondPeach[0].id);
+
   const broad = await searchProductsForCrm({ search: "catswil zene", limit: 10 });
   assert.ok(broad.some((product) => product.id === "prod_green"));
   assert.ok(broad.some((product) => String(product.image || "").startsWith("/uploads/thumbnails/search/")));

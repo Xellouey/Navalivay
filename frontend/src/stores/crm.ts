@@ -2658,10 +2658,13 @@ export const useCrmStore = defineStore("crm", () => {
   }
 
   async function searchCrmProducts(
-    params: { search?: string; page?: number; limit?: number } = {},
+    params: { search?: string; offset?: number; limit?: number } = {},
   ) {
     const query = new URLSearchParams();
     query.set("limit", String(params.limit ?? 25));
+    if (params.offset) {
+      query.set("offset", String(params.offset));
+    }
     if (params.search) {
       query.set("search", params.search);
     }

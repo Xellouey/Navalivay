@@ -1312,7 +1312,7 @@ crmFinanceRouter.get('/api/admin/crm/visit-logs', authMiddleware, (req, res) => 
 crmFinanceRouter.get('/api/admin/crm/products/search', authMiddleware, async (req, res) => {
   try {
     const requestStartedAt = Date.now();
-    const { search, limit = 25 } = req.query;
+    const { search, limit = 25, offset = 0 } = req.query;
     const location = req.query.location === 'warehouse'
       ? 'warehouse'
       : req.query.location === 'retail'
@@ -1322,6 +1322,7 @@ crmFinanceRouter.get('/api/admin/crm/products/search', authMiddleware, async (re
     const cleanProducts = await searchProductsForCrm({
       search: trimmedSearch,
       limit: Number(limit),
+      offset: Number(offset),
       location,
     });
     

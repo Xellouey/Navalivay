@@ -23,6 +23,12 @@ db.prepare(`
   ) VALUES ('legacy_interrupted', 999, 'retail', 'warehouse', 'draft', DATETIME('now'))
 `).run();
 migrateInventoryLocations();
+const transferItemColumns = new Set(
+  db.prepare("PRAGMA table_info('stock_transfer_items')").all().map((column) => column.name),
+);
+assert.ok(transferItemColumns.has('category_name'));
+assert.ok(transferItemColumns.has('group_name'));
+assert.ok(transferItemColumns.has('image_url'));
 assert.equal(
   db.prepare('SELECT status FROM stock_transfers WHERE id = ?').get('legacy_interrupted').status,
   'completed',
@@ -90,6 +96,25 @@ function variantStock() {
 }
 
 try {
+  const regularDisplay = db.prepare(`
+    SELECT p.categoryId AS category_id,
+           p.groupId AS group_id,
+           c.name AS category_name,
+           cg.name AS group_name
+    FROM products p
+    LEFT JOIN categories c ON c.id = p.categoryId
+    LEFT JOIN category_groups cg ON cg.id = p.groupId
+    WHERE p.id = ?
+  `).get('product_regular');
+  assert.ok(regularDisplay.category_name);
+  assert.ok(regularDisplay.group_name);
+  db.prepare('INSERT INTO product_images (productId, url, position) VALUES (?, ?, ?)')
+    .run('product_regular', '/uploads/regular-transfer.jpg', 0);
+  db.prepare('INSERT INTO product_images (productId, variant_id, url, position) VALUES (?, ?, ?, ?)')
+    .run('product_variant', null, '/uploads/variant-base.jpg', 0);
+  db.prepare('INSERT INTO product_images (productId, variant_id, url, position) VALUES (?, ?, ?, ?)')
+    .run('product_variant', 'variant_black', '/uploads/variant-black.jpg', 1);
+
   const moveToWarehouse = await requestJson('/api/admin/inventory/transfers', {
     method: 'POST',
     body: JSON.stringify({
@@ -105,6 +130,36 @@ try {
   assert.equal(moveToWarehouse.response.status, 200);
   assert.equal(moveToWarehouse.data.status, 'draft');
   assert.equal(moveToWarehouse.data.created_by, 'inventory-test');
+  const regularTransferItem = moveToWarehouse.data.items.find((item) => item.product_id === 'product_regular');
+  assert.equal(regularTransferItem.category_name, regularDisplay.category_name);
+  assert.equal(regularTransferItem.group_name, regularDisplay.group_name);
+  assert.equal(regularTransferItem.product_image, '/uploads/regular-transfer.jpg');
+  const variantTransferItem = moveToWarehouse.data.items.find((item) => item.variant_id === 'variant_black');
+  assert.equal(variantTransferItem.product_image, '/uploads/variant-black.jpg');
+
+  db.prepare('UPDATE categories SET name = ? WHERE id = ?').run('Переименованная категория', regularDisplay.category_id);
+  db.prepare('UPDATE category_groups SET name = ? WHERE id = ?').run('Переименованная линейка', regularDisplay.group_id);
+  db.prepare('UPDATE product_images SET url = ? WHERE productId = ?')
+    .run('/uploads/changed-after-transfer.jpg', 'product_regular');
+  const savedTransfer = await requestJson(`/api/admin/inventory/transfers/${moveToWarehouse.data.id}`);
+  const savedRegularItem = savedTransfer.data.items.find((item) => item.product_id === 'product_regular');
+  assert.equal(savedRegularItem.category_name, regularDisplay.category_name);
+  assert.equal(savedRegularItem.group_name, regularDisplay.group_name);
+  assert.equal(savedRegularItem.product_image, '/uploads/regular-transfer.jpg');
+  db.prepare('UPDATE categories SET name = ? WHERE id = ?').run(regularDisplay.category_name, regularDisplay.category_id);
+  db.prepare('UPDATE category_groups SET name = ? WHERE id = ?').run(regularDisplay.group_name, regularDisplay.group_id);
+  db.prepare('UPDATE product_images SET url = ? WHERE productId = ?')
+    .run('/uploads/regular-transfer.jpg', 'product_regular');
+  db.prepare(`
+    UPDATE stock_transfer_items
+    SET category_name = NULL, group_name = NULL, image_url = NULL
+    WHERE transfer_id = ? AND product_id = ?
+  `).run(moveToWarehouse.data.id, 'product_regular');
+  const legacyStyleTransfer = await requestJson(`/api/admin/inventory/transfers/${moveToWarehouse.data.id}`);
+  const legacyStyleItem = legacyStyleTransfer.data.items.find((item) => item.product_id === 'product_regular');
+  assert.equal(legacyStyleItem.category_name, regularDisplay.category_name);
+  assert.equal(legacyStyleItem.group_name, regularDisplay.group_name);
+  assert.equal(legacyStyleItem.product_image, '/uploads/regular-transfer.jpg');
   assert.deepEqual(regularStock(), { stock: 10, warehouse_stock: 0 });
   assert.deepEqual(variantStock(), { stock: 10, warehouse_stock: 0 });
   assert.equal(db.prepare('SELECT COUNT(*) AS count FROM stock_transfer_items').get().count, 2);

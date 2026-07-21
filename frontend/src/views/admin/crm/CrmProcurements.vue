@@ -252,7 +252,7 @@
       :isOpen="showCreateModal"
       :title="editingProcurementId ? 'Редактирование закупки' : 'Новая закупка'"
       description="Подберите товары, укажите закупочную цену и количество - себестоимость пересчитается автоматически."
-      size="2xl"
+      size="wide"
       :showActions="false"
       :persistent="true"
       @close="closeCreateModal"
@@ -315,8 +315,9 @@
               </p>
             </div>
             <div
-              class="mt-4 min-h-[120px] max-h-[800px] overflow-y-auto rounded-lg border border-dashed border-gray-200 resize-y overscroll-contain"
-              style="height: 208px;"
+              class="mt-4 min-h-[120px] max-h-[800px] overflow-x-hidden overflow-y-auto rounded-lg border border-dashed border-gray-200 resize-y overscroll-contain"
+              style="height: 208px; scrollbar-gutter: stable;"
+              @scroll.passive="handleProductResultsScroll"
             >
               <div
                 v-if="isSearchingProducts"
@@ -347,7 +348,7 @@
                   v-for="(product, index) in productResults"
                   :key="product.id"
                   :class="[
-                    'grid grid-cols-1 gap-3 px-3 py-3 transition-colors sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:px-4',
+                    'grid min-w-0 grid-cols-1 gap-3 px-3 py-3 transition-colors sm:grid-cols-[minmax(0,1fr)_9.5rem] sm:items-center sm:px-4',
                     getAddedQuantity(product.id) > 0
                       ? 'bg-blue-50 ring-2 ring-inset ring-blue-400'
                       : 'hover:bg-gray-50'
@@ -382,13 +383,26 @@
                       </div>
                     </div>
                   </div>
-                  <div class="flex flex-shrink-0 items-center gap-1 justify-self-end rounded-xl bg-gray-100 p-1">
+                  <div class="grid w-[9.5rem] max-w-full grid-cols-[2.5rem_minmax(3rem,1fr)_2.5rem] items-center gap-1 justify-self-end rounded-xl bg-gray-100 p-1">
                     <button type="button" class="h-10 w-10 rounded-lg bg-white text-lg font-semibold text-gray-700 shadow-sm hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-40" :disabled="getAddedQuantity(product.id) === 0" aria-label="Уменьшить количество" @click.stop="decreaseProduct(product.id)">−</button>
                     <span class="min-w-10 text-center text-xs font-semibold text-gray-900">{{ getAddedQuantity(product.id) }} шт</span>
                     <button type="button" class="h-10 w-10 rounded-lg bg-blue-600 text-lg font-semibold text-white shadow-sm hover:bg-blue-700" aria-label="Увеличить количество" @click="addProduct(product)">+</button>
                   </div>
                 </li>
               </ul>
+              <div v-if="productSearchHasMore" class="border-t border-gray-100 p-3 text-center">
+                <p v-if="loadMoreProductsError" class="mb-2 text-xs text-red-600" aria-live="polite">
+                  {{ loadMoreProductsError }}
+                </p>
+                <button
+                  type="button"
+                  class="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 transition hover:bg-gray-50 disabled:cursor-wait disabled:opacity-60"
+                  :disabled="isLoadingMoreProducts"
+                  @click="loadMoreProducts"
+                >
+                  {{ isLoadingMoreProducts ? 'Загружаем…' : 'Показать ещё товары' }}
+                </button>
+              </div>
             </div>
           </div>
 
@@ -1148,8 +1162,13 @@ const draftItems = ref<DraftProcurementItem[]>([]);
 const productSearch = ref("");
 const productResults = ref<CrmProductSummary[]>([]);
 const isSearchingProducts = ref(false);
+const isLoadingMoreProducts = ref(false);
+const productSearchHasMore = ref(false);
+const loadMoreProductsError = ref("");
 const searchError = ref("");
 const productSearchRequestId = ref(0);
+const loadedProductSearchQuery = ref("");
+const PRODUCT_SEARCH_PAGE_SIZE = 50;
 const lowStockLoading = ref(false);
 const creatingProcurement = ref(false);
 const bulkWarehouseQuantity = ref<number | null>(null);
@@ -1265,6 +1284,7 @@ let searchDebounce: ReturnType<typeof setTimeout> | null = null;
 function invalidateProductSearch() {
   productSearchRequestId.value += 1;
   isSearchingProducts.value = false;
+  isLoadingMoreProducts.value = false;
 }
 
 function clearProductSearchState() {
@@ -1274,7 +1294,10 @@ function clearProductSearchState() {
   }
   invalidateProductSearch();
   searchError.value = "";
+  loadMoreProductsError.value = "";
   productResults.value = [];
+  productSearchHasMore.value = false;
+  loadedProductSearchQuery.value = "";
 }
 
 onMounted(async () => {
@@ -1312,6 +1335,9 @@ watch(showCreateModal, async (isOpen) => {
 watch(productSearch, (query) => {
   if (!showCreateModal.value) return;
   if (searchDebounce) clearTimeout(searchDebounce);
+  invalidateProductSearch();
+  productSearchHasMore.value = false;
+  loadMoreProductsError.value = "";
   searchDebounce = setTimeout(() => {
     const trimmed = query.trim();
     if (!trimmed) {
@@ -1398,27 +1424,58 @@ function convertAdminProductToCrmSummary(product: any): CrmProductSummary {
   };
 }
 
-async function loadProducts(search?: string) {
+async function loadProducts(search?: string, append = false) {
   const requestId = ++productSearchRequestId.value;
-  isSearchingProducts.value = true;
+  if (append) {
+    isLoadingMoreProducts.value = true;
+  } else {
+    isSearchingProducts.value = true;
+  }
   searchError.value = "";
+  loadMoreProductsError.value = "";
   try {
     const results = await crmStore.searchCrmProducts({
       search,
-      limit: 100,
+      offset: append ? productResults.value.length : 0,
+      limit: PRODUCT_SEARCH_PAGE_SIZE + 1,
     });
     if (requestId !== productSearchRequestId.value) return;
-    productResults.value = results;
+    const page = results.slice(0, PRODUCT_SEARCH_PAGE_SIZE);
+    productSearchHasMore.value = results.length > PRODUCT_SEARCH_PAGE_SIZE;
+    if (append) {
+      const knownIds = new Set(productResults.value.map((product) => product.id));
+      productResults.value.push(...page.filter((product) => !knownIds.has(product.id)));
+    } else {
+      productResults.value = page;
+      loadedProductSearchQuery.value = search?.trim() ?? "";
+    }
   } catch (error) {
     if (requestId !== productSearchRequestId.value) return;
     console.error("[CRM] search products error", error);
-    searchError.value =
-      "Не удалось загрузить список товаров. Попробуйте обновить страницу.";
-    productResults.value = [];
+    if (append) {
+      loadMoreProductsError.value = "Не удалось догрузить товары. Нажмите ещё раз.";
+    } else {
+      searchError.value =
+        "Не удалось загрузить список товаров. Попробуйте обновить страницу.";
+      productResults.value = [];
+    }
   } finally {
     if (requestId === productSearchRequestId.value) {
       isSearchingProducts.value = false;
+      isLoadingMoreProducts.value = false;
     }
+  }
+}
+
+function loadMoreProducts() {
+  if (!productSearchHasMore.value || isLoadingMoreProducts.value || isSearchingProducts.value) return;
+  void loadProducts(loadedProductSearchQuery.value || undefined, true);
+}
+
+function handleProductResultsScroll(event: Event) {
+  const target = event.currentTarget as HTMLElement;
+  if (target.scrollHeight - target.scrollTop - target.clientHeight <= 80) {
+    loadMoreProducts();
   }
 }
 
