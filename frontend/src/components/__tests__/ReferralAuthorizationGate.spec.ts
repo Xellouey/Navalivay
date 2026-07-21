@@ -160,7 +160,12 @@ describe("ReferralAuthorizationGate", () => {
         },
       },
     });
-    const fetchMock = vi.fn();
+    const fetchMock = vi.fn().mockResolvedValue(response({
+      ok: true,
+      status: "missing",
+      hasUsername: false,
+      username: null,
+    }));
     vi.stubGlobal("fetch", fetchMock);
 
     const wrapper = mount(ReferralAuthorizationGate, {
@@ -168,10 +173,91 @@ describe("ReferralAuthorizationGate", () => {
     });
     await flushPromises();
 
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/telegram/username-status",
+      expect.objectContaining({ credentials: "include" }),
+    );
     expect(wrapper.find(".modal-shell").exists()).toBe(true);
     expect(wrapper.text()).toContain("Установите имя пользователя @username в настройках Telegram");
     expect(wrapper.emitted("gate-active")?.at(-1)).toEqual([true]);
+    wrapper.unmount();
+  });
+
+  it("rechecks a username after returning to the open Mini App and gives immediate feedback", async () => {
+    Object.defineProperty(window, "Telegram", {
+      configurable: true,
+      value: {
+        WebApp: {
+          initData: "signed-init-data",
+          initDataUnsafe: {
+            user: { id: 990000032, first_name: "Fresh Username" },
+          },
+          HapticFeedback: { impactOccurred: vi.fn() },
+        },
+      },
+    });
+    let resolveRetry!: (value: Response) => void;
+    const retryResponse = new Promise<Response>((resolve) => {
+      resolveRetry = resolve;
+    });
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(response({ status: "missing", hasUsername: false }))
+      .mockReturnValueOnce(retryResponse)
+      .mockResolvedValueOnce(response({
+        enabled: true,
+        required: true,
+        attempts_remaining: 3,
+      }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const wrapper = mount(ReferralAuthorizationGate, {
+      global: { stubs: { CustomerModalShell: shellStub } },
+    });
+    await flushPromises();
+    expect(wrapper.text()).toContain("Установите имя пользователя");
+
+    await wrapper.find("button").trigger("click");
+    expect(window.Telegram?.WebApp.HapticFeedback.impactOccurred).toHaveBeenCalledWith("light");
+    expect(wrapper.text()).toContain("Проверяем ваш доступ");
+    expect(wrapper.text()).not.toContain("Повторить");
+
+    resolveRetry(response({ status: "confirmed", hasUsername: true, username: "fresh_username" }));
+    await flushPromises();
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      3,
+      "/api/referral-authorization/status",
+      expect.objectContaining({ credentials: "include" }),
+    );
+    expect(wrapper.text()).toContain("Кто порекомендовал нас?");
+    wrapper.unmount();
+  });
+
+  it("does not blame a missing username when Telegram live verification is temporarily unavailable", async () => {
+    Object.defineProperty(window, "Telegram", {
+      configurable: true,
+      value: {
+        WebApp: {
+          initData: "signed-init-data",
+          initDataUnsafe: {
+            user: { id: 990000033, first_name: "Retry Later" },
+          },
+        },
+      },
+    });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response({
+      status: "retry",
+      hasUsername: false,
+      message: "Telegram временно не ответил. Попробуйте ещё раз.",
+    })));
+
+    const wrapper = mount(ReferralAuthorizationGate, {
+      global: { stubs: { CustomerModalShell: shellStub } },
+    });
+    await flushPromises();
+
+    expect(wrapper.text()).toContain("Telegram временно не ответил");
+    expect(wrapper.text()).not.toContain("Установите имя пользователя");
     wrapper.unmount();
   });
 

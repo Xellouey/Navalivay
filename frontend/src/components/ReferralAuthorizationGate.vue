@@ -63,7 +63,7 @@
         ref="retryButtonRef"
         type="button"
         class="referral-gate__cta"
-        @click="refreshStatus"
+        @click="handleRetry"
       >
         Повторить
       </button>
@@ -99,24 +99,42 @@ const modalTitle = computed(() => {
   return "Кто порекомендовал нас?";
 });
 
-function hasTelegramIdentity() {
-  return Boolean(getTelegramIdentity().telegramId);
-}
-
 async function refreshStatus() {
-  if (!getTelegramInitData() || !hasTelegramIdentity()) {
+  const identity = getTelegramIdentity();
+  if (!getTelegramInitData() || !identity.telegramId) {
     errorMessage.value = "Откройте приложение через Telegram, чтобы пройти авторизацию.";
-    phase.value = "error";
-    return;
-  }
-  if (!getTelegramIdentity().telegramUsername) {
-    errorMessage.value = "Установите имя пользователя @username в настройках Telegram";
     phase.value = "error";
     return;
   }
   phase.value = "checking";
   errorMessage.value = "";
   try {
+    if (!identity.telegramUsername) {
+      const usernameResponse = await fetch("/api/telegram/username-status", {
+        headers: withTelegramAuthHeaders(),
+        credentials: "include",
+      });
+      const usernameStatus = await usernameResponse.json().catch(() => ({}));
+      if (usernameResponse.status === 401) {
+        errorMessage.value = "Сессия Telegram устарела. Закройте и заново откройте магазин.";
+        phase.value = "error";
+        return;
+      }
+      if (!usernameResponse.ok) {
+        throw new Error("Не удалось проверить username. Проверьте интернет и повторите.");
+      }
+      if (usernameStatus?.status === "missing") {
+        errorMessage.value = "Установите имя пользователя @username в настройках Telegram";
+        phase.value = "error";
+        return;
+      }
+      if (!usernameStatus?.hasUsername) {
+        errorMessage.value = usernameStatus?.message
+          || "Не удалось получить обновлённый username. Попробуйте ещё раз.";
+        phase.value = "error";
+        return;
+      }
+    }
     const response = await fetch("/api/referral-authorization/status", {
       headers: withTelegramAuthHeaders(),
       credentials: "include",
@@ -137,6 +155,11 @@ async function refreshStatus() {
     errorMessage.value = error instanceof Error ? error.message : "Не удалось проверить доступ";
     phase.value = "error";
   }
+}
+
+function handleRetry() {
+  window.Telegram?.WebApp?.HapticFeedback?.impactOccurred("light");
+  void refreshStatus();
 }
 
 watch(

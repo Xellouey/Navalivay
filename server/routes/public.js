@@ -158,11 +158,20 @@ async function fetchTelegramChat(telegramId) {
     return null;
   }
 
-  const response = await fetch(
-    `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getChat?chat_id=${encodeURIComponent(String(telegramId))}`,
-    applyTelegramHttpProxy(),
-  );
-  const payload = await response.json();
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 7000);
+  timeout.unref?.();
+  let response;
+  let payload;
+  try {
+    response = await fetch(
+      `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getChat?chat_id=${encodeURIComponent(String(telegramId))}`,
+      { ...applyTelegramHttpProxy(), signal: controller.signal },
+    );
+    payload = await response.json();
+  } finally {
+    clearTimeout(timeout);
+  }
 
   if (!response.ok || !payload?.ok) {
     const description = payload?.description || `HTTP ${response.status}`;
@@ -1721,28 +1730,24 @@ publicRouter.get("/api/agreements", publicMiniAppReadLimiter, (req, res) => {
   }
 });
 
-publicRouter.get("/api/telegram/username-status", async (req, res) => {
-  try {
-    const telegramId = typeof req.query.telegram_id === "string" ? req.query.telegram_id.trim() : "";
-
-    if (!telegramId) {
-      return res.status(400).json({
+publicRouter.get(
+  "/api/telegram/username-status",
+  publicMiniAppReadLimiter,
+  requireTelegramMiniAppAuth({ allowInsecureFallback: allowInsecureTelegramFallback }),
+  async (req, res) => {
+    try {
+      const telegramId = String(req.telegramAuth?.telegramId || "").trim();
+      return res.json(await resolveTelegramUsernameStatus(telegramId));
+    } catch (error) {
+      console.error("[public] Failed to check telegram username status:", error);
+      return res.status(500).json({
         ok: false,
-        error: "telegram_id_required",
-        message: "Не указан Telegram ID",
+        error: "username_status_failed",
+        message: "Не удалось проверить username",
       });
     }
-
-    return res.json(await resolveTelegramUsernameStatus(telegramId));
-  } catch (error) {
-    console.error("[public] Failed to check telegram username status:", error);
-    return res.status(500).json({
-      ok: false,
-      error: "username_status_failed",
-      message: "Не удалось проверить username",
-    });
-  }
-});
+  },
+);
 
 publicRouter.get(
   "/api/customer-photo/:customerId",
@@ -1820,10 +1825,26 @@ publicRouter.post(
   "/api/referral-authorization/authorize",
   publicMiniAppMutationLimiter,
   requireTelegramMiniAppAuth({ allowInsecureFallback: allowInsecureTelegramFallback }),
-  (req, res) => {
+  async (req, res) => {
     try {
       const telegramId = String(req.telegramAuth?.telegramId || "").trim();
-      const telegramUsername = normalizeTelegramUsername(req.telegramAuth?.telegramUsername);
+      let telegramUsername;
+      try {
+        telegramUsername = await resolveVerifiedOrderUsername(req.telegramAuth, null);
+      } catch (usernameError) {
+        if (
+          usernameError?.code === "telegram_username_required"
+          || usernameError?.code === "telegram_username_not_verified"
+        ) {
+          return res.status(428).json({
+            error: usernameError.code,
+            message: usernameError.code === "telegram_username_required"
+              ? "Установите имя пользователя @username в настройках Telegram"
+              : "Не удалось проверить обновлённый username. Попробуйте ещё раз.",
+          });
+        }
+        throw usernameError;
+      }
       const identity = {
         telegramId,
         telegramUsername,

@@ -495,6 +495,66 @@ async function testReferralAuthorizationOrderFlow() {
   assert.equal(afterRemoval.response.status, 200);
   assert.equal(afterRemoval.data.authorized, true);
 
+  // Telegram не обновляет initDataUnsafe, если пользователь свернул Mini App,
+  // добавил username и вернулся. Повторная проверка и сама авторизация должны
+  // получить свежий username по подписанному telegram_id, не доверяя query/body.
+  const nativeFetch = globalThis.fetch;
+  const liveUsernameIdentity = { telegram_id: '7045' };
+  const telegramChatIds = [];
+  let telegramAvailable = true;
+  globalThis.fetch = async (input, options) => {
+    const url = String(input);
+    if (url.startsWith('https://api.telegram.org/')) {
+      const chatId = new URL(url).searchParams.get('chat_id');
+      telegramChatIds.push(chatId);
+      if (!telegramAvailable) throw new Error('telegram temporarily unavailable');
+      assert.equal(chatId, liveUsernameIdentity.telegram_id);
+      return new Response(JSON.stringify({
+        ok: true,
+        result: {
+          id: 7045,
+          username: 'fresh_live_username',
+          first_name: 'Fresh',
+        },
+      }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    return nativeFetch(input, options);
+  };
+  try {
+    telegramAvailable = false;
+    const unavailableAuthorization = await authorizeReferral(
+      { telegram_id: '7044' },
+      'trusted_referrer',
+    );
+    assert.equal(unavailableAuthorization.response.status, 428);
+    assert.equal(unavailableAuthorization.data.error, 'telegram_username_not_verified');
+    assert.match(unavailableAuthorization.data.message, /Не удалось проверить обновлённый username/);
+    assert.doesNotMatch(unavailableAuthorization.data.message, /Установите имя пользователя/);
+    telegramAvailable = true;
+
+    const unsignedLiveCheck = await requestJson('/api/telegram/username-status?telegram_id=7045');
+    assert.equal(unsignedLiveCheck.response.status, 401);
+
+    const liveCheck = await requestJson('/api/telegram/username-status?telegram_id=999999', {
+      headers: telegramHeaders(liveUsernameIdentity),
+    });
+    assert.equal(liveCheck.response.status, 200);
+    assert.equal(liveCheck.data.hasUsername, true);
+    assert.equal(liveCheck.data.username, 'fresh_live_username');
+
+    const liveAuthorized = await authorizeReferral(liveUsernameIdentity, 'trusted_referrer');
+    assert.equal(liveAuthorized.response.status, 200);
+    assert.equal(liveAuthorized.data.authorized, true);
+    const liveCustomer = db.prepare("SELECT * FROM customers WHERE telegram_id = '7045'").get();
+    assert.equal(liveCustomer.telegram_username, 'fresh_live_username');
+    assert.deepEqual(telegramChatIds, ['7044', '7045', '7045']);
+  } finally {
+    globalThis.fetch = nativeFetch;
+  }
+
   // Добавление username и авторизация могут прийти одновременно. Допустим
   // только линейный итог: запрос либо успел до запрета, либо увидел запрет
   // целиком. Частичного клиента, попытки или бана быть не должно.
