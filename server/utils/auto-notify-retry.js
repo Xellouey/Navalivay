@@ -5,7 +5,10 @@
  */
 
 import { db } from '../db.js';
-import { getActivePickupCellAssignment } from './pickup-cells.js';
+import {
+  getActivePickupCellAssignment,
+  getLatestPickupCellAssignment,
+} from './pickup-cells.js';
 
 export const RETRY_BASE_MS = 30_000;
 export const RETRY_MULTIPLIER = 2;
@@ -43,10 +46,10 @@ export function computeRetryDelayMs(attempt, { rng = Math.random } = {}) {
 }
 
 export function hasAutoNotifyBeenSent(orderId, templateEvent) {
-  const pickupCell = templateEvent === 'order_assembled'
+  const pickupCell = ['order_accepted', 'order_assembled'].includes(templateEvent)
     ? getActivePickupCellAssignment(orderId)
-    : null;
-  if (templateEvent === 'order_assembled' && !pickupCell) return false;
+    : getLatestPickupCellAssignment(orderId);
+  if (['order_accepted', 'order_assembled'].includes(templateEvent) && !pickupCell) return false;
   const row = db
     .prepare(
       `SELECT 1 FROM bot_message_log
@@ -54,7 +57,7 @@ export function hasAutoNotifyBeenSent(orderId, templateEvent) {
           AND template_event = ?
           AND json_extract(meta, '$.order_id') = ?
           AND json_extract(meta, '$.outcome') = 'sent'
-          ${templateEvent === 'order_assembled'
+          ${pickupCell
             ? `AND json_extract(meta, '$.pickup_cell_assignment_id') = ?`
             : ''}
         LIMIT 1`,
@@ -113,7 +116,17 @@ export function scheduleAutoNotifyRetry({
     return { scheduled: false };
   }
 
-  const existing = getPendingRow(orderId, event);
+  const pickupCell = ['order_accepted', 'order_assembled'].includes(event)
+    ? getActivePickupCellAssignment(orderId)
+    : getLatestPickupCellAssignment(orderId);
+  let existing = getPendingRow(orderId, event);
+  if (
+    existing &&
+    String(existing.pickup_cell_assignment_id || '') !== String(pickupCell?.id || '')
+  ) {
+    db.prepare(`DELETE FROM pending_notifications WHERE id = ?`).run(existing.id);
+    existing = null;
+  }
   const nowMs = now.getTime();
 
   if (existing?.status === 'pending') {
@@ -146,8 +159,9 @@ export function scheduleAutoNotifyRetry({
   const nextRetryAt = toSqliteDatetime(new Date(nowMs + delayMs));
   db.prepare(
     `INSERT INTO pending_notifications
-      (order_id, template_event, reason, attempt, max_attempts, next_retry_at, status)
-     VALUES (?, ?, ?, ?, ?, ?, 'pending')`,
+      (order_id, template_event, reason, attempt, max_attempts, next_retry_at,
+       status, pickup_cell_assignment_id, pickup_cell_number)
+     VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?)`,
   ).run(
     String(orderId),
     String(event),
@@ -155,6 +169,8 @@ export function scheduleAutoNotifyRetry({
     firstAttempt,
     RETRY_MAX_ATTEMPTS,
     nextRetryAt,
+    pickupCell?.id || null,
+    pickupCell?.cell_number || null,
   );
   return { scheduled: true, attempt: firstAttempt, next_retry_at: nextRetryAt };
 }
@@ -235,6 +251,17 @@ export async function processPendingAutoNotifyRetries({
     if (hasAutoNotifyBeenSent(row.order_id, row.template_event)) {
       markAutoNotifyRetryStatus(row.order_id, row.template_event, 'sent');
       summary.sent += 1;
+      continue;
+    }
+
+    const currentPickupCell = ['order_accepted', 'order_assembled'].includes(row.template_event)
+      ? getActivePickupCellAssignment(row.order_id)
+      : getLatestPickupCellAssignment(row.order_id);
+    if (
+      String(row.pickup_cell_assignment_id || '') !== String(currentPickupCell?.id || '')
+    ) {
+      markAutoNotifyRetryStatus(row.order_id, row.template_event, 'cancelled');
+      summary.cancelled += 1;
       continue;
     }
 

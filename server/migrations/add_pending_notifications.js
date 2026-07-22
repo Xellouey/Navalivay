@@ -10,12 +10,9 @@ export function migratePendingNotifications() {
       "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'pending_notifications' LIMIT 1",
     )
     .get();
-  if (tableExists) {
-    return;
-  }
-
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS pending_notifications (
+  if (!tableExists) {
+    db.exec(`
+      CREATE TABLE pending_notifications (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       order_id TEXT NOT NULL,
       template_event TEXT NOT NULL,
@@ -26,12 +23,25 @@ export function migratePendingNotifications() {
       created_at TEXT NOT NULL DEFAULT (DATETIME('now')),
       updated_at TEXT NOT NULL DEFAULT (DATETIME('now')),
       status TEXT NOT NULL DEFAULT 'pending',
+      pickup_cell_assignment_id TEXT,
+      pickup_cell_number INTEGER,
       UNIQUE(order_id, template_event)
+      );
+    `);
+    console.log('[migration] Created pending_notifications table');
+  } else {
+    const columns = new Set(
+      db.prepare(`PRAGMA table_info(pending_notifications)`).all().map((row) => row.name),
     );
-  `);
+    if (!columns.has('pickup_cell_assignment_id')) {
+      db.exec(`ALTER TABLE pending_notifications ADD COLUMN pickup_cell_assignment_id TEXT`);
+    }
+    if (!columns.has('pickup_cell_number')) {
+      db.exec(`ALTER TABLE pending_notifications ADD COLUMN pickup_cell_number INTEGER`);
+    }
+  }
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_pending_notifications_due
       ON pending_notifications(status, next_retry_at);
   `);
-  console.log('[migration] Created pending_notifications table');
 }

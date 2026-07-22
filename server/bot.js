@@ -14,6 +14,7 @@ import {
   authorizeCustomerWithoutReferral,
   getReferralOrderCreationGate,
 } from './utils/referral-authorization.js';
+import { assignLowestAvailablePickupCell } from './utils/pickup-cells.js';
 
 // Singleton прокси-агент для long-polling. См. комментарий ниже у Telegraf
 // init: на RU-хостинге без прокси bot не получает business updates.
@@ -194,14 +195,17 @@ export function createOrderFromBot({ customerId, product, quantity, telegramMess
         WHERE id = ?
       `).run(finalAmount, customerId);
     }
+
+    return assignLowestAvailablePickupCell(orderId);
   });
 
-  tx.immediate();
+  const pickupCell = tx.immediate();
 
   return {
     orderId,
     orderNumber,
-    finalAmount
+    finalAmount,
+    pickupCellNumber: pickupCell.cell_number,
   };
 }
 
@@ -341,7 +345,7 @@ if (!BOT_TOKEN) {
       const formattedPrice = new Intl.NumberFormat('ru-RU').format(finalPrice);
       const webAppUrl = getStoreWebAppUrl();
       await ctx.reply(
-        `Заказ принят!\nТовар: ${title.trim()}\nСтоимость: ${formattedPrice} ₽\nМенеджер свяжется с вами для подтверждения.`,
+        `Заказ №${result.pickupCellNumber} принят!\nТовар: ${title.trim()}\nСтоимость: ${formattedPrice} ₽\nМенеджер свяжется с вами для подтверждения.`,
         Markup.inlineKeyboard([
           [Markup.button.webApp('🛍 Открыть каталог', webAppUrl)] 
         ])
@@ -365,6 +369,10 @@ if (!BOT_TOKEN) {
       }
       if (error instanceof Error && error.message === 'insufficient_stock') {
         await ctx.reply('Похоже, товар только что закончился. Мы уведомим менеджера и уточним наличие.');
+        return;
+      }
+      if (error instanceof Error && error.code === 'pickup_cells_full') {
+        await ctx.reply('Сейчас нет свободного места для заказа. Попробуйте немного позже.');
         return;
       }
       console.error('[navalivay:bot] failed to create order from message:', error);

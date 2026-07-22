@@ -295,7 +295,12 @@ try {
   assertEq(userbotSendBody9.chat_id, '555', 'chat_id = telegram_id клиента');
   assertEq(userbotSendBody9.auto, true, 'auto=true в payload userbot');
   assertEq(userbotSendBody9.username, 'tester', 'username прокинут (для resolveUsername fallback)');
-  assert(userbotSendBody9.text.includes('1001'), 'текст содержит order_number');
+  assert(
+    userbotSendBody9.text.includes('заказ №1') &&
+      !userbotSendBody9.text.includes('1001') &&
+      !/ячейк/i.test(userbotSendBody9.text),
+    'текст содержит только короткий клиентский номер',
+  );
 } finally {
   globalThis.fetch = originalFetch;
   _resetHealthCacheForTests();
@@ -305,6 +310,8 @@ try {
 console.log('\n=== Test 10: userbot rejected → sent=false с reason ===');
 resetDb();
 makeOrderAndCustomer({ telegramId: '666', verified: true });
+db.prepare(`UPDATE orders SET status = 'cancelled' WHERE id = 'o_test'`).run();
+db.prepare(`UPDATE order_pickup_cell_assignments SET released_at = DATETIME('now') WHERE order_id = 'o_test'`).run();
 _resetHealthCacheForTests();
 
 globalThis.fetch = async (url) => {
@@ -355,6 +362,8 @@ try {
 console.log('\n=== Test 11: completed → шаблон order_issued ===');
 resetDb();
 makeOrderAndCustomer({ telegramId: '777', verified: true });
+db.prepare(`UPDATE orders SET status = 'completed' WHERE id = 'o_test'`).run();
+db.prepare(`UPDATE order_pickup_cell_assignments SET released_at = DATETIME('now') WHERE order_id = 'o_test'`).run();
 _resetHealthCacheForTests();
 
 let userbotSendBody11 = null;
@@ -565,6 +574,8 @@ try {
 console.log('\n=== Test 17: customer заблокирован → skip + лог skipped ===');
 resetDb();
 makeOrderAndCustomer({ telegramId: '17171', verified: true });
+db.prepare(`UPDATE orders SET status = 'cancelled' WHERE id = 'o_test'`).run();
+db.prepare(`UPDATE order_pickup_cell_assignments SET released_at = DATETIME('now') WHERE order_id = 'o_test'`).run();
 _resetHealthCacheForTests();
 // Вставляем активный блок (бессрочный — block_until=NULL).
 db.prepare(

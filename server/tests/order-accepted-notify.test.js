@@ -61,6 +61,13 @@ function resetDb() {
   });
 }
 
+function assignPickupCell(orderId, cellNumber = 1) {
+  db.prepare(
+    `INSERT INTO order_pickup_cell_assignments (id, order_id, cell_number)
+     VALUES (?, ?, ?)`,
+  ).run(`cell_${orderId}`, orderId, cellNumber);
+}
+
 // --- T2f: два первых события делят один resolve и оба ждут его ---
 console.log('\n=== T2f: concurrent accepted + assembled share recipient warmup ===');
 resetDb();
@@ -179,6 +186,7 @@ function makeReturningCustomer({ telegramId = '111', verified = true, priorOrder
     `INSERT INTO orders (id, order_number, customer_id, status, total_amount, final_amount)
      VALUES (?, ?, ?, ?, ?, ?)`,
   ).run(orderId, 1001, customerId, 'new', 100, 100);
+  assignPickupCell(orderId);
   return { orderId, customerId, telegramId };
 }
 
@@ -195,7 +203,12 @@ try {
   assertEq(result.sent, true, 'sent=true');
   assertEq(result.event, ORDER_ACCEPTED_EVENT, 'event=order_accepted');
   assertEq(sendBody.value?.chat_id, returning.telegramId, 'chat_id корректный');
-  assert(sendBody.value?.text?.includes('1001'), 'текст содержит order_number');
+  assert(
+    sendBody.value?.text?.includes('Заказ №1') &&
+      !sendBody.value?.text?.includes('1001') &&
+      !sendBody.value?.text?.includes('Заказ #1'),
+    'текст содержит только короткий «Заказ №1»',
+  );
   assertEq(t1Calls, ['resolve', 'health', 'send'], 'постоянный клиент отправлен только после resolve');
 } finally {
   globalThis.fetch = origFetch;
@@ -215,6 +228,7 @@ resetDb();
     `INSERT INTO orders (id, order_number, customer_id, status, total_amount, final_amount)
      VALUES (?, ?, ?, 'new', 100, 100)`,
   ).run('o_newbie', 1002, customerId);
+  assignPickupCell('o_newbie');
 
   let sendHits = 0;
   globalThis.fetch = async (url) => {
@@ -253,6 +267,7 @@ resetDb();
     INSERT INTO orders (id, order_number, customer_id, status, total_amount, final_amount)
     VALUES ('o_referral_new', 1003, 'c_referral_new', 'new', 100, 100)
   `).run();
+  assignPickupCell('o_referral_new');
   globalThis.fetch = mockUserbotOk();
   _resetHealthCacheForTests();
   try {
@@ -278,6 +293,7 @@ resetDb();
     INSERT INTO orders (id, order_number, customer_id, status, total_amount, final_amount)
     VALUES ('o_warmup', 1005, 'c_warmup', 'new', 100, 100)
   `).run();
+  assignPickupCell('o_warmup');
   const calls = [];
   globalThis.fetch = async (url, init = {}) => {
     const u = String(url);
@@ -331,6 +347,7 @@ resetDb();
     INSERT INTO orders (id, order_number, customer_id, status, total_amount, final_amount)
     VALUES ('o_id_only', 1006, 'c_id_only', 'new', 100, 100)
   `).run();
+  assignPickupCell('o_id_only');
   const sentBody = { value: null };
   globalThis.fetch = mockUserbotOk({ captureBody: sentBody });
   _resetHealthCacheForTests();
@@ -358,6 +375,7 @@ resetDb();
     INSERT INTO orders (id, order_number, customer_id, status, total_amount, final_amount)
     VALUES ('o_feature_disabled', 1004, 'c_feature_disabled', 'new', 100, 100)
   `).run();
+  assignPickupCell('o_feature_disabled');
   let sendHits = 0;
   globalThis.fetch = async (url) => {
     const u = String(url);
@@ -512,6 +530,7 @@ resetDb();
     `INSERT INTO orders (id, order_number, customer_id, status, total_amount, final_amount)
      VALUES (?, ?, ?, 'new', 100, 100)`,
   ).run('o_new_uv', 1005, customerId);
+  assignPickupCell('o_new_uv');
   globalThis.fetch = mockUserbotOk();
   try {
     const result = await autoNotifyOrderAccepted({ orderId: 'o_new_uv' });
@@ -583,6 +602,7 @@ resetDb();
     `INSERT INTO orders (id, order_number, customer_id, status, total_amount, final_amount)
      VALUES (?, ?, ?, 'new', 100, 100)`,
   ).run('o_cancel_new', 1006, customerId);
+  assignPickupCell('o_cancel_new');
   let t10Hits = 0;
   globalThis.fetch = async (url) => {
     const u = String(url);
@@ -622,6 +642,7 @@ resetDb();
     `INSERT INTO orders (id, order_number, customer_id, status, total_amount, final_amount)
      VALUES (?, ?, ?, 'new', 100, 100)`,
   ).run('o_comp_new', 1007, customerId);
+  assignPickupCell('o_comp_new');
   globalThis.fetch = mockUserbotOk();
   try {
     const result = await autoNotifyOrderAccepted({ orderId: 'o_comp_new' });
@@ -735,10 +756,6 @@ try {
   const accepted = await autoNotifyOrderAccepted({ orderId: 'o_new' });
   assertEq(accepted.sent, true, 'order_accepted sent');
   db.prepare(`UPDATE orders SET status = 'in_progress' WHERE id = 'o_new'`).run();
-  db.prepare(`
-    INSERT INTO order_pickup_cell_assignments (id, order_id, cell_number)
-    VALUES ('cell_o_new', 'o_new', 1)
-  `).run();
   const assembled = await autoNotifyForStatusChange({
     orderId: 'o_new',
     newStatus: 'in_progress',

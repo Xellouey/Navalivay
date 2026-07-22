@@ -141,9 +141,24 @@ async function testCreateAndDuplicateGuard() {
   assert.equal(first.data.success, true);
 
   const order = getOrderById(first.data.order_id);
+  const pickupCell = db.prepare(
+    `SELECT id, cell_number FROM order_pickup_cell_assignments
+      WHERE order_id = ? AND released_at IS NULL`,
+  ).get(first.data.order_id);
   assert.equal(order.status, "new");
+  assert.equal(pickupCell.cell_number, 1);
+  assert.equal(first.data.pickup_cell_number, 1);
   assert.equal(order.stock_deducted, 0);
   assert.equal(getProductStock(), 10);
+
+  db.prepare("UPDATE orders SET order_number = 99991 WHERE id = ?").run(first.data.order_id);
+  const active = await requestJson("/api/orders/my-active", {
+    headers: telegramHeaders(identity),
+  });
+  assert.equal(active.response.status, 200);
+  assert.equal(active.data.order_number, pickupCell.cell_number);
+  assert.equal(active.data.pickup_cell_number, pickupCell.cell_number);
+  assert.notEqual(active.data.order_number, 99991);
 
   const second = await createOrder(identity);
   assert.equal(second.response.status, 409);
@@ -158,6 +173,10 @@ async function testModifyNewOrder() {
 
   const created = await createOrder(identity);
   const orderId = created.data.order_id;
+  const assignmentBefore = db.prepare(
+    `SELECT id FROM order_pickup_cell_assignments
+      WHERE order_id = ? AND released_at IS NULL`,
+  ).get(orderId);
 
   const updated = await requestJson(`/api/orders/${orderId}/modify-by-customer`, {
     method: "PUT",
@@ -186,6 +205,13 @@ async function testModifyNewOrder() {
   assert.equal(order.status, "new");
   assert.equal(order.needs_manager_action, 1);
   assert.equal(order.manager_action_type, "modified");
+  assert.equal(
+    db.prepare(
+      `SELECT id FROM order_pickup_cell_assignments
+        WHERE order_id = ? AND released_at IS NULL`,
+    ).get(orderId).id,
+    assignmentBefore.id,
+  );
   assert.equal(items[0].quantity, 2);
 }
 
@@ -231,6 +257,48 @@ async function testModifyInProgressOrderRestoresStock() {
   assert.equal(order.stock_deducted, 0);
   assert.equal(items[0].quantity, 2);
   assert.equal(getProductStock(), 10);
+
+  const modifiedAgain = await requestJson(
+    `/api/orders/${orderId}/modify-by-customer`,
+    {
+      method: "PUT",
+      headers: telegramHeaders(identity),
+      body: JSON.stringify({
+        ...identity,
+        delivery_type: "pickup",
+        items: [
+          {
+            product_id: "product-1",
+            variant_id: null,
+            quantity: 3,
+            price_per_unit: 15,
+            product_title: "Liquid Cherry",
+            variant_name: null,
+          },
+        ],
+      }),
+    },
+  );
+  assert.equal(modifiedAgain.response.status, 200);
+  assert.equal(getOrderById(orderId).previous_status, "in_progress");
+
+  const cancelledAfterModification = await requestJson(
+    `/api/orders/${orderId}/cancel-by-customer`,
+    {
+      method: "POST",
+      headers: telegramHeaders(identity),
+      body: JSON.stringify(identity),
+    },
+  );
+  assert.equal(cancelledAfterModification.response.status, 200);
+  assert.equal(cancelledAfterModification.data.needs_manager_action, 1);
+  assert.equal(
+    db.prepare(
+      `SELECT COUNT(*) AS count FROM order_pickup_cell_assignments
+        WHERE order_id = ? AND released_at IS NULL`,
+    ).get(orderId).count,
+    1,
+  );
 }
 
 async function testCancelNewOrder() {
@@ -253,6 +321,13 @@ async function testCancelNewOrder() {
   const order = getOrderById(orderId);
   assert.equal(order.status, "cancelled");
   assert.equal(order.needs_manager_action, 0);
+  assert.equal(
+    db.prepare(
+      `SELECT COUNT(*) AS count FROM order_pickup_cell_assignments
+        WHERE order_id = ? AND released_at IS NULL`,
+    ).get(orderId).count,
+    0,
+  );
 }
 
 async function testCancelInProgressOrder() {
@@ -279,6 +354,13 @@ async function testCancelInProgressOrder() {
   assert.equal(order.status, "cancelled");
   assert.equal(order.needs_manager_action, 1);
   assert.equal(order.manager_action_type, "cancelled_by_customer");
+  assert.equal(
+    db.prepare(
+      `SELECT COUNT(*) AS count FROM order_pickup_cell_assignments
+        WHERE order_id = ? AND released_at IS NULL`,
+    ).get(orderId).count,
+    1,
+  );
   assert.equal(order.stock_deducted, 0);
   assert.equal(getProductStock(), 10);
 }

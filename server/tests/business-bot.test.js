@@ -40,6 +40,7 @@ const {
   getStatusTemplate,
   upsertStatusTemplate,
   renderTemplate,
+  normalizeCustomerOrderTerminology,
   buildOrderVariables,
   generateVerificationCode,
   attachVerificationCode,
@@ -242,6 +243,46 @@ function runTests() {
   );
   const renderedNull = renderTemplate('{a}-{b}', { a: 'x', b: null });
   assertEq(renderedNull, 'x-', 'null трактуется как пустая строка');
+  assertEq(
+    normalizeCustomerOrderTerminology('Ячейка 7 готова'),
+    'Заказ №7 готов',
+    'название и род согласованы',
+  );
+  assertEq(
+    normalizeCustomerOrderTerminology('Заказ #7 / Заказ №8'),
+    'Заказ №7 / Заказ №8',
+    'решётка приводится к единому виду со знаком номера',
+  );
+  assertEq(
+    normalizeCustomerOrderTerminology('ЯЧЕЙКА 9 ЗАНЯТА'),
+    'ЗАКАЗ №9 ЗАНЯТ',
+    'верхний регистр сохранён',
+  );
+  assertEq(
+    normalizeCustomerOrderTerminology('Ваша ячейка №7 готова'),
+    'Ваш заказ №7 готов',
+    '«Ваша ячейка» превращается в «Ваш заказ»',
+  );
+  assertEq(
+    normalizeCustomerOrderTerminology('Номер вашей ячейки: 7'),
+    'Номер вашего заказа №7',
+    'родительный падеж согласован',
+  );
+  assertEq(
+    normalizeCustomerOrderTerminology('Эта ячейка свободна. Положите в нашу ячейку.'),
+    'Этот заказ свободен. Положите в наш заказ.',
+    'указательное и притяжательное слова согласованы',
+  );
+  assertEq(
+    normalizeCustomerOrderTerminology('Новая ячейка назначена. Номер последней ячейки.'),
+    'Новый заказ назначен. Номер последнего заказа.',
+    'типовые прилагательные рядом с названием согласованы',
+  );
+  assertEq(
+    normalizeCustomerOrderTerminology('Номер ячейки: 2. Ячейка: 3.'),
+    'Номер заказа №2. Заказ №3.',
+    'старые фразы с двоеточием получают знак номера',
+  );
 
   console.log('\n=== Test 18: generateVerificationCode формат ===');
   const code = generateVerificationCode();
@@ -483,7 +524,10 @@ function runTests() {
   const happy = prepareStatusNotification({ orderId: 'order_t1', event: 'order_assembled' });
   assertEq(happy.ok, true, 'ok=true');
   assertEq(happy.chatId, '777', 'chatId = telegram_id клиента');
-  assert(happy.text.includes('1001'), 'текст содержит номер заказа');
+  assert(
+    /заказ №1/i.test(happy.text) && !happy.text.includes('1001') && !/ячейк/i.test(happy.text),
+    'текст содержит только короткий клиентский номер',
+  );
 
   console.log('\n=== Test 33: prepareStatusNotification — заказ без клиента ===');
   db.prepare(`
@@ -585,13 +629,22 @@ function runTests() {
     INSERT INTO orders (id, order_number, customer_id, status, delivery_type, total_amount, final_amount, created_at, updated_at)
     VALUES ('order_accepted_t', 3001, 'cust_v1', 'new', 'pickup', 120, 120, DATETIME('now'), DATETIME('now'))
   `).run();
+  db.prepare(`
+    INSERT INTO order_pickup_cell_assignments (id, order_id, cell_number)
+    VALUES ('cell_order_accepted_t', 'order_accepted_t', 3)
+  `).run();
   const acceptedPrep = prepareStatusNotification({
     orderId: 'order_accepted_t',
     event: 'order_accepted',
   });
   assertEq(acceptedPrep.ok, true, 'order_accepted ok=true');
   assertEq(acceptedPrep.templateEvent, 'order_accepted', 'templateEvent=order_accepted');
-  assert(acceptedPrep.text.includes('3001'), 'текст содержит order_number');
+  assert(
+    acceptedPrep.text.includes('Заказ №3') &&
+      !acceptedPrep.text.includes('3001') &&
+      !acceptedPrep.text.includes('Заказ #3'),
+    'старый шаблон нормализован до короткого «Заказ №3»',
+  );
   assert(acceptedPrep.text.includes('120'), 'текст содержит final_amount');
 
   console.log('\n=== Test 43: registerBusinessConnection reconnect bumps connected_at ===');

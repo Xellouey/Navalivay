@@ -42,6 +42,7 @@ import {
   getPickupCellCapacity,
   listPickupCells,
   releaseActivePickupCell,
+  restartPickupCellAssignmentCycle,
   setPickupCellCapacity,
 } from "../utils/pickup-cells.js";
 
@@ -958,9 +959,11 @@ crmOperationsRouter.post(
           ).run(finalAmount, customer_id);
         }
 
+        assignLowestAvailablePickupCell(orderId);
+
       });
 
-      tx();
+      tx.immediate();
 
       const order = db
         .prepare("SELECT * FROM orders WHERE id = ?")
@@ -976,7 +979,13 @@ crmOperationsRouter.post(
 
       recordStatusChange(orderId, null, order.status, "Создан заказ");
 
-      res.json({ ...order, items: items_result });
+      const pickupCell = getActivePickupCellAssignment(orderId);
+      res.json({
+        ...order,
+        pickup_cell_number: pickupCell?.cell_number ?? null,
+        pickup_cell_assignment_id: pickupCell?.id ?? null,
+        items: items_result,
+      });
 
       if (customer_id) {
         setImmediate(() => {
@@ -987,6 +996,12 @@ crmOperationsRouter.post(
       }
     } catch (error) {
       console.error("[crm] Create order error:", error);
+      if (error.code === "pickup_cells_full") {
+        return res.status(409).json({
+          error: "pickup_cells_full",
+          message: "Свободных ячеек нет. Освободите место и повторите.",
+        });
+      }
       const clientErrors = new Set([
         "items_required",
         "invalid_item",
@@ -1107,6 +1122,13 @@ crmOperationsRouter.patch(
         if (
           desiredStatus === "in_progress" &&
           statusAtTxStart !== "in_progress"
+        ) {
+          assignLowestAvailablePickupCell(id);
+        }
+        if (
+          reactivate &&
+          desiredStatus === "new" &&
+          statusAtTxStart === "cancelled"
         ) {
           assignLowestAvailablePickupCell(id);
         }
@@ -1606,8 +1628,12 @@ crmOperationsRouter.patch(
             releaseActivePickupCell(id, "issued");
           } else if (desiredStatus === "cancelled") {
             releaseActivePickupCell(id, "cancelled_by_manager");
-          } else if (desiredStatus === "new") {
-            releaseActivePickupCell(id, "returned_to_new");
+          } else if (desiredStatus === "new" && !reactivate) {
+            if (statusAtTxStart === "in_progress") {
+              restartPickupCellAssignmentCycle(id, "returned_to_new");
+            } else {
+              releaseActivePickupCell(id, "returned_to_new");
+            }
           }
         }
 
@@ -1628,7 +1654,7 @@ crmOperationsRouter.patch(
         }
       });
 
-      tx();
+      tx.immediate();
 
       const updated = db
         .prepare(
@@ -1818,7 +1844,9 @@ crmOperationsRouter.post(
             WHERE id = ?`,
           ).run(id);
 
-          releaseActivePickupCell(id, "customer_modification_resolved");
+          // Физическое место сохраняется, но создаётся новый цикл назначения:
+          // повторная сборка должна отправить клиенту новое уведомление.
+          restartPickupCellAssignmentCycle(id, "customer_modification_resolved");
 
           recordStatusChange(id, order.status, "new", "Менеджер принял изменения, заказ на пересборку");
         } else if (order.manager_action_type === "cancelled_by_customer") {

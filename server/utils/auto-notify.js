@@ -29,22 +29,43 @@ import {
 } from './auto-notify-retry.js';
 import { db } from '../db.js';
 import { isCustomerAccessAuthorized } from './referral-authorization.js';
-import { getActivePickupCellAssignment } from './pickup-cells.js';
+import {
+  getActivePickupCellAssignment,
+  getLatestPickupCellAssignment,
+} from './pickup-cells.js';
 
 export const ORDER_ACCEPTED_EVENT = 'order_accepted';
 
-function isPickupCellAssignmentCurrent(orderId, assignmentId) {
-  if (!orderId || !assignmentId) return false;
-  return Boolean(db.prepare(
-    `SELECT 1
-       FROM orders o
-       JOIN order_pickup_cell_assignments a ON a.order_id = o.id
-      WHERE o.id = ?
-        AND o.status = 'in_progress'
-        AND a.id = ?
-        AND a.released_at IS NULL
-      LIMIT 1`,
-  ).get(String(orderId), String(assignmentId)));
+function getNotificationPickupCell(orderId, event) {
+  if ([ORDER_ACCEPTED_EVENT, 'order_assembled'].includes(event)) {
+    return getActivePickupCellAssignment(orderId);
+  }
+  return getLatestPickupCellAssignment(orderId);
+}
+
+function isNotificationContextCurrent(orderId, event, assignmentId = null) {
+  const order = db.prepare(`SELECT status FROM orders WHERE id = ?`).get(String(orderId));
+  if (!order) return false;
+  const allowedStatuses = {
+    [ORDER_ACCEPTED_EVENT]: new Set(['new', 'in_progress']),
+    order_assembled: new Set(['in_progress']),
+    order_issued: new Set(['completed', 'delivered']),
+    order_cancelled: new Set(['cancelled']),
+  };
+  if (!allowedStatuses[event]?.has(order.status)) return false;
+  if (!assignmentId) {
+    return ![ORDER_ACCEPTED_EVENT, 'order_assembled'].includes(event);
+  }
+  const assignment = db.prepare(
+    `SELECT released_at FROM order_pickup_cell_assignments
+      WHERE id = ? AND order_id = ? LIMIT 1`,
+  ).get(String(assignmentId), String(orderId));
+  if (!assignment) return false;
+  if ([ORDER_ACCEPTED_EVENT, 'order_assembled'].includes(event)) {
+    return assignment.released_at === null;
+  }
+  const latest = getLatestPickupCellAssignment(orderId);
+  return latest?.id === String(assignmentId);
 }
 
 // Один общий прогрев на Telegram ID. Пока resolve идёт, все быстрые смены
@@ -189,21 +210,20 @@ function buildRetryScheduledResult({ event, reason = 'userbot_unavailable' }) {
  * @param {boolean} [args.fromRetry=false]
  */
 export async function executeAutoNotify({ orderId, event, fromRetry = false } = {}) {
-  const pickupCell = event === 'order_assembled'
-    ? getActivePickupCellAssignment(orderId)
-    : null;
-  if (event === 'order_assembled') {
-    const order = db.prepare(`SELECT status FROM orders WHERE id = ?`).get(String(orderId));
-    if (!order || order.status !== 'in_progress' || !pickupCell) {
-      return { sent: false, skipped: true, reason: 'pickup_cell_inactive', event };
-    }
+  const order = db.prepare(`SELECT id FROM orders WHERE id = ?`).get(String(orderId));
+  if (!order) {
+    return { sent: false, skipped: true, reason: 'order_not_found', event };
   }
+  const pickupCell = getNotificationPickupCell(orderId, event);
   if (hasAutoNotifyBeenSent(orderId, event)) {
     return { sent: true, event, already_sent: true };
   }
-  const prepared = prepareStatusNotification({ orderId, event });
+  const prepared = prepareStatusNotification({ orderId, event, pickupCell });
   if (!prepared.ok) {
     return { sent: false, skipped: true, reason: prepared.reason, event };
+  }
+  if (!isNotificationContextCurrent(orderId, event, pickupCell?.id || null)) {
+    return { sent: false, skipped: true, reason: 'pickup_cell_inactive', event };
   }
 
   const baseLog = {
@@ -266,7 +286,7 @@ export async function executeAutoNotify({ orderId, event, fromRetry = false } = 
   }
 
   if (!(await isUserbotAvailable())) {
-    if (pickupCell && !isPickupCellAssignmentCurrent(orderId, pickupCell.id)) {
+    if (!isNotificationContextCurrent(orderId, event, pickupCell?.id || null)) {
       return { sent: false, skipped: true, reason: 'pickup_cell_inactive', event };
     }
     const schedule = scheduleAutoNotifyRetry({
@@ -288,7 +308,7 @@ export async function executeAutoNotify({ orderId, event, fromRetry = false } = 
 
   // Подготовка получателя и проверка userbot могут занять время. Перед самым
   // запросом убеждаемся, что клиенту не уйдёт уже освобождённый номер.
-  if (pickupCell && !isPickupCellAssignmentCurrent(orderId, pickupCell.id)) {
+  if (!isNotificationContextCurrent(orderId, event, pickupCell?.id || null)) {
     return { sent: false, skipped: true, reason: 'pickup_cell_inactive', event };
   }
 

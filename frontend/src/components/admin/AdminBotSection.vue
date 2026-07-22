@@ -157,12 +157,18 @@
       <div v-if="activeTab === 'status'" class="mt-4 space-y-3">
         <p class="text-sm text-gray-600">
           Тексты, которые уходят клиенту при смене статуса заказа. В шаблон можно вставить:
-          <code class="rounded bg-gray-100 px-1 py-0.5">{order_number}</code>,
+          <code class="rounded bg-gray-100 px-1 py-0.5">{order_number}</code>
+          — короткий активный номер для клиента,
+          <code class="rounded bg-gray-100 px-1 py-0.5">{pickup_cell_number}</code>
+          — тот же короткий номер,
           <code class="rounded bg-gray-100 px-1 py-0.5">{final_amount}</code>,
           <code class="rounded bg-gray-100 px-1 py-0.5">{customer_name}</code>,
           <code class="rounded bg-gray-100 px-1 py-0.5">{customer_username}</code>,
           <code class="rounded bg-gray-100 px-1 py-0.5">{verification_code}</code>,
           <code class="rounded bg-gray-100 px-1 py-0.5">{store_name}</code>.
+          <span class="mt-1 block">
+            Длинный внутренний номер в клиентские статусные шаблоны не подставляется.
+          </span>
         </p>
         <div class="space-y-3">
           <div

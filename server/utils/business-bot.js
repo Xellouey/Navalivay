@@ -19,7 +19,10 @@
  * тот же принцип, что и order_accepted в auto-notify.js.
  */
 import crypto from 'crypto';
-import { getActivePickupCellAssignment } from './pickup-cells.js';
+import {
+  getActivePickupCellAssignment,
+  getLatestPickupCellAssignment,
+} from './pickup-cells.js';
 import { db } from '../db.js';
 import { isCustomerAccessAuthorized } from './referral-authorization.js';
 import { getActiveBlockForCustomerId } from './customer-blocks.js';
@@ -453,7 +456,7 @@ export function upsertStatusTemplate(event, payload = {}) {
 /**
  * Подстановка переменных в шаблон.
  *
- * Поддерживаемые ключи: order_number, final_amount, total_amount,
+ * Поддерживаемые ключи: order_number (короткий клиентский номер), final_amount, total_amount,
  * customer_name, customer_username, pickup_cell_number, verification_code, store_name.
  * Неизвестные {placeholder} оставляются как есть (защита от опечатки —
  * Костя должен увидеть, что переменная не подставилась).
@@ -470,6 +473,93 @@ export function renderTemplate(body, variables = {}) {
   });
 }
 
+export function normalizeCustomerOrderTerminology(value) {
+  const customerTermByEnding = {
+    '': 'заказ', а: 'заказ', и: 'заказа', у: 'заказ', е: 'заказе',
+    ой: 'заказом', ою: 'заказом', ам: 'заказам', ами: 'заказами', ах: 'заказах',
+  };
+  const keepCase = (replacement, source) => {
+    if (source === source.toUpperCase()) return replacement.toUpperCase();
+    if (source[0] === source[0]?.toUpperCase()) {
+      return replacement[0].toUpperCase() + replacement.slice(1);
+    }
+    return replacement;
+  };
+  const determinerGroups = {
+    ваша: 'ваш', вашей: 'ваш', вашу: 'ваш',
+    эта: 'эт', этой: 'эт', эту: 'эт',
+    наша: 'наш', нашей: 'наш', нашу: 'наш',
+    данная: 'данн', данной: 'данн', данную: 'данн',
+  };
+  const determinerByGroupAndNounEnding = {
+    ваш: { а: 'ваш', и: 'вашего', у: 'ваш', е: 'вашем', ой: 'вашим', ою: 'вашим' },
+    эт: { а: 'этот', и: 'этого', у: 'этот', е: 'этом', ой: 'этим', ою: 'этим' },
+    наш: { а: 'наш', и: 'нашего', у: 'наш', е: 'нашем', ой: 'нашим', ою: 'нашим' },
+    данн: { а: 'данный', и: 'данного', у: 'данный', е: 'данном', ой: 'данным', ою: 'данным' },
+  };
+  const adjectiveEndingByNounEnding = {
+    а: { ая: 'ый', яя: 'ий' },
+    и: { ой: 'ого', ей: 'его' },
+    у: { ую: 'ый', юю: 'ий' },
+    е: { ой: 'ом', ей: 'ем' },
+    ой: { ой: 'ым', ей: 'им' },
+    ою: { ой: 'ым', ей: 'им' },
+  };
+  const phraseBoundary = '(?=\\s|[.,!?;:)\\]}\u00bb"\'\u2014-]|$)';
+  let normalized = String(value ?? '').replace(
+    new RegExp(
+      `(^|[\\s([{\u00ab"'\u2014-])(ваша|вашей|вашу|эта|этой|эту|наша|нашей|нашу|данная|данной|данную)\\s+ячейк(а|и|у|е|ой|ою)${phraseBoundary}`,
+      'gi',
+    ),
+    (match, prefix, determiner, nounEnding) => {
+      const group = determinerGroups[determiner.toLowerCase()];
+      const replacement = determinerByGroupAndNounEnding[group]?.[nounEnding.toLowerCase()];
+      return `${prefix}${keepCase(replacement, determiner)} ${customerTermByEnding[nounEnding.toLowerCase()]}`;
+    },
+  ).replace(
+    new RegExp(
+      `(^|[\\s([{\u00ab"'\u2014-])([\\p{L}-]+?)(ая|яя|ой|ей|ую|юю)\\s+ячейк(а|и|у|е|ой|ою)${phraseBoundary}`,
+      'giu',
+    ),
+    (match, prefix, stem, adjectiveEnding, nounEnding) => {
+      const replacementEnding = adjectiveEndingByNounEnding[nounEnding.toLowerCase()]?.[
+        adjectiveEnding.toLowerCase()
+      ];
+      if (!replacementEnding) return match;
+      const inflectedEnding = adjectiveEnding === adjectiveEnding.toUpperCase()
+        ? replacementEnding.toUpperCase()
+        : replacementEnding;
+      return `${prefix}${stem}${inflectedEnding} ${customerTermByEnding[nounEnding.toLowerCase()]}`;
+    },
+  );
+  return normalized.replace(
+    /ячейк(а|и|у|е|ой|ою|ам|ами|ах)?/gi,
+    (match, ending = '') => keepCase(
+      customerTermByEnding[String(ending).toLowerCase()] || 'заказ',
+      match,
+    ),
+  ).replace(
+    /(номер\s+(?:(?:вашего|этого|нашего|данного)\s+)?заказа)(?:\s*[:#№]\s*|\s+)(\d+)/gi,
+    '$1 №$2',
+  ).replace(
+    /(заказ)(?:\s+номер\s+|\s*[:#№]\s*|\s+)(\d+)/gi,
+    '$1 №$2',
+  )
+    .replace(
+      /(заказ(?:\s+№\s*\d+)?\s+)(готова|собрана|свободна|занята|назначена)(?=\s|[.,!?;:]|$)/gi,
+      (match, prefix, femininePredicate) => {
+        const masculinePredicate = {
+          готова: 'готов',
+          собрана: 'собран',
+          свободна: 'свободен',
+          занята: 'занят',
+          назначена: 'назначен',
+        }[femininePredicate.toLowerCase()];
+        return `${prefix}${keepCase(masculinePredicate, femininePredicate)}`;
+      },
+    );
+}
+
 // =============================================================================
 // Order → variables
 // =============================================================================
@@ -481,7 +571,7 @@ export function renderTemplate(body, variables = {}) {
  * Возвращает: { order_number, final_amount, total_amount, customer_name,
  * customer_username, customer_telegram_id, store_name }.
  */
-export function buildOrderVariables(orderOrId, { storeName } = {}) {
+export function buildOrderVariables(orderOrId, { storeName, pickupCell = null } = {}) {
   let order = orderOrId;
   if (typeof orderOrId === 'string' || typeof orderOrId === 'number') {
     order = db
@@ -504,15 +594,20 @@ export function buildOrderVariables(orderOrId, { storeName } = {}) {
     (customer?.telegram_username ? `@${customer.telegram_username}` : 'клиент');
   const finalAmount = Number(order.final_amount ?? order.total_amount ?? 0);
   const totalAmount = Number(order.total_amount ?? 0);
-  const pickupCell = getActivePickupCellAssignment(order.id);
+  const resolvedPickupCell =
+    pickupCell ||
+    getActivePickupCellAssignment(order.id) ||
+    getLatestPickupCellAssignment(order.id);
   return {
-    order_number: order.order_number ?? '',
+    // В сообщениях клиенту «номер заказа» — короткий номер места выдачи.
+    // Постоянный orders.order_number намеренно не отдаём в шаблонизатор.
+    order_number: resolvedPickupCell?.cell_number ?? '',
     final_amount: Number.isFinite(finalAmount) ? finalAmount.toFixed(2).replace(/\.00$/, '') : '0',
     total_amount: Number.isFinite(totalAmount) ? totalAmount.toFixed(2).replace(/\.00$/, '') : '0',
     customer_name: customerName || 'клиент',
     customer_username: customer?.telegram_username || '',
     customer_telegram_id: customer?.telegram_id || '',
-    pickup_cell_number: pickupCell?.cell_number ?? '',
+    pickup_cell_number: resolvedPickupCell?.cell_number ?? '',
     store_name: storeName || 'НАВАЛИВАЙ',
   };
 }
@@ -748,7 +843,7 @@ export function getRecentLogCount({ sinceHours = 24 } = {}) {
  * у клиента нет telegram_id и т.п.). bot.js принимает решение, отправлять
  * или нет.
  */
-export function prepareStatusNotification({ orderId, event, storeName } = {}) {
+export function prepareStatusNotification({ orderId, event, storeName, pickupCell = null } = {}) {
   if (!BOT_STATUS_EVENTS.includes(event)) {
     return { ok: false, reason: 'invalid_event' };
   }
@@ -770,11 +865,18 @@ export function prepareStatusNotification({ orderId, event, storeName } = {}) {
   if (!customer.telegram_id) {
     return { ok: false, reason: 'customer_has_no_telegram_id' };
   }
+  if (event === 'order_accepted' || event === 'order_assembled') {
+    const activePickupCell = getActivePickupCellAssignment(order.id);
+    if (!activePickupCell || (pickupCell && pickupCell.id !== activePickupCell.id)) {
+      return { ok: false, reason: 'pickup_cell_inactive' };
+    }
+    pickupCell = activePickupCell;
+  }
   const template = getStatusTemplate(event);
   if (!template || !template.is_active) {
     return { ok: false, reason: 'template_inactive_or_missing' };
   }
-  const variables = buildOrderVariables(order, { storeName });
+  const variables = buildOrderVariables(order, { storeName, pickupCell });
   if (!variables) {
     return { ok: false, reason: 'variables_unavailable' };
   }
@@ -784,13 +886,19 @@ export function prepareStatusNotification({ orderId, event, storeName } = {}) {
   if (!text.trim()) {
     return { ok: false, reason: 'template_empty' };
   }
-  if (event === 'order_assembled') {
+  if (event === 'order_accepted' || event === 'order_assembled') {
     const cellNumber = Number(variables.pickup_cell_number || 0);
     if (!cellNumber) {
       return { ok: false, reason: 'pickup_cell_inactive' };
     }
-    text = `${text.trim()}\n\nДля получения назовите сотруднику номер ячейки: ${cellNumber}.`;
+    const systemLine = event === 'order_accepted'
+      ? `Ваш номер для получения: Заказ №${cellNumber}.`
+      : `Для получения назовите сотруднику заказ №${cellNumber}.`;
+    text = `${text.trim()}\n\n${systemLine}`;
   }
+  // Старые редактируемые шаблоны могли содержать прежний внутренний термин.
+  // Клиенту он не показывается: во внешнем общении это всегда «заказ».
+  text = normalizeCustomerOrderTerminology(text);
   return {
     ok: true,
     chatId: String(customer.telegram_id),

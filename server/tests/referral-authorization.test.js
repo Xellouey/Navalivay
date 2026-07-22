@@ -388,13 +388,21 @@ try {
     INSERT INTO products (id, categoryId, title, priceRub, createdAt, stock, cost_price)
     VALUES ('bot_test_product', 'bot_test_category', 'Bot product', 15, DATETIME('now'), 5, 4)
   `).run();
-  createOrderFromBot({
+  const botCreatedOrder = createOrderFromBot({
     customerId: 'bot_feature_off_customer',
     product: db.prepare("SELECT * FROM products WHERE id = 'bot_test_product'").get(),
     quantity: 1,
     telegramMessageId: 1,
     originalMessage: 'заказать Bot product',
   });
+  assert.equal(botCreatedOrder.pickupCellNumber, 1);
+  assert.equal(
+    db.prepare(
+      `SELECT cell_number FROM order_pickup_cell_assignments
+        WHERE order_id = ? AND released_at IS NULL`,
+    ).get(botCreatedOrder.orderId).cell_number,
+    1,
+  );
   assert.equal(
     db.prepare('SELECT access_authorization_source FROM customers WHERE id = ?')
       .get('bot_feature_off_customer').access_authorization_source,

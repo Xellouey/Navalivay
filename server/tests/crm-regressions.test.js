@@ -419,6 +419,11 @@ async function testPackedStatusTransitionsWithItemsPayload() {
   assert.equal(packed.data.status, "in_progress");
   assert.equal(packed.data.stock_deducted, 1);
   assert.equal(getProductStock(productId), 1);
+  const packedCell = db.prepare(
+    `SELECT id, cell_number FROM order_pickup_cell_assignments
+      WHERE order_id = ? AND released_at IS NULL`,
+  ).get(orderId);
+  assert.ok(packedCell);
 
   const savedAgain = await patchOrder(orderId, {
     status: "in_progress",
@@ -455,6 +460,13 @@ async function testPackedStatusTransitionsWithItemsPayload() {
   assert.equal(movedBackToNew.data.status, "new");
   assert.equal(movedBackToNew.data.stock_deducted, 0);
   assert.equal(getProductStock(productId), 2);
+  const returnedToNewCell = db.prepare(
+    `SELECT id, cell_number FROM order_pickup_cell_assignments
+      WHERE order_id = ? AND released_at IS NULL`,
+  ).get(orderId);
+  assert.equal(returnedToNewCell.cell_number, packedCell.cell_number);
+  assert.notEqual(returnedToNewCell.id, packedCell.id);
+  assert.equal(movedBackToNew.data.pickup_cell_number, packedCell.cell_number);
 }
 
 async function testPackedOrderItemChangeRedeductsStock() {

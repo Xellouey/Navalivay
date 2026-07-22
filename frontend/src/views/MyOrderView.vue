@@ -36,11 +36,14 @@
           <div class="order-status-copy">
             <strong>{{ statusHeadline }}</strong>
             <div
-              v-if="order.status === 'in_progress' && order.pickup_cell_number"
+              v-if="
+                (order.status === 'new' || order.status === 'in_progress') &&
+                order.pickup_cell_number
+              "
               class="order-pickup-cell"
-              :aria-label="`Ячейка ${order.pickup_cell_number}`"
+              :aria-label="`Заказ №${order.pickup_cell_number}`"
             >
-              <span>Ячейка {{ order.pickup_cell_number }}</span>
+              <span>Заказ №{{ order.pickup_cell_number }}</span>
               <small>Назовите этот номер сотруднику при получении</small>
             </div>
             <p>{{ statusDescription }}</p>

@@ -165,8 +165,9 @@ _resetHealthCacheForTests();
 const fixedNow = new Date('2026-06-22T10:00:00Z');
 db.prepare(
   `INSERT INTO pending_notifications
-    (order_id, template_event, reason, attempt, max_attempts, next_retry_at, status, created_at, updated_at)
-   VALUES (?, ?, 'userbot_unavailable', 0, ?, ?, 'pending', ?, ?)`,
+    (order_id, template_event, reason, attempt, max_attempts, next_retry_at, status,
+     created_at, updated_at, pickup_cell_assignment_id, pickup_cell_number)
+   VALUES (?, ?, 'userbot_unavailable', 0, ?, ?, 'pending', ?, ?, 'cell_o_test', 1)`,
 ).run(
   'o_test',
   'order_assembled',

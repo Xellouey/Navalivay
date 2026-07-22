@@ -11,6 +11,7 @@ import {
   toSqliteUtcString,
 } from '../utils/business-time.js';
 import { queryTopSalesGroups } from '../utils/top-sales-groups.js';
+import { getLatestPickupCellAssignment } from '../utils/pickup-cells.js';
 import {
   REVIEW_STATUSES,
   disableReviewQaModes,
@@ -80,6 +81,7 @@ import {
   attachVerificationCode,
   getStatusTemplate,
   renderTemplate,
+  normalizeCustomerOrderTerminology,
   isAutoReplyEnabled,
   setAutoReplyEnabled,
   getRecentLogCount,
@@ -2121,11 +2123,13 @@ crmRouter.post('/api/admin/crm/orders/:orderId/generate-message', authMiddleware
     
     // Заменить переменные в шаблоне
     let message = template.content;
-    message = message.replace(/\[order_number\]/g, order.order_number || '');
+    const pickupCell = getLatestPickupCellAssignment(orderId);
+    message = message.replace(/\[order_number\]/g, pickupCell?.cell_number || '');
     message = message.replace(/\[items\]/g, itemsText || 'Нет позиций');
     message = message.replace(/\[total\]/g, order.final_amount || order.total_amount || 0);
     message = message.replace(/\[phone\]/g, order.phone || 'не указан');
     message = message.replace(/\[address\]/g, order.delivery_address || 'не указан');
+    message = normalizeCustomerOrderTerminology(message);
     
     res.json({
       message,

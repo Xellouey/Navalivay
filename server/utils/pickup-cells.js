@@ -34,6 +34,19 @@ export function getActivePickupCellAssignment(orderId) {
   );
 }
 
+export function getLatestPickupCellAssignment(orderId) {
+  if (!orderId) return null;
+  return (
+    db.prepare(
+      `SELECT id, order_id, cell_number, assigned_at, released_at, release_reason
+         FROM order_pickup_cell_assignments
+        WHERE order_id = ?
+        ORDER BY assigned_at DESC, rowid DESC
+        LIMIT 1`,
+    ).get(String(orderId)) || null
+  );
+}
+
 export function assignLowestAvailablePickupCell(orderId) {
   const existing = getActivePickupCellAssignment(orderId);
   if (existing) return existing;
@@ -89,10 +102,26 @@ export function releaseActivePickupCell(orderId, reason) {
     `UPDATE pending_notifications
         SET status = 'cancelled', updated_at = DATETIME('now')
       WHERE order_id = ?
-        AND template_event = 'order_assembled'
+        AND template_event IN ('order_accepted', 'order_assembled')
         AND status = 'pending'`,
   ).run(String(orderId));
   return active;
+}
+
+export function restartPickupCellAssignmentCycle(orderId, reason) {
+  const tx = db.transaction(() => {
+    const active = getActivePickupCellAssignment(orderId);
+    if (!active) return assignLowestAvailablePickupCell(orderId);
+
+    releaseActivePickupCell(orderId, reason || 'assignment_cycle_restarted');
+    const id = `pca_${crypto.randomUUID()}`;
+    db.prepare(
+      `INSERT INTO order_pickup_cell_assignments (id, order_id, cell_number)
+       VALUES (?, ?, ?)`,
+    ).run(id, String(orderId), Number(active.cell_number));
+    return getActivePickupCellAssignment(orderId);
+  });
+  return tx.immediate();
 }
 
 export function listPickupCells() {

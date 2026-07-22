@@ -51,7 +51,11 @@ import {
   isCustomerVerified,
 } from "../utils/business-bot.js";
 import { autoNotifyOrderAcceptedAfterRecipientWarmup } from "../utils/auto-notify.js";
-import { getActivePickupCellAssignment } from "../utils/pickup-cells.js";
+import {
+  assignLowestAvailablePickupCell,
+  getActivePickupCellAssignment,
+  releaseActivePickupCell,
+} from "../utils/pickup-cells.js";
 import {
   activatePendingInviteBanForCustomer,
   activatePendingStaffAccess,
@@ -660,10 +664,9 @@ function serializeCustomerOrder(order) {
   return {
     found: true,
     id: order.id,
-    order_number: order.order_number,
+    order_number: isActive ? pickupCell?.cell_number ?? null : order.order_number,
     status: order.status,
-    pickup_cell_number:
-      order.status === "in_progress" ? pickupCell?.cell_number ?? null : null,
+    pickup_cell_number: isActive ? pickupCell?.cell_number ?? null : null,
     delivery_type: order.delivery_type,
     delivery_address: order.delivery_address || null,
     phone: order.phone || null,
@@ -2482,7 +2485,13 @@ publicRouter.post(
 
         releasePromoUsageForOrder(order);
 
-        if (order.status === "in_progress") {
+        const requiresManagerCleanup =
+          order.status === "in_progress" ||
+          (Number(order.needs_manager_action || 0) === 1 &&
+            order.manager_action_type === "modified" &&
+            order.previous_status === "in_progress");
+
+        if (requiresManagerCleanup) {
           const orderItems = db
             .prepare("SELECT * FROM order_items WHERE order_id = ?")
             .all(id);
@@ -2493,9 +2502,10 @@ publicRouter.post(
           }
           updateFields.push("needs_manager_action = 1");
           updateFields.push("manager_action_type = 'cancelled_by_customer'");
-          updateFields.push("manager_action_note = 'Клиент отменил уже собранный заказ'");
+          updateFields.push("manager_action_note = 'Клиент отменил заказ, который уже начали собирать'");
           updateFields.push("manager_action_resolved_at = NULL");
         } else {
+          releaseActivePickupCell(id, "cancelled_by_customer_before_assembly");
           updateFields.push("needs_manager_action = 0");
           updateFields.push("manager_action_type = NULL");
           updateFields.push("manager_action_note = NULL");
@@ -2516,7 +2526,13 @@ publicRouter.post(
         success: true,
         order_id: id,
         status: "cancelled",
-        needs_manager_action: order.status === "in_progress" ? 1 : 0,
+        needs_manager_action:
+          order.status === "in_progress" ||
+          (Number(order.needs_manager_action || 0) === 1 &&
+            order.manager_action_type === "modified" &&
+            order.previous_status === "in_progress")
+            ? 1
+            : 0,
       });
     } catch (error) {
       console.error("[public] Cancel by customer error:", error);
@@ -2608,6 +2624,8 @@ publicRouter.put(
         .all(id);
 
       const previousStatus = order.status;
+      const statusBeforePhysicalAssembly =
+        order.previous_status === "in_progress" ? "in_progress" : previousStatus;
       const wholesaleContext = buildStoredWholesaleContext(order);
 
       if (Number(order.is_wholesale || 0) === 1 && !wholesaleContext) {
@@ -2763,7 +2781,7 @@ publicRouter.put(
           WHERE id = ?
         `,
         ).run(
-          previousStatus,
+          statusBeforePhysicalAssembly,
           delivery_type,
           delivery_type === "delivery" ? delivery_address || null : null,
           notes || null,
@@ -2930,11 +2948,12 @@ publicRouter.post(
       });
 
       if (existingActiveOrder) {
+        const existingPickupCell = getActivePickupCellAssignment(existingActiveOrder.id);
         return res.status(409).json({
           error: "active_order_exists",
           message: "У вас уже есть активный заказ. Его можно только изменить или отменить.",
           order_id: existingActiveOrder.id,
-          order_number: existingActiveOrder.order_number,
+          order_number: existingPickupCell?.cell_number ?? null,
         });
       }
 
@@ -3317,7 +3336,13 @@ publicRouter.post(
           ).run(createdFinalAmount, resolvedCustomerId);
         }
 
-        return { orderId: createdOrderId, orderNumber: createdOrderNumber };
+        const pickupCell = assignLowestAvailablePickupCell(createdOrderId);
+
+        return {
+          orderId: createdOrderId,
+          orderNumber: createdOrderNumber,
+          pickupCellNumber: pickupCell.cell_number,
+        };
       });
 
       const created = tx.immediate();
@@ -3332,11 +3357,14 @@ publicRouter.post(
         });
       }
       if (created?.activeOrderConflict) {
+        const conflictPickupCell = getActivePickupCellAssignment(
+          created.activeOrderConflict.id,
+        );
         return res.status(409).json({
           error: "active_order_exists",
           message: "У вас уже есть активный заказ. Его можно только изменить или отменить.",
           order_id: created.activeOrderConflict.id,
-          order_number: created.activeOrderConflict.order_number,
+          order_number: conflictPickupCell?.cell_number ?? null,
         });
       }
       if (created?.referralBlocked) {
@@ -3370,7 +3398,8 @@ publicRouter.post(
       return res.json({
         success: true,
         order_id: created.orderId,
-        order_number: created.orderNumber,
+        order_number: created.pickupCellNumber,
+        pickup_cell_number: created.pickupCellNumber,
       });
     } catch (error) {
       const errorCode = String(error.code || error.message || "");
@@ -3382,6 +3411,12 @@ publicRouter.post(
       }
       if (error.payload?.error === "wholesale_min_not_met") {
         return res.status(400).json(error.payload);
+      }
+      if (errorCode === "pickup_cells_full") {
+        return res.status(409).json({
+          error: "pickup_cells_full",
+          message: "Свободных мест для заказов нет. Попробуйте позже.",
+        });
       }
       if (
         errorCode === "telegram_username_required" ||

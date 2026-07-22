@@ -15,6 +15,7 @@ const {
   getPickupCellCapacity,
   listPickupCells,
   releaseActivePickupCell,
+  restartPickupCellAssignmentCycle,
   setPickupCellCapacity,
 } = await import('../utils/pickup-cells.js');
 const { buildCrmOrdersSearch } = await import('../utils/crm-order-search.js');
@@ -23,6 +24,7 @@ const {
   upsertStatusTemplate,
 } = await import('../utils/business-bot.js');
 const { hasAutoNotifyBeenSent } = await import('../utils/auto-notify-retry.js');
+const { migratePickupCells } = await import('../migrations/add_pickup_cells.js');
 
 let passed = 0;
 let failed = 0;
@@ -161,7 +163,12 @@ upsertStatusTemplate('order_assembled', {
   is_active: 1,
 });
 const prepared = prepareStatusNotification({ orderId: 'cell_o3', event: 'order_assembled' });
-assert(prepared.ok && prepared.text.endsWith('номер ячейки: 1.'), 'ready message always contains cell number');
+assert(
+  prepared.ok &&
+    prepared.text.endsWith('заказ №1.') &&
+    !/ячейк/i.test(prepared.text),
+  'ready message always contains customer order number without internal wording',
+);
 
 console.log('\n=== notification cycle follows current assignment ===');
 db.prepare(
@@ -178,6 +185,11 @@ releaseActivePickupCell('cell_o3', 'modified');
 const nextCycle = assignLowestAvailablePickupCell('cell_o3');
 assert(nextCycle.id !== reused.id, 'reassembly creates a new assignment cycle');
 assert(!hasAutoNotifyBeenSent('cell_o3', 'order_assembled'), 'old message does not block new assignment message');
+const restartedCycle = restartPickupCellAssignmentCycle('cell_o3', 'customer_modification_resolved');
+assert(
+  restartedCycle.cell_number === nextCycle.cell_number && restartedCycle.id !== nextCycle.id,
+  'accepted customer changes keep the physical cell but start a new notify cycle',
+);
 releaseActivePickupCell('cell_o3', 'issued');
 const stale = prepareStatusNotification({ orderId: 'cell_o3', event: 'order_assembled' });
 assert(!stale.ok && stale.reason === 'pickup_cell_inactive', 'released cell cannot produce stale ready message');
@@ -202,6 +214,32 @@ try {
   fiftyFullError = error;
 }
 assert(fiftyFullError?.code === 'pickup_cells_full', '51st assembled order is rejected');
+
+console.log('\n=== one-time backfill for existing new orders ===');
+db.prepare(`UPDATE orders SET status = 'delivered'`).run();
+db.prepare(
+  `UPDATE order_pickup_cell_assignments
+      SET released_at = COALESCE(released_at, DATETIME('now'))
+    WHERE released_at IS NULL`,
+).run();
+db.prepare(`DELETE FROM settings WHERE key = 'pickup_cells_early_assignment_backfill_v1'`).run();
+setPickupCellCapacity(5);
+db.prepare(
+  `INSERT INTO orders (id, order_number, customer_id, status, total_amount, final_amount, created_at)
+   VALUES ('backfill_old', 8001, 'cell_customer', 'new', 10, 10, '2026-01-01 10:00:00'),
+          ('backfill_new', 8002, 'cell_customer', 'new', 10, 10, '2026-01-02 10:00:00'),
+          ('backfill_legacy', 8003, 'cell_customer', 'in_progress', 10, 10, '2026-01-03 10:00:00')`,
+).run();
+migratePickupCells();
+assert(
+  getActivePickupCellAssignment('backfill_old')?.cell_number === 1 &&
+    getActivePickupCellAssignment('backfill_new')?.cell_number === 2,
+  'existing new orders receive cells oldest first',
+);
+assert(
+  getActivePickupCellAssignment('backfill_legacy') === null,
+  'legacy assembled order stays without a cell',
+);
 
 try {
   db.close();
