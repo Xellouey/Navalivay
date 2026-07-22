@@ -762,6 +762,7 @@ export function listReferralAuthorizations() {
       c.telegram_username,
       c.first_name,
       c.last_name,
+      c.access_authorized_at,
       c.access_authorization_source,
       c.access_authorized_by,
       cr.inviter_customer_id,

@@ -52,22 +52,73 @@
 
       <template v-else>
         <div v-if="activeTab === 'authorization'" class="space-y-4">
-          <section class="rounded-lg border border-blue-100 bg-white p-4 shadow-sm sm:p-5">
-            <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <section ref="staffAccessSection" class="rounded-lg bg-white shadow-sm" aria-labelledby="staff-access-title">
+            <div class="flex flex-col gap-3 border-b bg-gray-50 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
               <div>
-                <h2 class="text-base font-semibold text-gray-900">Быстрые действия</h2>
-                <p class="mt-1 text-sm text-gray-500">Разрешите заказ без приглашения или запретите клиенту приглашать.</p>
+                <div class="flex flex-wrap items-center gap-2">
+                  <h2 id="staff-access-title" ref="staffAccessHeading" tabindex="-1" class="text-base font-semibold text-gray-900 outline-none">
+                    Доступ без пригласившего
+                  </h2>
+                  <span class="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-700">
+                    {{ staffAccess.active.length + staffAccess.pending.length }}
+                  </span>
+                </div>
+                <p class="mt-1 text-sm text-gray-500">Клиент сможет открыть магазин без указания пригласившего.</p>
               </div>
-              <div class="flex flex-col gap-2 sm:flex-row">
-                <button type="button" class="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700" @click="openStaffAccessModal()">
-                  Разрешить без приглашения
-                </button>
-                <button type="button" class="rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm font-semibold text-red-700 hover:bg-red-100" @click="openInviteBanModal()">
-                  Запретить приглашать
-                </button>
+              <button type="button" class="min-h-11 w-full rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 focus-visible:outline-2 focus-visible:outline-emerald-700 sm:w-auto" @click="openStaffAccessModal()">
+                Добавить
+              </button>
+            </div>
+
+            <div v-if="staffAccessError" class="flex items-center justify-between gap-3 bg-red-50 px-4 py-3 text-sm text-red-700" role="alert">
+              <span>{{ staffAccessError }}</span>
+              <button type="button" class="shrink-0 font-semibold underline" @click="fetchStaffAccess">Повторить</button>
+            </div>
+            <div v-else-if="loadingStaffAccess" class="px-4 py-8 text-center text-sm text-gray-500">Загружаем разрешения...</div>
+            <div v-else-if="!staffAccess.active.length && !staffAccess.pending.length" class="px-4 py-8 text-center">
+              <p class="text-sm text-gray-500">Пока никому не разрешён вход без пригласившего</p>
+              <button type="button" class="mt-3 min-h-11 px-3 py-2 text-sm font-semibold text-emerald-700 hover:text-emerald-800" @click="openStaffAccessModal()">Добавить разрешение</button>
+            </div>
+            <div v-else class="divide-y">
+              <div v-if="staffAccess.pending.length" class="bg-amber-50 px-4 py-2 text-xs font-semibold text-amber-800">Ожидают первого входа</div>
+              <div
+                v-for="grant in staffAccess.pending"
+                :key="`pending-${grant.id}`"
+                class="flex items-center justify-between gap-3 px-4 py-3 text-sm transition-colors"
+                :class="highlightedStaffAccessKey === `pending-${grant.id}` ? 'bg-emerald-50' : ''"
+              >
+                <div class="min-w-0">
+                  <div class="break-words font-medium text-gray-900">@{{ grant.telegram_username }}</div>
+                  <div class="text-xs text-amber-700">Ожидает первого входа</div>
+                </div>
+                <button type="button" class="min-h-11 shrink-0 px-3 py-2 text-sm font-medium text-red-600 hover:text-red-700 disabled:opacity-50" :disabled="removingPendingStaffAccess === grant.id" @click="removePendingStaffAccess(grant.id)">{{ removingPendingStaffAccess === grant.id ? 'Отменяем...' : 'Отменить' }}</button>
+              </div>
+              <div v-if="staffAccess.active.length" class="bg-gray-50 px-4 py-2 text-xs font-semibold text-gray-600">Действующие разрешения</div>
+              <div
+                v-for="grant in staffAccess.active"
+                :key="grant.customer_id"
+                class="flex items-center justify-between gap-3 px-4 py-3 text-sm transition-colors"
+                :class="highlightedStaffAccessKey === `active-${grant.customer_id}` ? 'bg-emerald-50' : ''"
+              >
+                <div class="min-w-0">
+                  <div class="break-words font-medium text-gray-900">{{ grant.telegram_username ? `@${grant.telegram_username}` : grant.first_name || grant.telegram_id }}</div>
+                  <div class="text-xs text-gray-500">Добавил: {{ grant.access_authorized_by || 'admin' }}</div>
+                </div>
+                <button
+                  type="button"
+                  class="min-h-11 shrink-0 px-3 py-2 text-sm font-medium text-red-600 hover:text-red-700 disabled:opacity-50"
+                  :disabled="Boolean(grant.has_issued_order) || removingStaffAccess === grant.customer_id"
+                  :title="grant.has_issued_order ? 'После выданного заказа доступ постоянный' : undefined"
+                  @click="removeStaffAccess(grant.customer_id)"
+                >{{ grant.has_issued_order ? 'Доступ постоянный' : removingStaffAccess === grant.customer_id ? 'Отменяем...' : 'Отменить' }}</button>
               </div>
             </div>
           </section>
+
+          <div class="pt-3">
+            <h2 class="text-lg font-semibold text-gray-900">Ограничения для пригласивших</h2>
+            <p class="mt-1 text-sm text-gray-500">Управление аккаунтами, которые нельзя указывать, и запретами приглашать.</p>
+          </div>
 
           <section class="rounded-lg bg-white p-4 shadow-sm sm:p-5" aria-labelledby="disallowed-inviters-title">
             <div class="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between sm:gap-6">
@@ -159,8 +210,36 @@
             </p>
           </section>
 
-          <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div class="flex flex-wrap gap-2">
+          <section class="rounded-lg bg-white shadow-sm">
+            <div class="border-b bg-gray-50 px-4 py-3 text-sm font-semibold text-gray-700">
+              <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <span>Запрет приглашать ({{ inviteBans.length + pendingInviteBans.length }})</span>
+                <button type="button" class="min-h-11 w-full rounded-lg bg-red-600 px-3 py-2 text-sm font-semibold text-white hover:bg-red-700 focus-visible:outline-2 focus-visible:outline-red-700 sm:w-auto" @click="openInviteBanModal()">Добавить</button>
+              </div>
+            </div>
+            <div v-if="pendingInviteBans.length" class="border-t border-gray-100">
+              <div class="bg-amber-50 px-4 py-2 text-xs font-semibold text-amber-800">Ожидают первого входа</div>
+              <div v-for="ban in pendingInviteBans" :key="`pending-invite-${ban.id}`" class="flex items-center justify-between gap-3 border-t px-4 py-3 text-sm">
+                <div class="min-w-0"><div class="break-words font-medium text-gray-900">@{{ ban.telegram_username }}</div><div class="break-words text-xs text-gray-500">{{ ban.reason || 'Без причины' }}</div></div>
+                <button type="button" class="min-h-11 shrink-0 px-3 py-2 text-green-700 hover:text-green-800 disabled:opacity-50" :disabled="removingPendingInviteBan === ban.id" @click="removePendingInviteBan(ban.id)">{{ removingPendingInviteBan === ban.id ? 'Отменяем...' : 'Отменить' }}</button>
+              </div>
+            </div>
+            <div v-if="!inviteBans.length && !pendingInviteBans.length && !inviteBansLoadError" class="px-4 py-8 text-center text-sm text-gray-500">{{ loadingInviteBans ? 'Загрузка списка...' : 'Нет запретов приглашать' }}</div>
+            <div v-if="inviteBansLoadError" class="flex items-center justify-between gap-3 bg-red-50 px-4 py-3 text-sm text-red-700" role="alert"><span>{{ inviteBansLoadError }}</span><button type="button" class="font-semibold underline" @click="fetchInviteBans">Повторить</button></div>
+            <div v-if="inviteBans.length" class="overflow-x-auto">
+              <table class="w-full min-w-[640px]">
+                <thead class="border-b bg-gray-50 text-left text-xs uppercase text-gray-500"><tr><th class="px-4 py-3">Клиент</th><th class="px-4 py-3">Причина</th><th class="px-4 py-3">Создан</th><th class="px-4 py-3 text-right">Действия</th></tr></thead>
+                <tbody class="divide-y"><tr v-for="ban in visibleInviteBans" :key="ban.id"><td class="px-4 py-4">{{ ban.telegram_username ? `@${ban.telegram_username}` : ban.first_name || 'Без username' }}</td><td class="px-4 py-4">{{ ban.reason || '—' }}</td><td class="px-4 py-4 text-gray-500">{{ formatDate(ban.banned_at) }}</td><td class="px-4 py-4 text-right"><button type="button" class="min-h-11 px-3 py-2 text-green-700 hover:text-green-800 disabled:opacity-50" :disabled="removingInviteBanId === ban.id" @click="removeInviteBanFromList(ban.id)">{{ removingInviteBanId === ban.id ? 'Снимаем...' : 'Снять запрет' }}</button></td></tr></tbody>
+              </table>
+            </div>
+          </section>
+
+          <div class="pt-5">
+            <h2 class="text-lg font-semibold text-gray-900">История авторизаций</h2>
+            <p class="mt-1 text-sm text-gray-500">Новые, незавершённые и заблокированные попытки входа.</p>
+          </div>
+
+          <div class="flex flex-wrap gap-2">
               <button
                 v-for="filter in authorizationFilters"
                 :key="filter.value"
@@ -170,17 +249,30 @@
                 :aria-pressed="authorizationFilter === filter.value"
                 @click="authorizationFilter = filter.value"
               >{{ filter.label }}</button>
+          </div>
+          <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div v-if="authorizationFilter === 'new'" class="grid w-full grid-cols-2 items-center gap-2 sm:flex sm:w-auto sm:flex-wrap" aria-label="Период новых клиентов">
+              <span class="col-span-2 text-sm text-gray-500 sm:col-span-1 sm:mr-1">Период:</span>
+              <button
+                v-for="period in newCustomerPeriods"
+                :key="period.value"
+                type="button"
+                class="min-h-10 w-full rounded-lg px-3 py-2 text-sm font-medium transition-colors sm:w-auto"
+                :class="newCustomerPeriod === period.value ? 'bg-gray-800 text-white' : 'bg-white text-gray-600 hover:bg-gray-100'"
+                :aria-pressed="newCustomerPeriod === period.value"
+                @click="newCustomerPeriod = period.value"
+              >{{ period.label }}</button>
             </div>
             <input
               v-model.trim="authorizationSearch"
               type="search"
-              class="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm sm:max-w-xs"
+              class="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm sm:ml-auto sm:max-w-xs"
               placeholder="Поиск клиента или пригласившего"
               aria-label="Поиск по авторизациям"
             />
           </div>
           <p v-if="!loadingAuthorizations && !authorizationLoadError && filteredAuthorizations.length" class="text-sm text-gray-500">
-            Показано {{ visibleAuthorizations.length }} из {{ filteredAuthorizations.length }}
+            {{ filteredAuthorizations.length <= CUSTOMER_LIST_LIMIT ? `Найдено ${filteredAuthorizations.length}` : `Показано ${visibleAuthorizations.length} из ${filteredAuthorizations.length}` }}
           </p>
           <div v-if="authorizationLoadError" class="flex items-center justify-between gap-3 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">
             <span>{{ authorizationLoadError }}</span>
@@ -195,7 +287,7 @@
                   <th class="px-4 py-3">Состояние</th>
                   <th class="px-4 py-3">Попытки</th>
                   <th class="px-4 py-3">Пригласивший</th>
-                  <th class="px-4 py-3">Обновлено</th>
+                  <th class="px-4 py-3">{{ authorizationFilter === 'new' ? 'Авторизован' : 'Обновлено' }}</th>
                 </tr>
               </thead>
               <tbody class="divide-y">
@@ -209,72 +301,17 @@
                   <td class="px-4 py-3">
                     {{ item.access_authorization_source === 'staff' ? 'Разрешено администратором' : item.inviter_username ? `@${item.inviter_username}` : '—' }}
                   </td>
-                  <td class="px-4 py-3 text-gray-500">{{ formatDate(item.updated_at) }}</td>
+                  <td class="px-4 py-3 text-gray-500">{{ formatDate(authorizationFilter === 'new' ? item.access_authorized_at : item.updated_at) }}</td>
                 </tr>
                 <tr v-if="!visibleAuthorizations.length">
                   <td colspan="5" class="px-4 py-10 text-center text-gray-500">
-                    {{ authorizationSearch ? 'По запросу ничего не найдено' : 'Нет клиентов в этом состоянии' }}
+                    {{ authorizationEmptyMessage }}
                   </td>
                 </tr>
               </tbody>
             </table>
           </div>
 
-          <section v-if="staffAccessError || staffAccess.active.length || staffAccess.pending.length" class="rounded-lg bg-white shadow-sm">
-            <div class="border-b bg-gray-50 px-4 py-3 text-sm font-semibold text-gray-700">
-              Разрешены администратором ({{ staffAccess.active.length + staffAccess.pending.length }})
-            </div>
-            <div v-if="staffAccessError" class="flex items-center justify-between gap-3 bg-red-50 px-4 py-3 text-sm text-red-700" role="alert">
-              <span>{{ staffAccessError }}</span>
-              <button type="button" class="font-semibold underline" @click="fetchStaffAccess">Повторить</button>
-            </div>
-            <div class="divide-y">
-              <div v-for="grant in staffAccess.active" :key="grant.customer_id" class="flex items-center justify-between gap-3 px-4 py-3 text-sm">
-                <div class="min-w-0">
-                  <div class="truncate font-medium text-gray-900">{{ grant.telegram_username ? `@${grant.telegram_username}` : grant.first_name || grant.telegram_id }}</div>
-                  <div class="text-xs text-gray-500">{{ grant.access_authorized_by || 'admin' }}</div>
-                </div>
-                <button
-                  type="button"
-                  class="shrink-0 rounded px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
-                  :disabled="Boolean(grant.has_issued_order) || removingStaffAccess === grant.customer_id"
-                  :title="grant.has_issued_order ? 'После выданного заказа доступ постоянный' : undefined"
-                  @click="removeStaffAccess(grant.customer_id)"
-                >{{ grant.has_issued_order ? 'Доступ постоянный' : removingStaffAccess === grant.customer_id ? 'Отменяем...' : 'Отменить' }}</button>
-              </div>
-              <div v-for="grant in staffAccess.pending" :key="`pending-${grant.id}`" class="flex items-center justify-between gap-3 px-4 py-3 text-sm">
-                <div>
-                  <div class="font-medium text-gray-900">@{{ grant.telegram_username }}</div>
-                  <div class="text-xs text-amber-700">Ожидает первого входа</div>
-                </div>
-                <button type="button" class="rounded px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-50" :disabled="removingPendingStaffAccess === grant.id" @click="removePendingStaffAccess(grant.id)">{{ removingPendingStaffAccess === grant.id ? 'Отменяем...' : 'Отменить' }}</button>
-              </div>
-            </div>
-          </section>
-
-          <section class="rounded-lg bg-white shadow-sm">
-            <div class="border-b bg-gray-50 px-4 py-3 text-sm font-semibold text-gray-700">
-              <div class="flex items-center justify-between gap-3">
-                <span>Запрет приглашать ({{ inviteBans.length + pendingInviteBans.length }})</span>
-                <button type="button" class="rounded-lg bg-red-600 px-3 py-2 text-xs font-semibold text-white hover:bg-red-700 focus-visible:outline-2 focus-visible:outline-red-700" @click="openInviteBanModal()">Добавить</button>
-              </div>
-            </div>
-            <div v-if="pendingInviteBans.length" class="border-t border-gray-100">
-              <div class="bg-amber-50 px-4 py-2 text-xs font-semibold text-amber-800">Ожидают первого входа</div>
-              <div v-for="ban in pendingInviteBans" :key="`pending-invite-${ban.id}`" class="flex items-center justify-between gap-3 border-t px-4 py-3 text-sm">
-                <div class="min-w-0"><div class="font-medium text-gray-900">@{{ ban.telegram_username }}</div><div class="truncate text-xs text-gray-500">{{ ban.reason || 'Без причины' }}</div></div>
-                <button type="button" class="shrink-0 rounded bg-green-50 px-3 py-2 text-green-700 disabled:opacity-50" :disabled="removingPendingInviteBan === ban.id" @click="removePendingInviteBan(ban.id)">{{ removingPendingInviteBan === ban.id ? 'Отменяем...' : 'Отменить' }}</button>
-              </div>
-            </div>
-            <div v-if="!inviteBans.length && !pendingInviteBans.length && !inviteBansLoadError" class="px-4 py-8 text-center text-sm text-gray-500">{{ loadingInviteBans ? 'Загрузка списка...' : 'Нет запретов приглашать' }}</div>
-            <div v-if="inviteBansLoadError" class="flex items-center justify-between gap-3 bg-red-50 px-4 py-3 text-sm text-red-700" role="alert"><span>{{ inviteBansLoadError }}</span><button type="button" class="font-semibold underline" @click="fetchInviteBans">Повторить</button></div>
-            <div v-if="inviteBans.length" class="overflow-x-auto">
-              <table class="w-full min-w-[640px]">
-                <thead class="border-b bg-gray-50 text-left text-xs uppercase text-gray-500"><tr><th class="px-4 py-3">Клиент</th><th class="px-4 py-3">Причина</th><th class="px-4 py-3">Создан</th><th class="px-4 py-3 text-right">Действия</th></tr></thead>
-                <tbody class="divide-y"><tr v-for="ban in visibleInviteBans" :key="ban.id"><td class="px-4 py-4">{{ ban.telegram_username ? `@${ban.telegram_username}` : ban.first_name || 'Без username' }}</td><td class="px-4 py-4">{{ ban.reason || '—' }}</td><td class="px-4 py-4 text-gray-500">{{ formatDate(ban.banned_at) }}</td><td class="px-4 py-4 text-right"><button type="button" class="rounded bg-green-50 px-3 py-2 text-green-700 disabled:opacity-50" :disabled="removingInviteBanId === ban.id" @click="removeInviteBanFromList(ban.id)">{{ removingInviteBanId === ban.id ? 'Снимаем...' : 'Снять запрет' }}</button></td></tr></tbody>
-              </table>
-            </div>
-          </section>
         </div>
 
         <!-- Inactive Customers (>45 days) -->
@@ -739,12 +776,13 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, computed, watch } from 'vue'
+import { ref, onMounted, computed, watch, nextTick, onBeforeUnmount } from 'vue'
 import { useCrmStore } from '@/stores/crm'
 import { storeToRefs } from 'pinia'
 import type { Customer, CustomerFeedback } from '@/stores/crm'
 import CustomerInviteBanModal from '@/components/admin/CustomerInviteBanModal.vue'
 import CustomerStaffAccessModal from '@/components/admin/CustomerStaffAccessModal.vue'
+import { getBusinessDateParts } from '@/utils/businessTime'
 import {
   findInvalidDisallowedInviterUsernames,
   parseDisallowedInviterUsernames,
@@ -772,6 +810,7 @@ type AuthorizationItem = {
   has_issued_order: number
   access_authorization_source: string | null
   access_authorized_by: string | null
+  access_authorized_at: string | null
   updated_at: string
 }
 
@@ -791,6 +830,10 @@ const inviteBansLoadError = ref('')
 const loadingInviteBans = ref(false)
 const removingInviteBanId = ref<string | null>(null)
 const authorizationFilter = ref<'new' | 'pending' | 'blocked'>('new')
+type NewCustomerPeriod = 'today' | 'month' | 'year' | 'all'
+const newCustomerPeriod = ref<NewCustomerPeriod>('month')
+const businessTimeTick = ref(Date.now())
+let businessTimeTimer: ReturnType<typeof setInterval> | undefined
 const authorizationSearch = ref('')
 const disallowedInviterUsernames = ref<DisallowedInviterUsername[]>([])
 const disallowedInviterInput = ref('')
@@ -805,13 +848,43 @@ const authorizationFilters = [
   { value: 'pending' as const, label: '1–2 ошибки' },
   { value: 'blocked' as const, label: 'Заблокированы' },
 ]
+const newCustomerPeriods = [
+  { value: 'today' as const, label: 'За день' },
+  { value: 'month' as const, label: 'За месяц' },
+  { value: 'year' as const, label: 'За год' },
+  { value: 'all' as const, label: 'Всё время' },
+]
+
+function parseUtcTimestamp(value: string | null) {
+  if (!value) return null
+  let normalized = value.includes('T') ? value : value.replace(' ', 'T')
+  if (!/(?:Z|[+-]\d{2}:?\d{2})$/i.test(normalized)) normalized += 'Z'
+  const date = new Date(normalized)
+  return Number.isNaN(date.getTime()) ? null : date
+}
+
+function isInNewCustomerPeriod(value: string | null) {
+  if (newCustomerPeriod.value === 'all') return true
+  const date = parseUtcTimestamp(value)
+  if (!date) return false
+  const current = getBusinessDateParts(new Date(businessTimeTick.value))
+  const candidate = getBusinessDateParts(date)
+  if (candidate.year !== current.year) return false
+  if (newCustomerPeriod.value === 'year') return true
+  if (candidate.month !== current.month) return false
+  if (newCustomerPeriod.value === 'month') return true
+  return candidate.day === current.day
+}
 
 const pendingAuthorizationCount = computed(() =>
   referralAuthorizations.value.filter((item) => item.status === 'pending' && item.attempts_used > 0).length,
 )
 const filteredAuthorizations = computed(() => referralAuthorizations.value.filter((item) => {
   const inState = authorizationFilter.value === 'new'
-    ? item.status === 'authorized' && !item.has_issued_order && item.access_authorization_source !== 'staff'
+    ? item.status === 'authorized'
+      && !item.has_issued_order
+      && item.access_authorization_source !== 'staff'
+      && isInNewCustomerPeriod(item.access_authorized_at)
     : authorizationFilter.value === 'blocked'
       ? item.status === 'blocked'
       : item.status === 'pending' && item.attempts_used > 0
@@ -823,6 +896,16 @@ const filteredAuthorizations = computed(() => referralAuthorizations.value.filte
     .some((value) => String(value).toLowerCase().includes(query))
 }))
 const visibleAuthorizations = computed(() => filteredAuthorizations.value.slice(0, CUSTOMER_LIST_LIMIT))
+const authorizationEmptyMessage = computed(() => {
+  if (authorizationSearch.value) {
+    return authorizationFilter.value === 'new'
+      ? 'По запросу ничего не найдено за выбранный период'
+      : 'По запросу ничего не найдено'
+  }
+  return authorizationFilter.value === 'new'
+    ? 'За выбранный период новых клиентов нет'
+    : 'Нет клиентов в этом состоянии'
+})
 
 function authorizationStateLabel(item: AuthorizationItem) {
   if (item.status === 'blocked') return 'Авторизация не пройдена'
@@ -851,8 +934,13 @@ type StaffAccessState = {
 }
 const staffAccess = ref<StaffAccessState>({ active: [], pending: [] })
 const staffAccessError = ref('')
+const loadingStaffAccess = ref(false)
 const removingStaffAccess = ref<string | null>(null)
 const removingPendingStaffAccess = ref<number | null>(null)
+const staffAccessSection = ref<HTMLElement | null>(null)
+const staffAccessHeading = ref<HTMLElement | null>(null)
+const highlightedStaffAccessKey = ref<string | null>(null)
+let staffAccessHighlightTimer: ReturnType<typeof setTimeout> | undefined
 const removingPendingInviteBan = ref<number | null>(null)
 const showStaffAccessModal = ref(false)
 const showInviteBanModal = ref(false)
@@ -863,6 +951,7 @@ const actionNotice = ref('')
 const actionNoticeKind = ref<'success' | 'error'>('success')
 
 async function fetchStaffAccess() {
+  loadingStaffAccess.value = true
   staffAccessError.value = ''
   try {
     const response = await fetch('/api/admin/crm/referral-authorization/staff-access', { credentials: 'include' })
@@ -870,6 +959,8 @@ async function fetchStaffAccess() {
     staffAccess.value = await response.json()
   } catch {
     staffAccessError.value = 'Не удалось загрузить разрешения администратора'
+  } finally {
+    loadingStaffAccess.value = false
   }
 }
 
@@ -894,6 +985,10 @@ function openInviteBanModal(customer?: Customer) {
 }
 
 async function handleStaffAccessCreated(payload: { kind: 'active' | 'pending'; alreadyAuthorized?: boolean }) {
+  const previousKeys = new Set([
+    ...staffAccess.value.active.map((grant) => `active-${grant.customer_id}`),
+    ...staffAccess.value.pending.map((grant) => `pending-${grant.id}`),
+  ])
   actionNoticeKind.value = 'success'
   actionNotice.value = payload.alreadyAuthorized
     ? 'Клиент уже имел доступ. Текущая авторизация сохранена.'
@@ -901,6 +996,18 @@ async function handleStaffAccessCreated(payload: { kind: 'active' | 'pending'; a
       ? 'Разрешение сохранено и применится при первом входе клиента.'
       : 'Доступ без приглашения разрешён.'
   await Promise.all([fetchStaffAccess(), fetchReferralAuthorizations()])
+  const currentKeys = [
+    ...staffAccess.value.pending.map((grant) => `pending-${grant.id}`),
+    ...staffAccess.value.active.map((grant) => `active-${grant.customer_id}`),
+  ]
+  highlightedStaffAccessKey.value = currentKeys.find((key) => !previousKeys.has(key)) || null
+  await nextTick()
+  staffAccessSection.value?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  staffAccessHeading.value?.focus({ preventScroll: true })
+  clearTimeout(staffAccessHighlightTimer)
+  staffAccessHighlightTimer = setTimeout(() => {
+    highlightedStaffAccessKey.value = null
+  }, 2500)
 }
 
 async function handleInviteBanCreated() {
@@ -1330,7 +1437,8 @@ async function confirmDeleteCustomer() {
   }
 }
 
-function formatDate(dateString: string): string {
+function formatDate(dateString: string | null): string {
+  if (!dateString) return '—'
   const normalized = dateString.includes('T') ? dateString : `${dateString.replace(' ', 'T')}Z`
   return new Date(normalized).toLocaleDateString('ru-RU', {
     day: '2-digit',
@@ -1341,6 +1449,14 @@ function formatDate(dateString: string): string {
 }
 
 onMounted(() => {
+  businessTimeTimer = setInterval(() => {
+    businessTimeTick.value = Date.now()
+  }, 30_000)
   void loadActiveTab()
+})
+
+onBeforeUnmount(() => {
+  clearInterval(businessTimeTimer)
+  clearTimeout(staffAccessHighlightTimer)
 })
 </script>

@@ -292,6 +292,7 @@ try {
 
   db.prepare("UPDATE customers SET telegram_username = 'CurrentGood' WHERE id = 'eligible'").run();
   const listRow = referral.listReferralAuthorizations().find((row) => row.telegram_id === '900');
+  assert.equal(listRow.access_authorized_at, db.prepare('SELECT access_authorized_at FROM customers WHERE id = ?').pluck().get(failedCustomer.id));
   assert.equal(listRow.inviter_username, 'CurrentGood');
   db.prepare("UPDATE customers SET telegram_username = NULL WHERE id = 'eligible'").run();
   const fallbackRow = referral.listReferralAuthorizations().find((row) => row.telegram_id === '900');

@@ -39,8 +39,104 @@ describe("CrmCustomers forbidden inviter settings", () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+  });
+
+  it("keeps access without inviter visible before restrictions and authorization history", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = endpoint(input);
+      if (url.endsWith("/referral-authorizations")) return response({ items: [] });
+      if (url.endsWith("/invite-bans")) return response({ items: [], pending: [] });
+      if (url.endsWith("/disallowed-usernames")) return response({ items: [] });
+      if (url.endsWith("/staff-access")) {
+        return response({
+          active: [{
+            customer_id: "customer-1",
+            telegram_id: "100",
+            telegram_username: "allowed_client",
+            first_name: "Allowed",
+            access_authorized_by: "admin",
+            has_issued_order: 0,
+          }],
+          pending: [{
+            id: 7,
+            telegram_username: "pending_client",
+            granted_by: "admin",
+            created_at: "2026-07-22",
+          }],
+        });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    }));
+
+    const wrapper = await openAuthorization(setupStore());
+    const text = wrapper.text();
+    expect(text).toContain("Доступ без пригласившего");
+    expect(text).toContain("@allowed_client");
+    expect(text).toContain("@pending_client");
+    expect(text.indexOf("Доступ без пригласившего")).toBeLessThan(text.indexOf("Ограничения для пригласивших"));
+    expect(text.indexOf("Ограничения для пригласивших")).toBeLessThan(text.indexOf("История авторизаций"));
+    wrapper.unmount();
+  });
+
+  it("filters new customers by Minsk day, month, year and all time", async () => {
+    vi.useFakeTimers();
+    // 00:30 22 июля по Минску: проверяем границу суток, а не локальный час машины.
+    vi.setSystemTime(new Date("2026-07-21T21:30:00Z"));
+    const item = (telegram_id: string, username: string, access_authorized_at: string) => ({
+      telegram_id,
+      telegram_username: username,
+      first_name: username,
+      last_name: null,
+      status: "authorized",
+      attempts_used: 0,
+      inviter_username: "inviter",
+      has_issued_order: 0,
+      access_authorization_source: "referral",
+      access_authorized_by: null,
+      access_authorized_at,
+      updated_at: access_authorized_at,
+    });
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = endpoint(input);
+      if (url.endsWith("/referral-authorizations")) return response({ items: [
+        item("1", "today_client", "2026-07-21 21:10:00"),
+        item("5", "previous_day_client", "2026-07-21 20:59:59"),
+        item("2", "month_client", "2026-07-02 09:00:00"),
+        item("3", "year_client", "2026-01-05 09:00:00"),
+        item("4", "old_client", "2025-12-31 09:00:00"),
+      ] });
+      if (url.endsWith("/invite-bans")) return response({ items: [], pending: [] });
+      if (url.endsWith("/disallowed-usernames")) return response({ items: [] });
+      if (url.endsWith("/staff-access")) return response({ active: [], pending: [] });
+      throw new Error(`Unexpected fetch: ${url}`);
+    }));
+
+    const wrapper = await openAuthorization(setupStore());
+    expect(wrapper.text()).toContain("@today_client");
+    expect(wrapper.text()).toContain("@previous_day_client");
+    expect(wrapper.text()).toContain("@month_client");
+    expect(wrapper.text()).not.toContain("@year_client");
+
+    await wrapper.findAll("button").find((button) => button.text() === "За день")!.trigger("click");
+    expect(wrapper.text()).toContain("@today_client");
+    expect(wrapper.text()).not.toContain("@previous_day_client");
+    expect(wrapper.text()).not.toContain("@month_client");
+
+    vi.setSystemTime(new Date("2026-07-22T21:31:00Z"));
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(wrapper.text()).not.toContain("@today_client");
+
+    await wrapper.findAll("button").find((button) => button.text() === "За год")!.trigger("click");
+    expect(wrapper.text()).toContain("@year_client");
+    expect(wrapper.text()).not.toContain("@old_client");
+
+    await wrapper.findAll("button").find((button) => button.text() === "Всё время")!.trigger("click");
+    expect(wrapper.text()).toContain("@old_client");
+    wrapper.unmount();
+    vi.useRealTimers();
   });
 
   it("loads, batch-adds and removes usernames while updating the list", async () => {
@@ -49,6 +145,7 @@ describe("CrmCustomers forbidden inviter settings", () => {
       const url = endpoint(input);
       if (url.endsWith("/referral-authorizations")) return response({ items: [] });
       if (url.endsWith("/invite-bans")) return response({ items: [] });
+      if (url.endsWith("/staff-access")) return response({ active: [], pending: [] });
       if (url.includes("/disallowed-usernames/admin_two") && init?.method === "DELETE") {
         items = items.filter((item) => item.username !== "admin_two");
         return response({ ok: true });
@@ -89,6 +186,7 @@ describe("CrmCustomers forbidden inviter settings", () => {
       const url = endpoint(input);
       if (url.endsWith("/referral-authorizations")) return response({ items: [] });
       if (url.endsWith("/invite-bans")) return response({ items: [] });
+      if (url.endsWith("/staff-access")) return response({ active: [], pending: [] });
       if (url.endsWith("/disallowed-usernames")) {
         listRequests += 1;
         if (listRequests === 1) return response({ error: "failed" }, false, 500);
@@ -114,6 +212,7 @@ describe("CrmCustomers forbidden inviter settings", () => {
       const url = endpoint(input);
       if (url.endsWith("/referral-authorizations")) return Promise.resolve(response({ items: [] }));
       if (url.endsWith("/invite-bans")) return Promise.resolve(response({ items: [] }));
+      if (url.endsWith("/staff-access")) return Promise.resolve(response({ active: [], pending: [] }));
       if (url.endsWith("/disallowed-usernames") && init?.method === "POST") {
         return new Promise<Response>((resolve) => { resolvePost = resolve; });
       }
