@@ -154,6 +154,7 @@ export function searchCustomers({ q, limit = 20, includeRecent = false, posOnly 
           COALESCE(c.first_name, '') LIKE ? ESCAPE '\\' COLLATE NOCASE
           OR COALESCE(c.last_name, '') LIKE ? ESCAPE '\\' COLLATE NOCASE
           OR COALESCE(c.telegram_username, '') LIKE ? ESCAPE '\\' COLLATE NOCASE
+          OR COALESCE(c.telegram_id, '') LIKE ? ESCAPE '\\'
           OR (
             ? != ''
             AND c.phone IS NOT NULL
@@ -163,7 +164,7 @@ export function searchCustomers({ q, limit = 20, includeRecent = false, posOnly 
         ORDER BY (c.last_visit_at IS NULL), c.last_visit_at DESC, c.created_at DESC
         LIMIT ?`,
     )
-    .all(like, like, like, digits, digitsLike, safeLimit);
+    .all(like, like, like, like, digits, digitsLike, safeLimit);
 
   return rows;
 }

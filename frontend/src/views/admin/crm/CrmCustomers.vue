@@ -35,6 +35,15 @@
         </button>
       </div>
 
+      <p
+        v-if="actionNotice"
+        class="fixed bottom-4 right-4 z-50 flex max-w-[calc(100vw-2rem)] items-start gap-3 rounded-lg px-4 py-3 text-sm shadow-lg sm:max-w-sm"
+        :class="actionNoticeKind === 'error' ? 'bg-red-50 text-red-700' : 'bg-emerald-50 text-emerald-800'"
+        :role="actionNoticeKind === 'error' ? 'alert' : 'status'"
+      >
+        <span>{{ actionNotice }}</span>
+        <button type="button" class="shrink-0 font-semibold" aria-label="Закрыть уведомление" @click="actionNotice = ''">×</button>
+      </p>
 
       <div v-if="loading" class="text-center py-12">
         <div class="inline-block h-12 w-12 animate-spin rounded-full border-4 border-solid border-blue-600 border-r-transparent"></div>
@@ -43,14 +52,31 @@
 
       <template v-else>
         <div v-if="activeTab === 'authorization'" class="space-y-4">
+          <section class="rounded-lg border border-blue-100 bg-white p-4 shadow-sm sm:p-5">
+            <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h2 class="text-base font-semibold text-gray-900">Быстрые действия</h2>
+                <p class="mt-1 text-sm text-gray-500">Разрешите заказ без приглашения или запретите клиенту приглашать.</p>
+              </div>
+              <div class="flex flex-col gap-2 sm:flex-row">
+                <button type="button" class="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700" @click="openStaffAccessModal()">
+                  Разрешить без приглашения
+                </button>
+                <button type="button" class="rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm font-semibold text-red-700 hover:bg-red-100" @click="openInviteBanModal()">
+                  Запретить приглашать
+                </button>
+              </div>
+            </div>
+          </section>
+
           <section class="rounded-lg bg-white p-4 shadow-sm sm:p-5" aria-labelledby="disallowed-inviters-title">
             <div class="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between sm:gap-6">
               <div>
                 <h2 id="disallowed-inviters-title" class="text-base font-semibold text-gray-900">
-                  Запрещённые пригласители
+                  Наши аккаунты
                 </h2>
                 <p class="mt-1 text-sm text-gray-500">
-                  Эти username нельзя указать при входе. Ошибка не расходует попытку клиента.
+                  Эти username нельзя указать при входе. Попытка не списывается.
                 </p>
               </div>
               <span class="mt-1 text-sm text-gray-500 sm:whitespace-nowrap">
@@ -111,15 +137,21 @@
                 class="flex items-center justify-between gap-3 py-2.5"
               >
                 <span class="min-w-0 truncate text-sm font-medium text-gray-800">@{{ item.username }}</span>
-                <button
-                  type="button"
-                  class="min-h-11 shrink-0 rounded-md px-3 py-2 text-sm font-medium text-red-600 transition-colors hover:bg-red-50 disabled:cursor-wait disabled:opacity-50"
-                  :disabled="Boolean(removingDisallowedInviter)"
-                  :aria-label="`Удалить @${item.username} из запрещённых пригласителей`"
-                  @click="removeDisallowedInviter(item.username)"
-                >
-                  {{ removingDisallowedInviter === item.username ? 'Удаляем...' : 'Удалить' }}
-                </button>
+                <div class="flex shrink-0 gap-1">
+                  <button
+                    type="button"
+                    class="min-h-11 rounded-md px-3 py-2 text-sm font-medium text-amber-700 hover:bg-amber-50 disabled:opacity-50"
+                    :disabled="Boolean(removingDisallowedInviter)"
+                    @click="convertToInviteBan(item.username)"
+                  >Перенести в запрет</button>
+                  <button
+                    type="button"
+                    class="min-h-11 rounded-md px-3 py-2 text-sm font-medium text-red-600 transition-colors hover:bg-red-50 disabled:cursor-wait disabled:opacity-50"
+                    :disabled="Boolean(removingDisallowedInviter)"
+                    :aria-label="`Удалить @${item.username} из наших аккаунтов`"
+                    @click="removeDisallowedInviter(item.username)"
+                  >{{ removingDisallowedInviter === item.username ? 'Удаляем...' : 'Удалить' }}</button>
+                </div>
               </li>
             </ul>
             <p v-else-if="!disallowedInviterLoadError" class="mt-4 border-t border-gray-100 pt-4 text-sm text-gray-500">
@@ -174,7 +206,9 @@
                   </td>
                   <td class="px-4 py-3">{{ authorizationStateLabel(item) }}</td>
                   <td class="px-4 py-3">{{ item.attempts_used }}/3</td>
-                  <td class="px-4 py-3">{{ item.inviter_username ? `@${item.inviter_username}` : '—' }}</td>
+                  <td class="px-4 py-3">
+                    {{ item.access_authorization_source === 'staff' ? 'Разрешено администратором' : item.inviter_username ? `@${item.inviter_username}` : '—' }}
+                  </td>
                   <td class="px-4 py-3 text-gray-500">{{ formatDate(item.updated_at) }}</td>
                 </tr>
                 <tr v-if="!visibleAuthorizations.length">
@@ -185,6 +219,62 @@
               </tbody>
             </table>
           </div>
+
+          <section v-if="staffAccessError || staffAccess.active.length || staffAccess.pending.length" class="rounded-lg bg-white shadow-sm">
+            <div class="border-b bg-gray-50 px-4 py-3 text-sm font-semibold text-gray-700">
+              Разрешены администратором ({{ staffAccess.active.length + staffAccess.pending.length }})
+            </div>
+            <div v-if="staffAccessError" class="flex items-center justify-between gap-3 bg-red-50 px-4 py-3 text-sm text-red-700" role="alert">
+              <span>{{ staffAccessError }}</span>
+              <button type="button" class="font-semibold underline" @click="fetchStaffAccess">Повторить</button>
+            </div>
+            <div class="divide-y">
+              <div v-for="grant in staffAccess.active" :key="grant.customer_id" class="flex items-center justify-between gap-3 px-4 py-3 text-sm">
+                <div class="min-w-0">
+                  <div class="truncate font-medium text-gray-900">{{ grant.telegram_username ? `@${grant.telegram_username}` : grant.first_name || grant.telegram_id }}</div>
+                  <div class="text-xs text-gray-500">{{ grant.access_authorized_by || 'admin' }}</div>
+                </div>
+                <button
+                  type="button"
+                  class="shrink-0 rounded px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
+                  :disabled="Boolean(grant.has_issued_order) || removingStaffAccess === grant.customer_id"
+                  :title="grant.has_issued_order ? 'После выданного заказа доступ постоянный' : undefined"
+                  @click="removeStaffAccess(grant.customer_id)"
+                >{{ grant.has_issued_order ? 'Доступ постоянный' : removingStaffAccess === grant.customer_id ? 'Отменяем...' : 'Отменить' }}</button>
+              </div>
+              <div v-for="grant in staffAccess.pending" :key="`pending-${grant.id}`" class="flex items-center justify-between gap-3 px-4 py-3 text-sm">
+                <div>
+                  <div class="font-medium text-gray-900">@{{ grant.telegram_username }}</div>
+                  <div class="text-xs text-amber-700">Ожидает первого входа</div>
+                </div>
+                <button type="button" class="rounded px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-50" :disabled="removingPendingStaffAccess === grant.id" @click="removePendingStaffAccess(grant.id)">{{ removingPendingStaffAccess === grant.id ? 'Отменяем...' : 'Отменить' }}</button>
+              </div>
+            </div>
+          </section>
+
+          <section class="rounded-lg bg-white shadow-sm">
+            <div class="border-b bg-gray-50 px-4 py-3 text-sm font-semibold text-gray-700">
+              <div class="flex items-center justify-between gap-3">
+                <span>Запрет приглашать ({{ inviteBans.length + pendingInviteBans.length }})</span>
+                <button type="button" class="rounded-lg bg-red-600 px-3 py-2 text-xs font-semibold text-white hover:bg-red-700 focus-visible:outline-2 focus-visible:outline-red-700" @click="openInviteBanModal()">Добавить</button>
+              </div>
+            </div>
+            <div v-if="pendingInviteBans.length" class="border-t border-gray-100">
+              <div class="bg-amber-50 px-4 py-2 text-xs font-semibold text-amber-800">Ожидают первого входа</div>
+              <div v-for="ban in pendingInviteBans" :key="`pending-invite-${ban.id}`" class="flex items-center justify-between gap-3 border-t px-4 py-3 text-sm">
+                <div class="min-w-0"><div class="font-medium text-gray-900">@{{ ban.telegram_username }}</div><div class="truncate text-xs text-gray-500">{{ ban.reason || 'Без причины' }}</div></div>
+                <button type="button" class="shrink-0 rounded bg-green-50 px-3 py-2 text-green-700 disabled:opacity-50" :disabled="removingPendingInviteBan === ban.id" @click="removePendingInviteBan(ban.id)">{{ removingPendingInviteBan === ban.id ? 'Отменяем...' : 'Отменить' }}</button>
+              </div>
+            </div>
+            <div v-if="!inviteBans.length && !pendingInviteBans.length && !inviteBansLoadError" class="px-4 py-8 text-center text-sm text-gray-500">{{ loadingInviteBans ? 'Загрузка списка...' : 'Нет запретов приглашать' }}</div>
+            <div v-if="inviteBansLoadError" class="flex items-center justify-between gap-3 bg-red-50 px-4 py-3 text-sm text-red-700" role="alert"><span>{{ inviteBansLoadError }}</span><button type="button" class="font-semibold underline" @click="fetchInviteBans">Повторить</button></div>
+            <div v-if="inviteBans.length" class="overflow-x-auto">
+              <table class="w-full min-w-[640px]">
+                <thead class="border-b bg-gray-50 text-left text-xs uppercase text-gray-500"><tr><th class="px-4 py-3">Клиент</th><th class="px-4 py-3">Причина</th><th class="px-4 py-3">Создан</th><th class="px-4 py-3 text-right">Действия</th></tr></thead>
+                <tbody class="divide-y"><tr v-for="ban in visibleInviteBans" :key="ban.id"><td class="px-4 py-4">{{ ban.telegram_username ? `@${ban.telegram_username}` : ban.first_name || 'Без username' }}</td><td class="px-4 py-4">{{ ban.reason || '—' }}</td><td class="px-4 py-4 text-gray-500">{{ formatDate(ban.banned_at) }}</td><td class="px-4 py-4 text-right"><button type="button" class="rounded bg-green-50 px-3 py-2 text-green-700 disabled:opacity-50" :disabled="removingInviteBanId === ban.id" @click="removeInviteBanFromList(ban.id)">{{ removingInviteBanId === ban.id ? 'Снимаем...' : 'Снять запрет' }}</button></td></tr></tbody>
+              </table>
+            </div>
+          </section>
         </div>
 
         <!-- Inactive Customers (>45 days) -->
@@ -336,6 +426,16 @@
                     <td class="px-6 py-4 text-right">
                       <div class="flex items-center justify-end gap-2">
                         <button
+                          type="button"
+                          class="rounded bg-emerald-50 px-3 py-1 text-sm font-medium text-emerald-700 hover:bg-emerald-100"
+                          @click="openStaffAccessModal(customer)"
+                        >Без приглашения</button>
+                        <button
+                          type="button"
+                          class="rounded bg-amber-50 px-3 py-1 text-sm font-medium text-amber-700 hover:bg-amber-100"
+                          @click="openInviteBanModal(customer)"
+                        >Запрет приглашать</button>
+                        <button
                           v-if="!customer.blocked_count"
                           @click="openBlockModal(customer)"
                           class="px-3 py-1 bg-red-50 text-red-600 text-sm font-medium rounded hover:bg-red-100"
@@ -479,43 +579,27 @@
               </div>
             </div>
 
-            <div class="rounded-lg bg-white shadow-sm">
-              <div class="border-b bg-gray-50 px-6 py-3 text-sm font-semibold text-gray-700">
-                Запрет приглашать ({{ inviteBans.length }})
-              </div>
-              <div v-if="!inviteBans.length && !inviteBansLoadError" class="px-6 py-8 text-center text-sm text-gray-500">
-                {{ loadingInviteBans ? 'Загрузка списка...' : 'Нет запретов приглашать' }}
-              </div>
-              <div v-if="inviteBansLoadError" class="flex items-center justify-between gap-3 bg-red-50 px-6 py-3 text-sm text-red-700">
-                <span>{{ inviteBansLoadError }}</span>
-                <button class="font-semibold underline" @click="fetchInviteBans">Повторить</button>
-              </div>
-              <div v-if="inviteBans.length" class="overflow-x-auto">
-              <table class="w-full min-w-[640px]">
-                <thead class="border-b bg-gray-50 text-left text-xs uppercase text-gray-500">
-                  <tr><th class="px-6 py-3">Клиент</th><th class="px-6 py-3">Причина</th><th class="px-6 py-3">Создан</th><th class="px-6 py-3 text-right">Действия</th></tr>
-                </thead>
-                <tbody class="divide-y">
-                  <tr v-for="ban in visibleInviteBans" :key="ban.id">
-                    <td class="px-6 py-4">{{ ban.telegram_username ? `@${ban.telegram_username}` : ban.first_name || 'Без username' }}</td>
-                    <td class="px-6 py-4">{{ ban.reason || '—' }}</td>
-                    <td class="px-6 py-4 text-gray-500">{{ formatDate(ban.banned_at) }}</td>
-                    <td class="px-6 py-4 text-right">
-                      <button
-                        class="rounded bg-green-50 px-3 py-1 text-green-700 disabled:opacity-50"
-                        :disabled="removingInviteBanId === ban.id"
-                        @click="removeInviteBanFromList(ban.id)"
-                      >{{ removingInviteBanId === ban.id ? 'Снимаем...' : 'Снять запрет' }}</button>
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-              </div>
-            </div>
           </template>
         </div>
       </template>
     </div>
+
+    <CustomerStaffAccessModal
+      :is-open="showStaffAccessModal"
+      :customer-id="actionCustomerId"
+      :username="actionUsername"
+      :customer="actionCustomer"
+      @close="showStaffAccessModal = false"
+      @created="handleStaffAccessCreated"
+    />
+    <CustomerInviteBanModal
+      :is-open="showInviteBanModal"
+      :customer-id="actionCustomerId"
+      :username="actionUsername"
+      :customer="actionCustomer"
+      @close="showInviteBanModal = false"
+      @created="handleInviteBanCreated"
+    />
 
     <!-- Feedback Modal -->
     <div
@@ -659,6 +743,8 @@ import { ref, onMounted, computed, watch } from 'vue'
 import { useCrmStore } from '@/stores/crm'
 import { storeToRefs } from 'pinia'
 import type { Customer, CustomerFeedback } from '@/stores/crm'
+import CustomerInviteBanModal from '@/components/admin/CustomerInviteBanModal.vue'
+import CustomerStaffAccessModal from '@/components/admin/CustomerStaffAccessModal.vue'
 import {
   findInvalidDisallowedInviterUsernames,
   parseDisallowedInviterUsernames,
@@ -684,6 +770,8 @@ type AuthorizationItem = {
   attempts_used: number
   inviter_username: string | null
   has_issued_order: number
+  access_authorization_source: string | null
+  access_authorized_by: string | null
   updated_at: string
 }
 
@@ -698,6 +786,7 @@ const referralAuthorizations = ref<AuthorizationItem[]>([])
 const loadingAuthorizations = ref(false)
 const authorizationLoadError = ref('')
 const inviteBans = ref<Array<{ id: string; telegram_username: string | null; first_name: string | null; reason: string | null; banned_at: string }>>([])
+const pendingInviteBans = ref<Array<{ id: number; telegram_username: string; reason: string | null; banned_by: string | null; created_at: string }>>([])
 const inviteBansLoadError = ref('')
 const loadingInviteBans = ref(false)
 const removingInviteBanId = ref<string | null>(null)
@@ -722,7 +811,7 @@ const pendingAuthorizationCount = computed(() =>
 )
 const filteredAuthorizations = computed(() => referralAuthorizations.value.filter((item) => {
   const inState = authorizationFilter.value === 'new'
-    ? item.status === 'authorized' && !item.has_issued_order
+    ? item.status === 'authorized' && !item.has_issued_order && item.access_authorization_source !== 'staff'
     : authorizationFilter.value === 'blocked'
       ? item.status === 'blocked'
       : item.status === 'pending' && item.attempts_used > 0
@@ -737,6 +826,7 @@ const visibleAuthorizations = computed(() => filteredAuthorizations.value.slice(
 
 function authorizationStateLabel(item: AuthorizationItem) {
   if (item.status === 'blocked') return 'Авторизация не пройдена'
+  if (item.status === 'authorized' && item.access_authorization_source === 'staff') return 'Разрешено администратором'
   if (item.status === 'authorized') return item.has_issued_order ? 'Постоянный' : 'Новый клиент'
   return 'Не завершил авторизацию'
 }
@@ -752,6 +842,103 @@ async function fetchReferralAuthorizations() {
     authorizationLoadError.value = 'Не удалось загрузить авторизации'
   } finally {
     loadingAuthorizations.value = false
+  }
+}
+
+type StaffAccessState = {
+  active: Array<{ customer_id: string; telegram_id: string | null; telegram_username: string | null; first_name: string | null; access_authorized_by: string | null; has_issued_order: number }>
+  pending: Array<{ id: number; telegram_username: string; granted_by: string | null; created_at: string }>
+}
+const staffAccess = ref<StaffAccessState>({ active: [], pending: [] })
+const staffAccessError = ref('')
+const removingStaffAccess = ref<string | null>(null)
+const removingPendingStaffAccess = ref<number | null>(null)
+const removingPendingInviteBan = ref<number | null>(null)
+const showStaffAccessModal = ref(false)
+const showInviteBanModal = ref(false)
+const actionCustomerId = ref<string | null>(null)
+const actionUsername = ref('')
+const actionCustomer = ref<Customer | null>(null)
+const actionNotice = ref('')
+const actionNoticeKind = ref<'success' | 'error'>('success')
+
+async function fetchStaffAccess() {
+  staffAccessError.value = ''
+  try {
+    const response = await fetch('/api/admin/crm/referral-authorization/staff-access', { credentials: 'include' })
+    if (!response.ok) throw new Error('failed')
+    staffAccess.value = await response.json()
+  } catch {
+    staffAccessError.value = 'Не удалось загрузить разрешения администратора'
+  }
+}
+
+function setActionCustomer(customer?: Customer) {
+  actionCustomer.value = customer || null
+  actionCustomerId.value = customer?.id || null
+  actionUsername.value = customer?.telegram_username || ''
+}
+
+function openStaffAccessModal(customer?: Customer) {
+  setActionCustomer(customer)
+  actionNotice.value = ''
+  actionNoticeKind.value = 'success'
+  showStaffAccessModal.value = true
+}
+
+function openInviteBanModal(customer?: Customer) {
+  setActionCustomer(customer)
+  actionNotice.value = ''
+  actionNoticeKind.value = 'success'
+  showInviteBanModal.value = true
+}
+
+async function handleStaffAccessCreated(payload: { kind: 'active' | 'pending'; alreadyAuthorized?: boolean }) {
+  actionNoticeKind.value = 'success'
+  actionNotice.value = payload.alreadyAuthorized
+    ? 'Клиент уже имел доступ. Текущая авторизация сохранена.'
+    : payload.kind === 'pending'
+      ? 'Разрешение сохранено и применится при первом входе клиента.'
+      : 'Доступ без приглашения разрешён.'
+  await Promise.all([fetchStaffAccess(), fetchReferralAuthorizations()])
+}
+
+async function handleInviteBanCreated() {
+  actionNoticeKind.value = 'success'
+  actionNotice.value = 'Запрет приглашать сохранён.'
+  await fetchInviteBans()
+}
+
+async function removeStaffAccess(customerId: string) {
+  if (removingStaffAccess.value || !window.confirm('Отменить разрешение без приглашения?')) return
+  removingStaffAccess.value = customerId
+  try {
+    const response = await fetch(`/api/admin/crm/referral-authorization/staff-access/${encodeURIComponent(customerId)}`, {
+      method: 'DELETE', credentials: 'include',
+    })
+    if (!response.ok) throw new Error('failed')
+    await Promise.all([fetchStaffAccess(), fetchReferralAuthorizations()])
+  } catch {
+    window.alert('Не удалось отменить разрешение')
+  } finally {
+    removingStaffAccess.value = null
+  }
+}
+
+async function removePendingStaffAccess(id: number) {
+  if (removingPendingStaffAccess.value || !window.confirm('Отменить ожидающее разрешение?')) return
+  removingPendingStaffAccess.value = id
+  try {
+    const response = await fetch(`/api/admin/crm/referral-authorization/staff-access/pending/${id}`, { method: 'DELETE', credentials: 'include' })
+    if (!response.ok) throw new Error('failed')
+    actionNotice.value = 'Ожидающее разрешение отменено.'
+    actionNoticeKind.value = 'success'
+    await fetchStaffAccess()
+  } catch {
+    actionNotice.value = 'Не удалось отменить ожидающее разрешение.'
+    actionNoticeKind.value = 'error'
+  } finally {
+    removingPendingStaffAccess.value = null
   }
 }
 
@@ -802,13 +989,21 @@ async function addDisallowedInviters() {
       credentials: 'include',
       body: JSON.stringify({ usernames }),
     })
-    if (!response.ok) throw new Error('failed')
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}))
+      if (data.error === 'username_has_invite_ban') {
+        throw new Error(`@${data.username} уже находится в запрете приглашать`)
+      }
+      throw new Error('failed')
+    }
     disallowedInviterUsernames.value = (await response.json()).items || []
     disallowedInviterLoadError.value = ''
     disallowedInviterInput.value = ''
     disallowedInviterSaved.value = true
-  } catch {
-    disallowedInviterError.value = 'Не удалось сохранить список'
+  } catch (cause: any) {
+    disallowedInviterError.value = cause?.message === 'failed' || !cause?.message
+      ? 'Не удалось сохранить список'
+      : cause.message
   } finally {
     savingDisallowedInviters.value = false
   }
@@ -837,17 +1032,55 @@ async function removeDisallowedInviter(username: string) {
   }
 }
 
+async function convertToInviteBan(username: string) {
+  if (removingDisallowedInviter.value || !window.confirm(`Перенести @${username} в запрет приглашать? Попытка будет списываться.`)) return
+  removingDisallowedInviter.value = username
+  try {
+    const response = await fetch(
+      `/api/admin/crm/referral-authorization/disallowed-usernames/${encodeURIComponent(username)}/convert-to-invite-ban`,
+      { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: '{}' },
+    )
+    if (!response.ok) throw new Error('failed')
+    await Promise.all([fetchDisallowedInviters(), fetchInviteBans()])
+    actionNotice.value = `@${username} перенесён в запрет приглашать.`
+    actionNoticeKind.value = 'success'
+  } catch {
+    disallowedInviterError.value = `Не удалось перенести @${username}`
+  } finally {
+    removingDisallowedInviter.value = null
+  }
+}
+
 async function fetchInviteBans() {
   loadingInviteBans.value = true
   inviteBansLoadError.value = ''
   try {
     const response = await fetch('/api/admin/crm/invite-bans', { credentials: 'include' })
     if (!response.ok) throw new Error('failed')
-    inviteBans.value = (await response.json()).items || []
+    const data = await response.json()
+    inviteBans.value = data.items || []
+    pendingInviteBans.value = data.pending || []
   } catch {
     inviteBansLoadError.value = 'Не удалось загрузить запреты приглашать'
   } finally {
     loadingInviteBans.value = false
+  }
+}
+
+async function removePendingInviteBan(id: number) {
+  if (removingPendingInviteBan.value || !window.confirm('Отменить ожидающий запрет?')) return
+  removingPendingInviteBan.value = id
+  try {
+    const response = await fetch(`/api/admin/crm/invite-bans/pending/${id}`, { method: 'DELETE', credentials: 'include' })
+    if (!response.ok) throw new Error('failed')
+    actionNotice.value = 'Ожидающий запрет отменён.'
+    actionNoticeKind.value = 'success'
+    await fetchInviteBans()
+  } catch {
+    actionNotice.value = 'Не удалось отменить ожидающий запрет.'
+    actionNoticeKind.value = 'error'
+  } finally {
+    removingPendingInviteBan.value = null
   }
 }
 
@@ -874,7 +1107,7 @@ async function removeInviteBanFromList(id: string) {
 const blocksList = computed(() => customerBlocksList.value)
 const loadingBlocks = computed(() => loadingCustomerBlocks.value)
 const blockedTotalCount = computed(
-  () => blocksList.value.active.length + blocksList.value.pending.length + inviteBans.value.length,
+  () => blocksList.value.active.length + blocksList.value.pending.length,
 )
 const visibleActiveBlocks = computed(() => blocksList.value.active.slice(0, CUSTOMER_LIST_LIMIT))
 const visiblePendingBlocks = computed(() => blocksList.value.pending.slice(0, CUSTOMER_LIST_LIMIT))
@@ -891,7 +1124,7 @@ watch(activeTab, (tab) => {
     void fetchInviteBans()
   }
   if (tab === 'authorization') {
-    void Promise.all([fetchReferralAuthorizations(), fetchDisallowedInviters()])
+    void Promise.all([fetchReferralAuthorizations(), fetchDisallowedInviters(), fetchStaffAccess(), fetchInviteBans()])
   }
 })
 

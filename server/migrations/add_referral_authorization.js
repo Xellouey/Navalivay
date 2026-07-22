@@ -11,6 +11,15 @@ export function migrateReferralAuthorization() {
     if (!names.has('access_authorization_source')) {
       db.exec('ALTER TABLE customers ADD COLUMN access_authorization_source TEXT');
     }
+    if (!names.has('access_authorized_by')) {
+      db.exec('ALTER TABLE customers ADD COLUMN access_authorized_by TEXT');
+    }
+
+    const orderColumns = db.prepare('PRAGMA table_info(orders)').all();
+    const orderNames = new Set(orderColumns.map((column) => column.name));
+    if (!orderNames.has('access_authorization_source')) {
+      db.exec('ALTER TABLE orders ADD COLUMN access_authorization_source TEXT');
+    }
 
     db.exec(`
     CREATE TABLE IF NOT EXISTS referral_auth_states (
@@ -68,7 +77,29 @@ export function migrateReferralAuthorization() {
       added_at TEXT NOT NULL DEFAULT (DATETIME('now')),
       added_by TEXT
     );
+
+    CREATE TABLE IF NOT EXISTS pending_customer_invite_bans (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      telegram_username TEXT NOT NULL UNIQUE COLLATE NOCASE,
+      reason TEXT,
+      banned_by TEXT,
+      created_at TEXT NOT NULL DEFAULT (DATETIME('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS pending_staff_access_grants (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      telegram_username TEXT NOT NULL UNIQUE COLLATE NOCASE,
+      granted_by TEXT,
+      created_at TEXT NOT NULL DEFAULT (DATETIME('now'))
+    );
     `);
+
+    const eventColumns = new Set(
+      db.prepare('PRAGMA table_info(referral_auth_events)').all().map((column) => column.name),
+    );
+    if (!eventColumns.has('performed_by')) {
+      db.exec('ALTER TABLE referral_auth_events ADD COLUMN performed_by TEXT');
+    }
 
     // На выкладке автоматически пропускаем только тех, у кого уже есть хотя
     // бы один выданный заказ. Остальные записи должны увидеть окно.
@@ -136,6 +167,44 @@ export function migrateReferralAuthorization() {
         INSERT INTO settings (key, value)
         VALUES ('referral_authorization_order_backfill_v2_done', '1')
       `).run();
+    }
+
+    // До новой реферальной схемы bot_verified_at был явным подтверждением
+    // менеджера. Эти клиенты уже считались «своими», поэтому сохраняем им
+    // доступ и право приглашать даже при отсутствии выданного заказа.
+    // Отдельный маркер не позволяет будущей bot-верификации задним числом
+    // превратить нового referral-клиента в пригласившего.
+    if (names.has('bot_verified_at')) {
+      const verifiedLegacyBackfillDone = db.prepare(`
+        SELECT 1 FROM settings
+        WHERE key = 'referral_authorization_verified_legacy_backfill_v1_done'
+      `).get();
+      if (!verifiedLegacyBackfillDone) {
+        db.prepare(`
+          UPDATE customers
+          SET access_authorized_at = COALESCE(access_authorized_at, bot_verified_at, DATETIME('now')),
+              access_authorization_source = CASE
+                WHEN access_authorization_source IS NULL
+                  OR access_authorization_source = 'feature_disabled'
+                  OR access_authorization_source = 'legacy' THEN 'legacy'
+                ELSE access_authorization_source
+              END
+          WHERE bot_verified_at IS NOT NULL
+            AND deleted_at IS NULL
+            AND NOT EXISTS (
+              SELECT 1 FROM customer_referrals cr
+              WHERE cr.invitee_customer_id = customers.id
+            )
+            AND NOT EXISTS (
+              SELECT 1 FROM referral_auth_states ras
+              WHERE ras.customer_id = customers.id AND ras.status = 'authorized'
+            )
+        `).run();
+        db.prepare(`
+          INSERT INTO settings (key, value)
+          VALUES ('referral_authorization_verified_legacy_backfill_v1_done', '1')
+        `).run();
+      }
     }
 
     db.prepare(`

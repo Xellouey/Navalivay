@@ -808,6 +808,13 @@
                     </Teleport>
                   </div>
                   <div
+                    v-else-if="order.access_authorization?.access_authorization_source === 'staff'"
+                    class="flex min-h-5 items-center gap-1 text-[11px] leading-5"
+                  >
+                    <span class="font-medium text-slate-500">Доступ:</span>
+                    <span class="font-semibold text-emerald-700">разрешён администратором</span>
+                  </div>
+                  <div
                     v-if="order.auto_notification?.status === 'pending_retry'"
                     class="rounded-md border border-amber-200 bg-amber-50 px-2 py-1.5 text-[11px] font-medium text-amber-800"
                     :title="order.auto_notification?.error || ''"

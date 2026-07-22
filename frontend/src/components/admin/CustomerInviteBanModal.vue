@@ -2,12 +2,20 @@
   <AdminModal
     :is-open="isOpen"
     title="Запретить приглашать"
-    :description="username ? `@${stripAt(username)}` : undefined"
     size="sm"
     :show-actions="false"
     @close="close"
   >
     <form class="space-y-4" @submit.prevent="submit">
+      <CustomerTargetPicker
+        v-model:customer-id="formCustomerId"
+        v-model:username="formUsername"
+        v-model:customer="formCustomer"
+        :is-open="isOpen"
+        :initial-label="username"
+        :initial-customer="customer"
+        block-hint="Запрет приглашать не изменит блокировку клиента."
+      />
       <div class="flex items-center justify-between">
         <span class="text-sm font-medium text-gray-700">Быстрые причины</span>
         <button
@@ -42,17 +50,17 @@
         placeholder="Причина запрета"
       />
       <p class="text-xs text-gray-500">
-        Клиент сможет делать заказы, но его username нельзя будет указывать при авторизации.
+        Клиент сможет делать заказы, но не сможет приглашать. При попытке указать его username спишется одна попытка.
       </p>
-      <p v-if="error" class="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{{ error }}</p>
+      <p v-if="error" class="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700" role="alert">{{ error }}</p>
       <div class="flex justify-end gap-2">
-        <button type="button" class="rounded-lg border px-4 py-2 text-sm" @click="close">Отмена</button>
+        <button type="button" class="rounded-lg border px-4 py-2 text-sm focus-visible:outline-2 focus-visible:outline-blue-600" @click="close">Отмена</button>
         <button
           type="submit"
-          :disabled="submitting"
-          class="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+          :disabled="submitting || (!formCustomerId && !formUsername)"
+          class="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white focus-visible:outline-2 focus-visible:outline-red-700 disabled:opacity-50"
         >
-          {{ submitting ? 'Сохраняем...' : 'Запретить навсегда' }}
+          {{ submitting ? 'Сохраняем...' : 'Запретить приглашать' }}
         </button>
       </div>
     </form>
@@ -62,11 +70,14 @@
 <script setup lang="ts">
 import { onMounted, ref, watch } from 'vue'
 import AdminModal from '@/components/AdminModal.vue'
+import CustomerTargetPicker from '@/components/admin/CustomerTargetPicker.vue'
+import type { Customer } from '@/stores/crm'
 
 const props = defineProps<{
   isOpen: boolean
   customerId: string | null
   username?: string | null
+  customer?: Customer | null
 }>()
 
 const emit = defineEmits<{
@@ -82,6 +93,9 @@ const editTemplates = ref(false)
 const newTemplate = ref('')
 const templatesSaving = ref(false)
 const templatesError = ref('')
+const formCustomerId = ref<string | null>(null)
+const formUsername = ref('')
+const formCustomer = ref<Customer | null>(null)
 
 function stripAt(value?: string | null) {
   return String(value || '').replace(/^@+/, '')
@@ -132,6 +146,9 @@ async function removeTemplate(index: number) {
 onMounted(loadTemplates)
 watch(() => props.isOpen, (open) => {
   if (open) {
+    formCustomerId.value = props.customerId || null
+    formCustomer.value = props.customer || null
+    formUsername.value = stripAt(props.username)
     reason.value = ''
     error.value = ''
     editTemplates.value = false
@@ -140,7 +157,7 @@ watch(() => props.isOpen, (open) => {
 })
 
 async function submit() {
-  if (!props.customerId || submitting.value) return
+  if ((!formCustomerId.value && !formUsername.value) || submitting.value) return
   submitting.value = true
   error.value = ''
   try {
@@ -148,10 +165,22 @@ async function submit() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'include',
-      body: JSON.stringify({ customer_id: props.customerId, reason: reason.value || null }),
+      body: JSON.stringify({
+        customer_id: formCustomerId.value || undefined,
+        telegram_username: formCustomerId.value ? undefined : formUsername.value,
+        reason: reason.value || null,
+      }),
     })
     const data = await response.json().catch(() => ({}))
-    if (!response.ok) throw new Error(data.error === 'already_invite_banned' ? 'Запрет уже действует' : 'Не удалось сохранить запрет')
+    if (!response.ok) {
+      const messages: Record<string, string> = {
+        already_invite_banned: 'Запрет уже действует',
+        username_reserved: 'Этот username находится в списке наших аккаунтов',
+        username_ambiguous: 'Найдено несколько клиентов. Выберите нужного из списка',
+        username_invalid: 'Проверьте Telegram username',
+      }
+      throw new Error(messages[data.error] || 'Не удалось сохранить запрет')
+    }
     emit('created')
     emit('close')
   } catch (cause: any) {

@@ -161,6 +161,11 @@ export interface Order {
     inviter_invite_ban_id: string | null;
     inviter_is_invite_banned: number;
   } | null;
+  access_authorization?: {
+    customer_id: string;
+    access_authorization_source: string | null;
+    access_authorized_by: string | null;
+  } | null;
 }
 
 export interface PendingCustomerNote {

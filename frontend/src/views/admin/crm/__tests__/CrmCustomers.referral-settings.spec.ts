@@ -76,7 +76,7 @@ describe("CrmCustomers forbidden inviter settings", () => {
     expect(wrapper.text()).toContain("@admin_two");
     expect(wrapper.text()).toContain("@admin_three");
 
-    await wrapper.get("button[aria-label='Удалить @admin_two из запрещённых пригласителей']").trigger("click");
+    await wrapper.get("button[aria-label='Удалить @admin_two из наших аккаунтов']").trigger("click");
     await flushPromises();
     expect(window.confirm).toHaveBeenCalledWith("Разрешить использовать @admin_two как пригласившего?");
     expect(wrapper.text()).not.toContain("@admin_two");

@@ -12,18 +12,25 @@ const { db, initDb } = await import('../db.js');
 initDb();
 const referral = await import('../utils/referral-authorization.js');
 const blocks = await import('../utils/customer-blocks.js');
+const { enrichOrdersWithRelations } = await import('../utils/crm-order-enrichment.js');
 const { createOrderFromBot } = await import('../bot.js');
 
-function customer(id, telegramId, username, { authorized = false, deleted = false } = {}) {
+function customer(id, telegramId, username, {
+  authorized = false,
+  deleted = false,
+  source = authorized ? 'legacy' : null,
+  botVerified = false,
+} = {}) {
   db.prepare(`
     INSERT INTO customers (
       id, telegram_id, telegram_username, first_visit_at, total_orders, total_spent,
-      access_authorized_at, access_authorization_source, deleted_at
-    ) VALUES (?, ?, ?, DATETIME('now'), 0, 0, ?, ?, ?)
+      access_authorized_at, access_authorization_source, bot_verified_at, deleted_at
+    ) VALUES (?, ?, ?, DATETIME('now'), 0, 0, ?, ?, ?, ?)
   `).run(
     id, telegramId, username,
     authorized ? '2026-01-01 00:00:00' : null,
-    authorized ? 'legacy' : null,
+    source,
+    botVerified ? '2025-12-31 00:00:00' : null,
     deleted ? '2026-01-02 00:00:00' : null,
   );
 }
@@ -58,6 +65,54 @@ try {
     assert.equal(referral.inspectInviter({ telegramId: '900', rawUsername: raw }).ok, false);
   }
   assert.equal(referral.inspectInviter({ telegramId: '900', rawUsername: 'NotIssued' }).code, 'referral_inviter_not_eligible');
+
+  // Старый клиент, которого менеджер явно верифицировал до обновления,
+  // может приглашать без выданного заказа. Новый referral-клиент — нет:
+  // он получает это право только после собственной выдачи.
+  customer('verified_legacy', '104', 'VerifiedLegacy', {
+    authorized: true,
+    botVerified: true,
+  });
+  assert.equal(referral.isCustomerAccessAuthorized('verified_legacy'), true);
+  assert.equal(referral.inspectInviter({ telegramId: '900', rawUsername: 'VerifiedLegacy' }).ok, true);
+  const verifiedLegacyBlock = blocks.createBlock({
+    customer_id: 'verified_legacy',
+    reason: 'legacy blocked',
+    blocked_by: 'admin',
+  });
+  assert.equal(
+    referral.inspectInviter({ telegramId: '900', rawUsername: 'VerifiedLegacy' }).code,
+    'referral_inviter_blocked',
+  );
+  blocks.unblockCustomerBlock(verifiedLegacyBlock.block.id);
+  const verifiedLegacyInviteBan = referral.createInviteBan({
+    customerId: 'verified_legacy',
+    reason: 'legacy invite ban',
+    bannedBy: 'admin',
+  });
+  assert.equal(
+    referral.inspectInviter({ telegramId: '900', rawUsername: 'VerifiedLegacy' }).code,
+    'referral_inviter_forbidden',
+  );
+  referral.removeInviteBan(verifiedLegacyInviteBan.id, { unbannedBy: 'admin' });
+  customer('verified_legacy_duplicate', '106', 'verifiedlegacy');
+  const verifiedLegacyAmbiguous = referral.inspectInviter({
+    telegramId: '900',
+    rawUsername: 'VERIFIEDLEGACY',
+  });
+  assert.equal(verifiedLegacyAmbiguous.code, 'referral_username_ambiguous');
+  assert.equal(verifiedLegacyAmbiguous.consumesAttempt, false);
+  db.prepare("UPDATE customers SET telegram_username = 'legacy_duplicate_old' WHERE id = 'verified_legacy_duplicate'").run();
+  customer('new_referral_no_issue', '105', 'NewReferral', {
+    authorized: true,
+    source: 'referral',
+    botVerified: true,
+  });
+  assert.equal(referral.isCustomerAccessAuthorized('new_referral_no_issue'), true);
+  assert.equal(
+    referral.inspectInviter({ telegramId: '900', rawUsername: 'NewReferral' }).code,
+    'referral_inviter_not_eligible',
+  );
 
   const disallowed = referral.addDisallowedInviterUsernames(['@Admin_User', 'admin_user'], 'admin');
   assert.deepEqual(disallowed.map((item) => item.username), ['admin_user']);
@@ -127,18 +182,63 @@ try {
 
   const inviteBan = referral.createInviteBan({ customerId: 'eligible', reason: 'кого попало', bannedBy: 'admin' });
   db.prepare("UPDATE customers SET telegram_username = 'RenamedGood' WHERE id = 'eligible'").run();
+  customer('eligible_duplicate', '107', 'RenamedGood', { authorized: true });
+  order('eligible_duplicate_order', 14, 'eligible_duplicate', 'delivered');
   const forbidden = referral.inspectInviter({ telegramId: '900', rawUsername: 'RenamedGood' });
   assert.equal(forbidden.code, 'referral_inviter_forbidden');
+  assert.equal(forbidden.consumesAttempt, true);
   referral.recordReferralOutcome({ identity: identity(), rawUsername: 'RenamedGood', result: forbidden });
-  assert.equal(referral.getReferralAuthorizationStatus('900').attempts_used, 0);
+  assert.equal(referral.getReferralAuthorizationStatus('900').attempts_used, 1);
   const combinedBlock = blocks.createBlock({ customer_id: 'eligible', reason: 'оба запрета', blocked_by: 'admin' });
   assert.equal(
     referral.inspectInviter({ telegramId: '900', rawUsername: 'RenamedGood' }).code,
-    'referral_inviter_blocked',
+    'referral_inviter_forbidden',
   );
   blocks.unblockCustomerBlock(combinedBlock.block.id);
   assert.equal(referral.removeInviteBan(inviteBan.id, { unbannedBy: 'admin' }), true);
+  db.prepare("UPDATE customers SET telegram_username = 'FormerDuplicate' WHERE id = 'eligible_duplicate'").run();
   db.prepare("UPDATE customers SET telegram_username = 'Good_User' WHERE id = 'eligible'").run();
+
+  const pendingInviteBan = referral.createInviteBanByUsername({
+    telegramUsername: 'future_inviter', reason: 'заранее', bannedBy: 'admin',
+  });
+  assert.equal(pendingInviteBan.kind, 'pending');
+  const futureForbidden = referral.inspectInviter({ telegramId: '910', rawUsername: 'future_inviter' });
+  assert.equal(futureForbidden.code, 'referral_inviter_forbidden');
+  assert.equal(futureForbidden.consumesAttempt, true);
+  assert.equal(referral.removePendingInviteBan(pendingInviteBan.ban.id), true);
+
+  customer('staff_granted', '911', 'staff_granted');
+  const staffGrant = referral.grantStaffAccess({ customerId: 'staff_granted', grantedBy: 'manager' });
+  assert.equal(staffGrant.kind, 'active');
+  assert.equal(referral.getReferralAuthorizationStatus('911').authorized, true);
+  assert.equal(
+    db.prepare("SELECT access_authorized_by FROM customers WHERE id = 'staff_granted'").get().access_authorized_by,
+    'manager',
+  );
+  assert.equal(referral.listReferralAuthorizations().find((row) => row.telegram_id === '911').access_authorization_source, 'staff');
+  assert.equal(referral.revokeStaffAccess('staff_granted', 'manager'), true);
+  assert.equal(referral.getReferralAuthorizationStatus('911').required, true);
+
+  customer('staff_order_customer', '913', 'staff_order_customer');
+  referral.grantStaffAccess({ customerId: 'staff_order_customer', grantedBy: 'manager' });
+  order('staff_order', 16, 'staff_order_customer', 'new');
+  referral.attachFirstOrderToReferral('staff_order_customer', 'staff_order');
+  assert.equal(referral.revokeStaffAccess('staff_order_customer', 'manager'), true);
+  const enrichedStaffOrder = enrichOrdersWithRelations(
+    db,
+    [db.prepare("SELECT * FROM orders WHERE id = 'staff_order'").get()],
+  )[0];
+  assert.equal(enrichedStaffOrder.access_authorization.access_authorization_source, 'staff');
+
+  const pendingGrant = referral.grantStaffAccess({ telegramUsername: 'future_friend', grantedBy: 'manager' });
+  assert.equal(pendingGrant.kind, 'pending');
+  referral.activatePendingStaffAccess(identity('912', 'future_friend'));
+  assert.equal(referral.getReferralAuthorizationStatus('912').authorized, true);
+  assert.equal(referral.listStaffAccessGrants().pending.length, 0);
+
+  // Дальнейший сценарий проверяет три неизвестных username с чистого счётчика.
+  db.prepare("UPDATE referral_auth_states SET attempts_used = 0, status = 'pending' WHERE telegram_id = '900'").run();
 
   const wrong = referral.inspectInviter({ telegramId: '900', rawUsername: 'Unknown_User' });
   for (let attempt = 1; attempt <= 3; attempt += 1) {

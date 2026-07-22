@@ -152,6 +152,7 @@ export function enrichOrdersWithRelations(db, orders) {
 
   const blockedMap = new Map();
   const referralMap = new Map();
+  const accessMap = new Map();
   if (customerIds.length > 0) {
     const cidPlaceholders2 = customerIds.map(() => '?').join(',');
     const blockedRows = db
@@ -188,6 +189,11 @@ export function enrichOrdersWithRelations(db, orders) {
     for (const row of referralRows) {
       referralMap.set(row.invitee_customer_id, row);
     }
+    const accessRows = db.prepare(`
+      SELECT id AS customer_id, access_authorized_by
+      FROM customers WHERE id IN (${cidPlaceholders2})
+    `).all(...customerIds);
+    for (const row of accessRows) accessMap.set(row.customer_id, row);
   }
 
   return orders.map((order) => {
@@ -203,6 +209,12 @@ export function enrichOrdersWithRelations(db, orders) {
       is_returning_customer: returningMap.get(order.customer_id) || false,
       is_blocked: blockedMap.get(order.customer_id) || false,
       referral: referralMap.get(order.customer_id) || null,
+      access_authorization: order.access_authorization_source
+        ? {
+            ...(accessMap.get(order.customer_id) || { customer_id: order.customer_id }),
+            access_authorization_source: order.access_authorization_source,
+          }
+        : null,
       has_userbot_access: order.has_userbot_access === 1,
       customer_notes: customerNotes,
     };

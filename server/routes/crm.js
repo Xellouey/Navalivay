@@ -98,12 +98,18 @@ import { gateSendCustomTelegramForCrmBlock } from '../utils/crm-telegram-outboun
 import {
   addDisallowedInviterUsernames,
   createInviteBan,
+  createInviteBanByUsername,
+  grantStaffAccess,
   isReferralAuthorizationEnabled,
   listDisallowedInviterUsernames,
   listInviteBans,
   listReferralAuthorizations,
+  listStaffAccessGrants,
   removeDisallowedInviterUsername,
   removeInviteBan,
+  removePendingInviteBan,
+  removePendingStaffAccess,
+  revokeStaffAccess,
   setReferralAuthorizationEnabled,
 } from '../utils/referral-authorization.js';
 
@@ -872,6 +878,47 @@ crmRouter.get('/api/admin/crm/referral-authorizations', authMiddleware, (_req, r
   }
 });
 
+crmRouter.get('/api/admin/crm/referral-authorization/staff-access', authMiddleware, (_req, res) => {
+  return res.json(listStaffAccessGrants());
+});
+
+crmRouter.post('/api/admin/crm/referral-authorization/staff-access', authMiddleware, (req, res) => {
+  try {
+    const result = grantStaffAccess({
+      customerId: req.body?.customer_id ? String(req.body.customer_id) : null,
+      telegramUsername: req.body?.telegram_username,
+      grantedBy: req.user?.u || 'admin',
+    });
+    return res.json({ ok: true, ...result });
+  } catch (error) {
+    if (error.code === 'customer_not_found') return res.status(404).json({ error: error.code });
+    if (['username_invalid', 'username_ambiguous'].includes(error.code)) {
+      return res.status(error.code === 'username_ambiguous' ? 409 : 400).json({ error: error.code });
+    }
+    console.error('[crm] grant staff access error:', error);
+    return res.status(500).json({ error: 'failed' });
+  }
+});
+
+crmRouter.delete('/api/admin/crm/referral-authorization/staff-access/pending/:id', authMiddleware, (req, res) => {
+  if (!removePendingStaffAccess(req.params.id)) return res.status(404).json({ error: 'not_found' });
+  return res.json({ ok: true });
+});
+
+crmRouter.delete('/api/admin/crm/referral-authorization/staff-access/:customerId', authMiddleware, (req, res) => {
+  try {
+    revokeStaffAccess(req.params.customerId, req.user?.u || 'admin');
+    return res.json({ ok: true });
+  } catch (error) {
+    if (error.code === 'customer_not_found') return res.status(404).json({ error: error.code });
+    if (['not_staff_authorized', 'access_is_permanent'].includes(error.code)) {
+      return res.status(409).json({ error: error.code });
+    }
+    console.error('[crm] revoke staff access error:', error);
+    return res.status(500).json({ error: 'failed' });
+  }
+});
+
 crmRouter.get('/api/admin/crm/referral-authorization/settings', authMiddleware, (_req, res) => {
   res.json({ enabled: isReferralAuthorizationEnabled() });
 });
@@ -897,6 +944,9 @@ crmRouter.post('/api/admin/crm/referral-authorization/disallowed-usernames', aut
     if (['usernames_must_be_array', 'usernames_count_invalid', 'username_invalid'].includes(error.code)) {
       return res.status(400).json({ error: error.code });
     }
+    if (error.code === 'username_has_invite_ban') {
+      return res.status(409).json({ error: error.code, username: error.username });
+    }
     console.error('[crm] add disallowed inviter usernames error:', error);
     return res.status(500).json({ error: 'failed' });
   }
@@ -906,6 +956,26 @@ crmRouter.delete('/api/admin/crm/referral-authorization/disallowed-usernames/:us
   const removed = removeDisallowedInviterUsername(req.params.username);
   if (!removed) return res.status(404).json({ error: 'not_found' });
   return res.json({ ok: true });
+});
+
+crmRouter.post('/api/admin/crm/referral-authorization/disallowed-usernames/:username/convert-to-invite-ban', authMiddleware, (req, res) => {
+  try {
+    const result = db.transaction(() => {
+      const removed = removeDisallowedInviterUsername(req.params.username);
+      if (!removed) throw Object.assign(new Error('not_found'), { code: 'not_found' });
+      return createInviteBanByUsername({
+        telegramUsername: req.params.username,
+        reason: req.body?.reason,
+        bannedBy: req.user?.u || 'admin',
+      });
+    }).immediate();
+    return res.json({ ok: true, ...result });
+  } catch (error) {
+    if (error.code === 'not_found') return res.status(404).json({ error: error.code });
+    if (error.code === 'username_ambiguous') return res.status(409).json({ error: error.code });
+    console.error('[crm] convert reserved username error:', error);
+    return res.status(500).json({ error: 'failed' });
+  }
 });
 
 crmRouter.get('/api/admin/crm/invite-ban-reason-templates', authMiddleware, (_req, res) => {
@@ -933,35 +1003,31 @@ crmRouter.put('/api/admin/crm/invite-ban-reason-templates', authMiddleware, (req
 });
 
 crmRouter.get('/api/admin/crm/invite-bans', authMiddleware, (_req, res) => {
-  res.json({ items: listInviteBans() });
+  const result = listInviteBans();
+  res.json({ items: result.active, pending: result.pending });
 });
 
 crmRouter.post('/api/admin/crm/invite-bans', authMiddleware, (req, res) => {
   try {
-    let customerId = req.body?.customer_id ? String(req.body.customer_id) : null;
-    if (!customerId && req.body?.telegram_username) {
-      const username = String(req.body.telegram_username).trim().replace(/^@+/, '');
-      const matches = db.prepare(`
-        SELECT id FROM customers
-        WHERE telegram_username = ? COLLATE NOCASE AND deleted_at IS NULL
-      `).all(username);
-      if (matches.length > 1) return res.status(409).json({ error: 'username_ambiguous' });
-      customerId = matches[0]?.id || null;
-    }
-    if (!customerId) return res.status(400).json({ error: 'customer_required' });
-    const ban = createInviteBan({
-      customerId,
-      reason: req.body?.reason,
-      bannedBy: req.user?.u || 'admin',
-    });
-    return res.json({ ok: true, ban });
+    const common = { reason: req.body?.reason, bannedBy: req.user?.u || 'admin' };
+    const result = req.body?.customer_id
+      ? { kind: 'active', ban: createInviteBan({ customerId: String(req.body.customer_id), ...common }) }
+      : createInviteBanByUsername({ telegramUsername: req.body?.telegram_username, ...common });
+    return res.json({ ok: true, ...result });
   } catch (error) {
     if (error.code === 'customer_not_found') return res.status(404).json({ error: error.code });
     if (error.code === 'already_invite_banned') return res.status(409).json({ error: error.code });
-    if (error.code === 'reason_too_long') return res.status(400).json({ error: error.code });
+    if (error.code === 'username_ambiguous') return res.status(409).json({ error: error.code });
+    if (['reason_too_long', 'username_invalid'].includes(error.code)) return res.status(400).json({ error: error.code });
+    if (error.code === 'username_reserved') return res.status(409).json({ error: error.code });
     console.error('[crm] create invite ban error:', error);
     return res.status(500).json({ error: 'failed' });
   }
+});
+
+crmRouter.delete('/api/admin/crm/invite-bans/pending/:id', authMiddleware, (req, res) => {
+  if (!removePendingInviteBan(req.params.id)) return res.status(404).json({ error: 'not_found' });
+  return res.json({ ok: true });
 });
 
 crmRouter.delete('/api/admin/crm/invite-bans/:id', authMiddleware, (req, res) => {

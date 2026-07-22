@@ -663,7 +663,7 @@ async function testReferralAuthorizationOrderFlow() {
   const forbiddenInviter = await createOrder(identity, { inviter_username: 'trusted_referrer' });
   assert.equal(forbiddenInviter.response.status, 422);
   assert.equal(forbiddenInviter.data.message, 'Данный пользователь не может приглашать новых людей');
-  assert.equal(forbiddenInviter.data.attempts_remaining, 2);
+  assert.equal(forbiddenInviter.data.attempts_remaining, 1);
   removeInviteBan(inviteBan.id, { unbannedBy: 'test' });
 
   db.prepare(`
@@ -677,7 +677,7 @@ async function testReferralAuthorizationOrderFlow() {
   const ambiguousInviter = await createOrder(identity, { inviter_username: 'trusted_referrer' });
   assert.equal(ambiguousInviter.response.status, 422);
   assert.equal(ambiguousInviter.data.error, 'referral_username_ambiguous');
-  assert.equal(ambiguousInviter.data.attempts_remaining, 2);
+  assert.equal(ambiguousInviter.data.attempts_remaining, 1);
   db.prepare("UPDATE customers SET telegram_username = 'former_referrer' WHERE id = 'duplicate-referrer'").run();
 
   const created = await createOrder(identity, { inviter_username: '@TRUSTED_referrer' });

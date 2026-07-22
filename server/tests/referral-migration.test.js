@@ -11,7 +11,7 @@ legacy.exec(`
   CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT);
   CREATE TABLE customers (
     id TEXT PRIMARY KEY, telegram_id TEXT, telegram_username TEXT,
-    updated_at TEXT, deleted_at TEXT
+    updated_at TEXT, deleted_at TEXT, bot_verified_at TEXT
   );
   CREATE TABLE orders (id TEXT PRIMARY KEY, customer_id TEXT, status TEXT);
   CREATE TABLE products (
@@ -28,7 +28,13 @@ legacy.exec(`
   INSERT INTO customers (id, telegram_id, telegram_username, updated_at)
   VALUES
     ('legacy-zero', '1', 'legacy_zero', DATETIME('now')),
-    ('legacy-with-order', '2', 'legacy_ordered', DATETIME('now'));
+    ('legacy-with-order', '2', 'legacy_ordered', DATETIME('now')),
+    ('legacy-verified', '9', 'legacy_verified', DATETIME('now')),
+    ('legacy-verified-deleted', '10', 'legacy_verified_deleted', DATETIME('now'));
+  UPDATE customers SET bot_verified_at = '2026-01-01 00:00:00'
+  WHERE id IN ('legacy-verified', 'legacy-verified-deleted');
+  UPDATE customers SET deleted_at = '2026-01-02 00:00:00'
+  WHERE id = 'legacy-verified-deleted';
   INSERT INTO orders (id, customer_id, status)
   VALUES ('old-order', 'legacy-with-order', 'completed');
   INSERT INTO products (id, stock, warehouse_stock)
@@ -49,6 +55,12 @@ try {
   const ordered = db.prepare("SELECT * FROM customers WHERE id = 'legacy-with-order'").get();
   assert.ok(ordered.access_authorized_at);
   assert.equal(ordered.access_authorization_source, 'legacy');
+  const verified = db.prepare("SELECT * FROM customers WHERE id = 'legacy-verified'").get();
+  assert.ok(verified.access_authorized_at);
+  assert.equal(verified.access_authorization_source, 'legacy');
+  const verifiedDeleted = db.prepare("SELECT * FROM customers WHERE id = 'legacy-verified-deleted'").get();
+  assert.equal(verifiedDeleted.access_authorized_at, null);
+  assert.equal(verifiedDeleted.access_authorization_source, null);
   assert.ok(db.prepare(`
     SELECT 1 FROM sqlite_master
     WHERE type = 'table' AND name = 'referral_disallowed_inviter_usernames'

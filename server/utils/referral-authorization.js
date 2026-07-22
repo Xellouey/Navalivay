@@ -60,9 +60,13 @@ export function isCustomerAccessAuthorized(customerOrId) {
   // Выданный заказ всегда достаточен, независимо от старого источника.
   if (hasIssuedOrder) return true;
   if (customer?.access_authorization_source === 'feature_disabled') return false;
-  // legacy означает именно наличие выданного заказа до выкладки. Так даже ранний
-  // ошибочный backfill не откроет клиентскую запись с нулём заказов.
-  if (customer?.access_authorization_source === 'legacy') return false;
+  // До запуска новой авторизации менеджер мог явно подтвердить клиента через
+  // старую bot-верификацию даже без выданного заказа. Такой клиент остаётся
+  // «своим». Одного legacy-флага недостаточно: ранняя тестовая миграция могла
+  // ошибочно поставить его пустой записи.
+  if (customer?.access_authorization_source === 'legacy') {
+    return Boolean(customer.access_authorized_at && customer.bot_verified_at);
+  }
   if (customer?.access_authorized_at) return true;
   // Страховка для нестандартной старой базы с повреждённым маркером миграции.
   return isReferralAuthorizationEnabled() && hasIssuedOrder;
@@ -74,7 +78,10 @@ export function getReferralAuthorizationStatus(telegramId) {
     return { enabled, required: enabled, attempts_used: 0, attempts_remaining: 3 };
   }
   const customer = db
-    .prepare('SELECT id, access_authorized_at, access_authorization_source FROM customers WHERE telegram_id = ?')
+    .prepare(`
+      SELECT id, access_authorized_at, access_authorization_source, bot_verified_at
+      FROM customers WHERE telegram_id = ?
+    `)
     .get(String(telegramId));
   const state = db
     .prepare('SELECT * FROM referral_auth_states WHERE telegram_id = ?')
@@ -134,6 +141,25 @@ export function addDisallowedInviterUsernames(rawUsernames, addedBy = null) {
   if (usernames.some((username) => !username || !USERNAME_RE.test(username))) {
     throw Object.assign(new Error('username_invalid'), { code: 'username_invalid' });
   }
+  const conflicting = usernames.find((username) => {
+    const active = db.prepare(`
+      SELECT 1
+      FROM customer_invite_bans ib
+      JOIN customers c ON c.id = ib.customer_id
+      WHERE ib.active = 1 AND c.telegram_username = ? COLLATE NOCASE
+    `).get(username);
+    const pending = db.prepare(`
+      SELECT 1 FROM pending_customer_invite_bans
+      WHERE telegram_username = ? COLLATE NOCASE
+    `).get(username);
+    return active || pending;
+  });
+  if (conflicting) {
+    throw Object.assign(new Error('username_has_invite_ban'), {
+      code: 'username_has_invite_ban',
+      username: conflicting,
+    });
+  }
 
   const insert = db.prepare(`
     INSERT INTO referral_disallowed_inviter_usernames (username, added_by)
@@ -172,20 +198,30 @@ export function inspectInviter({ telegramId, telegramUsername, rawUsername }) {
   if (!username || !USERNAME_RE.test(username)) {
     return { ok: false, code: 'referral_username_invalid', consumesAttempt: true };
   }
-  if (isDisallowedInviterUsername(username)) {
-    return { ok: false, code: 'referral_inviter_reserved', consumesAttempt: false };
-  }
-
   const candidates = db.prepare(`
-    SELECT id, telegram_id, telegram_username, deleted_at
+    SELECT id, telegram_id, telegram_username, deleted_at,
+           access_authorized_at, access_authorization_source, bot_verified_at
     FROM customers
     WHERE telegram_username = ? COLLATE NOCASE
       AND deleted_at IS NULL
     ORDER BY updated_at DESC, id DESC
   `).all(username);
 
+  if (candidates.some((candidate) => getActiveInviteBan(candidate.id))) {
+    return { ok: false, code: 'referral_inviter_forbidden', consumesAttempt: true };
+  }
+  const pendingInviteBan = db.prepare(`
+    SELECT 1 FROM pending_customer_invite_bans
+    WHERE telegram_username = ? COLLATE NOCASE
+  `).get(username);
+  if (pendingInviteBan) {
+    return { ok: false, code: 'referral_inviter_forbidden', consumesAttempt: true };
+  }
   if (candidates.length > 1) {
     return { ok: false, code: 'referral_username_ambiguous', consumesAttempt: false };
+  }
+  if (isDisallowedInviterUsername(username)) {
+    return { ok: false, code: 'referral_inviter_reserved', consumesAttempt: false };
   }
   if (candidates.length === 0) {
     return { ok: false, code: 'referral_inviter_not_eligible', consumesAttempt: true };
@@ -205,17 +241,16 @@ export function inspectInviter({ telegramId, telegramUsername, rawUsername }) {
     WHERE customer_id = ? AND status IN ('completed', 'delivered')
     LIMIT 1
   `).get(inviter.id);
-  if (!hasIssuedOrder) {
+  const isVerifiedLegacy = inviter.access_authorization_source === 'legacy'
+    && inviter.access_authorized_at
+    && inviter.bot_verified_at;
+  if (!hasIssuedOrder && !isVerifiedLegacy) {
     return { ok: false, code: 'referral_inviter_not_eligible', consumesAttempt: true };
   }
 
   if (getActiveBlockForCustomerId(inviter.id)) {
     return { ok: false, code: 'referral_inviter_blocked', consumesAttempt: false };
   }
-  if (getActiveInviteBan(inviter.id)) {
-    return { ok: false, code: 'referral_inviter_forbidden', consumesAttempt: false };
-  }
-
   return { ok: true, username, inviter };
 }
 
@@ -399,15 +434,210 @@ export function authorizeCustomerWithoutReferral(customerId, source = 'staff') {
   `).run(normalizedSource, normalizedSource, normalizedSource, String(customerId));
 }
 
+function resolveCustomerForAdmin({ customerId, telegramUsername }) {
+  if (customerId) {
+    const customer = db.prepare('SELECT * FROM customers WHERE id = ? AND deleted_at IS NULL')
+      .get(String(customerId));
+    if (!customer) throw Object.assign(new Error('customer_not_found'), { code: 'customer_not_found' });
+    return customer;
+  }
+  const username = normalizeUsername(telegramUsername);
+  if (!username || !USERNAME_RE.test(username)) {
+    throw Object.assign(new Error('username_invalid'), { code: 'username_invalid' });
+  }
+  const matches = db.prepare(`
+    SELECT * FROM customers
+    WHERE telegram_username = ? COLLATE NOCASE AND deleted_at IS NULL
+  `).all(username);
+  if (matches.length > 1) {
+    throw Object.assign(new Error('username_ambiguous'), { code: 'username_ambiguous' });
+  }
+  return matches[0] || null;
+}
+
+export function grantStaffAccess({ customerId, telegramUsername, grantedBy }) {
+  const username = normalizeUsername(telegramUsername);
+  const customer = resolveCustomerForAdmin({ customerId, telegramUsername });
+  if (!customer) {
+    const result = db.prepare(`
+      INSERT INTO pending_staff_access_grants (telegram_username, granted_by)
+      VALUES (?, ?)
+      ON CONFLICT(telegram_username) DO UPDATE SET granted_by = excluded.granted_by
+    `).run(username, grantedBy || null);
+    const pending = db.prepare(`
+      SELECT * FROM pending_staff_access_grants
+      WHERE telegram_username = ? COLLATE NOCASE
+    `).get(username);
+    return { kind: 'pending', grant: pending, created: result.changes > 0 };
+  }
+
+  return db.transaction(() => {
+    const hasReferral = Boolean(db.prepare(`
+      SELECT 1 FROM customer_referrals WHERE invitee_customer_id = ?
+    `).get(customer.id));
+    if (hasReferral || customer.access_authorization_source === 'referral') {
+      return { kind: 'active', customer, already_authorized: true, source: 'referral' };
+    }
+    if (isCustomerAccessAuthorized(customer)) {
+      return {
+        kind: 'active',
+        customer,
+        already_authorized: true,
+        source: customer.access_authorization_source || 'issued_order',
+      };
+    }
+
+    db.prepare(`
+      UPDATE customer_blocks
+      SET active = 0,
+          unblocked_at = DATETIME('now'),
+          unblocked_by = ?,
+          unblock_reason = 'staff_access_granted'
+      WHERE customer_id = ? AND active = 1 AND block_type = 'authorization_failed'
+    `).run(grantedBy || null, customer.id);
+
+    db.prepare(`
+      UPDATE customers
+      SET access_authorized_at = COALESCE(access_authorized_at, DATETIME('now')),
+          access_authorization_source = 'staff',
+          access_authorized_by = ?,
+          updated_at = DATETIME('now')
+      WHERE id = ?
+    `).run(grantedBy || null, customer.id);
+
+    if (customer.telegram_id) {
+      db.prepare(`
+        INSERT INTO referral_auth_states (
+          telegram_id, customer_id, attempts_used, status, last_error_code,
+          last_username, blocked_at, updated_at
+        ) VALUES (?, ?, 0, 'authorized', NULL, NULL, NULL, DATETIME('now'))
+        ON CONFLICT(telegram_id) DO UPDATE SET
+          customer_id = excluded.customer_id,
+          attempts_used = 0,
+          status = 'authorized',
+          last_error_code = NULL,
+          last_username = NULL,
+          blocked_at = NULL,
+          updated_at = DATETIME('now')
+      `).run(String(customer.telegram_id), customer.id);
+      db.prepare(`
+        INSERT INTO referral_auth_events (
+          telegram_id, customer_id, outcome, attempt_number, performed_by
+        ) VALUES (?, ?, 'authorized_by_staff', NULL, ?)
+      `).run(String(customer.telegram_id), customer.id, grantedBy || null);
+    }
+    db.prepare(`
+      DELETE FROM pending_staff_access_grants
+      WHERE telegram_username = ? COLLATE NOCASE
+    `).run(normalizeUsername(customer.telegram_username));
+    return {
+      kind: 'active',
+      customer: db.prepare('SELECT * FROM customers WHERE id = ?').get(customer.id),
+      already_authorized: customer.access_authorization_source === 'staff',
+      source: 'staff',
+    };
+  }).immediate();
+}
+
+export function activatePendingStaffAccess(identity) {
+  const username = normalizeUsername(identity?.telegramUsername);
+  const telegramId = String(identity?.telegramId || '');
+  if (!username || !telegramId) return null;
+  const pending = db.prepare(`
+    SELECT * FROM pending_staff_access_grants
+    WHERE telegram_username = ? COLLATE NOCASE
+  `).get(username);
+  if (!pending) return null;
+  const customer = ensureUnauthorizedCustomer(identity);
+  db.prepare(`
+    UPDATE customers
+    SET telegram_username = ?, first_name = COALESCE(?, first_name),
+        last_name = COALESCE(?, last_name), updated_at = DATETIME('now')
+    WHERE id = ?
+  `).run(username, identity.firstName || null, identity.lastName || null, customer.id);
+  const result = grantStaffAccess({
+    customerId: customer.id,
+    grantedBy: pending.granted_by || 'admin',
+  });
+  activatePendingInviteBanForCustomer({ id: customer.id, telegram_username: username });
+  return result;
+}
+
+export function listStaffAccessGrants() {
+  const active = db.prepare(`
+    SELECT c.id AS customer_id, c.telegram_id, c.telegram_username, c.first_name, c.last_name,
+           c.access_authorized_at, c.access_authorized_by,
+           CASE WHEN EXISTS (
+             SELECT 1 FROM orders o
+             WHERE o.customer_id = c.id AND o.status IN ('completed', 'delivered')
+           ) THEN 1 ELSE 0 END AS has_issued_order
+    FROM customers c
+    WHERE c.deleted_at IS NULL AND c.access_authorization_source = 'staff'
+    ORDER BY c.access_authorized_at DESC
+  `).all();
+  const pending = db.prepare(`
+    SELECT id, telegram_username, granted_by, created_at
+    FROM pending_staff_access_grants ORDER BY created_at DESC
+  `).all();
+  return { active, pending };
+}
+
+export function revokeStaffAccess(customerId, revokedBy) {
+  const customer = db.prepare('SELECT * FROM customers WHERE id = ? AND deleted_at IS NULL')
+    .get(String(customerId));
+  if (!customer) throw Object.assign(new Error('customer_not_found'), { code: 'customer_not_found' });
+  if (customer.access_authorization_source !== 'staff') {
+    throw Object.assign(new Error('not_staff_authorized'), { code: 'not_staff_authorized' });
+  }
+  const permanent = db.prepare(`
+    SELECT 1 FROM orders WHERE customer_id = ? AND status IN ('completed', 'delivered') LIMIT 1
+  `).get(customer.id);
+  if (permanent) throw Object.assign(new Error('access_is_permanent'), { code: 'access_is_permanent' });
+  return db.transaction(() => {
+    db.prepare(`
+      UPDATE customers
+      SET access_authorized_at = NULL, access_authorization_source = NULL,
+          access_authorized_by = NULL, updated_at = DATETIME('now')
+      WHERE id = ?
+    `).run(customer.id);
+    if (customer.telegram_id) {
+      db.prepare(`
+        UPDATE referral_auth_states
+        SET attempts_used = 0, status = 'pending', last_error_code = NULL,
+            last_username = NULL, blocked_at = NULL, updated_at = DATETIME('now')
+        WHERE telegram_id = ?
+      `).run(String(customer.telegram_id));
+      db.prepare(`
+        INSERT INTO referral_auth_events (telegram_id, customer_id, outcome, performed_by)
+        VALUES (?, ?, 'staff_authorization_revoked', ?)
+      `).run(String(customer.telegram_id), customer.id, revokedBy || null);
+    }
+    return true;
+  }).immediate();
+}
+
+export function removePendingStaffAccess(id) {
+  return db.prepare('DELETE FROM pending_staff_access_grants WHERE id = ?').run(Number(id)).changes > 0;
+}
+
 /** Запоминает первый заказ авторизованного новичка независимо от канала создания. */
 export function attachFirstOrderToReferral(customerId, orderId) {
   if (!customerId || !orderId) return false;
-  const result = db.prepare(`
-    UPDATE customer_referrals
-    SET first_order_id = ?
-    WHERE invitee_customer_id = ? AND first_order_id IS NULL
-  `).run(String(orderId), String(customerId));
-  return result.changes > 0;
+  return db.transaction(() => {
+    db.prepare(`
+      UPDATE orders
+      SET access_authorization_source = (
+        SELECT access_authorization_source FROM customers WHERE id = ?
+      )
+      WHERE id = ? AND access_authorization_source IS NULL
+    `).run(String(customerId), String(orderId));
+    const result = db.prepare(`
+      UPDATE customer_referrals
+      SET first_order_id = ?
+      WHERE invitee_customer_id = ? AND first_order_id IS NULL
+    `).run(String(orderId), String(customerId));
+    return result.changes > 0;
+  }).immediate();
 }
 
 function inviteBanId() {
@@ -415,8 +645,11 @@ function inviteBanId() {
 }
 
 export function createInviteBan({ customerId, reason, bannedBy }) {
-  const customer = db.prepare('SELECT id FROM customers WHERE id = ? AND deleted_at IS NULL').get(String(customerId));
+  const customer = db.prepare('SELECT id, telegram_username FROM customers WHERE id = ? AND deleted_at IS NULL').get(String(customerId));
   if (!customer) throw Object.assign(new Error('customer_not_found'), { code: 'customer_not_found' });
+  if (isDisallowedInviterUsername(customer.telegram_username)) {
+    throw Object.assign(new Error('username_reserved'), { code: 'username_reserved' });
+  }
   if (getActiveInviteBan(customer.id)) throw Object.assign(new Error('already_invite_banned'), { code: 'already_invite_banned' });
   const normalizedReason = String(reason || '').trim();
   if (normalizedReason.length > 1000) {
@@ -430,6 +663,62 @@ export function createInviteBan({ customerId, reason, bannedBy }) {
   return db.prepare('SELECT * FROM customer_invite_bans WHERE id = ?').get(id);
 }
 
+export function createInviteBanByUsername({ telegramUsername, reason, bannedBy }) {
+  const username = normalizeUsername(telegramUsername);
+  if (!username || !USERNAME_RE.test(username)) {
+    throw Object.assign(new Error('username_invalid'), { code: 'username_invalid' });
+  }
+  if (isDisallowedInviterUsername(username)) {
+    throw Object.assign(new Error('username_reserved'), { code: 'username_reserved' });
+  }
+  const customer = resolveCustomerForAdmin({ telegramUsername: username });
+  if (customer) return { kind: 'active', ban: createInviteBan({ customerId: customer.id, reason, bannedBy }) };
+  const normalizedReason = String(reason || '').trim();
+  if (normalizedReason.length > 1000) {
+    throw Object.assign(new Error('reason_too_long'), { code: 'reason_too_long' });
+  }
+  try {
+    const result = db.prepare(`
+      INSERT INTO pending_customer_invite_bans (telegram_username, reason, banned_by)
+      VALUES (?, ?, ?)
+    `).run(username, normalizedReason || null, bannedBy || null);
+    return {
+      kind: 'pending',
+      ban: db.prepare('SELECT * FROM pending_customer_invite_bans WHERE id = ?').get(result.lastInsertRowid),
+    };
+  } catch (error) {
+    if (error?.code?.startsWith('SQLITE_CONSTRAINT')) {
+      throw Object.assign(new Error('already_invite_banned'), { code: 'already_invite_banned' });
+    }
+    throw error;
+  }
+}
+
+export function activatePendingInviteBanForCustomer(customer) {
+  const username = normalizeUsername(customer?.telegram_username);
+  if (!customer?.id || !username) return null;
+  const pending = db.prepare(`
+    SELECT * FROM pending_customer_invite_bans
+    WHERE telegram_username = ? COLLATE NOCASE
+  `).get(username);
+  if (!pending) return null;
+  try {
+    const ban = createInviteBan({
+      customerId: customer.id,
+      reason: pending.reason,
+      bannedBy: pending.banned_by,
+    });
+    db.prepare('DELETE FROM pending_customer_invite_bans WHERE id = ?').run(pending.id);
+    return ban;
+  } catch (error) {
+    if (error.code === 'already_invite_banned') {
+      db.prepare('DELETE FROM pending_customer_invite_bans WHERE id = ?').run(pending.id);
+      return getActiveInviteBan(customer.id);
+    }
+    throw error;
+  }
+}
+
 export function removeInviteBan(id, { unbannedBy, reason } = {}) {
   const result = db.prepare(`
     UPDATE customer_invite_bans
@@ -440,13 +729,23 @@ export function removeInviteBan(id, { unbannedBy, reason } = {}) {
 }
 
 export function listInviteBans() {
-  return db.prepare(`
+  const active = db.prepare(`
     SELECT ib.*, c.telegram_id, c.telegram_username, c.first_name, c.last_name
     FROM customer_invite_bans ib
     JOIN customers c ON c.id = ib.customer_id
     WHERE ib.active = 1
     ORDER BY ib.banned_at DESC
   `).all();
+  const pending = db.prepare(`
+    SELECT id, telegram_username, reason, banned_by, created_at
+    FROM pending_customer_invite_bans
+    ORDER BY created_at DESC
+  `).all();
+  return { active, pending };
+}
+
+export function removePendingInviteBan(id) {
+  return db.prepare('DELETE FROM pending_customer_invite_bans WHERE id = ?').run(Number(id)).changes > 0;
 }
 
 export function listReferralAuthorizations() {
@@ -456,6 +755,8 @@ export function listReferralAuthorizations() {
       c.telegram_username,
       c.first_name,
       c.last_name,
+      c.access_authorization_source,
+      c.access_authorized_by,
       cr.inviter_customer_id,
       COALESCE(NULLIF(TRIM(ic.telegram_username), ''), cr.inviter_username_snapshot) AS inviter_username,
       CASE WHEN EXISTS (

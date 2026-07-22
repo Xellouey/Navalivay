@@ -52,6 +52,8 @@ import {
 } from "../utils/business-bot.js";
 import { autoNotifyOrderAcceptedAfterRecipientWarmup } from "../utils/auto-notify.js";
 import {
+  activatePendingInviteBanForCustomer,
+  activatePendingStaffAccess,
   attachFirstOrderToReferral,
   authorizeCustomerWithoutReferral,
   getReferralAuthorizationStatus,
@@ -1819,6 +1821,14 @@ publicRouter.get(
   requireTelegramMiniAppAuth({ allowInsecureFallback: allowInsecureTelegramFallback }),
   (req, res) => {
     const telegramId = String(req.telegramAuth?.telegramId || "").trim();
+    if (req.telegramAuth?.verified) {
+      activatePendingStaffAccess({
+        telegramId,
+        telegramUsername: req.telegramAuth?.telegramUsername || null,
+        firstName: req.telegramAuth?.firstName || null,
+        lastName: req.telegramAuth?.lastName || null,
+      });
+    }
     return res.json(getReferralAuthorizationStatus(telegramId));
   },
 );
@@ -1853,6 +1863,7 @@ publicRouter.post(
         firstName: req.telegramAuth?.firstName || null,
         lastName: req.telegramAuth?.lastName || null,
       };
+      if (req.telegramAuth?.verified) activatePendingStaffAccess(identity);
       const rawUsername = req.body?.inviter_username;
       const currentStatus = getReferralAuthorizationStatus(telegramId);
 
@@ -2901,6 +2912,14 @@ publicRouter.post(
       }
 
       const telegramId = String(req.telegramAuth?.telegramId || "").trim();
+      if (req.telegramAuth?.verified) {
+        activatePendingStaffAccess({
+          telegramId,
+          telegramUsername: verifiedTelegramUsername,
+          firstName: req.telegramAuth?.firstName || first_name || null,
+          lastName: req.telegramAuth?.lastName || last_name || null,
+        });
+      }
       const existingActiveOrder = findOwnedActiveOrder({
         telegramId,
         telegramUsername: verifiedTelegramUsername,
@@ -3500,6 +3519,10 @@ function upsertPublicCustomer({
       id: existing.id,
       telegram_username: telegramUsername || existing.telegram_username,
     });
+    activatePendingInviteBanForCustomer({
+      id: existing.id,
+      telegram_username: telegramUsername || existing.telegram_username,
+    });
     return existing.id;
   }
 
@@ -3528,6 +3551,10 @@ function upsertPublicCustomer({
     telegram_username: telegramUsername,
   });
   activatePendingNotesForCustomer({
+    id: customerId,
+    telegram_username: telegramUsername,
+  });
+  activatePendingInviteBanForCustomer({
     id: customerId,
     telegram_username: telegramUsername,
   });

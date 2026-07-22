@@ -49,6 +49,16 @@ try {
   assert.equal(listed.data.items.length, 1);
   assert.equal(listed.data.items[0].telegram_username, 'invite_user');
 
+  const pendingInvite = await json('/api/admin/crm/invite-bans', {
+    method: 'POST', headers: auth,
+    body: JSON.stringify({ telegram_username: 'future_inviter', reason: 'заранее' }),
+  });
+  assert.equal(pendingInvite.data.kind, 'pending');
+  assert.equal((await json('/api/admin/crm/invite-bans', { headers: auth })).data.pending.length, 1);
+  assert.equal((await json(`/api/admin/crm/invite-bans/pending/${pendingInvite.data.ban.id}`, {
+    method: 'DELETE', headers: auth,
+  })).response.status, 200);
+
   const templates = await json('/api/admin/crm/invite-ban-reason-templates', {
     method: 'PUT', headers: auth,
     body: JSON.stringify({ templates: ['Спам', '  ', 'Нарушение'] }),
@@ -60,6 +70,23 @@ try {
   });
   assert.equal(removed.response.status, 200);
   assert.equal((await json('/api/admin/crm/invite-bans', { headers: auth })).data.items.length, 0);
+
+  const staffAccess = await json('/api/admin/crm/referral-authorization/staff-access', {
+    method: 'POST', headers: auth, body: JSON.stringify({ customer_id: 'c1' }),
+  });
+  assert.equal(staffAccess.data.kind, 'active');
+  assert.equal((await json('/api/admin/crm/referral-authorization/staff-access', { headers: auth })).data.active.length, 1);
+  assert.equal((await json('/api/admin/crm/referral-authorization/staff-access/c1', {
+    method: 'DELETE', headers: auth,
+  })).response.status, 200);
+
+  const pendingStaff = await json('/api/admin/crm/referral-authorization/staff-access', {
+    method: 'POST', headers: auth, body: JSON.stringify({ telegram_username: 'future_friend' }),
+  });
+  assert.equal(pendingStaff.data.kind, 'pending');
+  assert.equal((await json(`/api/admin/crm/referral-authorization/staff-access/pending/${pendingStaff.data.grant.id}`, {
+    method: 'DELETE', headers: auth,
+  })).response.status, 200);
 
   const enabled = await json('/api/admin/crm/referral-authorization/settings', {
     method: 'PUT', headers: auth, body: JSON.stringify({ enabled: true }),
@@ -91,6 +118,19 @@ try {
       .data.items.map((item) => item.username),
     ['admin_two'],
   );
+  await json('/api/admin/crm/referral-authorization/disallowed-usernames', {
+    method: 'POST', headers: auth, body: JSON.stringify({ usernames: ['convert_me'] }),
+  });
+  const converted = await json('/api/admin/crm/referral-authorization/disallowed-usernames/convert_me/convert-to-invite-ban', {
+    method: 'POST', headers: auth, body: '{}',
+  });
+  assert.equal(converted.data.kind, 'pending');
+  assert.equal(
+    (await json('/api/admin/crm/referral-authorization/disallowed-usernames', { headers: auth }))
+      .data.items.some((item) => item.username === 'convert_me'),
+    false,
+  );
+  await json(`/api/admin/crm/invite-bans/pending/${converted.data.ban.id}`, { method: 'DELETE', headers: auth });
 
   db.prepare(`
     INSERT INTO referral_auth_states (telegram_id, attempts_used, status, last_error_code)
