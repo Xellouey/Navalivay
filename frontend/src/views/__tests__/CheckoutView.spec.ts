@@ -402,6 +402,54 @@ function buildCrossCategoryMultiBonusPreview() {
   };
 }
 
+function buildVariantChoicePreview() {
+  return {
+    customer_id: "customer-1",
+    promo_blocked: false,
+    total_loyalty_discount: 0,
+    categories: [
+      {
+        category_id: "loyalty-devices",
+        category_key: "devices",
+        title: "Устройства",
+        description: null,
+        threshold: 4,
+        discount_amount: 25,
+        current_balance: 4,
+        current_available_bonus_count: 1,
+        items_in_cart: 2,
+        eligible_purchase_units: 2,
+        loyalty_units_applied: 0,
+        spent_now: 0,
+        earned_after_fulfillment: 2,
+        projected_balance: 6,
+        available_bonus_count: 1,
+        remaining_to_next: 2,
+        line_items: [
+          {
+            key: "pasito::variant-black",
+            product_id: "pasito",
+            variant_id: "variant-black",
+            quantity: 1,
+            loyalty_units_applied: 0,
+            max_redeemable_units: 1,
+            product_title: "PASITO 2",
+          },
+          {
+            key: "pasito::variant-silver",
+            product_id: "pasito",
+            variant_id: "variant-silver",
+            quantity: 1,
+            loyalty_units_applied: 0,
+            max_redeemable_units: 1,
+            product_title: "PASITO 2",
+          },
+        ],
+      },
+    ],
+  };
+}
+
 describe("CheckoutView order flows", () => {
   beforeEach(() => {
     setActivePinia(createPinia());
@@ -744,6 +792,10 @@ describe("CheckoutView order flows", () => {
     ]);
 
     (window as any).Telegram = undefined;
+    let resolvePromo!: (value: ReturnType<typeof createJsonResponse>) => void;
+    const promoResponse = new Promise<ReturnType<typeof createJsonResponse>>((resolve) => {
+      resolvePromo = resolve;
+    });
 
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
@@ -755,6 +807,9 @@ describe("CheckoutView order flows", () => {
       }
       if (url === "/api/loyalty/checkout-preview") {
         return createJsonResponse(buildLoyaltyPreview(0));
+      }
+      if (url === "/api/promo/validate") {
+        return promoResponse;
       }
       throw new Error(`Unexpected fetch: ${url}`);
     });
@@ -776,14 +831,43 @@ describe("CheckoutView order flows", () => {
     await flushPromises();
 
     expect(wrapper.find(".loyalty-card").exists()).toBe(true);
-    expect(wrapper.findAll(".loyalty-tab")).toHaveLength(1);
-    expect(wrapper.find(".loyalty-card-title-main").text()).toContain("Бонусная система");
+    expect(wrapper.findAll(".loyalty-tab")).toHaveLength(0);
+    expect(wrapper.find(".loyalty-card-title-main").text()).toBe(
+      "Доступны скидки по бонусной карте",
+    );
+    expect(wrapper.find(".loyalty-available-title").text()).toBe("На жидкость/снюс");
+    expect(wrapper.find(".loyalty-progress-value").exists()).toBe(false);
+    expect(wrapper.text()).not.toContain("До скидки");
     expect(wrapper.find(".user-info-input").exists()).toBe(true);
+
+    await wrapper.find(".promo-input").setValue("PROMO5");
+    await wrapper.find(".promo-apply-btn").trigger("click");
+    await flushPromises();
+    expect(wrapper.find(".submit-button").attributes("disabled")).toBeDefined();
+    expect(wrapper.find(".submit-button").text()).toBe("Рассчитываем скидку...");
+    await wrapper.find(".submit-button").trigger("click");
+    expect(fetchMock.mock.calls.some(([input]) => String(input).startsWith("/api/orders"))).toBe(false);
+
+    resolvePromo(
+      createJsonResponse({
+        valid: true,
+        discount_type: "fixed",
+        discount_value: 5,
+        calculated_discount: 5,
+        has_gift: 0,
+      }),
+    );
+    await flushPromises();
+    expect(wrapper.find(".loyalty-card").exists()).toBe(false);
+
+    await wrapper.find(".promo-cancel-btn").trigger("click");
+    await flushPromises();
+    expect(wrapper.find(".loyalty-card").exists()).toBe(true);
 
     wrapper.unmount();
   });
 
-  it("renders one loyalty widget with tabs for preview categories", async () => {
+  it("hides the loyalty widget when no discount is available", async () => {
     const cartStore = useCartStore();
     cartStore.replaceItemsFromOrder([
       {
@@ -870,23 +954,9 @@ describe("CheckoutView order flows", () => {
     await flushPromises();
     await flushPromises();
 
-    expect(wrapper.findAll(".loyalty-card")).toHaveLength(1);
-    expect(wrapper.findAll(".loyalty-tab")).toHaveLength(3);
-    expect(wrapper.find(".loyalty-tab--active").exists()).toBe(true);
-
-    const tabs = wrapper.findAll(".loyalty-tab");
-    const initialActiveLabel = wrapper.find(".loyalty-tab--active").text();
-
-    await tabs[1].trigger("click");
-    await flushPromises();
-    expect(wrapper.find(".loyalty-tab--active").text()).not.toBe(initialActiveLabel);
-
-    expect(wrapper.find(".loyalty-progress-value").text()).toBe("1 / 5");
-    expect(wrapper.find(".loyalty-copy").text()).toContain("15 BYN");
-
-    expect(wrapper.text()).not.toContain("Жидкости и снюс");
-    expect(wrapper.text()).toContain("Одноразки");
-    expect(wrapper.text()).toContain("Устройства");
+    expect(wrapper.find(".loyalty-card").exists()).toBe(false);
+    expect(wrapper.find(".loyalty-progress-value").exists()).toBe(false);
+    expect(wrapper.text()).not.toContain("До скидки");
 
     wrapper.unmount();
   });
@@ -982,15 +1052,9 @@ describe("CheckoutView order flows", () => {
     expect(refreshedButtons[0].text()).toBe("Применено");
     expect(wrapper.findAll(".loyalty-line-state").map((item) => item.text())).toContain("Бонус уже выбран");
 
-    const tabs = wrapper.findAll(".loyalty-tab");
-    await tabs[1].trigger("click");
-    await flushPromises();
-
-    expect(wrapper.find(".loyalty-tab--active").text()).toContain("Устройства");
-    expect(wrapper.find(".loyalty-progress-value").text()).toBe("1 / 4");
-    expect(wrapper.findAll(".loyalty-line-button")).toHaveLength(0);
-    expect(wrapper.find(".loyalty-copy--secondary").exists()).toBe(true);
-    expect(wrapper.text()).not.toContain("Snus Mint");
+    expect(wrapper.findAll(".loyalty-available-category")).toHaveLength(1);
+    expect(wrapper.text()).not.toContain("На устройство");
+    expect(wrapper.find(".loyalty-progress-value").exists()).toBe(false);
 
     wrapper.unmount();
   });
@@ -1073,12 +1137,86 @@ describe("CheckoutView order flows", () => {
     await flushPromises();
     await flushPromises();
 
-    await wrapper.findAll(".loyalty-tab")[1].trigger("click");
+    const categoryCards = wrapper.findAll(".loyalty-available-category");
+    expect(categoryCards).toHaveLength(2);
+    expect(categoryCards[1].find(".loyalty-available-title").text()).toBe("На устройство");
+
+    const deviceButton = categoryCards[1].find(".loyalty-line-button");
+    expect(deviceButton.text()).toBe("Применить");
+    await deviceButton.trigger("click");
+    await flushPromises();
+    expect(cartStore.items.find((item) => item.productId === "p-3")?.loyaltyUnitsApplied).toBe(1);
+
+    wrapper.unmount();
+  });
+
+  it("shows variant names when choosing a bonus between variants of one product", async () => {
+    const cartStore = useCartStore();
+    cartStore.replaceItemsFromOrder([
+      {
+        productId: "pasito",
+        title: "PASITO 2",
+        productTitle: "PASITO 2",
+        groupName: "Устройства",
+        priceRub: 75,
+        quantity: 1,
+        image: null,
+        variantId: "variant-black",
+        variantName: "Black",
+        groupId: "devices",
+        categoryId: "c_devices",
+      },
+      {
+        productId: "pasito",
+        title: "PASITO 2",
+        productTitle: "PASITO 2",
+        groupName: "Устройства",
+        priceRub: 75,
+        quantity: 1,
+        image: null,
+        variantId: "variant-silver",
+        variantName: "Silver",
+        groupId: "devices",
+        categoryId: "c_devices",
+      },
+    ]);
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.startsWith("/api/product/")) {
+          return createJsonResponse({ id: "pasito", hasVariants: true, stock: 10 });
+        }
+        if (url.startsWith("/api/loyalty/me")) {
+          return createJsonResponse(buildLoyaltySnapshot());
+        }
+        if (url === "/api/loyalty/checkout-preview") {
+          return createJsonResponse(buildVariantChoicePreview());
+        }
+        throw new Error(`Unexpected fetch: ${url}`);
+      }),
+    );
+
+    const wrapper = mount(CheckoutView, {
+      global: {
+        stubs: {
+          MinDeliveryBanner: { template: "<div />" },
+          DeliveryConditionsBanner: { template: "<div />" },
+          AdminModal: { template: "<div><slot /></div>" },
+          CustomerModalShell: { template: "<div><slot /><slot name='footer' /></div>" },
+          LoyaltyBonusPopup: { template: "<div />" },
+        },
+      },
+    });
+
+    await flushPromises();
     await flushPromises();
 
-    const deviceButton = wrapper.find(".loyalty-line-button");
-    expect(deviceButton.exists()).toBe(true);
-    expect(deviceButton.text()).toBe("Применить");
+    expect(wrapper.findAll(".loyalty-line-title").map((item) => item.text())).toEqual([
+      "PASITO 2 · Black",
+      "PASITO 2 · Silver",
+    ]);
 
     wrapper.unmount();
   });

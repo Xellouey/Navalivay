@@ -99,9 +99,10 @@ describe("ProfileView loyalty section", () => {
     await wrapper.find(".loyalty-rules-link").trigger("click");
 
     expect(wrapper.find(".rules-modal-overlay").exists()).toBe(true);
-    expect(wrapper.text()).toContain("Как получить скидку?");
-    expect(wrapper.text()).toContain("Каждая купленная позиция добавляет один штамп");
-    expect(wrapper.text()).toContain("штампы начисляются за каждую позицию");
+    expect(wrapper.text()).toContain("Бонусная система скидок, как работает?");
+    expect(wrapper.text()).toContain("Отслеживать количество купленных позиций");
+    expect(wrapper.text()).toContain("Каждая купленная позиция без скидок и промокодов");
+    expect(wrapper.text()).toContain("появится окно с возможностью активировать скидку");
 
     await wrapper.find(".rules-modal-close").trigger("click");
 

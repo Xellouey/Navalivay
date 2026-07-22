@@ -36,10 +36,13 @@ Use it when a task touches:
 
 - Do not represent bonus usage as `шт.` or quantity selection when the real rule is binary.
 - In checkout, use a direct CTA such as `Применить`.
+- Do not show loyalty progress, thresholds, or "remaining to discount" copy in checkout. That progress belongs only in the customer profile.
+- Show the checkout loyalty card only when the customer already has an available bonus for a category represented by an eligible cart item.
+- If no applicable bonus is available, hide the checkout loyalty card completely.
 - After applying a bonus to one product in a category:
   - that product may show `Применено`
   - other products in the same category must not show another active apply button
-- If a category has no available bonus, show progress/state copy instead of disabled fake controls.
+- If several cart products belong to one available category, let the customer choose the exact product instead of silently selecting one.
 - The UI must match the business rule exactly. Do not allow the user to think they can apply two bonuses in one category within one order.
 
 ## Wording Rules

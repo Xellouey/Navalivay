@@ -250,7 +250,9 @@
       >
         <section class="rules-modal-card">
           <div class="rules-modal-header">
-            <h2 id="rules-modal-title" class="rules-modal-title">Как получить скидку?</h2>
+            <h2 id="rules-modal-title" class="rules-modal-title">
+              {{ LOYALTY_RULES_MODAL_TITLE }}
+            </h2>
             <button
               type="button"
               class="rules-modal-close"
@@ -269,15 +271,9 @@
           </div>
 
           <div class="rules-modal-copy">
-            <p>Покупайте товары и собирайте штампы в своей карте лояльности.</p>
-            <p>
-              Каждая купленная позиция добавляет один штамп в соответствующую категорию.
-              Если в одном заказе несколько товаров одной бонусной категории, штампы
-              начисляются за каждую позицию. Когда карта заполнится — вы получите скидку на
-              следующую покупку.
+            <p v-for="paragraph in LOYALTY_RULES_MODAL_PARAGRAPHS" :key="paragraph">
+              {{ paragraph }}
             </p>
-            <p>В одном заказе можно применить по одной бонусной скидке на каждую бонусную категорию.</p>
-            <p>Обратите внимание: штампы начисляются только за товары без акций, промокодов и ручных скидок.</p>
           </div>
 
           <button type="button" class="rules-modal-cta" @click="goShopping">
@@ -305,6 +301,10 @@ import { useWholesaleStore } from "@/stores/wholesale";
 import { useWheelStore } from "@/stores/wheel";
 import { getTelegramIdentity } from "@/utils/customerOrders";
 import LoyaltyBonusPopup from "@/components/LoyaltyBonusPopup.vue";
+import {
+  LOYALTY_RULES_MODAL_PARAGRAPHS,
+  LOYALTY_RULES_MODAL_TITLE,
+} from "@/constants/loyalty";
 import { useCustomerOrders } from "@/composables/useCustomerOrders";
 
 const userStore = useUserStore();
@@ -1136,4 +1136,3 @@ async function goShopping() {
   }
 }
 </style>
-

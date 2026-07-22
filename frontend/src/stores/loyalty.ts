@@ -128,6 +128,7 @@ export const useLoyaltyStore = defineStore('loyalty', () => {
   const adminCategories = ref<LoyaltyAdminCategory[]>([])
   const adminCustomers = ref<LoyaltyAdminCustomer[]>([])
   const adminLedger = ref<LoyaltyLedgerEntry[]>([])
+  let checkoutPreviewRequestId = 0
 
   const availableCategories = computed(() =>
     snapshot.value.filter((category) => Number(category.available_bonus_count || 0) > 0),
@@ -171,6 +172,8 @@ export const useLoyaltyStore = defineStore('loyalty', () => {
       loyalty_units_applied?: number
     }>
   }) {
+    const requestId = ++checkoutPreviewRequestId
+
     if (!payload.items.length) {
       previewCategories.value = []
       totalLoyaltyDiscount.value = 0
@@ -188,22 +191,32 @@ export const useLoyaltyStore = defineStore('loyalty', () => {
         method: 'POST',
         body: JSON.stringify(payload),
       })
+      if (requestId !== checkoutPreviewRequestId) {
+        return response.categories || []
+      }
       previewCategories.value = response.categories || []
       totalLoyaltyDiscount.value = Number(response.total_loyalty_discount || 0)
       return previewCategories.value
     } catch (error: any) {
+      if (requestId !== checkoutPreviewRequestId) {
+        return []
+      }
       previewCategories.value = []
       totalLoyaltyDiscount.value = 0
       previewError.value = error?.message || 'Не удалось рассчитать бонусы'
       throw error
     } finally {
-      loadingPreview.value = false
+      if (requestId === checkoutPreviewRequestId) {
+        loadingPreview.value = false
+      }
     }
   }
 
   function resetPreview() {
+    checkoutPreviewRequestId += 1
     previewCategories.value = []
     totalLoyaltyDiscount.value = 0
+    loadingPreview.value = false
     previewError.value = ''
   }
 
