@@ -268,63 +268,35 @@
 
             <div class="loyalty-available-list">
               <section
-                v-for="category in availableCheckoutLoyaltyCategories"
-                :key="category.category_id"
+                v-for="choice in availableCheckoutLoyaltyChoices"
+                :key="choice.key"
                 class="loyalty-available-category"
               >
                 <div class="loyalty-available-heading">
                   <div class="loyalty-available-copy">
                     <h3 class="loyalty-available-title">
-                      {{ checkoutAvailableCategoryLabel(category) }}
+                      {{ choice.label }}
                     </h3>
                     <p class="loyalty-available-discount">
-                      Скидка на товар: {{ formatPrice(category.discount_amount) }} BYN
+                      Скидка на товар: {{ formatPrice(choice.category.discount_amount) }} BYN
                     </p>
                   </div>
 
-                  <button
-                    v-if="availableLoyaltyLines(category).length === 1"
-                    type="button"
-                    class="loyalty-line-button"
-                    :class="{
-                      'loyalty-line-button--applied': isLoyaltyAppliedToLine(availableLoyaltyLines(category)[0]),
-                    }"
-                    :aria-pressed="isLoyaltyAppliedToLine(availableLoyaltyLines(category)[0])"
-                    :disabled="loyaltyStore.loadingPreview"
-                    @click="toggleLoyaltyLine(category, availableLoyaltyLines(category)[0])"
-                  >
-                    {{ isLoyaltyAppliedToLine(availableLoyaltyLines(category)[0]) ? "Применено" : "Применить" }}
-                  </button>
-                </div>
-
-                <div
-                  v-if="availableLoyaltyLines(category).length > 1"
-                  class="loyalty-line-list loyalty-line-list--choices"
-                >
-                  <div
-                    v-for="line in availableLoyaltyLines(category)"
-                    :key="line.key"
-                    class="loyalty-line-item"
-                  >
-                    <div class="loyalty-line-copy">
-                      <span class="loyalty-line-title">{{ loyaltyLineDisplayTitle(line) }}</span>
-                    </div>
-                    <div class="loyalty-line-action">
-                      <button
-                        v-if="canToggleLoyaltyLine(category, line)"
-                        type="button"
-                        class="loyalty-line-button"
-                        :class="{ 'loyalty-line-button--applied': isLoyaltyAppliedToLine(line) }"
-                        :aria-pressed="isLoyaltyAppliedToLine(line)"
-                        :disabled="loyaltyStore.loadingPreview"
-                        @click="toggleLoyaltyLine(category, line)"
-                      >
-                        {{ isLoyaltyAppliedToLine(line) ? "Применено" : "Применить" }}
-                      </button>
-                      <span v-else class="loyalty-line-state">
-                        {{ loyaltyLineStateText(category, line) }}
-                      </span>
-                    </div>
+                  <div class="loyalty-line-action">
+                    <button
+                      v-if="canToggleLoyaltyLine(choice.category, choice.line)"
+                      type="button"
+                      class="loyalty-line-button"
+                      :class="{ 'loyalty-line-button--applied': isLoyaltyAppliedToLine(choice.line) }"
+                      :aria-pressed="isLoyaltyAppliedToLine(choice.line)"
+                      :disabled="loyaltyStore.loadingPreview"
+                      @click="toggleLoyaltyLine(choice.category, choice.line)"
+                    >
+                      {{ isLoyaltyAppliedToLine(choice.line) ? "Применено" : "Применить" }}
+                    </button>
+                    <span v-else class="loyalty-line-state">
+                      {{ loyaltyLineStateText(choice.category, choice.line) }}
+                    </span>
                   </div>
                 </div>
               </section>
@@ -599,6 +571,13 @@ const LOYALTY_CATEGORY_LABELS: Record<string, string> = {
   devices: "Устройства",
 };
 
+interface CheckoutLoyaltyChoice {
+  key: string;
+  label: string;
+  category: LoyaltyPreviewCategory;
+  line: LoyaltyPreviewLineItem;
+}
+
 const isItemsExpanded = ref(false);
 const promoCode = ref("");
 const promoValidating = ref(false);
@@ -700,6 +679,12 @@ const availableCheckoutLoyaltyCategories = computed(() => {
     return hasAvailableBonus && availableLoyaltyLines(category).length > 0;
   });
 });
+
+const availableCheckoutLoyaltyChoices = computed<CheckoutLoyaltyChoice[]>(() =>
+  availableCheckoutLoyaltyCategories.value.flatMap((category) =>
+    buildCheckoutLoyaltyChoices(category),
+  ),
+);
 
 const isEditingOrder = computed(() => Boolean(cartStore.editingOrderId));
 const checkoutCalculationPending = computed(
@@ -835,15 +820,6 @@ function checkoutLoyaltyCategoryLabel(category: LoyaltyPreviewCategory) {
   return LOYALTY_CATEGORY_LABELS[category.category_key] || category.title;
 }
 
-function checkoutAvailableCategoryLabel(category: LoyaltyPreviewCategory) {
-  const labels: Record<string, string> = {
-    liquids: "На жидкость/снюс",
-    disposables: "На одноразку",
-    devices: "На устройство",
-  };
-  return labels[category.category_key] || `На категорию «${checkoutLoyaltyCategoryLabel(category)}»`;
-}
-
 function toggleItemsExpanded() {
   isItemsExpanded.value = !isItemsExpanded.value;
 }
@@ -970,20 +946,70 @@ function availableLoyaltyLines(category: LoyaltyPreviewCategory) {
   );
 }
 
-function loyaltyLineDisplayTitle(line: LoyaltyPreviewLineItem) {
-  const cartItem = cartStore.items.find(
+function cartItemForLoyaltyLine(line: LoyaltyPreviewLineItem) {
+  return cartStore.items.find(
     (item) =>
       item.productId === line.product_id &&
       (item.variantId || null) === (line.variant_id || null),
   );
-  const productTitle = String(cartItem?.productTitle || cartItem?.title || line.product_title || "").trim();
-  const variantName = String(cartItem?.variantName || "").trim();
+}
 
-  if (!variantName || productTitle.toLowerCase().includes(variantName.toLowerCase())) {
-    return productTitle;
+function loyaltyChoiceType(category: LoyaltyPreviewCategory, line: LoyaltyPreviewLineItem) {
+  if (category.category_key !== "liquids") {
+    return category.category_key;
   }
 
-  return `${productTitle} · ${variantName}`;
+  const cartItem = cartItemForLoyaltyLine(line);
+  const catalogCategory = catalogStore.categories.find(
+    (item) => item.id === cartItem?.categoryId,
+  );
+  const categoryText = [
+    cartItem?.categoryId,
+    catalogCategory?.slug,
+    catalogCategory?.name,
+    catalogCategory?.storefrontFiltersProfile,
+    cartItem?.groupName,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLocaleLowerCase("ru");
+
+  return /(snus|snyus|снюс|пластин)/i.test(categoryText) ? "snus" : "liquid";
+}
+
+function loyaltyChoiceLabel(category: LoyaltyPreviewCategory, type: string) {
+  const labels: Record<string, string> = {
+    liquid: "На жидкость",
+    snus: "На снюс",
+    disposables: "На одноразку",
+    devices: "На устройство",
+  };
+  return labels[type] || `На категорию «${checkoutLoyaltyCategoryLabel(category)}»`;
+}
+
+function loyaltyLinePrice(line: LoyaltyPreviewLineItem) {
+  return Number(cartItemForLoyaltyLine(line)?.priceRub || 0);
+}
+
+function buildCheckoutLoyaltyChoices(category: LoyaltyPreviewCategory): CheckoutLoyaltyChoice[] {
+  const groupedLines = new Map<string, LoyaltyPreviewLineItem[]>();
+  for (const line of availableLoyaltyLines(category)) {
+    const type = loyaltyChoiceType(category, line);
+    groupedLines.set(type, [...(groupedLines.get(type) || []), line]);
+  }
+
+  return [...groupedLines.entries()].map(([type, lines]) => {
+    const appliedLine = lines.find((line) => isLoyaltyAppliedToLine(line));
+    const bestLine = lines.reduce((best, line) =>
+      loyaltyLinePrice(line) > loyaltyLinePrice(best) ? line : best,
+    );
+    return {
+      key: `${category.category_id}:${type}`,
+      label: loyaltyChoiceLabel(category, type),
+      category,
+      line: appliedLine || bestLine,
+    };
+  });
 }
 
 function getAppliedLoyaltyLineKey(category: LoyaltyPreviewCategory) {

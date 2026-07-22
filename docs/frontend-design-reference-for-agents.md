@@ -155,10 +155,10 @@ Required characteristics:
 - do not expose bonus application as `0 шт. / 1 шт.`
 - do not show the loyalty progress calculator in checkout; progress stays in the profile
 - show the red checkout loyalty card only for bonuses that can be applied to an eligible item in the current cart
-- list all available categories vertically instead of exposing unavailable categories as tabs
+- list available product types vertically (`На жидкость`, `На снюс`, `На одноразку`, `На устройство`) instead of exposing unavailable categories as tabs
+- do not show product names, flavors, or variants inside the loyalty card
 - use a direct action pattern like `Применить`
-- once a bonus is applied inside a category, other products in that same category must not show competing apply controls
-- if a bonus is already chosen for a category, the rest of the category should show only a passive state, not another active CTA
+- once a bonus is applied inside a loyalty category, another product type in that same category stays visible with the passive state `Бонус уже выбран`
 - keep the payload/business logic unchanged unless the task explicitly changes loyalty rules
 
 The UX here must express the real rule: one applied loyalty bonus per category per order.

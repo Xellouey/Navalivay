@@ -39,10 +39,12 @@ Use it when a task touches:
 - Do not show loyalty progress, thresholds, or "remaining to discount" copy in checkout. That progress belongs only in the customer profile.
 - Show the checkout loyalty card only when the customer already has an available bonus for a category represented by an eligible cart item.
 - If no applicable bonus is available, hide the checkout loyalty card completely.
-- After applying a bonus to one product in a category:
-  - that product may show `Применено`
-  - other products in the same category must not show another active apply button
-- If several cart products belong to one available category, let the customer choose the exact product instead of silently selecting one.
+- Checkout shows one action per represented product type: liquid, snus, disposable, or device. Product names, flavors, and variants are not shown in the loyalty card.
+- If liquid and snus are both in the cart, show separate `На жидкость` and `На снюс` actions.
+- After applying a bonus to one product type in a loyalty category:
+  - that type shows `Применено`
+  - another type in the same loyalty category stays visible but shows `Бонус уже выбран`
+- The concrete eligible cart line is selected internally. Prefer the highest-priced eligible line within the chosen type so a price cap does not unnecessarily reduce the advertised discount.
 - The UI must match the business rule exactly. Do not allow the user to think they can apply two bonuses in one category within one order.
 
 ## Wording Rules

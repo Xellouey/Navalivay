@@ -835,7 +835,7 @@ describe("CheckoutView order flows", () => {
     expect(wrapper.find(".loyalty-card-title-main").text()).toBe(
       "Доступны скидки по бонусной карте",
     );
-    expect(wrapper.find(".loyalty-available-title").text()).toBe("На жидкость/снюс");
+    expect(wrapper.find(".loyalty-available-title").text()).toBe("На жидкость");
     expect(wrapper.find(".loyalty-progress-value").exists()).toBe(false);
     expect(wrapper.text()).not.toContain("До скидки");
     expect(wrapper.find(".user-info-input").exists()).toBe(true);
@@ -894,7 +894,7 @@ describe("CheckoutView order flows", () => {
         variantId: null,
         variantName: null,
         groupId: "group-2",
-        categoryId: "c_snus",
+        categoryId: "c_1762276690872_0lxz",
       },
       {
         productId: "p-3",
@@ -961,7 +961,7 @@ describe("CheckoutView order flows", () => {
     wrapper.unmount();
   });
 
-  it("lets user choose only one bonus unit inside the earned category", async () => {
+  it("shows product types instead of flavors and allows only one bonus in the earned category", async () => {
     const cartStore = useCartStore();
     cartStore.replaceItemsFromOrder([
       {
@@ -988,7 +988,7 @@ describe("CheckoutView order flows", () => {
         variantId: null,
         variantName: null,
         groupId: "group-2",
-        categoryId: "c_snus",
+        categoryId: "c_1762276690872_0lxz",
       },
       {
         productId: "p-3",
@@ -1035,9 +1035,14 @@ describe("CheckoutView order flows", () => {
     await flushPromises();
     await flushPromises();
 
-    expect(wrapper.text()).toContain("Liquid Cherry");
-    expect(wrapper.text()).toContain("Snus Mint");
-    expect(wrapper.text()).not.toContain("Device X");
+    const loyaltySection = wrapper.find(".loyalty-section");
+    expect(loyaltySection.findAll(".loyalty-available-title").map((item) => item.text())).toEqual([
+      "На жидкость",
+      "На снюс",
+    ]);
+    expect(loyaltySection.text()).not.toContain("Liquid Cherry");
+    expect(loyaltySection.text()).not.toContain("Snus Mint");
+    expect(loyaltySection.text()).not.toContain("Device X");
 
     const buttons = wrapper.findAll(".loyalty-line-button");
     expect(buttons).toHaveLength(2);
@@ -1052,7 +1057,7 @@ describe("CheckoutView order flows", () => {
     expect(refreshedButtons[0].text()).toBe("Применено");
     expect(wrapper.findAll(".loyalty-line-state").map((item) => item.text())).toContain("Бонус уже выбран");
 
-    expect(wrapper.findAll(".loyalty-available-category")).toHaveLength(1);
+    expect(wrapper.findAll(".loyalty-available-category")).toHaveLength(2);
     expect(wrapper.text()).not.toContain("На устройство");
     expect(wrapper.find(".loyalty-progress-value").exists()).toBe(false);
 
@@ -1086,7 +1091,7 @@ describe("CheckoutView order flows", () => {
         variantId: null,
         variantName: null,
         groupId: "group-2",
-        categoryId: "c_snus",
+        categoryId: "c_1762276690872_0lxz",
       },
       {
         productId: "p-3",
@@ -1138,10 +1143,13 @@ describe("CheckoutView order flows", () => {
     await flushPromises();
 
     const categoryCards = wrapper.findAll(".loyalty-available-category");
-    expect(categoryCards).toHaveLength(2);
-    expect(categoryCards[1].find(".loyalty-available-title").text()).toBe("На устройство");
+    expect(categoryCards).toHaveLength(3);
+    const deviceCard = categoryCards.find(
+      (card) => card.find(".loyalty-available-title").text() === "На устройство",
+    );
+    expect(deviceCard).toBeDefined();
 
-    const deviceButton = categoryCards[1].find(".loyalty-line-button");
+    const deviceButton = deviceCard!.find(".loyalty-line-button");
     expect(deviceButton.text()).toBe("Применить");
     await deviceButton.trigger("click");
     await flushPromises();
@@ -1150,7 +1158,7 @@ describe("CheckoutView order flows", () => {
     wrapper.unmount();
   });
 
-  it("shows variant names when choosing a bonus between variants of one product", async () => {
+  it("hides variants and internally applies the bonus to the highest-priced eligible line", async () => {
     const cartStore = useCartStore();
     cartStore.replaceItemsFromOrder([
       {
@@ -1171,7 +1179,7 @@ describe("CheckoutView order flows", () => {
         title: "PASITO 2",
         productTitle: "PASITO 2",
         groupName: "Устройства",
-        priceRub: 75,
+        priceRub: 85,
         quantity: 1,
         image: null,
         variantId: "variant-silver",
@@ -1213,10 +1221,18 @@ describe("CheckoutView order flows", () => {
     await flushPromises();
     await flushPromises();
 
-    expect(wrapper.findAll(".loyalty-line-title").map((item) => item.text())).toEqual([
-      "PASITO 2 · Black",
-      "PASITO 2 · Silver",
+    const loyaltySection = wrapper.find(".loyalty-section");
+    expect(loyaltySection.findAll(".loyalty-available-title").map((item) => item.text())).toEqual([
+      "На устройство",
     ]);
+    expect(loyaltySection.text()).not.toContain("PASITO 2");
+    expect(loyaltySection.text()).not.toContain("Black");
+    expect(loyaltySection.text()).not.toContain("Silver");
+
+    await loyaltySection.find(".loyalty-line-button").trigger("click");
+    await flushPromises();
+    expect(cartStore.items.find((item) => item.variantId === "variant-black")?.loyaltyUnitsApplied || 0).toBe(0);
+    expect(cartStore.items.find((item) => item.variantId === "variant-silver")?.loyaltyUnitsApplied).toBe(1);
 
     wrapper.unmount();
   });
