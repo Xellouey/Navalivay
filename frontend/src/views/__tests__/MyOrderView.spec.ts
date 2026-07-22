@@ -22,12 +22,16 @@ function createJsonResponse(data: unknown, ok = true, status = 200) {
   };
 }
 
-function buildOrder(status: "new" | "in_progress") {
+function buildOrder(
+  status: "new" | "in_progress",
+  pickupCellNumber: number | null = null,
+) {
   return {
     found: true,
     id: "order-1",
     order_number: 101,
     status,
+    pickup_cell_number: pickupCellNumber,
     delivery_type: "pickup",
     delivery_address: null,
     phone: null,
@@ -101,14 +105,28 @@ describe("MyOrderView", () => {
   });
 
   it("shows ready status for assembled order", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => createJsonResponse(buildOrder("in_progress", 7))));
+    const wrapper = mount(MyOrderView);
+
+    await flushPromises();
+
+    expect(wrapper.text()).toContain("Заказ готов к выдаче");
+    expect(wrapper.text()).toContain("Ячейка 7");
+    expect(wrapper.text()).toContain("Назовите этот номер сотруднику");
+    expect(wrapper.text()).toContain("Готовы к выдаче");
+    expect(wrapper.text()).toContain("с 10:30 до 21:00");
+
+    wrapper.unmount();
+  });
+
+  it("does not invent a cell for a legacy assembled order", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => createJsonResponse(buildOrder("in_progress"))));
     const wrapper = mount(MyOrderView);
 
     await flushPromises();
 
     expect(wrapper.text()).toContain("Заказ готов к выдаче");
-    expect(wrapper.text()).toContain("Готовы к выдаче");
-    expect(wrapper.text()).toContain("с 10:30 до 21:00");
+    expect(wrapper.text()).not.toContain("Ячейка");
 
     wrapper.unmount();
   });

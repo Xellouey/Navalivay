@@ -42,6 +42,7 @@ export interface CustomerActiveOrder {
   id: string;
   order_number: number;
   status: "new" | "in_progress" | "completed" | "delivered" | "cancelled";
+  pickup_cell_number: number | null;
   delivery_type: "pickup" | "delivery";
   delivery_address: string | null;
   phone: string | null;

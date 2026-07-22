@@ -19,6 +19,7 @@
  * тот же принцип, что и order_accepted в auto-notify.js.
  */
 import crypto from 'crypto';
+import { getActivePickupCellAssignment } from './pickup-cells.js';
 import { db } from '../db.js';
 import { isCustomerAccessAuthorized } from './referral-authorization.js';
 import { getActiveBlockForCustomerId } from './customer-blocks.js';
@@ -453,7 +454,7 @@ export function upsertStatusTemplate(event, payload = {}) {
  * Подстановка переменных в шаблон.
  *
  * Поддерживаемые ключи: order_number, final_amount, total_amount,
- * customer_name, customer_username, verification_code, store_name.
+ * customer_name, customer_username, pickup_cell_number, verification_code, store_name.
  * Неизвестные {placeholder} оставляются как есть (защита от опечатки —
  * Костя должен увидеть, что переменная не подставилась).
  */
@@ -503,6 +504,7 @@ export function buildOrderVariables(orderOrId, { storeName } = {}) {
     (customer?.telegram_username ? `@${customer.telegram_username}` : 'клиент');
   const finalAmount = Number(order.final_amount ?? order.total_amount ?? 0);
   const totalAmount = Number(order.total_amount ?? 0);
+  const pickupCell = getActivePickupCellAssignment(order.id);
   return {
     order_number: order.order_number ?? '',
     final_amount: Number.isFinite(finalAmount) ? finalAmount.toFixed(2).replace(/\.00$/, '') : '0',
@@ -510,6 +512,7 @@ export function buildOrderVariables(orderOrId, { storeName } = {}) {
     customer_name: customerName || 'клиент',
     customer_username: customer?.telegram_username || '',
     customer_telegram_id: customer?.telegram_id || '',
+    pickup_cell_number: pickupCell?.cell_number ?? '',
     store_name: storeName || 'НАВАЛИВАЙ',
   };
 }
@@ -775,11 +778,18 @@ export function prepareStatusNotification({ orderId, event, storeName } = {}) {
   if (!variables) {
     return { ok: false, reason: 'variables_unavailable' };
   }
-  const text = renderTemplate(template.body, variables);
-  // Если админ обнулил body, но не снял is_active — мы НЕ шлём пустое
-  // сообщение клиенту. Лучше вернуть явную причину для UI.
+  let text = renderTemplate(template.body, variables);
+  // Пустой редактируемый шаблон остаётся ошибкой: одна системная строка
+  // про ячейку не должна скрывать неверную настройку сообщения.
   if (!text.trim()) {
     return { ok: false, reason: 'template_empty' };
+  }
+  if (event === 'order_assembled') {
+    const cellNumber = Number(variables.pickup_cell_number || 0);
+    if (!cellNumber) {
+      return { ok: false, reason: 'pickup_cell_inactive' };
+    }
+    text = `${text.trim()}\n\nДля получения назовите сотруднику номер ячейки: ${cellNumber}.`;
   }
   return {
     ok: true,

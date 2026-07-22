@@ -41,6 +41,18 @@ console.log('\n=== Numeric CRM search uses indexed prefix mode ===');
   assertEq(spec.orderByParams, ['1001'], 'exact numeric match is ranked first');
 }
 
+console.log('\n=== # explicitly means permanent order number ===');
+{
+  const spec = buildCrmOrdersSearch({ searchTerm: '#1001', pickupCellCapacity: 50 });
+  assertEq(spec.mode, 'order_number_prefix', '#order bypasses cell-number mode');
+  assertEq(spec.params, ['1001%'], '# is removed before indexed order search');
+  assertEq(spec.orderByParams, ['1001'], 'normalized exact order number is ranked first');
+
+  const shortSpec = buildCrmOrdersSearch({ searchTerm: '# 7', pickupCellCapacity: 50 });
+  assertEq(shortSpec.mode, 'order_number_prefix', '# with optional space still means order');
+  assertEq(shortSpec.params, ['7%'], 'short #order is not mistaken for cell 7');
+}
+
 console.log('\n=== Legacy text CRM search is preserved ===');
 {
   const spec = buildCrmOrdersSearch({ searchTerm: 'tester' });

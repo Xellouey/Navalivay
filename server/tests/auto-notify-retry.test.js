@@ -72,8 +72,12 @@ function makeOrder({ telegramId = '111', orderId = 'o_test' } = {}) {
   ).run('o_hist', 9000, customerId);
   db.prepare(
     `INSERT INTO orders (id, order_number, customer_id, status, total_amount)
-     VALUES (?, ?, ?, 'new', 100)`,
+     VALUES (?, ?, ?, 'in_progress', 100)`,
   ).run(orderId, 1001, customerId);
+  db.prepare(
+    `INSERT INTO order_pickup_cell_assignments (id, order_id, cell_number)
+     VALUES (?, ?, 1)`,
+  ).run(`cell_${orderId}`, orderId);
   registerBusinessConnection({
     id: 'conn1',
     userId: '999',
@@ -193,7 +197,12 @@ makeOrder({ telegramId: '333', orderId: 'o_sent' });
 db.prepare(
   `INSERT INTO bot_message_log (chat_id, direction, message_type, template_kind, template_event, meta)
    VALUES ('333', 'out', 'status', 'status', 'order_assembled', ?)`,
-).run(JSON.stringify({ order_id: 'o_sent', outcome: 'sent', auto: 1 }));
+).run(JSON.stringify({
+  order_id: 'o_sent',
+  outcome: 'sent',
+  auto: 1,
+  pickup_cell_assignment_id: 'cell_o_sent',
+}));
 assert(hasAutoNotifyBeenSent('o_sent', 'order_assembled'), 'hasAutoNotifyBeenSent');
 const summary = await processPendingAutoNotifyRetries({ executeAutoNotify });
 assertEq(summary.processed, 0, 'no due rows');

@@ -5,6 +5,7 @@
  */
 
 import { db } from '../db.js';
+import { getActivePickupCellAssignment } from './pickup-cells.js';
 
 export const RETRY_BASE_MS = 30_000;
 export const RETRY_MULTIPLIER = 2;
@@ -27,6 +28,7 @@ const PERMANENT_SKIP_REASONS = new Set([
   'status_unchanged',
   'no_event_for_status',
   'already_sent',
+  'pickup_cell_inactive',
 ]);
 
 function toSqliteDatetime(date) {
@@ -41,6 +43,10 @@ export function computeRetryDelayMs(attempt, { rng = Math.random } = {}) {
 }
 
 export function hasAutoNotifyBeenSent(orderId, templateEvent) {
+  const pickupCell = templateEvent === 'order_assembled'
+    ? getActivePickupCellAssignment(orderId)
+    : null;
+  if (templateEvent === 'order_assembled' && !pickupCell) return false;
   const row = db
     .prepare(
       `SELECT 1 FROM bot_message_log
@@ -48,9 +54,16 @@ export function hasAutoNotifyBeenSent(orderId, templateEvent) {
           AND template_event = ?
           AND json_extract(meta, '$.order_id') = ?
           AND json_extract(meta, '$.outcome') = 'sent'
+          ${templateEvent === 'order_assembled'
+            ? `AND json_extract(meta, '$.pickup_cell_assignment_id') = ?`
+            : ''}
         LIMIT 1`,
     )
-    .get(String(templateEvent), String(orderId));
+    .get(
+      String(templateEvent),
+      String(orderId),
+      ...(pickupCell ? [String(pickupCell.id)] : []),
+    );
   return !!row;
 }
 

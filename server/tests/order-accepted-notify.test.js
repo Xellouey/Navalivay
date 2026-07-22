@@ -75,6 +75,10 @@ resetDb();
     INSERT INTO orders (id, order_number, customer_id, status, total_amount, final_amount)
     VALUES ('o_warmup_race', 1007, 'c_warmup_race', 'in_progress', 100, 100)
   `).run();
+  db.prepare(`
+    INSERT INTO order_pickup_cell_assignments (id, order_id, cell_number)
+    VALUES ('cell_o_warmup_race', 'o_warmup_race', 1)
+  `).run();
   upsertStatusTemplate('order_assembled', {
     title: 'Заказ собран',
     body: 'Заказ №{order_number} собран.',
@@ -731,6 +735,10 @@ try {
   const accepted = await autoNotifyOrderAccepted({ orderId: 'o_new' });
   assertEq(accepted.sent, true, 'order_accepted sent');
   db.prepare(`UPDATE orders SET status = 'in_progress' WHERE id = 'o_new'`).run();
+  db.prepare(`
+    INSERT INTO order_pickup_cell_assignments (id, order_id, cell_number)
+    VALUES ('cell_o_new', 'o_new', 1)
+  `).run();
   const assembled = await autoNotifyForStatusChange({
     orderId: 'o_new',
     newStatus: 'in_progress',

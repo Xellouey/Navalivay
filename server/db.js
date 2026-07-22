@@ -66,6 +66,7 @@ import { migrateCategoryGroupTotalControl } from './migrations/add_total_control
 import { migrateInventoryLocations } from './migrations/add_inventory_locations.js';
 import { migrateReferralAuthorization } from './migrations/add_referral_authorization.js';
 import { migrateReferralWelcomeNotifications } from './migrations/add_referral_welcome_notifications.js';
+import { migratePickupCells } from './migrations/add_pickup_cells.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -231,6 +232,7 @@ export function initDb() {
   migrateInventoryLocations();
   migrateReferralAuthorization();
   migrateReferralWelcomeNotifications();
+  migratePickupCells();
 
   seedIfEmpty();
   seedDefaultLoyaltyData();

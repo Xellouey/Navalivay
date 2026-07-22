@@ -330,13 +330,13 @@
         </div>
       </div>
 
-      <div class="flex flex-col sm:flex-row sm:items-center gap-4">
+      <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4">
         <h1 class="text-2xl font-bold text-gray-900 sm:text-3xl shrink-0">Заказы</h1>
-        <div class="relative flex-1">
+        <div class="relative min-w-0 flex-1">
           <input
             v-model="searchQuery"
             type="search"
-            placeholder="Поиск по номеру заказа, имени клиента или username..."
+            placeholder="Ячейка 7, заказ #10456 или клиент..."
             class="w-full rounded-lg border border-gray-300 px-4 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
             @input="handleSearch"
           />
@@ -355,6 +355,19 @@
             />
           </svg>
         </div>
+        <button
+          type="button"
+          class="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-2 text-sm font-semibold text-indigo-700 transition hover:bg-indigo-100"
+          :aria-label="pickupCellsLoaded
+            ? `Ячейки: занято ${pickupCells.occupied} из ${pickupCells.capacity}`
+            : loadingPickupCells ? 'Ячейки: загружаются' : 'Ячейки: данные недоступны'"
+          @click="openPickupCellsModal"
+        >
+          <span>Ячейки</span>
+          <span v-if="pickupCellsLoaded">{{ pickupCells.occupied }}/{{ pickupCells.capacity }}</span>
+          <span v-else-if="loadingPickupCells">…/…</span>
+          <span v-else>—/—</span>
+        </button>
       </div>
 
       <!-- Розыгрыш отзывов: плашка для менеджеров на доске заказов -->
@@ -614,16 +627,26 @@
                     ? 'ring-2 ring-red-400 border-red-300 bg-red-50/30'
                     : '',
                 ]"
-                :draggable="!order.needs_manager_action"
+                :draggable="!order.needs_manager_action && updatingOrderId !== order.id"
                 @dragstart="onDragStart(order)"
                 @dragend="onDragEnd"
               >
                 <!-- Заголовок с номером и бейджами -->
                 <div class="flex items-center justify-between">
-                  <div
-                    class="flex items-center gap-2 text-sm font-semibold text-gray-900"
-                  >
-                    <span>#{{ order.order_number }}</span>
+                  <div class="flex min-w-0 flex-wrap items-center gap-2 text-sm font-semibold text-gray-900">
+                    <div v-if="order.pickup_cell_number" class="flex items-baseline gap-2">
+                      <span class="text-lg font-black text-gray-950">
+                        {{ order.pickup_cell_number }} ЯЧЕЙКА
+                      </span>
+                      <span class="font-medium text-gray-400">#{{ order.order_number }}</span>
+                    </div>
+                    <div v-else class="flex items-center gap-2">
+                      <span>#{{ order.order_number }}</span>
+                      <span
+                        v-if="order.status === 'in_progress'"
+                        class="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-800"
+                      >Без ячейки · старый заказ</span>
+                    </div>
                     <span
                       v-if="order.needs_manager_action && order.manager_action_type === 'modified'"
                       class="rounded-full bg-orange-100 px-2 py-0.5 text-[10px] font-semibold text-orange-700"
@@ -1089,10 +1112,11 @@
                     <button
                       v-if="canAdvance(order)"
                       @click.stop="deferClick(() => advanceOrder(order))"
+                      :disabled="updatingOrderId === order.id"
                       class="admin-link-button admin-link-button--compact"
                       :class="advanceButtonClass(order)"
                     >
-                      {{ nextStatusLabel(order.status) }}
+                      {{ updatingOrderId === order.id ? 'Назначаем ячейку...' : nextStatusLabel(order.status) }}
                     </button>
                   </div>
                 </div>
@@ -1564,6 +1588,90 @@
       </div>
     </AdminModal>
 
+    <AdminModal
+      :isOpen="pickupCellsModalOpen"
+      title="Ячейки хранения"
+      :description="pickupCellsLoaded
+        ? `Занято ${pickupCells.occupied} из ${pickupCells.capacity}`
+        : loadingPickupCells ? 'Загрузка данных…' : 'Данные недоступны'"
+      size="lg"
+      :showActions="false"
+      @close="closePickupCellsModal"
+      @cancel="closePickupCellsModal"
+    >
+      <div class="space-y-5">
+        <div class="rounded-xl border border-slate-200 bg-slate-50 p-4">
+          <label class="block text-sm font-semibold text-slate-800" for="pickup-cell-capacity">
+            Количество ячеек
+          </label>
+          <div class="mt-2 flex items-start gap-2">
+            <input
+              id="pickup-cell-capacity"
+              v-model.number="pickupCellCapacityInput"
+              type="number"
+              inputmode="numeric"
+              min="1"
+              max="100"
+              class="min-w-0 flex-1 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-200"
+              :disabled="savingPickupCellCapacity || !pickupCellsLoaded"
+            />
+            <button
+              type="button"
+              class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-60"
+              :disabled="savingPickupCellCapacity || !pickupCellsLoaded"
+              @click="savePickupCellCapacity"
+            >
+              {{ savingPickupCellCapacity ? 'Сохраняем...' : 'Сохранить' }}
+            </button>
+          </div>
+          <p v-if="pickupCellsError" class="mt-2 text-sm text-red-600" role="alert">
+            {{ pickupCellsError }}
+          </p>
+        </div>
+
+        <div v-if="loadingPickupCells" class="py-10 text-center text-sm text-slate-500">
+          Загружаем ячейки...
+        </div>
+        <div v-else-if="pickupCellsLoadError" class="py-8 text-center">
+          <p class="text-sm text-red-600">{{ pickupCellsLoadError }}</p>
+          <button
+            type="button"
+            class="mt-3 rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700"
+            @click="loadPickupCells"
+          >Повторить</button>
+        </div>
+        <div v-else class="grid grid-cols-4 gap-2 sm:grid-cols-5 md:grid-cols-8">
+          <button
+            v-for="cell in pickupCells.cells"
+            :key="cell.number"
+            type="button"
+            class="min-h-24 rounded-xl border p-2 text-left transition"
+            :class="cell.occupied
+              ? 'border-indigo-300 bg-indigo-50 hover:bg-indigo-100'
+              : 'cursor-default border-slate-200 bg-white text-slate-400'"
+            :disabled="!cell.occupied"
+            :aria-label="cell.occupied
+              ? `Ячейка ${cell.number}, занята заказом ${cell.order_number}, клиент ${cell.customer_name || 'без имени'}`
+              : `Ячейка ${cell.number}, свободна`"
+            @click="cell.order_id && openOrderFromPickupCell(cell.order_id)"
+          >
+            <span class="block text-lg font-black" :class="cell.occupied ? 'text-indigo-900' : 'text-slate-500'">
+              {{ cell.number }}
+            </span>
+            <template v-if="cell.occupied">
+              <span class="mt-1 block text-[11px] font-semibold text-indigo-800">#{{ cell.order_number }}</span>
+              <span
+                class="mt-0.5 block truncate text-[10px] text-indigo-700"
+                :title="cell.customer_name"
+              >{{ cell.customer_name }}</span>
+              <span class="mt-1 block text-[9px] uppercase tracking-wide text-indigo-500">Занята</span>
+            </template>
+            <span v-else class="mt-1 block text-[10px]">Свободна</span>
+          </button>
+        </div>
+      </div>
+    </AdminModal>
+
     <!-- In-app Toast Notification (Safari fallback) -->
     <Teleport to="body">
       <Transition name="toast-slide">
@@ -1629,6 +1737,8 @@ const {
   deliveredOrders: storeDeliveredOrders,
   deliveredStats,
   deliveredPagination,
+  pickupCells,
+  loadingPickupCells,
 } = storeToRefs(crmStore);
 
 const router = useRouter();
@@ -1960,6 +2070,63 @@ const paymentNotes = ref("");
 const isIssuing = ref(false);
 const dragOrder = ref<Order | null>(null);
 const activeDropColumn = ref<string | null>(null);
+const updatingOrderId = ref<string | null>(null);
+const pickupCellsModalOpen = ref(false);
+const pickupCellCapacityInput = ref(50);
+const pickupCellsError = ref("");
+const pickupCellsLoadError = ref("");
+const savingPickupCellCapacity = ref(false);
+const pickupCellsLoaded = ref(false);
+
+async function loadPickupCells() {
+  pickupCellsLoadError.value = "";
+  pickupCellsLoaded.value = false;
+  try {
+    await crmStore.fetchPickupCells();
+    pickupCellCapacityInput.value = pickupCells.value.capacity;
+    pickupCellsLoaded.value = true;
+  } catch (error: any) {
+    pickupCellsLoadError.value = error?.message || "Не удалось загрузить ячейки";
+  }
+}
+
+function openPickupCellsModal() {
+  pickupCellsModalOpen.value = true;
+  pickupCellsError.value = "";
+}
+
+function closePickupCellsModal() {
+  if (savingPickupCellCapacity.value) return;
+  pickupCellsModalOpen.value = false;
+}
+
+async function savePickupCellCapacity() {
+  pickupCellsError.value = "";
+  if (!pickupCellsLoaded.value) {
+    pickupCellsError.value = "Сначала загрузите данные о ячейках";
+    return;
+  }
+  const capacity = Number(pickupCellCapacityInput.value);
+  if (!Number.isInteger(capacity) || capacity < 1 || capacity > 100) {
+    pickupCellsError.value = "Введите целое число от 1 до 100";
+    return;
+  }
+  savingPickupCellCapacity.value = true;
+  try {
+    await crmStore.updatePickupCellCapacity(capacity);
+    pickupCellCapacityInput.value = pickupCells.value.capacity;
+    showOrderToast({ kind: "success", message: `Количество ячеек: ${capacity}` });
+  } catch (error: any) {
+    pickupCellsError.value = error?.message || "Не удалось сохранить количество ячеек";
+  } finally {
+    savingPickupCellCapacity.value = false;
+  }
+}
+
+function openOrderFromPickupCell(orderId: string) {
+  pickupCellsModalOpen.value = false;
+  viewOrder(orderId);
+}
 
 // Dropdown states
 const settingsDropdownOpen = ref(false);
@@ -2136,8 +2303,13 @@ async function handleResolveAction(order: Order) {
   resolvingOrderId.value = order.id;
   try {
     await crmStore.resolveManagerAction(order.id);
-  } catch (error) {
+    void loadPickupCells();
+  } catch (error: any) {
     console.error("[CRM] Resolve action failed:", error);
+    showOrderToast({
+      kind: "error",
+      message: error?.message || "Не удалось обработать заказ",
+    });
   } finally {
     resolvingOrderId.value = null;
   }
@@ -2391,13 +2563,14 @@ function canAdvance(order: Order) {
 
 async function advanceOrder(order: Order) {
   const nextStatus = nextStatusMap[order.status];
-  if (!nextStatus) return;
+  if (!nextStatus || updatingOrderId.value) return;
 
   if (nextStatus === "delivered") {
     await openPaymentModal(order);
     return;
   }
 
+  updatingOrderId.value = order.id;
   try {
     const updated = await crmStore.updateOrder(order.id, { status: nextStatus });
     markOrderSeen(order.id);
@@ -2405,12 +2578,19 @@ async function advanceOrder(order: Order) {
     // подтверждение «дошло / не дошло» прямо после клика, чтобы менеджер
     // не шёл в карточку заказа проверять плашку.
     const toast = buildAutoNotifyToast(updated.auto_notification, {
-      actionDescription: `Заказ #${order.order_number}: ${orderStatusLabel(nextStatus, order.delivery_type).toLowerCase()}`,
+      actionDescription: updated.pickup_cell_number
+        ? `Заказ #${order.order_number} собран · ячейка ${updated.pickup_cell_number}`
+        : `Заказ #${order.order_number}: ${orderStatusLabel(nextStatus, order.delivery_type).toLowerCase()}`,
     });
     showOrderToast(toast);
+    void loadPickupCells();
   } catch (error: any) {
-    const errorMessage = error?.message || "Не удалось изменить статус заказа";
+    const errorMessage = error?.code === "pickup_cells_full"
+      ? "Свободных ячеек нет. Выдайте или разберите заказ и повторите."
+      : error?.message || "Не удалось изменить статус заказа";
     showOrderToast({ kind: "error", message: `Заказ #${order.order_number}: ${errorMessage}` });
+  } finally {
+    updatingOrderId.value = null;
   }
 }
 
@@ -2514,6 +2694,7 @@ async function submitPayment() {
       actionDescription: `Заказ #${orderNumber}: ${orderStatusLabel("delivered", deliveryType).toLowerCase()}`,
     });
     showOrderToast(toast);
+    void loadPickupCells();
   } catch (error: any) {
     console.error("[CRM] Failed to issue order:", error);
     const errorMessage = error?.message || "Не удалось выдать заказ";
@@ -2639,6 +2820,7 @@ onMounted(async () => {
     void refreshUserbotStatus();
   }, 30_000);
   await refreshOrders({ skipNotify: true, trigger: 'initial', showBoardLoader: true });
+  void loadPickupCells();
   if (cashAccounts.value.length === 0) {
     await crmStore.fetchCashAccounts();
   }
@@ -2880,6 +3062,7 @@ async function confirmCancelOrder() {
   isCancelling.value = true;
   try {
     await crmStore.updateOrder(activeOrder.id, { status: "cancelled" });
+    void loadPickupCells();
     // Закрываем модалку напрямую
     cancelModalOpen.value = false;
     cancelOrder.value = null;

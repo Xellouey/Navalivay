@@ -153,4 +153,30 @@ describe("crm.fetchAPI — обработка 401", () => {
     expect(requestedUrl).toContain("limit=51");
     expect(requestedUrl).toContain("offset=50");
   });
+
+  it("загружает карту ячеек и сохраняет новый лимит", async () => {
+    const map = {
+      capacity: 50,
+      occupied: 1,
+      available: 49,
+      cells: [{ number: 1, occupied: true, order_id: "o1", order_number: 101 }],
+    };
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify(map), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const crmStore = useCrmStore();
+    await crmStore.fetchPickupCells();
+    await crmStore.updatePickupCellCapacity(60);
+
+    expect(crmStore.pickupCells.occupied).toBe(1);
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain("/pickup-cells");
+    expect(String(fetchMock.mock.calls[1]?.[0])).toContain("/pickup-cells/settings");
+    expect(fetchMock.mock.calls[1]?.[1]).toMatchObject({
+      method: "PATCH",
+      body: JSON.stringify({ capacity: 60 }),
+    });
+  });
 });

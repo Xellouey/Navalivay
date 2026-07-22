@@ -90,8 +90,12 @@ function makeOrderAndCustomer({ telegramId = '111', verified = true, totalOrders
   const orderId = 'o_test';
   db.prepare(
     `INSERT INTO orders (id, order_number, customer_id, status, total_amount)
-     VALUES (?, ?, ?, ?, ?)`,
-  ).run(orderId, 1001, customerId, 'new', 100);
+       VALUES (?, ?, ?, ?, ?)`,
+  ).run(orderId, 1001, customerId, 'in_progress', 100);
+  db.prepare(
+    `INSERT INTO order_pickup_cell_assignments (id, order_id, cell_number)
+     VALUES ('cell_o_test', ?, 1)`,
+  ).run(orderId);
   return { orderId, customerId };
 }
 
@@ -165,7 +169,11 @@ resetDb();
   db.prepare(
     `INSERT INTO orders (id, order_number, customer_id, status)
      VALUES (?, ?, ?, ?)`,
-  ).run('o_no_tg', 2002, 'c_no_tg', 'new');
+  ).run('o_no_tg', 2002, 'c_no_tg', 'in_progress');
+  db.prepare(
+    `INSERT INTO order_pickup_cell_assignments (id, order_id, cell_number)
+     VALUES ('cell_o_no_tg', 'o_no_tg', 1)`,
+  ).run();
   registerConnection();
 
   const result = await autoNotifyForStatusChange({
@@ -331,6 +339,13 @@ try {
     result.reason && /PEER_ID_INVALID/.test(result.reason),
     'reason содержит описание ошибки от userbot',
   );
+  const failedLog = db.prepare(
+    `SELECT meta FROM bot_message_log
+      WHERE template_event = 'order_cancelled'
+      ORDER BY id DESC LIMIT 1`,
+  ).get();
+  const failedMeta = JSON.parse(failedLog?.meta || '{}');
+  assertEq(failedMeta.outcome, 'failed', 'окончательный отказ записан как failed');
 } finally {
   globalThis.fetch = originalFetch;
   _resetHealthCacheForTests();
@@ -472,11 +487,8 @@ try {
   _resetHealthCacheForTests();
 }
 
-// --- TEST 15: userbot success → auto-notify не дублирует лог ---------------
-// Регрессия: userbot/index.js сам логирует исходящее в bot_message_log
-// (с meta.source='userbot', meta.outcome='sent'). Auto-notify в случае
-// userbot.ok НЕ должен дублировать запись через safeLog.
-console.log('\n=== Test 15: userbot success → auto-notify не дублирует лог ===');
+// --- TEST 15: API фиксирует цикл ячейки для защиты от повторов ---------------
+console.log('\n=== Test 15: success log contains assignment cycle ===');
 resetDb();
 makeOrderAndCustomer({ telegramId: '15151', verified: true });
 _resetHealthCacheForTests();
@@ -501,10 +513,11 @@ try {
   assertEq(result.sent, true, 'sent=true');
   assertEq(result.via, 'userbot', 'via=userbot');
   const after = db.prepare(`SELECT COUNT(*) AS n FROM bot_message_log`).get().n;
-  // Userbot HTTP-процесс пишет лог сам; auto-notify через mock-fetch
-  // его не пишет (это другой процесс). Поэтому в auto-notify добавляться
-  // не должно — иначе будет дубль когда оба процесса живы.
-  assertEq(after, before, 'auto-notify не записал дубль (userbot пишет сам)');
+  assertEq(after, before + 1, 'API записал статусный лог с циклом ячейки');
+  const log = db.prepare(`SELECT template_event, meta FROM bot_message_log ORDER BY id DESC LIMIT 1`).get();
+  const logMeta = JSON.parse(log.meta || '{}');
+  assertEq(log.template_event, 'order_assembled', 'лог привязан к шаблону сборки');
+  assertEq(logMeta.pickup_cell_assignment_id, 'cell_o_test', 'лог содержит цикл ячейки');
 } finally {
   globalThis.fetch = originalFetch;
   _resetHealthCacheForTests();
@@ -586,6 +599,45 @@ try {
   assertEq(meta.outcome, 'skipped', 'meta.outcome=skipped');
   assertEq(meta.reason, 'customer_blocked', 'meta.reason=customer_blocked');
   assertEq(meta.auto, true, 'meta.auto=true');
+} finally {
+  globalThis.fetch = originalFetch;
+  _resetHealthCacheForTests();
+}
+
+// --- TEST 18: освобождённую во время подготовки ячейку не отправляем -------
+console.log('\n=== Test 18: stale assembled message is cancelled before send ===');
+resetDb();
+makeOrderAndCustomer({ telegramId: '18181', verified: true });
+registerConnection();
+_resetHealthCacheForTests();
+let userbotHits18 = 0;
+globalThis.fetch = async (url) => {
+  const u = String(url);
+  if (u.includes('/resolve-username')) {
+    return { ok: true, async json() { return { ok: true, telegram_id: '18181' }; } };
+  }
+  if (u.includes('/health')) {
+    db.prepare(
+      `UPDATE order_pickup_cell_assignments
+          SET released_at = DATETIME('now'), release_reason = 'test_race'
+        WHERE id = 'cell_o_test'`,
+    ).run();
+    return { ok: true, async json() { return { ok: true, connected: true }; } };
+  }
+  if (u.includes('/send-message')) {
+    userbotHits18 += 1;
+    return { ok: true, async json() { return { ok: true }; } };
+  }
+  throw new Error(`unexpected fetch ${u}`);
+};
+try {
+  const result = await autoNotifyForStatusChange({
+    orderId: 'o_test',
+    newStatus: 'in_progress',
+    previousStatus: 'new',
+  });
+  assertEq(result.reason, 'pickup_cell_inactive', 'stale assignment is rejected');
+  assertEq(userbotHits18, 0, 'stale cell number is not sent');
 } finally {
   globalThis.fetch = originalFetch;
   _resetHealthCacheForTests();

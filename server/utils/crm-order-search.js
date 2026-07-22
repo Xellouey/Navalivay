@@ -6,7 +6,7 @@ export function escapeSqlLike(value) {
   return String(value).replace(/[\\%_]/g, (match) => `\\${match}`);
 }
 
-export function buildCrmOrdersSearch({ searchTerm }) {
+export function buildCrmOrdersSearch({ searchTerm, pickupCellCapacity = 0 }) {
   const term = String(searchTerm || '').trim();
 
   if (!term) {
@@ -19,12 +19,36 @@ export function buildCrmOrdersSearch({ searchTerm }) {
     };
   }
 
-  if (isNumericCrmOrderSearch(term)) {
+  const orderNumberWithHash = term.match(/^#\s*(\d+)$/);
+  const numericSearchTerm = orderNumberWithHash?.[1] || term;
+
+  if (isNumericCrmOrderSearch(numericSearchTerm)) {
+    const numericTerm = Number(numericSearchTerm);
+    if (
+      !orderNumberWithHash &&
+      Number.isInteger(numericTerm) &&
+      numericTerm >= 1 &&
+      numericTerm <= Number(pickupCellCapacity || 0)
+    ) {
+      return {
+        whereClause: `EXISTS (
+          SELECT 1
+          FROM order_pickup_cell_assignments pca
+          WHERE pca.order_id = o.id
+            AND pca.released_at IS NULL
+            AND pca.cell_number = ?
+        )`,
+        params: [numericTerm],
+        orderBy: 'o.created_at DESC',
+        orderByParams: [],
+        mode: 'pickup_cell_exact',
+      };
+    }
     return {
       whereClause: `o.order_number_search LIKE ? ESCAPE '\\'`,
-      params: [`${escapeSqlLike(term)}%`],
+      params: [`${escapeSqlLike(numericSearchTerm)}%`],
       orderBy: `CASE WHEN o.order_number_search = ? THEN 0 ELSE 1 END, o.created_at DESC`,
-      orderByParams: [term],
+      orderByParams: [numericSearchTerm],
       mode: 'order_number_prefix',
     };
   }

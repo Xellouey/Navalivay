@@ -476,6 +476,10 @@ function runTests() {
     INSERT INTO orders (id, order_number, customer_id, status, delivery_type, total_amount, final_amount, created_at, updated_at)
     VALUES ('order_t1', 1001, 'cust_v1', 'in_progress', 'pickup', 50, 50, DATETIME('now'), DATETIME('now'))
   `).run();
+  db.prepare(`
+    INSERT INTO order_pickup_cell_assignments (id, order_id, cell_number)
+    VALUES ('cell_order_t1', 'order_t1', 1)
+  `).run();
   const happy = prepareStatusNotification({ orderId: 'order_t1', event: 'order_assembled' });
   assertEq(happy.ok, true, 'ok=true');
   assertEq(happy.chatId, '777', 'chatId = telegram_id клиента');

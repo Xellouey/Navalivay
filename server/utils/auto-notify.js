@@ -29,8 +29,23 @@ import {
 } from './auto-notify-retry.js';
 import { db } from '../db.js';
 import { isCustomerAccessAuthorized } from './referral-authorization.js';
+import { getActivePickupCellAssignment } from './pickup-cells.js';
 
 export const ORDER_ACCEPTED_EVENT = 'order_accepted';
+
+function isPickupCellAssignmentCurrent(orderId, assignmentId) {
+  if (!orderId || !assignmentId) return false;
+  return Boolean(db.prepare(
+    `SELECT 1
+       FROM orders o
+       JOIN order_pickup_cell_assignments a ON a.order_id = o.id
+      WHERE o.id = ?
+        AND o.status = 'in_progress'
+        AND a.id = ?
+        AND a.released_at IS NULL
+      LIMIT 1`,
+  ).get(String(orderId), String(assignmentId)));
+}
 
 // Один общий прогрев на Telegram ID. Пока resolve идёт, все быстрые смены
 // статуса ждут тот же Promise; после успеха повторный resolve этому клиенту
@@ -174,6 +189,15 @@ function buildRetryScheduledResult({ event, reason = 'userbot_unavailable' }) {
  * @param {boolean} [args.fromRetry=false]
  */
 export async function executeAutoNotify({ orderId, event, fromRetry = false } = {}) {
+  const pickupCell = event === 'order_assembled'
+    ? getActivePickupCellAssignment(orderId)
+    : null;
+  if (event === 'order_assembled') {
+    const order = db.prepare(`SELECT status FROM orders WHERE id = ?`).get(String(orderId));
+    if (!order || order.status !== 'in_progress' || !pickupCell) {
+      return { sent: false, skipped: true, reason: 'pickup_cell_inactive', event };
+    }
+  }
   if (hasAutoNotifyBeenSent(orderId, event)) {
     return { sent: true, event, already_sent: true };
   }
@@ -199,7 +223,15 @@ export async function executeAutoNotify({ orderId, event, fromRetry = false } = 
       logBotMessage({
         ...baseLog,
         businessConnectionId,
-        meta: { order_id: orderId, auto: true, ...extra },
+        meta: {
+          order_id: orderId,
+          auto: true,
+          ...(pickupCell ? {
+            pickup_cell_assignment_id: pickupCell.id,
+            pickup_cell_number: pickupCell.cell_number,
+          } : {}),
+          ...extra,
+        },
       });
     } catch (logErr) {
       console.error('[auto-notify] logBotMessage failed:', logErr);
@@ -234,6 +266,9 @@ export async function executeAutoNotify({ orderId, event, fromRetry = false } = 
   }
 
   if (!(await isUserbotAvailable())) {
+    if (pickupCell && !isPickupCellAssignmentCurrent(orderId, pickupCell.id)) {
+      return { sent: false, skipped: true, reason: 'pickup_cell_inactive', event };
+    }
     const schedule = scheduleAutoNotifyRetry({
       orderId,
       event,
@@ -251,6 +286,12 @@ export async function executeAutoNotify({ orderId, event, fromRetry = false } = 
     return { sent: false, skipped: true, reason: 'userbot_unavailable', event };
   }
 
+  // Подготовка получателя и проверка userbot могут занять время. Перед самым
+  // запросом убеждаемся, что клиенту не уйдёт уже освобождённый номер.
+  if (pickupCell && !isPickupCellAssignmentCurrent(orderId, pickupCell.id)) {
+    return { sent: false, skipped: true, reason: 'pickup_cell_inactive', event };
+  }
+
   const ubResult = await sendViaUserbot({
     chatId: prepared.chatId,
     text: prepared.text,
@@ -261,14 +302,13 @@ export async function executeAutoNotify({ orderId, event, fromRetry = false } = 
   });
 
   if (ubResult.ok) {
-    // order_accepted: userbot не пишет template_event — маркер для идемпотентности.
-    if (event === ORDER_ACCEPTED_EVENT) {
-      safeLog({
-        outcome: 'sent',
-        via: 'userbot',
-        telegram_message_id: ubResult.telegram_message_id ?? null,
-      });
-    }
+    // Журнал API хранит template_event и цикл ячейки; журнал userbot этого
+    // контекста не знает и не подходит для защиты от повторной отправки.
+    safeLog({
+      outcome: 'sent',
+      via: 'userbot',
+      telegram_message_id: ubResult.telegram_message_id ?? null,
+    });
     return {
       sent: true,
       event,
@@ -307,9 +347,22 @@ export async function executeAutoNotify({ orderId, event, fromRetry = false } = 
     if (schedule.scheduled) {
       return buildRetryScheduledResult({ event, reason: 'userbot_unreachable' });
     }
+    return {
+      sent: false,
+      skipped: true,
+      reason: ubResult.error || 'userbot_unreachable',
+      event,
+      via: 'userbot',
+    };
   }
 
   console.warn(`[auto-notify] userbot ${ubResult.outcome}:`, ubResult.error);
+  safeLog({
+    outcome: 'failed',
+    via: 'userbot',
+    reason: ubResult.error || 'send_failed',
+    error: ubResult.error || 'send_failed',
+  });
   return {
     sent: false,
     reason: ubResult.error || 'send_failed',

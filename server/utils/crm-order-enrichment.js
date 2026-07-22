@@ -66,6 +66,17 @@ export function enrichOrdersWithRelations(db, orders) {
     return acc;
   }, new Map());
 
+  const cellRows = db
+    .prepare(
+      `SELECT order_id, id AS pickup_cell_assignment_id, cell_number AS pickup_cell_number,
+              assigned_at AS pickup_cell_assigned_at
+         FROM order_pickup_cell_assignments
+        WHERE released_at IS NULL
+          AND order_id IN (${placeholders})`,
+    )
+    .all(...orderIds);
+  const cellByOrder = new Map(cellRows.map((row) => [row.order_id, row]));
+
   const notifyRows = db
     .prepare(
       `SELECT json_extract(meta, '$.order_id') AS order_id, meta, id
@@ -204,6 +215,11 @@ export function enrichOrdersWithRelations(db, orders) {
         : null;
     return {
       ...order,
+      pickup_cell_number: cellByOrder.get(order.id)?.pickup_cell_number ?? null,
+      pickup_cell_assignment_id:
+        cellByOrder.get(order.id)?.pickup_cell_assignment_id ?? null,
+      pickup_cell_assigned_at:
+        cellByOrder.get(order.id)?.pickup_cell_assigned_at ?? null,
       items: itemsByOrder.get(order.id) || [],
       auto_notification: notifyByOrder.get(order.id) || null,
       is_returning_customer: returningMap.get(order.customer_id) || false,

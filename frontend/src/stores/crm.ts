@@ -114,6 +114,9 @@ export interface Order {
   created_at: string;
   updated_at: string;
   completed_at: string | null;
+  pickup_cell_number?: number | null;
+  pickup_cell_assignment_id?: string | null;
+  pickup_cell_assigned_at?: string | null;
   payment_type?: "cash" | "card" | null;
   payment_account_id?: string | null;
   paid_amount?: number | null;
@@ -166,6 +169,24 @@ export interface Order {
     access_authorization_source: string | null;
     access_authorized_by: string | null;
   } | null;
+}
+
+export interface PickupCell {
+  number: number;
+  occupied: boolean;
+  assignment_id?: string;
+  assigned_at?: string;
+  order_id?: string;
+  order_number?: number;
+  status?: Order["status"];
+  customer_name?: string;
+}
+
+export interface PickupCellsState {
+  capacity: number;
+  occupied: number;
+  available: number;
+  cells: PickupCell[];
 }
 
 export interface PendingCustomerNote {
@@ -1567,6 +1588,33 @@ export const useCrmStore = defineStore("crm", () => {
     total: 0,
     totalPages: 0,
   });
+  const pickupCells = ref<PickupCellsState>({
+    capacity: 50,
+    occupied: 0,
+    available: 50,
+    cells: [],
+  });
+  const loadingPickupCells = ref(false);
+
+  async function fetchPickupCells() {
+    loadingPickupCells.value = true;
+    try {
+      pickupCells.value = await fetchAPI<PickupCellsState>(
+        `${API_BASE}/pickup-cells`,
+      );
+      return pickupCells.value;
+    } finally {
+      loadingPickupCells.value = false;
+    }
+  }
+
+  async function updatePickupCellCapacity(capacity: number) {
+    pickupCells.value = await fetchAPI<PickupCellsState>(
+      `${API_BASE}/pickup-cells/settings`,
+      { method: "PATCH", body: JSON.stringify({ capacity }) },
+    );
+    return pickupCells.value;
+  }
 
   type KanbanBoardSyncResponse = {
     latestOrderActivityAt: string | null;
@@ -2931,6 +2979,10 @@ export const useCrmStore = defineStore("crm", () => {
     currentOrder,
     loadingOrders,
     ordersPagination,
+    pickupCells,
+    loadingPickupCells,
+    fetchPickupCells,
+    updatePickupCellCapacity,
     fetchOrders,
     fetchKanbanBoard,
     syncKanbanBoardSince,

@@ -36,6 +36,14 @@ import {
 import { buildTotalControlGroups } from "../utils/total-control-groups.js";
 import { syncGroupParking } from "../utils/group-parking.js";
 import { attachFirstOrderToReferral } from "../utils/referral-authorization.js";
+import {
+  assignLowestAvailablePickupCell,
+  getActivePickupCellAssignment,
+  getPickupCellCapacity,
+  listPickupCells,
+  releaseActivePickupCell,
+  setPickupCellCapacity,
+} from "../utils/pickup-cells.js";
 
 export const crmOperationsRouter = express.Router();
 
@@ -270,6 +278,45 @@ function buildAdminOrderItemsWithLoyalty({
 // =========================
 // ORDERS (Заказы)
 // =========================
+crmOperationsRouter.get(
+  "/api/admin/crm/pickup-cells/settings",
+  authMiddleware,
+  (_req, res) => {
+    res.json({ capacity: getPickupCellCapacity() });
+  },
+);
+
+crmOperationsRouter.patch(
+  "/api/admin/crm/pickup-cells/settings",
+  authMiddleware,
+  (req, res) => {
+    try {
+      res.json(setPickupCellCapacity(req.body?.capacity));
+    } catch (error) {
+      const status = error.code === "pickup_cell_capacity_in_use" ? 409 : 400;
+      res.status(status).json({
+        error: error.code || "invalid_pickup_cell_capacity",
+        message: error.message,
+        cell_number: error.cell_number || null,
+        order_id: error.order_id || null,
+      });
+    }
+  },
+);
+
+crmOperationsRouter.get(
+  "/api/admin/crm/pickup-cells",
+  authMiddleware,
+  (_req, res) => {
+    try {
+      res.json(listPickupCells());
+    } catch (error) {
+      console.error("[crm] Get pickup cells error:", error);
+      res.status(500).json({ error: "failed", message: error.message });
+    }
+  },
+);
+
 crmOperationsRouter.get("/api/admin/crm/orders/poll-summary", authMiddleware, (req, res) => {
   try {
     const summary = buildCrmOrderPollSummary({ db });
@@ -337,7 +384,10 @@ crmOperationsRouter.get("/api/admin/crm/orders", authMiddleware, (req, res) => {
     if (search) {
       const searchTerm = String(search).trim();
       if (searchTerm) {
-        const searchSpec = buildCrmOrdersSearch({ searchTerm });
+        const searchSpec = buildCrmOrdersSearch({
+          searchTerm,
+          pickupCellCapacity: getPickupCellCapacity(),
+        });
         whereClauses.push(searchSpec.whereClause);
         params.push(...searchSpec.params);
         orderByClause = searchSpec.orderBy;
@@ -682,7 +732,13 @@ crmOperationsRouter.get(
         )
         .all(id);
 
-      res.json({ ...order, items });
+      const pickupCell = getActivePickupCellAssignment(id);
+      res.json({
+        ...order,
+        pickup_cell_number: pickupCell?.cell_number ?? null,
+        pickup_cell_assignment_id: pickupCell?.id ?? null,
+        items,
+      });
     } catch (error) {
       console.error("[crm] Get order error:", error);
       res.status(500).json({ error: "failed", message: error.message });
@@ -1011,7 +1067,8 @@ crmOperationsRouter.patch(
 
       let desiredStatus = order.status;
       if (reactivate && order.status === "cancelled") {
-        desiredStatus = order.previous_status || "in_progress";
+        // После отмены заказ собирается заново: старое место уже могло быть занято.
+        desiredStatus = "new";
       }
       if (status !== undefined) {
         desiredStatus = status;
@@ -1045,6 +1102,13 @@ crmOperationsRouter.patch(
           .get(id);
         if (fresh) {
           statusAtTxStart = fresh.status;
+        }
+
+        if (
+          desiredStatus === "in_progress" &&
+          statusAtTxStart !== "in_progress"
+        ) {
+          assignLowestAvailablePickupCell(id);
         }
 
         const updateFields = [];
@@ -1537,6 +1601,16 @@ crmOperationsRouter.patch(
           }
         }
 
+        if (desiredStatus !== statusAtTxStart) {
+          if (["delivered", "completed"].includes(desiredStatus)) {
+            releaseActivePickupCell(id, "issued");
+          } else if (desiredStatus === "cancelled") {
+            releaseActivePickupCell(id, "cancelled_by_manager");
+          } else if (desiredStatus === "new") {
+            releaseActivePickupCell(id, "returned_to_new");
+          }
+        }
+
         if (desiredStatus === "delivered") {
           awardLoyaltyForOrder(id);
           try {
@@ -1616,8 +1690,11 @@ crmOperationsRouter.patch(
       // saveSuccess сразу после ответа, может перезапустить через
       // /bot/send-custom если что-то не дошло.
       const statusChanged = updated.status !== statusAtTxStart;
+      const activePickupCell = getActivePickupCellAssignment(id);
       res.json({
         ...updated,
+        pickup_cell_number: activePickupCell?.cell_number ?? null,
+        pickup_cell_assignment_id: activePickupCell?.id ?? null,
         items: updatedItems,
         auto_notification: statusChanged ? { pending: true } : null,
       });
@@ -1636,6 +1713,12 @@ crmOperationsRouter.patch(
       }
     } catch (error) {
       console.error("[crm] Update order error:", error);
+      if (error.code === "pickup_cells_full") {
+        return res.status(409).json({
+          error: "pickup_cells_full",
+          message: "Свободных ячеек нет. Выдайте или разберите заказ и повторите.",
+        });
+      }
       const clientErrors = new Set([
         "invalid_payment_type",
         "invalid_status",
@@ -1735,6 +1818,8 @@ crmOperationsRouter.post(
             WHERE id = ?`,
           ).run(id);
 
+          releaseActivePickupCell(id, "customer_modification_resolved");
+
           recordStatusChange(id, order.status, "new", "Менеджер принял изменения, заказ на пересборку");
         } else if (order.manager_action_type === "cancelled_by_customer") {
           // Отмененный покупателем - просто сбрасываем флаг, заказ остается cancelled
@@ -1745,6 +1830,8 @@ crmOperationsRouter.post(
               updated_at = DATETIME('now')
             WHERE id = ?`,
           ).run(id);
+
+          releaseActivePickupCell(id, "customer_cancellation_resolved");
 
           recordStatusChange(id, order.status, order.status, "Менеджер подтвердил отмену, заказ разобран");
         } else {
@@ -1883,6 +1970,8 @@ crmOperationsRouter.post(
       `,
         ).run(transactionId, payment_account_id, parsedAmount, description, id);
 
+        releaseActivePickupCell(id, "issued");
+
         db.prepare(
           "UPDATE cash_accounts SET balance = balance + ? WHERE id = ?",
         ).run(parsedAmount, payment_account_id);
@@ -1996,6 +2085,11 @@ crmOperationsRouter.delete(
       }
 
       const restoredStatus = order.previous_status || "in_progress";
+      const hadPickupCellHistory = Boolean(
+        db.prepare(
+          `SELECT 1 FROM order_pickup_cell_assignments WHERE order_id = ? LIMIT 1`,
+        ).get(id),
+      );
 
       const tx = db.transaction(() => {
         for (const transaction of transactions) {
@@ -2031,6 +2125,11 @@ crmOperationsRouter.delete(
         WHERE id = ?
       `,
         ).run(restoredStatus, id);
+
+        // Старый собранный заказ без истории ячеек остаётся legacy-заказом.
+        if (restoredStatus === "in_progress" && hadPickupCellHistory) {
+          assignLowestAvailablePickupCell(id);
+        }
 
         if (order.promo_code_id) {
           if (["completed", "delivered"].includes(restoredStatus)) {
@@ -2074,9 +2173,21 @@ crmOperationsRouter.delete(
         "Оплата отменена",
       );
 
-      res.json({ ...updatedOrder, items: updatedItems });
+      const restoredCell = getActivePickupCellAssignment(id);
+      res.json({
+        ...updatedOrder,
+        pickup_cell_number: restoredCell?.cell_number ?? null,
+        pickup_cell_assignment_id: restoredCell?.id ?? null,
+        items: updatedItems,
+      });
     } catch (error) {
       console.error("[crm] Remove order payment error:", error);
+      if (error.code === "pickup_cells_full") {
+        return res.status(409).json({
+          error: "pickup_cells_full",
+          message: "Свободных ячеек нет. Нельзя вернуть заказ в собранные.",
+        });
+      }
       res.status(500).json({ error: "failed", message: error.message });
     }
   },

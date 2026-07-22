@@ -710,6 +710,7 @@ async function testIssuedOrderPaymentRollbackAndCancellationRestoreStock() {
 
   assert.equal(paymentRemoved.response.status, 200);
   assert.equal(paymentRemoved.data.status, "in_progress");
+  assert.equal(paymentRemoved.data.pickup_cell_number, null);
   assert.equal(paymentRemoved.data.paid_amount, null);
   assert.equal(paymentRemoved.data.completed_at, null);
   assert.equal(getProductStock(productId), 1);

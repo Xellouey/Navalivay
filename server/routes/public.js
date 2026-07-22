@@ -51,6 +51,7 @@ import {
   isCustomerVerified,
 } from "../utils/business-bot.js";
 import { autoNotifyOrderAcceptedAfterRecipientWarmup } from "../utils/auto-notify.js";
+import { getActivePickupCellAssignment } from "../utils/pickup-cells.js";
 import {
   activatePendingInviteBanForCustomer,
   activatePendingStaffAccess,
@@ -651,6 +652,7 @@ function loadCustomerOrderItems(orderId) {
 function serializeCustomerOrder(order) {
   const items = loadCustomerOrderItems(order.id);
   const isActive = ACTIVE_CUSTOMER_ORDER_STATUSES.has(order.status);
+  const pickupCell = getActivePickupCellAssignment(order.id);
   const wholesaleTier = order.wholesale_tier_id
     ? getWholesaleTierById(order.wholesale_tier_id)
     : null;
@@ -660,6 +662,8 @@ function serializeCustomerOrder(order) {
     id: order.id,
     order_number: order.order_number,
     status: order.status,
+    pickup_cell_number:
+      order.status === "in_progress" ? pickupCell?.cell_number ?? null : null,
     delivery_type: order.delivery_type,
     delivery_address: order.delivery_address || null,
     phone: order.phone || null,

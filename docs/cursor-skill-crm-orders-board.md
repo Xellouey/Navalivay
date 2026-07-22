@@ -33,6 +33,10 @@ ALTER TABLE orders ADD COLUMN manager_action_resolved_at TEXT;
 | GET | `/api/admin/crm/orders/:id/history` | История статусов заказа |
 | PATCH | `/api/admin/crm/orders/:id` | Обновить заказ |
 | POST | `/api/admin/crm/orders/:id/resolve-action` | Подтвердить действие менеджера |
+| GET | `/api/admin/crm/pickup-cells` | Карта ячеек хранения |
+| GET/PATCH | `/api/admin/crm/pickup-cells/settings` | Лимит ячеек |
+
+Правила назначения, освобождения, поиска и уведомлений описаны в `docs/pickup-cell-rules.md`.
 
 **ВАЖНО**: Роут `/orders/delivered` ДОЛЖЕН быть определен ПЕРЕД `/orders/:id`, иначе Express парсит "delivered" как id.
 
