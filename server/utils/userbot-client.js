@@ -214,6 +214,71 @@ export async function sendViaUserbot({
   return { ok: true, telegram_message_id: data.telegram_message_id ?? null };
 }
 
+export async function listUserbotQuickReplies() {
+  try {
+    const headers = {};
+    if (SHARED_SECRET) headers['X-Userbot-Secret'] = SHARED_SECRET;
+    const response = await fetch(`${USERBOT_BASE}/quick-replies`, {
+      headers,
+      signal: AbortSignal.timeout(10_000),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data?.ok) {
+      return { ok: false, error: data?.error || `http_${response.status}` };
+    }
+    return { ok: true, quick_replies: data.quick_replies || [] };
+  } catch (err) {
+    return classifyFetchError(err);
+  }
+}
+
+export async function sendQuickReplyViaUserbot({
+  chatId,
+  shortcut,
+  idempotencyKey,
+} = {}) {
+  if (!chatId || !shortcut || !idempotencyKey) {
+    return { ok: false, outcome: 'rejected', error: 'invalid_payload' };
+  }
+  try {
+    const headers = { 'Content-Type': 'application/json' };
+    if (SHARED_SECRET) headers['X-Userbot-Secret'] = SHARED_SECRET;
+    const response = await fetch(`${USERBOT_BASE}/send-quick-reply`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        chat_id: String(chatId),
+        shortcut: String(shortcut),
+        idempotency_key: String(idempotencyKey),
+      }),
+      signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (response.ok && data?.ok) {
+      return {
+        ok: true,
+        shortcut: data.shortcut,
+        telegram_message_ids: data.telegram_message_ids || [],
+      };
+    }
+    if (response.status === 429 || response.status === 503) {
+      return {
+        ok: false,
+        outcome: 'unreachable',
+        error: data?.error || `http_${response.status}`,
+        retry_after_seconds: data?.retry_after_seconds,
+      };
+    }
+    return {
+      ok: false,
+      outcome: 'rejected',
+      error: data?.error || `http_${response.status}`,
+    };
+  } catch (err) {
+    return classifyFetchError(err);
+  }
+}
+
 /**
  * Явная подготовка Telegram entity перед первым auto-notify. В критической
  * цепочке caller обязан дождаться результата; второстепенные места могут

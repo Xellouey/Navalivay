@@ -29,6 +29,11 @@ import { Api } from 'telegram';
 import { NewMessage } from 'telegram/events/index.js';
 import { createClient, loadSavedSession, redactSecrets } from './client.js';
 import { createRateLimiter } from './rate-limiter.js';
+import {
+  findQuickReply,
+  listQuickReplies,
+  sendQuickReply,
+} from './quick-replies.js';
 import { db } from '../db.js';
 
 const PORT = Number(process.env.USERBOT_HTTP_PORT || 8083);
@@ -748,6 +753,148 @@ function parseUserChatId(raw) {
   if (!/^[1-9]\d{0,18}$/.test(s)) return null; // только положительные, без ведущих нулей
   return s;
 }
+
+async function getKnownRecipientPeer(chatId) {
+  try {
+    return await client.getInputEntity(BigInt(chatId));
+  } catch {
+    // Пробуем сохранённый access_hash: он появляется только после реального
+    // диалога клиента с менеджером, поэтому холодной рассылки здесь нет.
+  }
+  const stored = stmtGetEntityAccessHash.get(chatId);
+  if (stored?.access_hash) {
+    return new Api.InputPeerUser({
+      userId: BigInt(chatId),
+      accessHash: BigInt(stored.access_hash),
+    });
+  }
+  await prefetchDialogs(`quick-reply-entity-miss-${chatId}`);
+  try {
+    return await client.getInputEntity(BigInt(chatId));
+  } catch {
+    return null;
+  }
+}
+
+app.get('/quick-replies', checkSecret, async (_req, res) => {
+  try {
+    if (!client.connected || sessionDead) {
+      return res.status(503).json({ ok: false, error: 'disconnected' });
+    }
+    const quickReplies = await listQuickReplies(client);
+    return res.json({ ok: true, quick_replies: quickReplies });
+  } catch (err) {
+    const errorText = redactSecrets(err?.errorMessage || err?.message || err);
+    if (looksLikeSessionDead(errorText)) {
+      sessionDead = true;
+      sessionDeadReason = errorText;
+      logEvent('session_dead', { source: 'quick_replies_list', error: errorText });
+    }
+    console.error('[userbot] quick-replies list error:', errorText);
+    return res.status(502).json({ ok: false, error: 'quick_replies_failed' });
+  }
+});
+
+app.post('/send-quick-reply', checkSecret, async (req, res) => {
+  const chatId = parseUserChatId(req.body?.chat_id);
+  const shortcutName = String(req.body?.shortcut || '').trim();
+  const idempotencyKey = String(req.body?.idempotency_key || '').trim();
+  if (!chatId || !shortcutName || !idempotencyKey || idempotencyKey.length > 200) {
+    return res.status(400).json({ ok: false, error: 'invalid_payload' });
+  }
+  if (floodWaitUntil > Date.now()) {
+    return res.status(429).json({
+      ok: false,
+      error: 'flood_wait',
+      retry_after_seconds: Math.ceil((floodWaitUntil - Date.now()) / 1000),
+    });
+  }
+  if (!client.connected || sessionDead) {
+    return res.status(503).json({ ok: false, error: 'disconnected' });
+  }
+  if (stmtCheckBlockForTgId.get(chatId)) {
+    logEvent('blocked', { chat_id: chatId, quick_reply: shortcutName, auto: true });
+    return res.status(403).json({ ok: false, error: 'customer_blocked' });
+  }
+
+  try {
+    await rateLimitedDelay();
+    const peer = await getKnownRecipientPeer(chatId);
+    if (!peer) {
+      return res.status(422).json({ ok: false, error: 'entity_not_found_no_dialog' });
+    }
+    const shortcuts = await listQuickReplies(client);
+    const shortcut = findQuickReply(shortcuts, shortcutName);
+    if (!shortcut) {
+      logEvent('quick_reply', { outcome: 'not_found', shortcut: shortcutName });
+      return res.status(404).json({ ok: false, error: 'quick_reply_not_found' });
+    }
+    const result = await sendQuickReply({
+      client,
+      peer,
+      shortcut,
+      idempotencyKey,
+    });
+    logEvent('quick_reply', {
+      outcome: 'sent',
+      chat_id: chatId,
+      shortcut: shortcut.name,
+      message_ids: result.messageIds,
+    });
+    // Telegram уже принял сообщение: ошибка локального журнала не должна
+    // превращать успех в 502 и провоцировать повторную отправку.
+    res.json({ ok: true, shortcut: shortcut.name, telegram_message_ids: result.messageIds });
+    setImmediate(() => {
+      try {
+        const customer = stmtFindCustomer.get(chatId);
+        stmtInsertLog.run(
+          chatId,
+          customer?.id || null,
+          chatId,
+          'out',
+          'quick_reply',
+          `/${shortcut.name}`,
+          JSON.stringify({
+            source: 'userbot',
+            outcome: 'sent',
+            auto: true,
+            shortcut: shortcut.name,
+            telegram_message_ids: result.messageIds,
+          }),
+        );
+      } catch (logError) {
+        console.error('[userbot] quick-reply log error:', redactSecrets(logError?.message || logError));
+      }
+    });
+    return;
+  } catch (err) {
+    const rawError = err?.errorMessage || err?.message || String(err);
+    const floodMatch = rawError.match(/FLOOD(?:_WAIT)?[_\s]+(\d+)/i);
+    const floodSeconds = Number(err?.seconds || floodMatch?.[1] || 0);
+    if (floodSeconds > 0) {
+      floodWaitUntil = Date.now() + Math.min(floodSeconds, FLOOD_WAIT_CAP_SEC) * 1000;
+      return res.status(429).json({
+        ok: false,
+        error: 'flood_wait',
+        retry_after_seconds: floodSeconds,
+      });
+    }
+    if (looksLikeSessionDead(rawError)) {
+      sessionDead = true;
+      sessionDeadReason = redactSecrets(rawError);
+      logEvent('session_dead', { source: 'send_quick_reply', error: sessionDeadReason });
+      return res.status(503).json({ ok: false, error: 'session_dead' });
+    }
+    logEvent('quick_reply', {
+      outcome: 'failed',
+      chat_id: chatId,
+      shortcut: shortcutName,
+      error: redactSecrets(rawError),
+    });
+    console.error('[userbot] sendQuickReply error:', redactSecrets(rawError));
+    return res.status(502).json({ ok: false, error: 'quick_reply_send_failed' });
+  }
+});
 
 // Лимит длины: Telegram режет на 4096, если прислать больше — ошибка
 // MESSAGE_TOO_LONG. Отрезать самим, чтобы не тратить попытку.

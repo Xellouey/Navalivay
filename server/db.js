@@ -65,6 +65,7 @@ import { migratePendingNotifications } from './migrations/add_pending_notificati
 import { migrateCategoryGroupTotalControl } from './migrations/add_total_control_to_category_groups.js';
 import { migrateInventoryLocations } from './migrations/add_inventory_locations.js';
 import { migrateReferralAuthorization } from './migrations/add_referral_authorization.js';
+import { migrateReferralWelcomeNotifications } from './migrations/add_referral_welcome_notifications.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -229,6 +230,7 @@ export function initDb() {
   migrateCategoryGroupTotalControl();
   migrateInventoryLocations();
   migrateReferralAuthorization();
+  migrateReferralWelcomeNotifications();
 
   seedIfEmpty();
   seedDefaultLoyaltyData();

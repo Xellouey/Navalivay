@@ -20,6 +20,7 @@ import { wheelRouter } from './routes/wheel.js';
 import { archiveOldDeliveredOrders, scheduleArchiving } from './cleanup-delivered-orders.js';
 import { scheduleReviewMonthlyDraw } from './utils/schedule-review-monthly-draw.js';
 import { startAutoNotifyRetryWorker } from './utils/auto-notify-retry.js';
+import { startReferralWelcomeNotificationWorker } from './utils/referral-welcome-notify.js';
 import { DEV_BACKEND_PORT, PROD_BACKEND_PORT } from '../shared/runtime-ports.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -94,6 +95,7 @@ scheduleReviewMonthlyDraw();
 
 // Повтор авто-уведомлений при временной недоступности userbot
 startAutoNotifyRetryWorker();
+startReferralWelcomeNotificationWorker();
 
 // Middlewares
 app.use(morgan(':method :safe-url :status :response-time ms - :res[content-length]'));

@@ -413,6 +413,13 @@ export function markReferralAuthorized({ customerId, telegramId, inviter, submit
       telegram_id, customer_id, submitted_username, outcome, attempt_number, inviter_customer_id
     ) VALUES (?, ?, ?, 'authorized', NULL, ?)
   `).run(String(telegramId), customerId, username, inviter.id);
+  // Отправка выполняется воркером после фиксации транзакции. PRIMARY KEY по
+  // customer_id не даёт повторному запросу авторизации прислать второй /Прайс.
+  db.prepare(`
+    INSERT OR IGNORE INTO referral_welcome_notifications (
+      customer_id, telegram_id, status, attempts, next_attempt_at
+    ) VALUES (?, ?, 'pending', 0, DATETIME('now'))
+  `).run(customerId, String(telegramId));
 }
 
 export function authorizeCustomerWithoutReferral(customerId, source = 'staff') {

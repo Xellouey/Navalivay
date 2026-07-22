@@ -272,6 +272,23 @@ try {
   assert.equal(referral.getReferralOrderCreationGate('900').allowed, true);
   const relation = db.prepare('SELECT * FROM customer_referrals WHERE invitee_customer_id = ?').get(failedCustomer.id);
   assert.equal(relation.inviter_customer_id, 'eligible');
+  assert.equal(
+    db.prepare('SELECT COUNT(*) count FROM referral_welcome_notifications WHERE customer_id = ?')
+      .get(failedCustomer.id).count,
+    1,
+  );
+  referral.markReferralAuthorized({
+    customerId: failedCustomer.id,
+    telegramId: '900',
+    inviter: valid.inviter,
+    submittedUsername: '@Good_User',
+    orderId: 'first_new_order',
+  });
+  assert.equal(
+    db.prepare('SELECT COUNT(*) count FROM referral_welcome_notifications WHERE customer_id = ?')
+      .get(failedCustomer.id).count,
+    1,
+  );
 
   db.prepare("UPDATE customers SET telegram_username = 'CurrentGood' WHERE id = 'eligible'").run();
   const listRow = referral.listReferralAuthorizations().find((row) => row.telegram_id === '900');
