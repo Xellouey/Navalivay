@@ -28,6 +28,20 @@ That reference applies to the user/customer app only. It does not define the vis
 
 Use the current implemented customer UI as the canonical source of truth unless the user explicitly provides a newer screenshot or Figma correction.
 
+## Обязательный порядок разработки
+
+Перед началом задачи прочитать `docs/development-workflow-for-agents.md` и следовать ему.
+
+Коротко:
+
+1. Сначала изучить существующий код, интерфейс, связанные правила и присланные материалы.
+2. Если меняется видимый пользовательский сценарий, интерфейс или пользовательский текст, а также структура его действий и состояний, до реализации провести короткий UX-разбор и составить микроплан.
+3. Реализовать изменение и покрыть бизнес-логику, ошибки и граничные случаи тестами.
+4. После любых видимых UI-правок проверить готовый интерфейс через `ux-improver`.
+5. После реализации прогонять `code-reviewer`, проверять замечания по коду и требованиям, исправлять подтверждённые и повторять проверку до нуля подтверждённых замечаний.
+
+Предварительный UX-разбор обязателен, когда меняется видимый пользовательский сценарий или интерфейс: для новых и существенно изменённых экранов, модалок, форм, навигации и многошаговых действий. Для серверной логики без видимых изменений, а также простой замены текста или оформления без изменения поведения предварительный разбор не нужен. После видимых правок итоговая UX-проверка всё равно обязательна.
+
 ## Additional Project References
 
 Read these when the task touches the matching area:
@@ -87,8 +101,8 @@ copied here so they live with the project, not just in editor configs.
 ### From Claude Code (~/.claude/projects/*/memory/)
 
 - `docs/claude-memory-index.md` — index of Claude feedback rules
-- `docs/claude-feedback-code-review-loop.md` — run code-reviewer until 0 violations
-- `docs/claude-feedback-ux-improver.md` — run ux-improver after UI changes
+- `docs/claude-feedback-code-review-loop.md` — run code-reviewer until 0 confirmed findings
+- `docs/claude-feedback-ux-improver.md` — run ux-improver before substantial UI flows and after UI changes
 
 ## Subsystems
 
