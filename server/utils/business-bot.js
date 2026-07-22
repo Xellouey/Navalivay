@@ -881,20 +881,17 @@ export function prepareStatusNotification({ orderId, event, storeName, pickupCel
     return { ok: false, reason: 'variables_unavailable' };
   }
   let text = renderTemplate(template.body, variables);
-  // Пустой редактируемый шаблон остаётся ошибкой: одна системная строка
-  // про ячейку не должна скрывать неверную настройку сообщения.
+  // Пустой редактируемый шаблон остаётся ошибкой: системная строка с номером
+  // не должна скрывать неверную настройку сообщения.
   if (!text.trim()) {
     return { ok: false, reason: 'template_empty' };
   }
-  if (event === 'order_accepted' || event === 'order_assembled') {
+  if (event === 'order_accepted') {
     const cellNumber = Number(variables.pickup_cell_number || 0);
     if (!cellNumber) {
       return { ok: false, reason: 'pickup_cell_inactive' };
     }
-    const systemLine = event === 'order_accepted'
-      ? `Ваш номер для получения: Заказ №${cellNumber}.`
-      : `Для получения назовите сотруднику заказ №${cellNumber}.`;
-    text = `${text.trim()}\n\n${systemLine}`;
+    text = `${text.trim()}\n\nВаш номер для получения: Заказ №${cellNumber}.`;
   }
   // Старые редактируемые шаблоны могли содержать прежний внутренний термин.
   // Клиенту он не показывается: во внешнем общении это всегда «заказ».
