@@ -21,6 +21,6 @@ export function migrateOrderAcceptedTemplate() {
     'order_accepted',
     'Заказ принят',
     'Добрый день, заказ принят и его уже собирают. Как всё будет готово — вышлю код для получения сюда.\n'
-      + 'Заказ №{order_number}. Сумма: {final_amount} BYN.',
+      + 'Сумма: {final_amount} BYN.',
   );
 }
