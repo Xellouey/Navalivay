@@ -122,7 +122,7 @@ console.log('\n=== Test 1.3: HTTP 200 + {ok:false, error:"X"} → rejected ===')
   assertEq(r.error, 'PEER_ID_INVALID', 'error пробрасывается');
 }
 
-console.log('\n=== Test 1.4: HTTP 5xx → rejected ===');
+console.log('\n=== Test 1.4: HTTP 5xx после обработки → ambiguous ===');
 {
   setMockResponses({
     '/send-message': async () => ({
@@ -135,11 +135,11 @@ console.log('\n=== Test 1.4: HTTP 5xx → rejected ===');
   });
   const r = await sendViaUserbot({ chatId: '333', text: 'test' });
   assertEq(r.ok, false, 'ok=false');
-  assertEq(r.outcome, 'rejected', 'outcome=rejected (HTTP-уровень ответил → server жив)');
+  assertEq(r.outcome, 'ambiguous', 'outcome=ambiguous (Telegram уже мог принять сообщение)');
   assertEq(r.error, 'bad_gateway', 'error из тела ответа');
 }
 
-console.log('\n=== Test 1.5: HTTP 200 + невалидный JSON → rejected ===');
+console.log('\n=== Test 1.5: HTTP 200 + невалидный JSON → ambiguous ===');
 {
   setMockResponses({
     '/send-message': async () => ({
@@ -152,7 +152,7 @@ console.log('\n=== Test 1.5: HTTP 200 + невалидный JSON → rejected =
   });
   const r = await sendViaUserbot({ chatId: '444', text: 'test' });
   assertEq(r.ok, false, 'ok=false');
-  assertEq(r.outcome, 'rejected', 'outcome=rejected (server жив, JSON битый)');
+  assertEq(r.outcome, 'ambiguous', 'outcome=ambiguous (сообщение могло уйти до потери ответа)');
   assert(r.error.includes('http_200_bad_json'), 'error="http_<status>_bad_json"');
 }
 
@@ -181,6 +181,84 @@ console.log('\n=== Test 1.7: fetch AbortError (timeout) → ambiguous ===');
   assertEq(r.outcome, 'ambiguous', 'outcome=ambiguous (timeout — мог отправить)');
   assert(r.error.toLowerCase().includes('timeout') || r.error.toLowerCase().includes('aborted'),
     'error содержит timeout/aborted');
+}
+
+console.log('\n=== Test 1.7a: fetch ECONNRESET → ambiguous ===');
+{
+  const err = new Error('fetch failed');
+  err.cause = { code: 'ECONNRESET', message: 'socket hang up after write' };
+  setMockResponses({
+    '/send-message': async () => err,
+  });
+  const r = await sendViaUserbot({ chatId: '667', text: 'test' });
+  assertEq(r.ok, false, 'ok=false');
+  assertEq(r.outcome, 'ambiguous', 'ECONNRESET не доказывает, что сообщение не отправлено');
+}
+
+console.log('\n=== Test 1.7b: неполный HTTP-ответ → ambiguous ===');
+{
+  setMockResponses({
+    '/send-message': async () => ({
+      ok: true,
+      status: 200,
+      async json() {
+        return { telegram_message_id: 42 };
+      },
+    }),
+  });
+  const r = await sendViaUserbot({ chatId: '668', text: 'test' });
+  assertEq(r.ok, false, 'ok=false');
+  assertEq(r.outcome, 'ambiguous', 'ответ без явного ok считается сомнительным');
+}
+
+console.log('\n=== Test 1.7c: явный FloodWait до отправки → unreachable ===');
+{
+  setMockResponses({
+    '/send-message': async () => ({
+      ok: false,
+      status: 429,
+      async json() {
+        return {
+          ok: false,
+          error: 'flood_wait',
+          retry_after_seconds: 60,
+        };
+      },
+    }),
+  });
+  const r = await sendViaUserbot({ chatId: '669', text: 'test' });
+  assertEq(r.outcome, 'unreachable', 'явный flood_wait безопасно повторять позже');
+  assertEq(r.retry_after_seconds, 60, 'задержка FloodWait сохранена');
+}
+
+console.log('\n=== Test 1.7d: явный disconnected до отправки → unreachable ===');
+{
+  setMockResponses({
+    '/send-message': async () => ({
+      ok: false,
+      status: 503,
+      async json() {
+        return { ok: false, error: 'disconnected' };
+      },
+    }),
+  });
+  const r = await sendViaUserbot({ chatId: '670', text: 'test' });
+  assertEq(r.outcome, 'unreachable', 'явный disconnected не мог отправить сообщение');
+}
+
+console.log('\n=== Test 1.7e: неизвестный HTTP 503 → ambiguous ===');
+{
+  setMockResponses({
+    '/send-message': async () => ({
+      ok: false,
+      status: 503,
+      async json() {
+        return { ok: false, error: 'unexpected_failure' };
+      },
+    }),
+  });
+  const r = await sendViaUserbot({ chatId: '671', text: 'test' });
+  assertEq(r.outcome, 'ambiguous', 'неизвестный 503 не доказывает недоставку');
 }
 
 console.log('\n=== Test 1.8: fetch generic network error → ambiguous (fail-safe) ===');

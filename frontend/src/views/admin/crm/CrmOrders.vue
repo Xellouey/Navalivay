@@ -9,6 +9,7 @@
         <span class="font-semibold">Автоуведомления отложены:</span>
         нет связи с Telegram. Отправим клиентам, когда канал восстановится.
       </div>
+      <StaffShiftBar ref="staffShiftBarRef" />
       <div class="flex items-center justify-between gap-4">
         <div
           class="flex w-full flex-nowrap items-center justify-start gap-1.5 sm:gap-2 sm:w-auto sm:justify-end"
@@ -1086,7 +1087,7 @@
                     </button>
                     <button
                       v-if="order.manager_action_type === 'modified'"
-                      @click.stop="deferClick(() => handleResolveAction(order))"
+                      @click.stop="deferClick(() => { void handleResolveAction(order) })"
                       :disabled="resolvingOrderId === order.id"
                       class="admin-link-button admin-link-button--compact bg-orange-600 text-white hover:bg-orange-700 disabled:opacity-60"
                     >
@@ -1094,7 +1095,7 @@
                     </button>
                     <button
                       v-else-if="order.manager_action_type === 'cancelled_by_customer'"
-                      @click.stop="deferClick(() => handleResolveAction(order))"
+                      @click.stop="deferClick(() => { void handleResolveAction(order) })"
                       :disabled="resolvingOrderId === order.id"
                       class="admin-link-button admin-link-button--compact bg-red-600 text-white hover:bg-red-700 disabled:opacity-60"
                     >
@@ -1111,7 +1112,7 @@
                     </button>
                     <button
                       v-if="canAdvance(order)"
-                      @click.stop="deferClick(() => advanceOrder(order))"
+                      @click.stop="deferClick(() => { void advanceOrder(order) })"
                       :disabled="updatingOrderId === order.id"
                       class="admin-link-button admin-link-button--compact"
                       :class="advanceButtonClass(order)"
@@ -1201,7 +1202,7 @@
           Отмена
         </button>
         <button
-          @click="deferClick(() => submitPayment())"
+          @click="deferClick(() => { void submitPayment() })"
           class="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-5 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-emerald-400"
           :disabled="isIssuing || !selectedAccountId || paymentAmount <= 0"
         >
@@ -1387,6 +1388,7 @@
       :is-open="showCreateModal"
       @close="showCreateModal = false"
       @created="handleOrderCreated"
+      @shift-required="handleOrderCreateShiftRequired"
     />
 
     <!-- Блокировка клиента -->
@@ -1498,7 +1500,7 @@
           Отмена
         </button>
         <button
-          @click="deferClick(() => applyDiscount())"
+          @click="deferClick(() => { void applyDiscount() })"
           class="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-emerald-700 disabled:opacity-50"
           :disabled="isApplyingDiscount || discountAmount < 0"
         >
@@ -1535,7 +1537,7 @@
           Нет, оставить
         </button>
         <button
-          @click="deferClick(() => confirmCancelOrder())"
+          @click="deferClick(() => { void confirmCancelOrder() })"
           class="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-red-700 disabled:opacity-50"
           :disabled="isCancelling"
         >
@@ -1719,6 +1721,7 @@ import CustomerInviteBanModal from "@/components/admin/CustomerInviteBanModal.vu
 import { LockClosedIcon, NoSymbolIcon } from "@heroicons/vue/24/outline";
 import { buildAutoNotifyToast } from "@/utils/auto-notify-message";
 import CrmProfitPasswordField from "@/components/crm/CrmProfitPasswordField.vue";
+import StaffShiftBar from "@/components/admin/staff/StaffShiftBar.vue";
 
 /** Отдаёт клик браузеру сразу — меньше [Violation] 'click' handler took Nms */
 function deferClick(fn: () => void | Promise<void>) {
@@ -1742,6 +1745,13 @@ const {
 } = storeToRefs(crmStore);
 
 const router = useRouter();
+type StaffShiftBarExpose = {
+  requestShiftRequired: (
+    label: string,
+    retry: () => unknown | Promise<unknown>,
+  ) => Promise<void>;
+};
+const staffShiftBarRef = ref<StaffShiftBarExpose | null>(null);
 
 const DRAW_MONTH_LABELS = [
   "январь", "февраль", "март", "апрель", "май", "июнь",
@@ -2304,12 +2314,29 @@ async function handleResolveAction(order: Order) {
   try {
     await crmStore.resolveManagerAction(order.id);
     void loadPickupCells();
+    return true;
   } catch (error: any) {
+    if (error?.code === "shift_required") {
+      void staffShiftBarRef.value?.requestShiftRequired(
+        `Обработать заказ #${order.order_number}`,
+        () => handleResolveAction(order),
+      );
+      return false;
+    }
+    if (error?.outcomeUnknown) {
+      showOrderToast({
+        kind: "error",
+        message: `Заказ #${order.order_number}: ответ не получен. Обновите доску перед повтором.`,
+      });
+      void refreshOrders({ skipNotify: true });
+      return false;
+    }
     console.error("[CRM] Resolve action failed:", error);
     showOrderToast({
       kind: "error",
       message: error?.message || "Не удалось обработать заказ",
     });
+    return false;
   } finally {
     resolvingOrderId.value = null;
   }
@@ -2563,11 +2590,11 @@ function canAdvance(order: Order) {
 
 async function advanceOrder(order: Order) {
   const nextStatus = nextStatusMap[order.status];
-  if (!nextStatus || updatingOrderId.value) return;
+  if (!nextStatus || updatingOrderId.value) return false;
 
   if (nextStatus === "delivered") {
     await openPaymentModal(order);
-    return;
+    return true;
   }
 
   updatingOrderId.value = order.id;
@@ -2584,11 +2611,28 @@ async function advanceOrder(order: Order) {
     });
     showOrderToast(toast);
     void loadPickupCells();
+    return true;
   } catch (error: any) {
+    if (error?.code === "shift_required") {
+      await staffShiftBarRef.value?.requestShiftRequired(
+        `Собрать заказ #${order.order_number}`,
+        () => advanceOrder(order),
+      );
+      return false;
+    }
+    if (error?.outcomeUnknown) {
+      showOrderToast({
+        kind: "error",
+        message: `Заказ #${order.order_number}: ответ не получен. Обновите доску перед повтором.`,
+      });
+      void refreshOrders({ skipNotify: true });
+      return false;
+    }
     const errorMessage = error?.code === "pickup_cells_full"
       ? "Свободных ячеек нет. Выдайте или разберите заказ и повторите."
       : error?.message || "Не удалось изменить статус заказа";
     showOrderToast({ kind: "error", message: `Заказ #${order.order_number}: ${errorMessage}` });
+    return false;
   } finally {
     updatingOrderId.value = null;
   }
@@ -2638,7 +2682,9 @@ function onDrop(columnKey: string) {
 
   const order = dragOrder.value;
   onDragEnd();
-  deferClick(() => advanceOrder(order));
+  deferClick(() => {
+    void advanceOrder(order);
+  });
 }
 
 async function openPaymentModal(order: Order) {
@@ -2673,7 +2719,7 @@ async function submitPayment() {
     !selectedAccountId.value ||
     paymentAmount.value <= 0
   )
-    return;
+    return false;
   isIssuing.value = true;
   // Сохраняем номер и тип доставки заранее: после issueOrder чистим
   // paymentOrder, а тост строим уже после.
@@ -2695,10 +2741,42 @@ async function submitPayment() {
     });
     showOrderToast(toast);
     void loadPickupCells();
+    return true;
   } catch (error: any) {
+    if (error?.code === "shift_required" && paymentOrder.value) {
+      const retryState = {
+        order: paymentOrder.value,
+        amount: paymentAmount.value,
+        accountId: selectedAccountId.value,
+        notes: paymentNotes.value,
+      };
+      paymentModalOpen.value = false;
+      await staffShiftBarRef.value?.requestShiftRequired(
+        `Выдать заказ #${orderNumber}`,
+        async () => {
+          paymentOrder.value = retryState.order;
+          paymentAmount.value = retryState.amount;
+          selectedAccountId.value = retryState.accountId;
+          paymentNotes.value = retryState.notes;
+          return submitPayment();
+        },
+      );
+      return false;
+    }
     console.error("[CRM] Failed to issue order:", error);
+    if (error?.outcomeUnknown) {
+      paymentModalOpen.value = false;
+      paymentOrder.value = null;
+      showOrderToast({
+        kind: "error",
+        message: `Заказ #${orderNumber}: ответ не получен. Проверьте доску и оплату перед повтором.`,
+      });
+      void refreshOrders({ skipNotify: true });
+      return false;
+    }
     const errorMessage = error?.message || "Не удалось выдать заказ";
     showOrderToast({ kind: "error", message: `Заказ #${orderNumber}: ${errorMessage}` });
+    return false;
   } finally {
     isIssuing.value = false;
   }
@@ -2787,6 +2865,22 @@ function handleOrderCreated(order: Order) {
   showCreateModal.value = false;
   handleNewOrders([order]);
   void refreshOrders({ skipNotify: true });
+}
+
+async function handleOrderCreateShiftRequired(payload: {
+  label: string;
+  retry: () => Promise<boolean>;
+}) {
+  showCreateModal.value = false;
+  await nextTick();
+  await staffShiftBarRef.value?.requestShiftRequired(
+    payload.label,
+    async () => {
+      showCreateModal.value = true;
+      await nextTick();
+      return payload.retry();
+    },
+  );
 }
 
 async function contactClient(orderId: string) {
@@ -3003,7 +3097,7 @@ function closeDiscountModal() {
 }
 
 async function applyDiscount() {
-  if (!discountOrder.value) return;
+  if (!discountOrder.value) return false;
   const activeOrder = discountOrder.value;
   isApplyingDiscount.value = true;
   try {
@@ -3015,16 +3109,40 @@ async function applyDiscount() {
     discountModalOpen.value = false;
     discountOrder.value = null;
     discountAmount.value = 0;
+    return true;
   } catch (error: any) {
+    if (error?.code === "shift_required") {
+      discountModalOpen.value = false;
+      void staffShiftBarRef.value?.requestShiftRequired(
+        `Изменить скидку заказа #${activeOrder.order_number}`,
+        async () => {
+          discountOrder.value = activeOrder;
+          discountModalOpen.value = true;
+          await nextTick();
+          return applyDiscount();
+        },
+      );
+      return false;
+    }
+    if (error?.outcomeUnknown) {
+      discountModalOpen.value = false;
+      showOrderToast({
+        kind: "error",
+        message: `Заказ #${activeOrder.order_number}: ответ не получен. Обновите доску перед повтором.`,
+      });
+      void refreshOrders({ skipNotify: true });
+      return false;
+    }
     const errorMessage = error?.message || "Не удалось применить скидку";
     showOrderToast({ kind: "error", message: `Заказ #${activeOrder.order_number}: ${errorMessage}` });
+    return false;
   } finally {
     isApplyingDiscount.value = false;
   }
 }
 
 async function removeDiscount() {
-  if (!discountOrder.value) return;
+  if (!discountOrder.value) return false;
   const activeOrder = discountOrder.value;
   isApplyingDiscount.value = true;
   try {
@@ -3036,9 +3154,33 @@ async function removeDiscount() {
     discountModalOpen.value = false;
     discountOrder.value = null;
     discountAmount.value = 0;
+    return true;
   } catch (error: any) {
+    if (error?.code === "shift_required") {
+      discountModalOpen.value = false;
+      void staffShiftBarRef.value?.requestShiftRequired(
+        `Убрать скидку заказа #${activeOrder.order_number}`,
+        async () => {
+          discountOrder.value = activeOrder;
+          discountModalOpen.value = true;
+          await nextTick();
+          return removeDiscount();
+        },
+      );
+      return false;
+    }
+    if (error?.outcomeUnknown) {
+      discountModalOpen.value = false;
+      showOrderToast({
+        kind: "error",
+        message: `Заказ #${activeOrder.order_number}: ответ не получен. Обновите доску перед повтором.`,
+      });
+      void refreshOrders({ skipNotify: true });
+      return false;
+    }
     const errorMessage = error?.message || "Не удалось убрать скидку";
     showOrderToast({ kind: "error", message: `Заказ #${activeOrder.order_number}: ${errorMessage}` });
+    return false;
   } finally {
     isApplyingDiscount.value = false;
   }
@@ -3057,7 +3199,7 @@ function closeCancelModal() {
 }
 
 async function confirmCancelOrder() {
-  if (!cancelOrder.value) return;
+  if (!cancelOrder.value) return false;
   const activeOrder = cancelOrder.value;
   isCancelling.value = true;
   try {
@@ -3066,9 +3208,33 @@ async function confirmCancelOrder() {
     // Закрываем модалку напрямую
     cancelModalOpen.value = false;
     cancelOrder.value = null;
+    return true;
   } catch (error: any) {
+    if (error?.code === "shift_required") {
+      cancelModalOpen.value = false;
+      void staffShiftBarRef.value?.requestShiftRequired(
+        `Отменить заказ #${activeOrder.order_number}`,
+        async () => {
+          cancelOrder.value = activeOrder;
+          cancelModalOpen.value = true;
+          await nextTick();
+          return confirmCancelOrder();
+        },
+      );
+      return false;
+    }
+    if (error?.outcomeUnknown) {
+      cancelModalOpen.value = false;
+      showOrderToast({
+        kind: "error",
+        message: `Заказ #${activeOrder.order_number}: ответ не получен. Обновите доску перед повтором.`,
+      });
+      void refreshOrders({ skipNotify: true });
+      return false;
+    }
     const errorMessage = error?.message || "Не удалось отменить заказ";
     showOrderToast({ kind: "error", message: `Заказ #${activeOrder.order_number}: ${errorMessage}` });
+    return false;
   } finally {
     isCancelling.value = false;
   }

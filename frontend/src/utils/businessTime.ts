@@ -65,6 +65,81 @@ export function getBusinessDateParts(
   };
 }
 
+export function getBusinessMonthValue(
+  referenceDate = new Date(),
+  timeZone = BUSINESS_TIME_ZONE,
+) {
+  const { year, month } = getBusinessDateParts(referenceDate, timeZone);
+  return `${year}-${String(month).padStart(2, "0")}`;
+}
+
+export function formatBusinessDateTimeInput(
+  value: string | Date,
+  timeZone = BUSINESS_TIME_ZONE,
+) {
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(date);
+  const values = Object.fromEntries(
+    parts
+      .filter((part) => part.type !== "literal")
+      .map((part) => [part.type, part.value]),
+  );
+  return `${values.year}-${values.month}-${values.day}T${values.hour}:${values.minute}`;
+}
+
+export function businessDateTimeInputToIso(
+  value: string,
+  timeZone = BUSINESS_TIME_ZONE,
+) {
+  const match =
+    /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/.exec(value.trim());
+  if (!match) return "";
+  const [, year, month, day, hour, minute] = match;
+  const desiredUtc = Date.UTC(
+    Number(year),
+    Number(month) - 1,
+    Number(day),
+    Number(hour),
+    Number(minute),
+  );
+  let instant = desiredUtc;
+  const formatter = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  });
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const parts = formatter.formatToParts(new Date(instant));
+    const values = Object.fromEntries(
+      parts
+        .filter((part) => part.type !== "literal")
+        .map((part) => [part.type, part.value]),
+    );
+    const renderedUtc = Date.UTC(
+      Number(values.year),
+      Number(values.month) - 1,
+      Number(values.day),
+      Number(values.hour),
+      Number(values.minute),
+    );
+    instant += desiredUtc - renderedUtc;
+  }
+  return new Date(instant).toISOString();
+}
+
 function normalizeCalendarDate(
   year: number,
   month: number,

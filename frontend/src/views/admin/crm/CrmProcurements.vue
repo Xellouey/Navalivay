@@ -86,13 +86,15 @@
           class="rounded-xl bg-white shadow-sm"
         >
           <div class="overflow-x-auto">
-            <table class="w-full min-w-[720px] text-left">
+            <table class="w-full min-w-[980px] text-left">
               <thead
                 class="border-b bg-gray-50 text-xs font-medium uppercase text-gray-500"
               >
                 <tr>
                   <th class="px-6 py-3">№</th>
                   <th class="px-6 py-3">Поставщик</th>
+                  <th class="px-6 py-3">Кто создал</th>
+                  <th class="px-6 py-3">Кто принял</th>
                   <th class="px-6 py-3">Сумма</th>
                   <th class="px-6 py-3">Статус</th>
                   <th class="px-6 py-3">Создана</th>
@@ -115,6 +117,12 @@
                     <div v-if="procurement.notes" class="text-xs text-gray-500">
                       {{ procurement.notes }}
                     </div>
+                  </td>
+                  <td class="px-6 py-4 text-sm text-gray-700">
+                    {{ procurement.created_by_name || "—" }}
+                  </td>
+                  <td class="px-6 py-4 text-sm text-gray-700">
+                    {{ procurement.accepted_by_name || "—" }}
                   </td>
                   <td class="px-6 py-4 text-sm font-semibold text-gray-900">
                     {{ formatCurrency(procurement.total_amount) }}
@@ -582,7 +590,7 @@
           <button
             class="w-full rounded-lg bg-blue-600 py-3 text-sm font-semibold text-white transition disabled:cursor-not-allowed disabled:bg-blue-300"
             :disabled="!canSubmitProcurement || creatingProcurement"
-            @click="submitProcurement"
+            @click="requestSaveProcurement"
           >
             {{
               creatingProcurement
@@ -642,11 +650,23 @@
           </button>
         </div>
 
-        <div class="grid gap-4 md:grid-cols-3">
+        <div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
           <div class="rounded-lg border border-gray-200 p-4">
             <div class="text-xs uppercase text-gray-500">Статус</div>
             <div class="mt-2 text-sm font-semibold text-gray-900">
               {{ statusLabel(activeProcurement.status) }}
+            </div>
+          </div>
+          <div class="rounded-lg border border-gray-200 p-4">
+            <div class="text-xs uppercase text-gray-500">Кто создал</div>
+            <div class="mt-2 text-sm font-semibold text-gray-900">
+              {{ activeProcurement.created_by_name || "—" }}
+            </div>
+          </div>
+          <div class="rounded-lg border border-gray-200 p-4">
+            <div class="text-xs uppercase text-gray-500">Кто принял</div>
+            <div class="mt-2 text-sm font-semibold text-gray-900">
+              {{ activeProcurement.accepted_by_name || "—" }}
             </div>
           </div>
           <div class="rounded-lg border border-gray-200 p-4">
@@ -1119,6 +1139,19 @@
         </div>
       </form>
     </AdminModal>
+
+    <StaffActorPrompt
+      :open="actorPromptOpen"
+      :title="actorPromptTitle"
+      :description="actorPromptDescription"
+      :context="actorPromptContext"
+      :action-label="actorPromptActionLabel"
+      :loading="actorPromptLoading"
+      :error="actorPromptError"
+      :error-code="actorPromptErrorCode"
+      @close="closeActorPrompt"
+      @confirm="confirmActorAction"
+    />
   </div>
 </template>
 
@@ -1136,6 +1169,7 @@ import LowStockGroupsPanel from "@/components/admin/LowStockGroupsPanel.vue";
 import TotalControlPanel from "@/components/admin/TotalControlPanel.vue";
 import { LockClosedIcon } from "@heroicons/vue/24/outline";
 import CrmProfitPasswordField from "@/components/crm/CrmProfitPasswordField.vue";
+import StaffActorPrompt from "@/components/admin/staff/StaffActorPrompt.vue";
 
 interface DraftProcurementItem {
   product: CrmProductSummary;
@@ -1152,6 +1186,7 @@ const {
   lowStockProducts,
   profitUnlocked,
   verifyingProfitAccess,
+  staffTrackingEnabled,
 } = storeToRefs(crmStore);
 
 const showCreateModal = ref(false);
@@ -1171,6 +1206,62 @@ const loadedProductSearchQuery = ref("");
 const PRODUCT_SEARCH_PAGE_SIZE = 50;
 const lowStockLoading = ref(false);
 const creatingProcurement = ref(false);
+const procurementCreateKey = ref(newRequestKey());
+const actorPromptOpen = ref(false);
+const actorPromptError = ref("");
+const actorPromptErrorCode = ref("");
+const actorAction = ref<"save" | "complete" | null>(null);
+const actorProcurementId = ref<string | null>(null);
+const actorPromptLoading = computed(
+  () => creatingProcurement.value || completingProcurement.value,
+);
+const procurementCompletionKeys = new Map<string, string>();
+const actorPromptTitle = computed(() =>
+  actorAction.value === "complete"
+    ? "Оприходовать закупку"
+    : editingProcurementId.value
+      ? "Сохранить изменения"
+      : "Создать закупку",
+);
+const actorPromptDescription = computed(() =>
+  actorAction.value === "complete"
+    ? "Проверьте сотрудника: после подтверждения остатки изменятся."
+    : "Подтвердите, кто оформляет закупку. Черновик формы останется на месте при ошибке.",
+);
+const actorPromptActionLabel = computed(() =>
+  actorAction.value === "complete" ? "Оприходовать" : "Сохранить",
+);
+const actorPromptProcurement = computed(() => {
+  const id = actorProcurementId.value || editingProcurementId.value;
+  if (!id) return null;
+  if (activeProcurement.value?.id === id) return activeProcurement.value;
+  return procurements.value.find((procurement) => procurement.id === id) || null;
+});
+const actorPromptContext = computed(() => {
+  if (!actorAction.value) return "";
+  if (actorAction.value === "complete") {
+    const procurement = actorPromptProcurement.value;
+    if (!procurement) return "Выбранная закупка";
+    const quantity = procurement.items?.reduce(
+      (sum, item) => sum + Number(item.quantity || 0),
+      0,
+    );
+    return [
+      `Закупка #${procurement.procurement_number}`,
+      procurement.supplier_name || "Без поставщика",
+      [
+        quantity ? `${quantity} шт` : "",
+        formatCurrency(procurement.total_amount),
+      ].filter(Boolean).join(" · "),
+    ].filter(Boolean).join("\n");
+  }
+  const edited = actorPromptProcurement.value;
+  return [
+    edited ? `Закупка #${edited.procurement_number}` : "Новая закупка",
+    supplierName.value.trim() || "Без поставщика",
+    `${draftItems.value.length} поз. · ${draftTotalQuantity.value} шт · ${formatCurrency(draftTotalAmount.value)}`,
+  ].join("\n");
+});
 const bulkWarehouseQuantity = ref<number | null>(null);
 const initialDraftSignature = ref("");
 
@@ -1301,6 +1392,7 @@ function clearProductSearchState() {
 }
 
 onMounted(async () => {
+  await crmStore.fetchStaffSettings().catch(() => undefined);
   if (profitUnlocked.value) {
     await crmStore.fetchProcurements();
   }
@@ -1514,6 +1606,7 @@ async function openCreateModal() {
   }
 
   editingProcurementId.value = null;
+  procurementCreateKey.value = newRequestKey();
   supplierName.value = "";
   draftNotes.value = "";
   draftItems.value = [];
@@ -1538,6 +1631,7 @@ function closeCreateModal(force = false) {
   }
   showCreateModal.value = false;
   editingProcurementId.value = null;
+  procurementCreateKey.value = newRequestKey();
   initialDraftSignature.value = "";
   clearProductSearchState();
 }
@@ -1950,13 +2044,85 @@ function projectedCostLabel(item: DraftProcurementItem) {
   return formatCurrency(value);
 }
 
-async function submitProcurement() {
+async function ensureStaffTrackingKnown() {
+  if (staffTrackingEnabled.value !== null) return true;
+  try {
+    await crmStore.fetchStaffSettings();
+    return true;
+  } catch {
+    actorPromptError.value = "Не удалось проверить режим учёта сотрудников";
+    window.alert(actorPromptError.value);
+    return false;
+  }
+}
+
+async function requestSaveProcurement() {
+  if (!canSubmitProcurement.value || creatingProcurement.value) return;
+  if (editingProcurementId.value) {
+    await submitProcurement();
+    return;
+  }
+  if (!await ensureStaffTrackingKnown()) return;
+  if (!staffTrackingEnabled.value) {
+    await submitProcurement();
+    return;
+  }
+  actorAction.value = "save";
+  actorProcurementId.value = null;
+  actorPromptError.value = "";
+  actorPromptErrorCode.value = "";
+  actorPromptOpen.value = true;
+}
+
+async function requestCompleteProcurement(id: string) {
+  if (completingProcurement.value) return;
+  if (!await ensureStaffTrackingKnown()) return;
+  if (!staffTrackingEnabled.value) {
+    await performCompleteProcurement(id);
+    return;
+  }
+  actorAction.value = "complete";
+  actorProcurementId.value = id;
+  actorPromptError.value = "";
+  actorPromptErrorCode.value = "";
+  actorPromptOpen.value = true;
+}
+
+function closeActorPrompt() {
+  if (actorPromptLoading.value) return;
+  actorPromptOpen.value = false;
+  actorPromptError.value = "";
+  actorPromptErrorCode.value = "";
+  actorAction.value = null;
+  actorProcurementId.value = null;
+}
+
+async function confirmActorAction(actor: { employeeId: string; pin: string }) {
+  if (actorPromptLoading.value) return;
+  if (actorAction.value === "save") {
+    await submitProcurement(actor);
+    return;
+  }
+  if (actorAction.value === "complete" && actorProcurementId.value) {
+    await performCompleteProcurement(actorProcurementId.value, actor);
+  }
+}
+
+async function submitProcurement(actor?: { employeeId: string; pin: string }) {
   if (!canSubmitProcurement.value || creatingProcurement.value) return;
   creatingProcurement.value = true;
+  actorPromptError.value = "";
+  actorPromptErrorCode.value = "";
   try {
     const payload = {
       supplier_name: supplierName.value.trim() || undefined,
       notes: draftNotes.value.trim() || undefined,
+      ...(actor
+        ? {
+            actor_employee_id: actor.employeeId,
+            actor_pin: actor.pin,
+          }
+        : {}),
       items: draftItems.value.map((item) => ({
         product_id: (item.product as any).productId || item.product.id, // Используем productId для вариантов
         variant_id: item.product.isVariant ? item.product.id : undefined, // ID варианта для товаров с вариантами
@@ -1975,16 +2141,27 @@ async function submitProcurement() {
       await crmStore.fetchProcurements();
       await openDetails(updated.id);
     } else {
-      const procurement = await crmStore.createProcurement(payload);
+      const procurement = await crmStore.createProcurement({
+        ...payload,
+        idempotency_key: procurementCreateKey.value,
+      });
       closeCreateModal(true);
       await crmStore.fetchProcurements();
       await openDetails(procurement.id);
     }
+    actorPromptOpen.value = false;
+    actorAction.value = null;
   } catch (error) {
-    console.error("[CRM] create procurement error", error);
-    alert(
-      "Не удалось сохранить закупку. Проверьте данные и повторите попытку.",
+    actorPromptErrorCode.value = String(
+      (error as any)?.code || (error as any)?.data?.error || "",
     );
+    console.error("[CRM] create procurement error", error);
+    const typedError = error as Error & { code?: string; status?: number; outcomeUnknown?: boolean };
+    actorPromptError.value = typedError.outcomeUnknown
+      ? "Ответ сервера не получен. Проверьте список закупок перед повтором, чтобы не создать дубль."
+      : typedError.status === 409
+        ? "Закупка уже изменилась. Закройте окно и обновите данные."
+        : typedError.message || "Не удалось сохранить закупку. Форма не потеряна.";
   } finally {
     creatingProcurement.value = false;
   }
@@ -1996,6 +2173,12 @@ async function refreshProcurements() {
     crmStore.fetchTotalControlGroups(),
     crmStore.fetchLowStockGroups(),
   ]);
+}
+
+function newRequestKey() {
+  return typeof crypto !== "undefined" && "randomUUID" in crypto
+    ? crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
 function procurementDraftSignature() {
@@ -2091,45 +2274,55 @@ async function deleteCurrentProcurement() {
 
 async function completeFromDetails() {
   if (!activeProcurement.value || completingProcurement.value) return;
-  const totalQuantity = (activeProcurement.value.items || []).reduce(
-    (sum, item) => sum + Number(item.quantity || 0),
-    0,
-  );
-  const warehouseQuantity = (activeProcurement.value.items || []).reduce(
-    (sum, item) => sum + Number(item.warehouse_quantity || 0),
-    0,
-  );
-  if (!confirm(
-    `Оприходовать закупку?\nНа склад: ${warehouseQuantity} шт\nВ розницу: ${totalQuantity - warehouseQuantity} шт`,
-  )) return;
+  requestCompleteProcurement(activeProcurement.value.id);
+}
+
+async function performCompleteProcurement(
+  id: string,
+  actor?: { employeeId: string; pin: string },
+) {
+  if (completingProcurement.value) return;
+  const idempotencyKey =
+    procurementCompletionKeys.get(id) || newRequestKey();
+  procurementCompletionKeys.set(id, idempotencyKey);
   completingProcurement.value = true;
+  actorPromptError.value = "";
+  actorPromptErrorCode.value = "";
   try {
-    await crmStore.completeProcurement(activeProcurement.value.id);
+    await crmStore.completeProcurement(id, {
+      ...(actor
+        ? {
+            actor_employee_id: actor.employeeId,
+            actor_pin: actor.pin,
+          }
+        : {}),
+      idempotency_key: idempotencyKey,
+    });
+    procurementCompletionKeys.delete(id);
     await crmStore.fetchProcurements();
-    activeProcurement.value = await crmStore.fetchProcurement(
-      activeProcurement.value.id,
-    );
+    if (activeProcurement.value?.id === id) {
+      activeProcurement.value = await crmStore.fetchProcurement(id);
+    }
     // Обновляем список товаров с низким остатком после завершения закупки
     await refreshLowStock();
-  } catch (error) {
+    actorPromptOpen.value = false;
+    actorAction.value = null;
+    actorProcurementId.value = null;
+  } catch (error: any) {
+    actorPromptErrorCode.value = String(error?.code || error?.data?.error || "");
     console.error("[CRM] complete procurement error", error);
-    alert("Не удалось завершить закупку");
+    actorPromptError.value = error?.outcomeUnknown
+      ? "Ответ сервера не получен. Обновите закупку перед повтором: она могла быть оприходована."
+      : error?.status === 409
+        ? "Закупка уже изменена другим пользователем. Обновите данные."
+        : error?.message || "Не удалось оприходовать закупку";
   } finally {
     completingProcurement.value = false;
   }
 }
 
 async function finishProcurement(id: string) {
-  if (!confirm("Завершить закупку и оприходовать товары?")) return;
-  try {
-    await crmStore.completeProcurement(id);
-    await crmStore.fetchProcurements();
-    // Обновляем список товаров с низким остатком
-    await refreshLowStock();
-  } catch (error) {
-    console.error("[CRM] complete procurement error", error);
-    alert("Не удалось завершить закупку");
-  }
+  requestCompleteProcurement(id);
 }
 
 function formatCurrency(value?: number | null) {

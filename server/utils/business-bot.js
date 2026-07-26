@@ -885,6 +885,16 @@ export function prepareStatusNotification({ orderId, event, storeName, pickupCel
   if (!text.trim()) {
     return { ok: false, reason: 'template_empty' };
   }
+  if (
+    event === 'order_assembled' &&
+    !/\{(?:order_number|pickup_cell_number)\}/i.test(String(template.body || ''))
+  ) {
+    const cellNumber = Number(variables.pickup_cell_number || 0);
+    if (!cellNumber) {
+      return { ok: false, reason: 'pickup_cell_inactive' };
+    }
+    text = `${text.trim()}\n\nВаш номер для получения: заказ №${cellNumber}.`;
+  }
   // Старые редактируемые шаблоны могли содержать прежний внутренний термин.
   // Клиенту он не показывается: во внешнем общении это всегда «заказ».
   text = normalizeCustomerOrderTerminology(text);

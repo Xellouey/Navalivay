@@ -40,17 +40,49 @@ describe("crm.fetchAPI — обработка 401", () => {
     adminStore.isAuthenticated = true;
     adminStore.token = "stub-token";
 
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => new Response(null, { status: 401 })),
-    );
-
     const crmStore = useCrmStore();
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            staff_token: "manager-secret",
+            shift_token: "shift-secret",
+            role: "manager",
+            employee: {
+              id: "manager-1",
+              first_name: "Мария",
+              last_name: "Руководитель",
+              role: "manager",
+              active: true,
+            },
+            shift: {
+              id: "shift-1",
+              version: 1,
+              employee_id: "manager-1",
+              status: "active",
+            },
+          }),
+          {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          },
+        ),
+      )
+      .mockResolvedValueOnce(new Response(null, { status: 401 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await crmStore.openStaffShift({
+      employee_id: "manager-1",
+      pin: "1234",
+    });
     await expect(crmStore.fetchEmployees()).rejects.toBeInstanceOf(
       UnauthorizedError,
     );
     expect(adminStore.isAuthenticated).toBe(false);
     expect(adminStore.token).toBe("");
+    expect(crmStore.hasStaffAccess).toBe(false);
+    expect(crmStore.currentStaffShift?.id).toBe("shift-1");
   });
 
   it("при 401 не делает window.location reload (защита от бесконечного цикла)", async () => {

@@ -106,7 +106,7 @@ function mockFetchUserbot({ healthOk = true, sendOk = true } = {}) {
           async json() { return { ok: false, error: 'disconnected' }; },
         };
       }
-      return { ok: true, async json() { return { ok: true, telegram_message_id: 42 }; } };
+      return { ok: true, status: 200, async json() { return { ok: true, telegram_message_id: 42 }; } };
     }
     throw new Error(`unexpected fetch ${u}`);
   };

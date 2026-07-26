@@ -525,6 +525,43 @@ describe("ReferralAuthorizationGate", () => {
     wrapper.unmount();
   });
 
+  it("allows the explicit local dev Telegram mock without signed initData", async () => {
+    sessionStorage.setItem(
+      "navalivay_dev_telegram_mock",
+      JSON.stringify({ id: "990000039", username: "dev_mock_user", first_name: "Dev" }),
+    );
+    Object.defineProperty(window, "Telegram", {
+      configurable: true,
+      value: {
+        WebApp: {
+          initData: "",
+          initDataUnsafe: {
+            user: { id: 990000039, username: "dev_mock_user", first_name: "Dev" },
+          },
+        },
+      },
+    });
+    const fetchMock = vi.fn().mockResolvedValue(response({
+      enabled: false,
+      required: false,
+      blocked: false,
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const wrapper = mount(ReferralAuthorizationGate, {
+      global: { stubs: { CustomerModalShell: shellStub } },
+    });
+    await flushPromises();
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/referral-authorization/status",
+      expect.objectContaining({ credentials: "include" }),
+    );
+    expect(wrapper.find(".modal-shell").exists()).toBe(false);
+    sessionStorage.removeItem("navalivay_dev_telegram_mock");
+    wrapper.unmount();
+  });
+
   it("asks Telegram users without a username to set one in Telegram settings", async () => {
     Object.defineProperty(window, "Telegram", {
       configurable: true,

@@ -1,5 +1,4 @@
 import express from 'express';
-import bcrypt from 'bcryptjs';
 import { db } from '../db.js';
 import { authMiddleware } from '../auth.js';
 import {
@@ -67,6 +66,7 @@ import {
   updateAgreement,
   deleteAgreement,
 } from '../utils/agreements.js';
+import { createStaffAccessMiddleware } from '../utils/staff-service.js';
 import {
   BOT_STATUS_EVENTS,
   listBusinessConnections,
@@ -116,6 +116,7 @@ import {
 } from '../utils/referral-authorization.js';
 
 export const crmRouter = express.Router();
+const staffManagerAccess = createStaffAccessMiddleware({ manager: true });
 
 // Helper для генерации ID
 function generateId(prefix) {
@@ -436,7 +437,11 @@ crmRouter.get('/api/admin/crm/dashboard-timeseries', authMiddleware, (req, res) 
 // =========================
 // EMPLOYEES (Сотрудники)
 // =========================
-crmRouter.get('/api/admin/crm/employees', authMiddleware, (req, res) => {
+crmRouter.get(
+  '/api/admin/crm/employees',
+  authMiddleware,
+  staffManagerAccess,
+  (req, res) => {
   try {
     const employees = db.prepare(`
       SELECT id, username, first_name, last_name, position, active, created_at, updated_at
@@ -448,110 +453,34 @@ crmRouter.get('/api/admin/crm/employees', authMiddleware, (req, res) => {
     console.error('[crm] Get employees error:', error);
     res.status(500).json({ error: 'failed', message: error.message });
   }
-});
+  },
+);
 
-crmRouter.post('/api/admin/crm/employees', authMiddleware, async (req, res) => {
-  try {
-    const { username, password, first_name, last_name, position } = req.body;
-    
-    if (!username || !password || !first_name || !last_name) {
-      return res.status(400).json({ error: 'missing_fields' });
-    }
+function staffEndpointMoved(_req, res) {
+  res.status(410).json({
+    error: 'staff_endpoint_moved',
+    replacement: '/api/admin/crm/staff/employees',
+  });
+}
 
-    // Проверка на существующий username
-    const existing = db.prepare('SELECT id FROM employees WHERE username = ?').get(username);
-    if (existing) {
-      return res.status(400).json({ error: 'username_exists' });
-    }
-
-    const id = generateId('emp');
-    const passwordHash = await bcrypt.hash(password, 10);
-
-    db.prepare(`
-      INSERT INTO employees (id, username, password_hash, first_name, last_name, position, active)
-      VALUES (?, ?, ?, ?, ?, ?, 1)
-    `).run(id, username, passwordHash, first_name, last_name, position || null);
-
-    const employee = db.prepare(`
-      SELECT id, username, first_name, last_name, position, active, created_at
-      FROM employees WHERE id = ?
-    `).get(id);
-
-    res.json(employee);
-  } catch (error) {
-    console.error('[crm] Create employee error:', error);
-    res.status(500).json({ error: 'failed', message: error.message });
-  }
-});
-
-crmRouter.patch('/api/admin/crm/employees/:id', authMiddleware, async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { first_name, last_name, position, active, password } = req.body;
-
-    const current = db.prepare('SELECT * FROM employees WHERE id = ?').get(id);
-    if (!current) {
-      return res.status(404).json({ error: 'not_found' });
-    }
-
-    let updateFields = [];
-    let updateValues = [];
-
-    if (first_name !== undefined) {
-      updateFields.push('first_name = ?');
-      updateValues.push(first_name);
-    }
-    if (last_name !== undefined) {
-      updateFields.push('last_name = ?');
-      updateValues.push(last_name);
-    }
-    if (position !== undefined) {
-      updateFields.push('position = ?');
-      updateValues.push(position);
-    }
-    if (active !== undefined) {
-      updateFields.push('active = ?');
-      updateValues.push(active ? 1 : 0);
-    }
-    if (password) {
-      const passwordHash = await bcrypt.hash(password, 10);
-      updateFields.push('password_hash = ?');
-      updateValues.push(passwordHash);
-    }
-
-    if (updateFields.length > 0) {
-      updateFields.push("updated_at = DATETIME('now')");
-      updateValues.push(id);
-      
-      db.prepare(`
-        UPDATE employees 
-        SET ${updateFields.join(', ')}
-        WHERE id = ?
-      `).run(...updateValues);
-    }
-
-    const updated = db.prepare(`
-      SELECT id, username, first_name, last_name, position, active, created_at, updated_at
-      FROM employees WHERE id = ?
-    `).get(id);
-
-    res.json(updated);
-  } catch (error) {
-    console.error('[crm] Update employee error:', error);
-    res.status(500).json({ error: 'failed', message: error.message });
-  }
-});
-
-crmRouter.delete('/api/admin/crm/employees/:id', authMiddleware, (req, res) => {
-  try {
-    const { id } = req.params;
-    db.prepare('DELETE FROM employees WHERE id = ?').run(id);
-    res.json({ ok: true });
-  } catch (error) {
-    console.error('[crm] Delete employee error:', error);
-    res.status(500).json({ error: 'failed', message: error.message });
-  }
-});
+crmRouter.post(
+  '/api/admin/crm/employees',
+  authMiddleware,
+  staffManagerAccess,
+  staffEndpointMoved,
+);
+crmRouter.patch(
+  '/api/admin/crm/employees/:id',
+  authMiddleware,
+  staffManagerAccess,
+  staffEndpointMoved,
+);
+crmRouter.delete(
+  '/api/admin/crm/employees/:id',
+  authMiddleware,
+  staffManagerAccess,
+  staffEndpointMoved,
+);
 
 // =========================
 // CUSTOMERS (Клиенты)

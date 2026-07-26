@@ -3,16 +3,225 @@ import { ref, computed, shallowRef } from "vue";
 import { isKanbanBoardOrder } from "@/utils/crm-kanban-board";
 
 const API_BASE = "/api/admin/crm";
+let inMemoryStaffToken = "";
+let inMemoryShiftToken = "";
+let staffUnauthorizedHandler: (() => void) | null = null;
+
+export type StaffRole = "manager" | "employee";
 
 export interface Employee {
   id: string;
-  username: string;
+  username?: string;
   first_name: string;
-  last_name: string;
+  last_name: string | null;
   position: string | null;
-  active: number;
+  active: number | boolean;
+  created_at?: string;
+  updated_at?: string;
+  role?: StaffRole;
+  responsibilities?: string | string[] | null;
+  color?: string | null;
+  avatar_url?: string | null;
+  pin_configured?: boolean;
+}
+
+export interface StaffIdentity {
+  employee: Employee;
+  role: StaffRole;
+  permissions?: string[];
+}
+
+export interface StaffShift {
+  id: string;
+  version: number;
+  employee_id: string;
+  employee_name?: string | null;
+  employee?: Partial<Employee> | null;
+  employee_avatar?: string | null;
+  employee_color?: string | null;
+  status: "active" | "open" | "closed" | "auto_closed";
+  business_date?: string;
+  planned_start_at?: string;
+  planned_end_at?: string;
+  started_at?: string;
+  ended_at?: string | null;
+  opened_at?: string;
+  closed_at?: string | null;
+  worked_minutes?: number | null;
+  note?: string | null;
+  correction_reason?: string | null;
+  corrected_at?: string | null;
+  close_reason?: string | null;
+}
+
+export interface StaffShiftCandidate {
+  id: string;
+  first_name: string;
+  last_name?: string | null;
+  position?: string | null;
+  color?: string | null;
+  avatar?: string | null;
+  avatar_url?: string | null;
+}
+
+export interface StaffActivity {
+  id: string | number;
+  type: string;
+  title: string;
+  description?: string | null;
+  occurred_at: string;
+  value?: number | null;
+  amount?: number | null;
+  source?: "system" | "manual" | string;
+  tone?: "positive" | "negative" | "neutral" | string;
+}
+
+export interface StaffAnalytics {
+  employee?: Employee;
+  month?: string;
+  period?: {
+    type: "day" | "month" | "year" | "custom";
+    start: string;
+    end: string;
+  };
+  worked_minutes?: number;
+  shifts_count?: number;
+  tasks_completed?: number;
+  orders_assembled?: number;
+  orders_issued?: number;
+  orders_amount?: number;
+  assembled_orders?: number;
+  issued_orders?: number;
+  issued_revenue?: number;
+  issued_profit?: number;
+  procurements_created?: number;
+  procurements_completed?: number;
+  transfers_created?: number;
+  transfers_completed?: number;
+  efficiency_percent?: number | null;
+  estimated_salary?: number | null;
+  worked_hours?: number;
+  events_total?: number;
+  event_counts?: Array<{
+    event_type: string;
+    polarity?: string | null;
+    count: number;
+  }>;
+  metrics?: Record<string, number>;
+  shifts?: StaffShift[];
+  marks?: StaffMark[];
+  mark_counts?: { positive?: number; negative?: number };
+  tasks?: Record<string, number>;
+  expected_salary?: Record<string, any> | null;
+  activities?: StaffActivity[];
+  daily_activity?: Array<{
+    date: string;
+    count?: number;
+    worked_minutes?: number;
+    color?: string | null;
+  }>;
+}
+
+export type StaffTaskStatus =
+  | "open"
+  | "claimed"
+  | "submitted"
+  | "approved"
+  | "cancelled";
+
+export interface StaffTask {
+  id: string;
+  title: string;
+  description?: string | null;
+  status: StaffTaskStatus;
+  priority?: "low" | "normal" | "high" | string;
+  assignee_employee_id?: string | null;
+  assignee_name?: string | null;
+  assignee_employee_name_snapshot?: string | null;
+  target_employee_id?: string | null;
+  target_employee_name_snapshot?: string | null;
+  created_by_name?: string | null;
+  created_by_name_snapshot?: string | null;
+  due_at?: string | null;
+  result_note?: string | null;
+  claimed_at?: string | null;
+  submitted_at?: string | null;
+  completed_at?: string | null;
+  approved_at?: string | null;
+  cancelled_at?: string | null;
+  created_at?: string;
+}
+
+export interface StaffSalary {
+  id?: string;
+  employee_id: string;
+  employee_name?: string | null;
+  month: string;
+  worked_minutes?: number;
+  shifts_count?: number;
+  tasks_completed?: number;
+  base_amount?: number;
+  bonus_amount?: number;
+  penalty_amount?: number;
+  estimated_amount?: number;
+  final_amount?: number | null;
+  amount?: number | null;
+  amount_minor?: number | null;
+  currency?: string | null;
+  employee_name_snapshot?: string | null;
+  status?: "draft" | "approved" | "paid" | string;
+  note?: string | null;
+}
+
+export interface StaffMark {
+  id: string;
+  employee_id: string;
+  employee_name?: string | null;
+  kind: "positive" | "negative";
+  mark_type?: "positive" | "negative";
+  title: string;
+  description?: string | null;
+  occurred_at: string;
+  happened_at?: string;
+  source?: "manual" | "system" | string;
+  created_by_name?: string | null;
+  voided_at?: string | null;
+  deleted_at?: string | null;
+  void_reason?: string | null;
+  current_version: number;
+}
+
+export interface StaffHistoryVersion {
+  id?: string;
+  version: number;
+  action?: string;
+  title?: string;
+  description?: string | null;
+  mark_type?: "positive" | "negative";
+  happened_at?: string;
+  amount_minor?: number;
+  currency?: string;
+  status?: string;
+  note?: string | null;
+  reason?: string | null;
+  changed_by_name_snapshot?: string | null;
+  created_at?: string;
+}
+
+export interface StaffNotification {
+  id: string;
+  title: string;
+  message?: string | null;
+  type?: string;
   created_at: string;
-  updated_at: string;
+  read_at?: string | null;
+  task_id?: string | null;
+}
+
+export interface StaffNotificationsPayload {
+  settings?: Array<Record<string, unknown>>;
+  recipients?: Array<Record<string, unknown>>;
+  outbox?: Array<Record<string, unknown>>;
 }
 
 export interface Customer {
@@ -315,6 +524,10 @@ export interface Procurement {
   created_at: string;
   completed_at: string | null;
   employee_name?: string;
+  created_by_employee_id?: string | null;
+  created_by_name?: string | null;
+  accepted_by_employee_id?: string | null;
+  accepted_by_name?: string | null;
   expense_transaction_id?: string | null;
   items?: ProcurementItem[];
 }
@@ -660,6 +873,337 @@ export class UnauthorizedError extends Error {
   }
 }
 
+export class StaffApiError extends Error {
+  code?: string;
+  status?: number;
+  outcomeUnknown?: boolean;
+
+  constructor(
+    message: string,
+    options: { code?: string; status?: number; outcomeUnknown?: boolean } = {},
+  ) {
+    super(message);
+    this.name = "StaffApiError";
+    this.code = options.code;
+    this.status = options.status;
+    this.outcomeUnknown = options.outcomeUnknown;
+  }
+}
+
+function localStorageValue(key: string): string | null {
+  if (typeof window === "undefined") return null;
+  return window.localStorage.getItem(key);
+}
+
+function staffHeaders(
+  includeStaff = true,
+  includeShift = false,
+): Record<string, string> {
+  const headers: Record<string, string> = {};
+  const adminToken = localStorageValue("admin_token");
+  const staffToken = includeStaff ? inMemoryStaffToken : "";
+  if (adminToken) headers.Authorization = `Bearer ${adminToken}`;
+  if (staffToken) headers["X-Staff-Token"] = staffToken;
+  if (includeShift && inMemoryShiftToken) {
+    headers["X-Shift-Token"] = inMemoryShiftToken;
+  }
+  return headers;
+}
+
+function clearStoredStaffAccess() {
+  inMemoryStaffToken = "";
+}
+
+function clearStoredShiftToken() {
+  inMemoryShiftToken = "";
+}
+
+export function getInMemoryStaffHeaders(): Record<string, string> {
+  const headers: Record<string, string> = {};
+  if (inMemoryStaffToken) headers["X-Staff-Token"] = inMemoryStaffToken;
+  return headers;
+}
+
+async function staffFetchAPI<T>(
+  endpoint: string,
+  options: RequestInit = {},
+  config: { includeStaff?: boolean; includeShift?: boolean } = {},
+): Promise<T> {
+  let response: Response;
+  try {
+    response = await fetch(endpoint, {
+      ...options,
+      credentials: "include",
+      headers: {
+        "Content-Type": "application/json",
+        ...staffHeaders(
+          config.includeStaff !== false,
+          config.includeShift === true,
+        ),
+        ...options.headers,
+      },
+    });
+  } catch (error) {
+    throw new StaffApiError(
+      "Нет связи с сервером. Проверьте интернет и повторите попытку.",
+      { outcomeUnknown: true },
+    );
+  }
+
+  const payload = await response
+    .json()
+    .catch(() => ({} as Record<string, unknown>));
+  if (!response.ok) {
+    const record = payload as Record<string, unknown>;
+    const code = String(record.error || record.code || "request_failed");
+    if (response.status === 401 && code === "unauthorized") {
+      // Просрочен именно основной вход CRM. Допуск по ПИН больше нельзя
+      // считать принадлежащим текущему пользователю, поэтому снимаем оба
+      // состояния. Ошибки проверки основного пароля (`invalid_admin_password`)
+      // сюда намеренно не попадают.
+      clearStoredStaffAccess();
+      staffUnauthorizedHandler?.();
+      try {
+        const { useAdminStore } = await import("./admin");
+        await useAdminStore().logout();
+      } catch (logoutError) {
+        console.warn("[CRM] Failed to clear admin state on staff 401:", logoutError);
+      }
+      throw new UnauthorizedError();
+    }
+    const knownMessages: Record<string, string> = {
+      invalid_staff_credentials: "Неверный ПИН",
+      invalid_pin_format: "ПИН должен состоять из четырёх цифр",
+      staff_auth_locked: "Слишком много попыток. Попробуйте позже",
+      staff_access_expired: "Время доступа истекло. Введите ПИН ещё раз",
+      invalid_staff_token: "Время доступа истекло. Введите ПИН ещё раз",
+      manager_access_required: "Действие доступно только руководителю",
+      shift_required: "Сначала откройте смену",
+      shift_conflict: "Смена уже открыта у другого сотрудника",
+      shift_not_found: "Открытая смена не найдена",
+      shift_open_outside_hours: "Смену можно открыть только в рабочее время",
+      shift_close_reason_required: "Укажите причину закрытия смены",
+      reason_required: "Укажите причину",
+      idempotency_key_required: "Не удалось защитить действие от повтора",
+      pin_already_in_use: "Этот ПИН уже используется",
+      task_claim_conflict: "Задачу уже забрал другой сотрудник",
+      task_submit_conflict: "Состояние задачи изменилось. Обновите список",
+      task_approve_conflict: "Состояние задачи изменилось. Обновите список",
+      task_cancel_conflict: "Задачу уже нельзя отменить",
+      task_release_conflict: "Задачу уже нельзя освободить",
+      staff_tracking_disabled: "Учёт сотрудников пока выключен",
+      invalid_admin_password: "Неверный основной пароль",
+      manager_already_bootstrapped: "Руководитель уже настроен",
+      active_manager_required: "Сначала настройте активного руководителя",
+    };
+    const message = String(
+      record.message ||
+        knownMessages[code] ||
+        record.error ||
+        "Не удалось выполнить действие",
+    );
+    if (
+      code === "staff_access_expired" ||
+      code === "invalid_staff_token"
+    ) {
+      clearStoredStaffAccess();
+      staffUnauthorizedHandler?.();
+    }
+    throw new StaffApiError(message, { code, status: response.status });
+  }
+  return payload as T;
+}
+
+function listFromPayload<T>(
+  payload: T[] | { items?: T[]; data?: T[] } | null | undefined,
+  named?: T[],
+): T[] {
+  if (Array.isArray(payload)) return payload;
+  if (Array.isArray(named)) return named;
+  const wrapped = payload as { items?: T[]; data?: T[] } | null | undefined;
+  if (Array.isArray(wrapped?.items)) return wrapped.items;
+  if (Array.isArray(wrapped?.data)) return wrapped.data;
+  return [];
+}
+
+function normalizeStaffTask(task: StaffTask): StaffTask {
+  return {
+    ...task,
+    assignee_name:
+      task.assignee_name || task.assignee_employee_name_snapshot || null,
+    created_by_name:
+      task.created_by_name || task.created_by_name_snapshot || null,
+  };
+}
+
+function employeeActiveForStaff(employee: Employee) {
+  return Boolean(Number(employee.active));
+}
+
+function clientIdempotencyKey() {
+  return typeof crypto !== "undefined" && "randomUUID" in crypto
+    ? crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+const pendingMutationKeys = new Map<string, string>();
+
+function pendingMutationKey(scope: string, payload: unknown) {
+  const signature = `${scope}:${JSON.stringify(payload)}`;
+  let key = pendingMutationKeys.get(signature);
+  if (!key) {
+    key = clientIdempotencyKey();
+    pendingMutationKeys.set(signature, key);
+    if (pendingMutationKeys.size > 100) {
+      const oldest = pendingMutationKeys.keys().next().value;
+      if (oldest) pendingMutationKeys.delete(oldest);
+    }
+  }
+  return { key, signature };
+}
+
+function normalizeStaffSalary(salary: StaffSalary): StaffSalary {
+  const amount =
+    salary.final_amount ??
+    salary.amount ??
+    (salary.amount_minor == null ? null : Number(salary.amount_minor) / 100);
+  return {
+    ...salary,
+    employee_name:
+      salary.employee_name || salary.employee_name_snapshot || null,
+    final_amount: amount,
+  };
+}
+
+function normalizeStaffMark(mark: StaffMark): StaffMark {
+  const kind = mark.kind || mark.mark_type || "negative";
+  const occurredAt = mark.occurred_at || mark.happened_at || "";
+  return {
+    ...mark,
+    kind,
+    mark_type: kind,
+    occurred_at: occurredAt,
+    happened_at: occurredAt,
+    voided_at: mark.voided_at || mark.deleted_at || null,
+    current_version: Number(mark.current_version || 1),
+  };
+}
+
+const STAFF_EVENT_LABELS: Record<string, string> = {
+  order_assembled: "Заказ собран",
+  order_issued: "Заказ выдан",
+  procurement_created: "Поставка создана",
+  procurement_accepted: "Поставка принята",
+  transfer_created: "Перемещение создано",
+  transfer_accepted: "Перемещение принято",
+  task_approved: "Задача выполнена",
+};
+
+function normalizeStaffAnalytics(
+  analytics: StaffAnalytics & {
+    events?: Array<Record<string, any>>;
+  },
+): StaffAnalytics {
+  const counts = new Map<string, number>();
+  for (const item of analytics.event_counts || []) {
+    counts.set(item.event_type, Number(item.count || 0));
+  }
+  const eventCount = (...names: string[]) =>
+    names.reduce((sum, name) => sum + Number(counts.get(name) || 0), 0);
+  const metric = (name: string, ...fallbackNames: string[]) =>
+    Number(
+      analytics.metrics?.[name] ??
+        eventCount(name, ...fallbackNames),
+    );
+  const rawEvents = analytics.activities || analytics.events || [];
+  const activities: StaffActivity[] = rawEvents.map((event: any) => {
+    const type = String(event.type || event.event_type || "activity");
+    return {
+      ...event,
+      id: event.id,
+      type,
+      title:
+        event.title ||
+        STAFF_EVENT_LABELS[type] ||
+        event.source_name_snapshot ||
+        "Действие",
+      description:
+        event.description ||
+        event.source_name_snapshot ||
+        event.source_type ||
+        null,
+      occurred_at:
+        event.occurred_at || event.happened_at || event.created_at || "",
+      tone: event.tone || event.polarity,
+    };
+  });
+  const dailyActivity =
+    analytics.daily_activity && analytics.daily_activity.length
+      ? analytics.daily_activity.map((day: any) => ({
+          ...day,
+          count: Number(day.count ?? day.total ?? 0),
+        }))
+      : Array.from(
+          activities.reduce((days, event) => {
+            const date = String(event.occurred_at || "").slice(0, 10);
+            if (date) days.set(date, Number(days.get(date) || 0) + 1);
+            return days;
+          }, new Map<string, number>()),
+        ).map(([date, count]) => ({ date, count }));
+  return {
+    ...analytics,
+    tasks_completed:
+      analytics.tasks_completed ??
+      analytics.metrics?.tasks_completed ??
+      Number(analytics.tasks?.approved || 0),
+    orders_assembled:
+      analytics.orders_assembled ??
+      analytics.assembled_orders ??
+      metric("order_assembled", "order.assembled"),
+    orders_issued:
+      analytics.orders_issued ??
+      analytics.issued_orders ??
+      metric("order_issued", "order.issued"),
+    orders_amount:
+      analytics.orders_amount ??
+      analytics.issued_revenue ??
+      Number(analytics.metrics?.orders_issued_amount || 0),
+    procurements_created:
+      analytics.procurements_created ??
+      metric("procurement_created", "procurement.created"),
+    procurements_completed:
+      analytics.procurements_completed ??
+      metric(
+        "procurement_accepted",
+        "procurement_completed",
+        "procurement.accepted",
+      ),
+    transfers_created:
+      analytics.transfers_created ??
+      metric("transfer_created", "transfer.created"),
+    transfers_completed:
+      analytics.transfers_completed ??
+      metric(
+        "transfer_accepted",
+        "transfer_completed",
+        "transfer.accepted",
+      ),
+    estimated_salary:
+      analytics.estimated_salary ??
+      (analytics.expected_salary
+        ? Number(
+            analytics.expected_salary.amount ??
+              Number(analytics.expected_salary.amount_minor || 0) / 100,
+          )
+        : null),
+    marks: (analytics.marks || []).map((mark) =>
+      normalizeStaffMark(mark as unknown as StaffMark),
+    ),
+    activities,
+    daily_activity: dailyActivity,
+  };
+}
+
 // TODO: при появлении ролевой модели (manager/cashier) — рассмотреть отдельную
 // обработку 403 (Forbidden). Сейчас на бэке используется только 401 для всех
 // auth-сценариев, поэтому отдельная ветка не нужна.
@@ -667,14 +1211,27 @@ async function fetchAPI<T>(
   endpoint: string,
   options?: RequestInit,
 ): Promise<T> {
-  const response = await fetch(endpoint, {
-    ...options,
-    credentials: "include",
-    headers: {
-      "Content-Type": "application/json",
-      ...options?.headers,
-    },
-  });
+  let response: Response;
+  try {
+    response = await fetch(endpoint, {
+      ...options,
+      credentials: "include",
+      headers: {
+        "Content-Type": "application/json",
+        ...staffHeaders(),
+        ...options?.headers,
+      },
+    });
+  } catch {
+    throw new StaffApiError(
+      "Нет связи с сервером. Проверьте результат перед повтором.",
+      {
+        outcomeUnknown:
+          Boolean(options?.method) &&
+          String(options?.method || "GET").toUpperCase() !== "GET",
+      },
+    );
+  }
 
   // Обработка 401: реактивно сбрасываем auth-state — AdminView через
   // <CashierLockScreen v-if="!isAuthenticated"> сам перерисуется на lock-screen.
@@ -1296,6 +1853,1213 @@ export const useCrmStore = defineStore("crm", () => {
     employees.value = employees.value.filter((e) => e.id !== id);
   }
 
+  // Staff workspace. The admin session remains the outer security boundary;
+  // the short-lived staff token identifies the person currently at the desk.
+  const staffIdentity = ref<StaffIdentity | null>(null);
+  const staffToken = ref("");
+  const staffShiftToken = ref("");
+  const staffAccessLoading = ref(false);
+  const staffAccessError = ref("");
+  const staffTrackingEnabled = ref<boolean | null>(null);
+  const staffOrderShiftRestrictionEnabled = ref<boolean | null>(null);
+  const staffSettingsLoading = ref(false);
+  const staffSettingsError = ref("");
+  const staffEmployees = ref<Employee[]>([]);
+  const staffEmployeesLoading = ref(false);
+  const staffEmployeesError = ref("");
+  const currentStaffShift = ref<StaffShift | null>(null);
+  const staffShiftHistory = ref<StaffShift[]>([]);
+  const staffShiftHistoryLoading = ref(false);
+  const staffShiftHistoryError = ref("");
+  const staffShiftCandidates = ref<StaffShiftCandidate[]>([]);
+  const staffShiftCandidatesLoading = ref(false);
+  const staffShiftCandidatesError = ref("");
+  const staffShiftLoading = ref(false);
+  const staffShiftError = ref("");
+  const staffAnalytics = ref<StaffAnalytics | null>(null);
+  const staffAnalyticsLoading = ref(false);
+  const staffAnalyticsError = ref("");
+  const staffTeamAnalytics = ref<StaffAnalytics[]>([]);
+  const staffTeamAnalyticsLoading = ref(false);
+  const staffTeamAnalyticsError = ref("");
+  const staffTasks = ref<StaffTask[]>([]);
+  const staffTasksLoading = ref(false);
+  const staffTasksError = ref("");
+  const staffSalaries = ref<StaffSalary[]>([]);
+  const staffSalariesLoading = ref(false);
+  const staffSalariesError = ref("");
+  const staffMarks = ref<StaffMark[]>([]);
+  const staffMarksLoading = ref(false);
+  const staffMarksError = ref("");
+  const staffNotifications = ref<StaffNotificationsPayload | null>(null);
+  const staffNotificationsLoading = ref(false);
+  const staffNotificationsError = ref("");
+  let staffShiftFetchSequence = 0;
+  let staffShiftMutationEpoch = 0;
+  let staffAnalyticsRequestSequence = 0;
+  let staffTeamAnalyticsRequestSequence = 0;
+  let staffSalaryRequestSequence = 0;
+  let staffMarksRequestSequence = 0;
+  let staffShiftHistoryRequestSequence = 0;
+  const hasStaffAccess = computed(
+    () => Boolean(staffToken.value && staffIdentity.value?.employee?.id),
+  );
+  const staffRole = computed<StaffRole>(
+    () => staffIdentity.value?.role || "employee",
+  );
+  const isStaffManager = computed(() => staffRole.value === "manager");
+  const openStaffTaskCount = computed(
+    () =>
+      staffTasks.value.filter((task) =>
+        ["open", "claimed", "submitted"].includes(task.status),
+      ).length,
+  );
+
+  function persistStaffIdentity(identity: StaffIdentity | null) {
+    staffIdentity.value = identity;
+  }
+
+  function setStaffIdentityFromPayload(payload: Record<string, any>) {
+    const nestedIdentity = payload.identity as
+      | StaffIdentity
+      | Employee
+      | undefined;
+    const identityEmployee =
+      nestedIdentity && "employee" in nestedIdentity
+        ? nestedIdentity.employee
+        : nestedIdentity;
+    const employee =
+      payload.employee ||
+      payload.staff ||
+      payload.user ||
+      identityEmployee;
+    if (!employee?.id) return;
+    persistStaffIdentity({
+      employee,
+      role:
+        payload.role ||
+        ("role" in (nestedIdentity || {})
+          ? (nestedIdentity as StaffIdentity | Employee).role
+          : undefined) ||
+        employee.role ||
+        "employee",
+      permissions:
+        payload.permissions ||
+        ("permissions" in (nestedIdentity || {})
+          ? (nestedIdentity as StaffIdentity).permissions
+          : undefined) ||
+        [],
+    });
+  }
+
+  function applyStaffAccessResponse(payload: Record<string, any>) {
+    const token = String(payload.staff_token || payload.token || "");
+    if (token) {
+      staffToken.value = token;
+      inMemoryStaffToken = token;
+    }
+    const shiftToken = String(payload.shift_token || "");
+    if (shiftToken) {
+      staffShiftToken.value = shiftToken;
+      inMemoryShiftToken = shiftToken;
+    }
+    setStaffIdentityFromPayload(payload);
+    if (!staffIdentity.value?.employee?.id && payload.shift?.employee?.id) {
+      setStaffIdentityFromPayload({
+        employee: payload.shift.employee,
+        role: payload.shift.employee.role || "employee",
+      });
+    }
+    return token;
+  }
+
+  function lockStaffAccess() {
+    staffShiftMutationEpoch += 1;
+    staffAnalyticsRequestSequence += 1;
+    staffTeamAnalyticsRequestSequence += 1;
+    staffSalaryRequestSequence += 1;
+    staffMarksRequestSequence += 1;
+    staffShiftHistoryRequestSequence += 1;
+    clearStoredStaffAccess();
+    clearStoredShiftToken();
+    staffToken.value = "";
+    staffShiftToken.value = "";
+    persistStaffIdentity(null);
+    staffAnalytics.value = null;
+    staffTeamAnalytics.value = [];
+    staffSalaries.value = [];
+    staffMarks.value = [];
+    staffShiftHistory.value = [];
+    staffTasks.value = [];
+    staffNotifications.value = null;
+    staffAccessError.value = "";
+  }
+  staffUnauthorizedHandler = lockStaffAccess;
+
+  async function accessStaff(pin: string) {
+    if (!/^\d{4}$/.test(pin)) {
+      throw new StaffApiError("Введите четыре цифры", {
+        code: "invalid_pin_format",
+      });
+    }
+    staffAccessLoading.value = true;
+    staffAccessError.value = "";
+    try {
+      lockStaffAccess();
+      const response = await staffFetchAPI<Record<string, any>>(
+        `${API_BASE}/staff/access`,
+        {
+          method: "POST",
+          body: JSON.stringify({ pin }),
+        },
+        { includeStaff: false },
+      );
+      const token = applyStaffAccessResponse(response);
+      if (!token) {
+        throw new StaffApiError("Сервер не выдал допуск сотрудника", {
+          code: "missing_staff_token",
+        });
+      }
+      await refreshStaffWorkspace({ quiet: true });
+      if (!staffIdentity.value?.employee?.id) {
+        throw new StaffApiError(
+          "Не удалось определить сотрудника. Войдите ещё раз.",
+          { code: "missing_staff_identity" },
+        );
+      }
+      return staffIdentity.value;
+    } catch (error: any) {
+      if (!staffToken.value || error?.code === "missing_staff_identity") {
+        lockStaffAccess();
+      }
+      staffAccessError.value =
+        error?.message || "Не удалось проверить ПИН";
+      throw error;
+    } finally {
+      staffAccessLoading.value = false;
+    }
+  }
+
+  async function fetchStaffSettings() {
+    staffSettingsLoading.value = true;
+    staffSettingsError.value = "";
+    try {
+      const response = await staffFetchAPI<{
+        enabled: boolean;
+        order_shift_restriction_enabled?: boolean;
+      }>(
+        `${API_BASE}/staff/settings/tracking`,
+        {},
+        { includeStaff: false },
+      );
+      staffTrackingEnabled.value = Boolean(response.enabled);
+      staffOrderShiftRestrictionEnabled.value = Boolean(
+        response.order_shift_restriction_enabled,
+      );
+      return {
+        trackingEnabled: staffTrackingEnabled.value,
+        orderShiftRestrictionEnabled:
+          staffOrderShiftRestrictionEnabled.value,
+      };
+    } catch (error: any) {
+      staffSettingsError.value =
+        error?.message || "Не удалось загрузить настройки учёта";
+      throw error;
+    } finally {
+      staffSettingsLoading.value = false;
+    }
+  }
+
+  async function updateStaffTracking(enabled: boolean) {
+    staffSettingsLoading.value = true;
+    staffSettingsError.value = "";
+    try {
+      const response = await staffFetchAPI<{ enabled: boolean }>(
+        `${API_BASE}/staff/settings/tracking`,
+        {
+          method: "PUT",
+          body: JSON.stringify({ enabled }),
+        },
+      );
+      staffTrackingEnabled.value = Boolean(response.enabled);
+      return staffTrackingEnabled.value;
+    } catch (error: any) {
+      staffSettingsError.value =
+        error?.message || "Не удалось изменить учёт сотрудников";
+      throw error;
+    } finally {
+      staffSettingsLoading.value = false;
+    }
+  }
+
+  async function updateStaffOrderShiftRestriction(enabled: boolean) {
+    staffSettingsLoading.value = true;
+    staffSettingsError.value = "";
+    try {
+      const response = await staffFetchAPI<{ enabled: boolean }>(
+        `${API_BASE}/staff/settings/order-shift-restriction`,
+        {
+          method: "PUT",
+          body: JSON.stringify({ enabled }),
+        },
+      );
+      staffOrderShiftRestrictionEnabled.value = Boolean(response.enabled);
+      return staffOrderShiftRestrictionEnabled.value;
+    } catch (error: any) {
+      staffSettingsError.value =
+        error?.message || "Не удалось изменить ограничение заказов";
+      throw error;
+    } finally {
+      staffSettingsLoading.value = false;
+    }
+  }
+
+  async function bootstrapStaffManager(data: {
+    admin_password: string;
+    first_name: string;
+    last_name?: string;
+    position?: string;
+    new_pin: string;
+    enable_tracking: boolean;
+  }) {
+    const response = await staffFetchAPI<{
+      employee: Employee;
+      tracking_enabled: boolean;
+    }>(
+      `${API_BASE}/staff/bootstrap-manager`,
+      {
+        method: "POST",
+        body: JSON.stringify(data),
+      },
+      { includeStaff: false },
+    );
+    staffTrackingEnabled.value = Boolean(response.tracking_enabled);
+    return response.employee;
+  }
+
+  async function recoverStaffManager(data: {
+    admin_password: string;
+    employee_id: string;
+    new_pin: string;
+  }) {
+    const response = await staffFetchAPI<{ employee: Employee }>(
+      `${API_BASE}/staff/recovery-manager`,
+      {
+        method: "POST",
+        body: JSON.stringify(data),
+      },
+      { includeStaff: false },
+    );
+    return response.employee;
+  }
+
+  async function fetchStaffRecoveryManagerCandidates(adminPassword: string) {
+    const response = await staffFetchAPI<{
+      managers?: Employee[];
+      employees?: Employee[];
+    }>(
+      `${API_BASE}/staff/recovery-manager/candidates`,
+      {
+        method: "POST",
+        body: JSON.stringify({ admin_password: adminPassword }),
+      },
+      { includeStaff: false },
+    );
+    return response.managers || response.employees || [];
+  }
+
+  async function fetchStaffEmployees(options: { includeInactive?: boolean } = {}) {
+    staffEmployeesLoading.value = true;
+    staffEmployeesError.value = "";
+    try {
+      const query = new URLSearchParams();
+      if (options.includeInactive) query.set("include_inactive", "1");
+      const suffix = query.toString() ? `?${query}` : "";
+      const response = await staffFetchAPI<
+        Employee[] | { employees?: Employee[]; items?: Employee[]; data?: Employee[] }
+      >(`${API_BASE}/staff/employees${suffix}`);
+      staffEmployees.value = listFromPayload(
+        response,
+        !Array.isArray(response) ? response.employees : undefined,
+      );
+      return staffEmployees.value;
+    } catch (error: any) {
+      staffEmployeesError.value =
+        error?.message || "Не удалось загрузить сотрудников";
+      throw error;
+    } finally {
+      staffEmployeesLoading.value = false;
+    }
+  }
+
+  async function createStaffEmployee(data: {
+    first_name: string;
+    last_name: string;
+    position?: string | null;
+    responsibilities?: string | null;
+      color?: string | null;
+      avatar_url?: string | null;
+      role: StaffRole;
+      pin: string;
+  }) {
+    const response = await staffFetchAPI<Employee | { employee: Employee }>(
+      `${API_BASE}/staff/employees`,
+      { method: "POST", body: JSON.stringify(data) },
+    );
+    const employee = "employee" in response ? response.employee : response;
+    staffEmployees.value = [employee, ...staffEmployees.value];
+    return employee;
+  }
+
+  async function updateStaffEmployee(
+    id: string,
+    data: Partial<{
+      first_name: string;
+      last_name: string;
+      position: string | null;
+      responsibilities: string | null;
+      color: string | null;
+      avatar_url: string | null;
+      role: StaffRole;
+      pin: string;
+      active: number | boolean;
+    }>,
+  ) {
+    const response = await staffFetchAPI<Employee | { employee: Employee }>(
+      `${API_BASE}/staff/employees/${id}`,
+      { method: "PATCH", body: JSON.stringify(data) },
+    );
+    const employee = "employee" in response ? response.employee : response;
+    const index = staffEmployees.value.findIndex((item) => item.id === id);
+    if (index !== -1) staffEmployees.value[index] = employee;
+    if (staffIdentity.value?.employee.id === id) {
+      persistStaffIdentity({
+        ...staffIdentity.value,
+        employee,
+        role: employee.role || staffIdentity.value.role,
+      });
+    }
+    return employee;
+  }
+
+  async function deactivateStaffEmployee(id: string, reason: string) {
+    const response = await staffFetchAPI<Employee | { employee: Employee }>(
+      `${API_BASE}/staff/employees/${id}/deactivate`,
+      { method: "POST", body: JSON.stringify({ reason }) },
+    );
+    const employee = "employee" in response ? response.employee : response;
+    const index = staffEmployees.value.findIndex((item) => item.id === id);
+    if (index !== -1) staffEmployees.value[index] = employee;
+    return employee;
+  }
+
+  async function restoreStaffEmployee(id: string) {
+    const response = await staffFetchAPI<Employee | { employee: Employee }>(
+      `${API_BASE}/staff/employees/${id}/restore`,
+      { method: "POST", body: "{}" },
+    );
+    const employee = "employee" in response ? response.employee : response;
+    const index = staffEmployees.value.findIndex((item) => item.id === id);
+    if (index !== -1) staffEmployees.value[index] = employee;
+    return employee;
+  }
+
+  async function resetStaffEmployeePin(id: string, newPin: string) {
+    const response = await staffFetchAPI<Employee | { employee: Employee }>(
+      `${API_BASE}/staff/employees/${id}/reset-pin`,
+      {
+        method: "POST",
+        body: JSON.stringify({ new_pin: newPin }),
+      },
+    );
+    const employee = "employee" in response ? response.employee : response;
+    const index = staffEmployees.value.findIndex((item) => item.id === id);
+    if (index !== -1) staffEmployees.value[index] = employee;
+    return employee;
+  }
+
+  function normalizeShiftPayload(payload: Record<string, any>): StaffShift | null {
+    return payload.shift || payload.current_shift || payload.data || null;
+  }
+
+  async function fetchStaffShift() {
+    const requestSequence = ++staffShiftFetchSequence;
+    const mutationEpoch = staffShiftMutationEpoch;
+    staffShiftLoading.value = true;
+    staffShiftError.value = "";
+    try {
+      const response = await staffFetchAPI<Record<string, any>>(
+        `${API_BASE}/staff/shift`,
+        {},
+        { includeStaff: false },
+      );
+      if (
+        requestSequence !== staffShiftFetchSequence ||
+        mutationEpoch !== staffShiftMutationEpoch
+      ) {
+        return currentStaffShift.value;
+      }
+      currentStaffShift.value = normalizeShiftPayload(response);
+      if (
+        !currentStaffShift.value ||
+        !["active", "open"].includes(currentStaffShift.value.status)
+      ) {
+        clearStoredShiftToken();
+        staffShiftToken.value = "";
+      }
+      return currentStaffShift.value;
+    } catch (error: any) {
+      if (
+        requestSequence !== staffShiftFetchSequence ||
+        mutationEpoch !== staffShiftMutationEpoch
+      ) {
+        throw error;
+      }
+      if (
+        error?.status === 401 ||
+        error?.code === "invalid_staff_token" ||
+        error?.code === "staff_access_expired"
+      ) {
+        lockStaffAccess();
+      }
+      staffShiftError.value =
+        error?.message || "Не удалось проверить смену";
+      throw error;
+    } finally {
+      if (
+        requestSequence === staffShiftFetchSequence &&
+        mutationEpoch === staffShiftMutationEpoch
+      ) {
+        staffShiftLoading.value = false;
+      }
+    }
+  }
+
+  async function fetchStaffShiftCandidates() {
+    staffShiftCandidatesLoading.value = true;
+    staffShiftCandidatesError.value = "";
+    try {
+      const response = await staffFetchAPI<
+        StaffShiftCandidate[] | {
+          candidates?: StaffShiftCandidate[];
+          items?: StaffShiftCandidate[];
+          data?: StaffShiftCandidate[];
+        }
+      >(
+        `${API_BASE}/staff/shift/candidates`,
+        {},
+        { includeStaff: false },
+      );
+      staffShiftCandidates.value = listFromPayload(
+        response,
+        !Array.isArray(response) ? response.candidates : undefined,
+      );
+      return staffShiftCandidates.value;
+    } catch (error: any) {
+      staffShiftCandidatesError.value =
+        error?.message || "Не удалось загрузить сотрудников";
+      throw error;
+    } finally {
+      staffShiftCandidatesLoading.value = false;
+    }
+  }
+
+  async function openStaffShift(data: {
+    employee_id?: string;
+    pin?: string;
+    note?: string;
+  } = {}) {
+    staffShiftMutationEpoch += 1;
+    staffShiftLoading.value = true;
+    staffShiftError.value = "";
+    try {
+      const response = await staffFetchAPI<Record<string, any>>(
+        `${API_BASE}/staff/shift/open`,
+        { method: "POST", body: JSON.stringify(data) },
+        { includeStaff: false },
+      );
+      staffShiftMutationEpoch += 1;
+      applyStaffAccessResponse(response);
+      currentStaffShift.value = normalizeShiftPayload(response);
+      return currentStaffShift.value;
+    } catch (error: any) {
+      staffShiftError.value = error?.message || "Не удалось открыть смену";
+      throw error;
+    } finally {
+      staffShiftLoading.value = false;
+    }
+  }
+
+  async function closeStaffShift(data: { note?: string } = {}) {
+    staffShiftMutationEpoch += 1;
+    staffShiftLoading.value = true;
+    staffShiftError.value = "";
+    try {
+      const response = await staffFetchAPI<Record<string, any>>(
+        `${API_BASE}/staff/shift/close`,
+        { method: "POST", body: JSON.stringify(data) },
+        { includeShift: true },
+      );
+      staffShiftMutationEpoch += 1;
+      currentStaffShift.value = normalizeShiftPayload(response);
+      clearStoredShiftToken();
+      staffShiftToken.value = "";
+      return currentStaffShift.value;
+    } catch (error: any) {
+      staffShiftError.value = error?.message || "Не удалось закрыть смену";
+      throw error;
+    } finally {
+      staffShiftLoading.value = false;
+    }
+  }
+
+  async function fetchStaffShiftHistory(params: {
+    month?: string;
+    employeeId?: string;
+  } = {}) {
+    const requestSequence = ++staffShiftHistoryRequestSequence;
+    staffShiftHistoryLoading.value = true;
+    staffShiftHistoryError.value = "";
+    try {
+      const query = new URLSearchParams();
+      if (params.month) query.set("month", params.month);
+      let shifts: StaffShift[];
+      if (params.employeeId) {
+        query.set("employee_id", params.employeeId);
+        const response = await staffFetchAPI<{
+          shifts?: StaffShift[];
+        }>(
+          `${API_BASE}/staff/shifts?${query}`,
+        );
+        const employee =
+          staffEmployees.value.find(
+            (item) => item.id === params.employeeId,
+          ) || null;
+        shifts = (response.shifts || []).map((shift) => ({
+          ...shift,
+          employee: shift.employee || employee,
+          employee_name:
+            shift.employee_name ||
+            [employee?.first_name, employee?.last_name]
+              .filter(Boolean)
+              .join(" "),
+        }));
+      } else {
+        const response = await staffFetchAPI<{
+          employees?: StaffAnalytics[];
+        }>(`${API_BASE}/staff/analytics/team?${query}`);
+        shifts = (response.employees || []).flatMap(
+          (analytics) =>
+            (analytics.shifts || []).map((shift) => ({
+              ...shift,
+              employee: shift.employee || analytics.employee || null,
+              employee_name:
+                shift.employee_name ||
+                [analytics.employee?.first_name, analytics.employee?.last_name]
+                  .filter(Boolean)
+                  .join(" "),
+            })),
+        );
+      }
+      try {
+        const auditResponse = await staffFetchAPI<{
+          audit?: Array<{
+            shift_id: string;
+            action: string;
+            reason?: string | null;
+            created_at?: string;
+          }>;
+        }>(`${API_BASE}/staff/shifts/audit?limit=200`);
+        for (const audit of auditResponse.audit || []) {
+          if (!["correct", "force_close"].includes(audit.action)) continue;
+          const shift = shifts.find(
+            (item) => item.id === audit.shift_id,
+          );
+          if (!shift || shift.corrected_at) continue;
+          shift.corrected_at = audit.created_at || null;
+          shift.correction_reason = audit.reason || null;
+        }
+      } catch {
+        // Смены остаются доступны, даже если журнал правок временно не загрузился.
+      }
+      shifts.sort(
+        (left, right) =>
+          new Date(right.started_at || "").getTime() -
+          new Date(left.started_at || "").getTime(),
+      );
+      if (requestSequence !== staffShiftHistoryRequestSequence) {
+        return staffShiftHistory.value;
+      }
+      staffShiftHistory.value = shifts;
+      return staffShiftHistory.value;
+    } catch (error: any) {
+      if (requestSequence === staffShiftHistoryRequestSequence) {
+        staffShiftHistoryError.value =
+          error?.message || "Не удалось загрузить историю смен";
+      }
+      throw error;
+    } finally {
+      if (requestSequence === staffShiftHistoryRequestSequence) {
+        staffShiftHistoryLoading.value = false;
+      }
+    }
+  }
+
+  async function correctStaffShift(data: {
+    shift_id: string;
+    expected_version: number;
+    reason: string;
+    started_at?: string;
+    ended_at?: string;
+    force?: boolean;
+  }) {
+    staffShiftMutationEpoch += 1;
+    const endpoint = data.force
+      ? `${API_BASE}/staff/shift/close`
+      : `${API_BASE}/staff/shifts/${data.shift_id}/correct`;
+    const body = data.force
+      ? { ...data, manager_correction: true }
+      : {
+          started_at: data.started_at,
+          ended_at: data.ended_at,
+          reason: data.reason,
+          expected_version: data.expected_version,
+        };
+    const response = await staffFetchAPI<
+      StaffShift | { shift: StaffShift }
+    >(endpoint, {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+    const shift = "shift" in response ? response.shift : response;
+    staffShiftMutationEpoch += 1;
+    shift.correction_reason = data.reason;
+    shift.corrected_at = new Date().toISOString();
+    const index = staffShiftHistory.value.findIndex(
+      (item) => item.id === shift.id,
+    );
+    if (index === -1) staffShiftHistory.value.unshift(shift);
+    else staffShiftHistory.value[index] = shift;
+    if (currentStaffShift.value?.id === shift.id) {
+      currentStaffShift.value = shift;
+    }
+    if (data.force) {
+      clearStoredShiftToken();
+      staffShiftToken.value = "";
+    }
+    return shift;
+  }
+
+  async function fetchStaffAnalytics(params: {
+    period?: "day" | "month" | "year" | "custom";
+    month?: string;
+    date?: string;
+    year?: string | number;
+    from?: string;
+    to?: string;
+    employeeId?: string;
+  } = {}) {
+    const requestSequence = ++staffAnalyticsRequestSequence;
+    staffAnalyticsLoading.value = true;
+    staffAnalyticsError.value = "";
+    try {
+      const query = new URLSearchParams();
+      if (params.period) query.set("period", params.period);
+      if (params.month) query.set("month", params.month);
+      if (params.date) query.set("date", params.date);
+      if (params.year) query.set("year", String(params.year));
+      if (params.from) query.set("from", params.from);
+      if (params.to) query.set("to", params.to);
+      if (params.employeeId) query.set("employee_id", params.employeeId);
+      const suffix = query.toString() ? `?${query}` : "";
+      const response = await staffFetchAPI<
+        StaffAnalytics | { analytics: StaffAnalytics }
+      >(`${API_BASE}/staff/analytics${suffix}`);
+      const analytics = normalizeStaffAnalytics(
+        "analytics" in response ? response.analytics : response,
+      );
+      if (requestSequence !== staffAnalyticsRequestSequence) {
+        return staffAnalytics.value;
+      }
+      staffAnalytics.value = analytics;
+      if (
+        staffAnalytics.value.employee &&
+        staffAnalytics.value.employee.id ===
+          staffIdentity.value?.employee.id
+      ) {
+        setStaffIdentityFromPayload({ employee: staffAnalytics.value.employee });
+      }
+      return staffAnalytics.value;
+    } catch (error: any) {
+      if (requestSequence === staffAnalyticsRequestSequence) {
+        staffAnalyticsError.value =
+          error?.message || "Не удалось загрузить показатели";
+      }
+      throw error;
+    } finally {
+      if (requestSequence === staffAnalyticsRequestSequence) {
+        staffAnalyticsLoading.value = false;
+      }
+    }
+  }
+
+  async function fetchStaffTeamAnalytics(params: {
+    period?: "day" | "month" | "year" | "custom";
+    month?: string;
+    date?: string;
+    year?: string | number;
+    from?: string;
+    to?: string;
+  } = {}) {
+    const requestSequence = ++staffTeamAnalyticsRequestSequence;
+    staffTeamAnalyticsLoading.value = true;
+    staffTeamAnalyticsError.value = "";
+    try {
+      const query = new URLSearchParams();
+      if (params.period) query.set("period", params.period);
+      if (params.month) query.set("month", params.month);
+      if (params.date) query.set("date", params.date);
+      if (params.year) query.set("year", String(params.year));
+      if (params.from) query.set("from", params.from);
+      if (params.to) query.set("to", params.to);
+      const suffix = query.toString() ? `?${query}` : "";
+      const response = await staffFetchAPI<{
+        employees?: StaffAnalytics[];
+      }>(`${API_BASE}/staff/analytics/team${suffix}`);
+      const employees = (response.employees || []).map(normalizeStaffAnalytics);
+      if (requestSequence !== staffTeamAnalyticsRequestSequence) {
+        return staffTeamAnalytics.value;
+      }
+      staffTeamAnalytics.value = employees;
+      return staffTeamAnalytics.value;
+    } catch (error: any) {
+      if (requestSequence === staffTeamAnalyticsRequestSequence) {
+        staffTeamAnalyticsError.value =
+          error?.message || "Не удалось загрузить показатели команды";
+      }
+      throw error;
+    } finally {
+      if (requestSequence === staffTeamAnalyticsRequestSequence) {
+        staffTeamAnalyticsLoading.value = false;
+      }
+    }
+  }
+
+  async function fetchStaffTasks(params: {
+    status?: string;
+    employeeId?: string;
+  } = {}) {
+    if (!staffToken.value) {
+      staffTasks.value = [];
+      return [];
+    }
+    staffTasksLoading.value = true;
+    staffTasksError.value = "";
+    try {
+      const query = new URLSearchParams();
+      if (params.status) query.set("status", params.status);
+      if (params.employeeId) query.set("employee_id", params.employeeId);
+      const suffix = query.toString() ? `?${query}` : "";
+      const response = await staffFetchAPI<
+        StaffTask[] | { tasks?: StaffTask[]; items?: StaffTask[]; data?: StaffTask[] }
+      >(`${API_BASE}/staff/tasks${suffix}`);
+      staffTasks.value = listFromPayload(
+        response,
+        !Array.isArray(response) ? response.tasks : undefined,
+      ).map(normalizeStaffTask);
+      return staffTasks.value;
+    } catch (error: any) {
+      staffTasksError.value = error?.message || "Не удалось загрузить задачи";
+      throw error;
+    } finally {
+      staffTasksLoading.value = false;
+    }
+  }
+
+  async function fetchStaffTaskHistory(id: string) {
+    return staffFetchAPI<{
+      task: StaffTask;
+      history: Array<Record<string, any>>;
+    }>(`${API_BASE}/staff/tasks/${id}/history`);
+  }
+
+  async function createStaffTask(data: {
+    title: string;
+    description?: string;
+    priority?: string;
+    due_at?: string | null;
+  }) {
+    const body = {
+      title: data.title,
+      description: data.description,
+      due_at: data.due_at,
+    };
+    const pending = pendingMutationKey("staff.task.create", body);
+    const response = await staffFetchAPI<StaffTask | { task: StaffTask }>(
+      `${API_BASE}/staff/tasks`,
+      {
+        method: "POST",
+        headers: { "Idempotency-Key": pending.key },
+        body: JSON.stringify(body),
+      },
+    );
+    pendingMutationKeys.delete(pending.signature);
+    const task = normalizeStaffTask(
+      "task" in response ? response.task : response,
+    );
+    staffTasks.value = [task, ...staffTasks.value];
+    return task;
+  }
+
+  async function performStaffTaskAction(
+    id: string,
+    action: "claim" | "submit" | "approve" | "cancel" | "release",
+    data: Record<string, unknown> = {},
+  ) {
+    const pending = pendingMutationKey(
+      `staff.task.${id}.${action}`,
+      data,
+    );
+    const response = await staffFetchAPI<StaffTask | { task: StaffTask }>(
+      `${API_BASE}/staff/tasks/${id}/${action}`,
+      {
+        method: "POST",
+        headers: { "Idempotency-Key": pending.key },
+        body: JSON.stringify(data),
+      },
+    );
+    pendingMutationKeys.delete(pending.signature);
+    const task = normalizeStaffTask(
+      "task" in response ? response.task : response,
+    );
+    const index = staffTasks.value.findIndex((item) => item.id === id);
+    if (index === -1) staffTasks.value.unshift(task);
+    else staffTasks.value[index] = task;
+    return task;
+  }
+
+  async function fetchStaffSalaries(params: {
+    month?: string;
+    employeeId?: string;
+  } = {}) {
+    const requestSequence = ++staffSalaryRequestSequence;
+    staffSalariesLoading.value = true;
+    staffSalariesError.value = "";
+    try {
+      const loadOne = async (employeeId?: string) => {
+        const query = new URLSearchParams();
+        if (params.month) query.set("month", params.month);
+        if (employeeId) query.set("employee_id", employeeId);
+        const suffix = query.toString() ? `?${query}` : "";
+        const response = await staffFetchAPI<
+          StaffSalary[] | {
+            salary?: StaffSalary | null;
+            salaries?: StaffSalary[];
+            items?: StaffSalary[];
+            data?: StaffSalary[];
+          }
+        >(`${API_BASE}/staff/salaries${suffix}`);
+        if (!Array.isArray(response) && "salary" in response) {
+          return response.salary ? [normalizeStaffSalary(response.salary)] : [];
+        }
+        return listFromPayload(
+          response,
+          !Array.isArray(response) ? response.salaries : undefined,
+        ).map(normalizeStaffSalary);
+      };
+      if (
+        !params.employeeId &&
+        isStaffManager.value &&
+        staffEmployees.value.length
+      ) {
+        const salaries = (
+          await Promise.all(
+            staffEmployees.value
+              .map((employee) => loadOne(employee.id)),
+          )
+        ).flat();
+        if (requestSequence !== staffSalaryRequestSequence) {
+          return staffSalaries.value;
+        }
+        staffSalaries.value = salaries;
+      } else {
+        const salaries = await loadOne(params.employeeId);
+        if (requestSequence !== staffSalaryRequestSequence) {
+          return staffSalaries.value;
+        }
+        staffSalaries.value = salaries;
+      }
+      return staffSalaries.value;
+    } catch (error: any) {
+      if (requestSequence === staffSalaryRequestSequence) {
+        staffSalariesError.value =
+          error?.message || "Не удалось загрузить зарплаты";
+      }
+      throw error;
+    } finally {
+      if (requestSequence === staffSalaryRequestSequence) {
+        staffSalariesLoading.value = false;
+      }
+    }
+  }
+
+  async function saveStaffSalary(data: StaffSalary) {
+    const response = await staffFetchAPI<
+      StaffSalary | { salary: StaffSalary }
+    >(`${API_BASE}/staff/salaries`, {
+      method: "PUT",
+      body: JSON.stringify({
+        employee_id: data.employee_id,
+        month: data.month,
+        amount:
+          data.final_amount ??
+          data.amount ??
+          (data.amount_minor == null ? 0 : Number(data.amount_minor) / 100),
+        note: data.note,
+      }),
+    });
+    const salary = normalizeStaffSalary(
+      "salary" in response ? response.salary : response,
+    );
+    const index = staffSalaries.value.findIndex(
+      (item) =>
+        item.employee_id === salary.employee_id && item.month === salary.month,
+    );
+    if (index === -1) staffSalaries.value.unshift(salary);
+    else staffSalaries.value[index] = salary;
+    return salary;
+  }
+
+  async function fetchStaffSalaryHistory(id: string) {
+    const response = await staffFetchAPI<{
+      salary: StaffSalary;
+      versions: StaffHistoryVersion[];
+    }>(`${API_BASE}/staff/salaries/${id}/history`);
+    return {
+      salary: normalizeStaffSalary(response.salary),
+      versions: response.versions || [],
+    };
+  }
+
+  async function fetchStaffMarks(params: {
+    month?: string;
+    employeeId?: string;
+  } = {}) {
+    const requestSequence = ++staffMarksRequestSequence;
+    staffMarksLoading.value = true;
+    staffMarksError.value = "";
+    try {
+      const query = new URLSearchParams();
+      if (params.month) query.set("month", params.month);
+      if (params.employeeId) query.set("employee_id", params.employeeId);
+      const suffix = query.toString() ? `?${query}` : "";
+      const response = await staffFetchAPI<
+        StaffMark[] | { marks?: StaffMark[]; items?: StaffMark[]; data?: StaffMark[] }
+      >(`${API_BASE}/staff/marks${suffix}`);
+      const marks = listFromPayload(
+        response,
+        !Array.isArray(response) ? response.marks : undefined,
+      ).map(normalizeStaffMark);
+      if (requestSequence !== staffMarksRequestSequence) {
+        return staffMarks.value;
+      }
+      staffMarks.value = marks;
+      return staffMarks.value;
+    } catch (error: any) {
+      if (requestSequence === staffMarksRequestSequence) {
+        staffMarksError.value = error?.message || "Не удалось загрузить отметки";
+      }
+      throw error;
+    } finally {
+      if (requestSequence === staffMarksRequestSequence) {
+        staffMarksLoading.value = false;
+      }
+    }
+  }
+
+  async function createStaffMark(data: {
+    employee_id: string;
+    kind: "positive" | "negative";
+    title: string;
+    description?: string;
+    occurred_at?: string;
+  }) {
+    const payload = {
+      ...data,
+      mark_type: data.kind,
+      happened_at: data.occurred_at,
+    };
+    const pending = pendingMutationKey("staff.mark.create", payload);
+    const response = await staffFetchAPI<StaffMark | { mark: StaffMark }>(
+      `${API_BASE}/staff/marks`,
+      {
+        method: "POST",
+        headers: { "Idempotency-Key": pending.key },
+        body: JSON.stringify(payload),
+      },
+    );
+    pendingMutationKeys.delete(pending.signature);
+    const mark = normalizeStaffMark(
+      "mark" in response ? response.mark : response,
+    );
+    staffMarks.value = [
+      mark,
+      ...staffMarks.value.filter((item) => item.id !== mark.id),
+    ];
+    return mark;
+  }
+
+  async function fetchStaffMarkHistory(id: string) {
+    const response = await staffFetchAPI<{
+      mark: StaffMark;
+      versions: StaffHistoryVersion[];
+    }>(`${API_BASE}/staff/marks/${id}/history`);
+    return {
+      mark: normalizeStaffMark(response.mark),
+      versions: response.versions || [],
+    };
+  }
+
+  async function updateStaffMark(
+    id: string,
+    data: Partial<
+      Pick<
+        StaffMark,
+        "kind" | "title" | "description" | "occurred_at" | "void_reason"
+      >
+    > & { voided?: boolean; expected_version: number },
+  ) {
+    const payload = {
+      ...data,
+      mark_type: data.kind,
+      happened_at: data.occurred_at,
+    };
+    const pending = pendingMutationKey(`staff.mark.update:${id}`, payload);
+    const response = await staffFetchAPI<StaffMark | { mark: StaffMark }>(
+      `${API_BASE}/staff/marks/${id}`,
+      {
+        method: "PATCH",
+        headers: { "Idempotency-Key": pending.key },
+        body: JSON.stringify(payload),
+      },
+    );
+    pendingMutationKeys.delete(pending.signature);
+    const mark = normalizeStaffMark(
+      "mark" in response ? response.mark : response,
+    );
+    const index = staffMarks.value.findIndex((item) => item.id === id);
+    if (index !== -1) staffMarks.value[index] = mark;
+    return mark;
+  }
+
+  async function fetchStaffNotifications() {
+    if (!staffToken.value) {
+      staffNotifications.value = null;
+      return null;
+    }
+    staffNotificationsLoading.value = true;
+    staffNotificationsError.value = "";
+    try {
+      const response = await staffFetchAPI<StaffNotificationsPayload>(
+        `${API_BASE}/staff/notifications`,
+      );
+      staffNotifications.value = response;
+      return staffNotifications.value;
+    } catch (error: any) {
+      staffNotificationsError.value =
+        error?.message || "Не удалось загрузить уведомления";
+      throw error;
+    } finally {
+      staffNotificationsLoading.value = false;
+    }
+  }
+
+  async function updateStaffNotificationSettings(
+    settings: Array<{ event_group: string; enabled: boolean }>,
+  ) {
+    const response = await staffFetchAPI<{
+      settings?: Array<Record<string, unknown>>;
+    }>(`${API_BASE}/staff/notifications/settings`, {
+      method: "PUT",
+      body: JSON.stringify({ settings }),
+    });
+    staffNotifications.value = {
+      ...(staffNotifications.value || {}),
+      settings: response.settings || [],
+    };
+    return response.settings || [];
+  }
+
+  async function resolveStaffNotificationRecipient(username: string) {
+    return staffFetchAPI<{
+      telegram_id: string;
+      telegram_username: string;
+      display_name: string;
+    }>(`${API_BASE}/staff/notifications/resolve-recipient`, {
+      method: "POST",
+      body: JSON.stringify({ username }),
+    });
+  }
+
+  async function addStaffNotificationRecipient(data: {
+    event_group: string;
+    telegram_id: string;
+    telegram_username: string;
+  }) {
+    await staffFetchAPI(`${API_BASE}/staff/notifications/recipients`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+    return fetchStaffNotifications();
+  }
+
+  async function removeStaffNotificationRecipient(
+    id: string | number,
+    confirmation: { telegram_id: string; telegram_username: string },
+  ) {
+    await staffFetchAPI(
+      `${API_BASE}/staff/notifications/recipients/${id}`,
+      {
+        method: "DELETE",
+        body: JSON.stringify(confirmation),
+      },
+    );
+    return fetchStaffNotifications();
+  }
+
+  async function resumeStaffNotification(
+    id: string | number,
+    reason: string,
+  ) {
+    await staffFetchAPI(
+      `${API_BASE}/staff/notifications/outbox/${id}/resume`,
+      {
+        method: "POST",
+        body: JSON.stringify({ reason }),
+      },
+    );
+    return fetchStaffNotifications();
+  }
+
+  async function refreshStaffWorkspace(options: { quiet?: boolean } = {}) {
+    if (!staffToken.value) return;
+    const requests: Array<Promise<unknown>> = [
+      fetchStaffShift(),
+      fetchStaffTasks(),
+    ];
+    if (isStaffManager.value) {
+      requests.push(fetchStaffNotifications());
+    } else {
+      staffNotifications.value = null;
+      staffNotificationsError.value = "";
+    }
+    const results = await Promise.allSettled(requests);
+    if (!options.quiet) {
+      const failed = results.find((result) => result.status === "rejected");
+      if (failed?.status === "rejected") throw failed.reason;
+    }
+  }
+
   // Customers
   const customers = ref<Customer[]>([]);
   const currentCustomer = ref<Customer | null>(null);
@@ -1765,6 +3529,7 @@ export const useCrmStore = defineStore("crm", () => {
   }
 
   async function createOrder(data: {
+    idempotency_key?: string;
     customer_id?: string;
     delivery_type: "pickup" | "delivery";
     delivery_address?: string;
@@ -1783,10 +3548,14 @@ export const useCrmStore = defineStore("crm", () => {
       variant_name?: string | null;
     }>;
   }) {
+    const { idempotency_key, ...payload } = data;
+    const pending = pendingMutationKey("order.create", payload);
     const order = await fetchAPI<Order>(`${API_BASE}/orders`, {
       method: "POST",
-      body: JSON.stringify(data),
+      headers: { "Idempotency-Key": idempotency_key || pending.key },
+      body: JSON.stringify(payload),
     });
+    pendingMutationKeys.delete(pending.signature);
     orders.value = [order, ...orders.value];
     return order;
   }
@@ -1828,6 +3597,8 @@ export const useCrmStore = defineStore("crm", () => {
       paid_amount?: number;
       payment_notes?: string;
       reactivate?: boolean;
+      actor_employee_id?: string;
+      actor_pin?: string;
     },
   ) {
     const response = await fetchAPI<Order & { auto_notification?: AutoNotificationResult | null }>(
@@ -1862,6 +3633,8 @@ export const useCrmStore = defineStore("crm", () => {
       payment_account_id: string;
       amount: number;
       payment_notes?: string;
+      actor_employee_id?: string;
+      actor_pin?: string;
     },
   ) {
     const response = await fetchAPI<{
@@ -1879,6 +3652,8 @@ export const useCrmStore = defineStore("crm", () => {
         payment_account_id: data.payment_account_id,
         amount: data.amount,
         payment_notes: data.payment_notes,
+        actor_employee_id: data.actor_employee_id,
+        actor_pin: data.actor_pin,
       }),
     });
 
@@ -1947,8 +3722,11 @@ export const useCrmStore = defineStore("crm", () => {
   }
 
   async function createProcurement(data: {
+    idempotency_key?: string;
     supplier_name?: string;
     notes?: string;
+    actor_employee_id?: string;
+    actor_pin?: string;
     items: Array<{
       product_id: string;
       variant_id?: string;
@@ -1957,22 +3735,36 @@ export const useCrmStore = defineStore("crm", () => {
       cost_per_unit: number;
     }>;
   }) {
+    const { idempotency_key, ...payload } = data;
+    const pending = pendingMutationKey("procurement.create", payload);
     const procurement = await fetchAPI<Procurement>(
       `${API_BASE}/procurements`,
       {
         method: "POST",
-        body: JSON.stringify(data),
+        headers: { "Idempotency-Key": idempotency_key || pending.key },
+        body: JSON.stringify(payload),
       },
     );
+    pendingMutationKeys.delete(pending.signature);
     procurements.value.unshift(procurement);
     return procurement;
   }
 
-  async function completeProcurement(id: string) {
+  async function completeProcurement(
+    id: string,
+    actor: {
+      actor_employee_id?: string;
+      actor_pin?: string;
+      idempotency_key?: string;
+    } = {},
+  ) {
+    const { idempotency_key, ...body } = actor;
     const procurement = await fetchAPI<Procurement>(
       `${API_BASE}/procurements/${id}/complete`,
       {
         method: "POST",
+        headers: { "Idempotency-Key": idempotency_key || clientIdempotencyKey() },
+        body: JSON.stringify(body),
       },
     );
     const index = procurements.value.findIndex((p) => p.id === id);
@@ -1987,6 +3779,8 @@ export const useCrmStore = defineStore("crm", () => {
     data: {
       supplier_name?: string;
       notes?: string;
+      actor_employee_id?: string;
+      actor_pin?: string;
       items?: Array<{
         product_id: string;
         variant_id?: string;
@@ -2937,6 +4731,91 @@ export const useCrmStore = defineStore("crm", () => {
     createEmployee,
     updateEmployee,
     deleteEmployee,
+
+    // Staff access, shifts and performance
+    staffIdentity,
+    staffToken,
+    staffShiftToken,
+    staffRole,
+    isStaffManager,
+    hasStaffAccess,
+    staffAccessLoading,
+    staffAccessError,
+    staffTrackingEnabled,
+    staffOrderShiftRestrictionEnabled,
+    staffSettingsLoading,
+    staffSettingsError,
+    staffEmployees,
+    staffEmployeesLoading,
+    staffEmployeesError,
+    currentStaffShift,
+    staffShiftHistory,
+    staffShiftHistoryLoading,
+    staffShiftHistoryError,
+    staffShiftCandidates,
+    staffShiftCandidatesLoading,
+    staffShiftCandidatesError,
+    staffShiftLoading,
+    staffShiftError,
+    staffAnalytics,
+    staffAnalyticsLoading,
+    staffAnalyticsError,
+    staffTeamAnalytics,
+    staffTeamAnalyticsLoading,
+    staffTeamAnalyticsError,
+    staffTasks,
+    staffTasksLoading,
+    staffTasksError,
+    openStaffTaskCount,
+    staffSalaries,
+    staffSalariesLoading,
+    staffSalariesError,
+    staffMarks,
+    staffMarksLoading,
+    staffMarksError,
+    staffNotifications,
+    staffNotificationsLoading,
+    staffNotificationsError,
+    accessStaff,
+    lockStaffAccess,
+    fetchStaffSettings,
+    updateStaffTracking,
+    updateStaffOrderShiftRestriction,
+    bootstrapStaffManager,
+    fetchStaffRecoveryManagerCandidates,
+    recoverStaffManager,
+    fetchStaffEmployees,
+    createStaffEmployee,
+    updateStaffEmployee,
+    deactivateStaffEmployee,
+    restoreStaffEmployee,
+    resetStaffEmployeePin,
+    fetchStaffShift,
+    fetchStaffShiftCandidates,
+    openStaffShift,
+    closeStaffShift,
+    fetchStaffShiftHistory,
+    correctStaffShift,
+    fetchStaffAnalytics,
+    fetchStaffTeamAnalytics,
+    fetchStaffTasks,
+    fetchStaffTaskHistory,
+    createStaffTask,
+    performStaffTaskAction,
+    fetchStaffSalaries,
+    saveStaffSalary,
+    fetchStaffSalaryHistory,
+    fetchStaffMarks,
+    createStaffMark,
+    updateStaffMark,
+    fetchStaffMarkHistory,
+    fetchStaffNotifications,
+    updateStaffNotificationSettings,
+    resolveStaffNotificationRecipient,
+    addStaffNotificationRecipient,
+    removeStaffNotificationRecipient,
+    resumeStaffNotification,
+    refreshStaffWorkspace,
 
     // Customers
     customers,

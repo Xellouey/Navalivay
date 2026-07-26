@@ -33,12 +33,15 @@
                 
                 <button
                   v-if="showCloseButton"
+                  type="button"
                   @click="handleCloseClick"
+                  :disabled="isLoading"
                   class="
                     flex-shrink-0 p-2 rounded-lg text-gray-400 
                     hover:text-gray-600 hover:bg-gray-100 
                     focus:outline-none focus:ring-2 focus:ring-gray-200
                     transition-all duration-200 touch-manipulation
+                    disabled:cursor-wait disabled:opacity-40
                   "
                   aria-label="Закрыть модальное окно"
                 >
@@ -242,6 +245,9 @@ function handleDialogClose() {
 }
 
 function handleCloseClick() {
+  if (props.isLoading) {
+    return
+  }
   requestClose('close', { force: true })
 }
 

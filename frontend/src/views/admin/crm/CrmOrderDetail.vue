@@ -36,7 +36,7 @@
           </button>
           <button
             v-if="canRemovePayment"
-            @click="removePayment"
+            @click="removePayment()"
             class="inline-flex items-center gap-2 rounded-lg border border-red-200 bg-white px-4 py-2 text-sm font-semibold text-red-600 transition hover:bg-red-50"
             :disabled="isSaving || deletingPayment"
           >
@@ -48,7 +48,7 @@
           </button>
           <button
             v-if="canReactivate"
-            @click="reactivateOrder"
+            @click="reactivateOrder()"
             class="inline-flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-700 transition hover:bg-emerald-100"
             :disabled="isSaving || reactivating"
           >
@@ -77,6 +77,8 @@
           </button>
         </div>
       </div>
+
+      <StaffShiftBar ref="shiftBarRef" />
 
       <!-- Error/Success banners at the top -->
       <Transition
@@ -273,8 +275,18 @@
                 v-model="editableStatus"
                 class="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
               >
-                <option v-for="option in statusOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
+                <option
+                  v-for="option in statusOptions"
+                  :key="option.value"
+                  :value="option.value"
+                  :disabled="option.disabled"
+                >
+                  {{ option.label }}
+                </option>
               </select>
+              <span v-if="staffTrackingEnabled" class="text-xs font-normal leading-5 text-gray-500">
+                Сборка и выдача выполняются с доски заказов: система отдельно запишет сборщика и выдавшего.
+              </span>
             </label>
             <div class="flex flex-col gap-2 text-sm text-gray-600">
               <span class="font-medium text-gray-700">Тип отдачи</span>
@@ -559,6 +571,7 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useCrmStore, type CrmProductSummary, type Order, type AutoNotificationResult } from '@/stores/crm'
 import ManagerActionSummary from '@/components/crm/ManagerActionSummary.vue'
+import StaffShiftBar from '@/components/admin/staff/StaffShiftBar.vue'
 import { formatBynCurrency as formatCurrency } from '@/utils/currency'
 import { calculateExpectedProfit } from '@/utils/orderProfit'
 
@@ -589,7 +602,7 @@ type FormItem = {
 }
 
 const crmStore = useCrmStore()
-const { currentOrder } = storeToRefs(crmStore)
+const { currentOrder, staffTrackingEnabled } = storeToRefs(crmStore)
 
 const loading = ref(false)
 const editableStatus = ref<Order['status']>('new')
@@ -610,6 +623,12 @@ const productSearchRequestId = ref(0)
 const isSaving = ref(false)
 const saveError = ref('')
 const saveSuccess = ref('')
+const shiftBarRef = ref<{
+  requestShiftRequired: (
+    label: string,
+    retry: () => unknown | Promise<unknown>,
+  ) => Promise<void>
+} | null>(null)
 const deletingPayment = ref(false)
 const reactivating = ref(false)
 const isGeneratingMessage = ref(false)
@@ -623,6 +642,18 @@ const orderHistory = ref<Array<{
   note: string | null;
 }>>([])
 
+async function handleShiftRequired(
+  error: any,
+  label: string,
+  retry: () => unknown | Promise<unknown>,
+) {
+  if (error?.code !== 'shift_required') return false
+  saveError.value =
+    'Сначала откройте смену. Данные на странице сохранены, действие не повторялось.'
+  await shiftBarRef.value?.requestShiftRequired(label, retry)
+  return true
+}
+
 async function resolveAction() {
   if (!currentOrder.value) return
   const actionType = currentOrder.value.manager_action_type
@@ -635,19 +666,40 @@ async function resolveAction() {
       ? 'Отмена подтверждена, заказ разобран'
       : 'Изменения приняты, заказ отправлен на пересборку'
   } catch (error: any) {
+    if (await handleShiftRequired(
+      error,
+      `Обработать действие по заказу #${currentOrder.value?.order_number || ''}`,
+      resolveAction,
+    )) return false
     saveError.value = error?.message || 'Не удалось обработать действие'
+    return false
   } finally {
     isResolvingAction.value = false
   }
+  return true
 }
 
-const statusOptions: Array<{ value: Order['status']; label: string }> = [
+const allStatusOptions: Array<{ value: Order['status']; label: string }> = [
   { value: 'new', label: 'Новый' },
   { value: 'in_progress', label: 'В работе' },
   { value: 'completed', label: 'Завершён' },
   { value: 'delivered', label: 'Выдан' },
   { value: 'cancelled', label: 'Отменён' }
 ]
+const statusOptions = computed(() =>
+  allStatusOptions
+    .filter((option) =>
+      !staffTrackingEnabled.value ||
+      !['completed', 'delivered'].includes(option.value) ||
+      option.value === currentOrder.value?.status,
+    )
+    .map((option) => ({
+      ...option,
+      disabled:
+        Boolean(staffTrackingEnabled.value) &&
+        ['completed', 'delivered'].includes(option.value),
+    })),
+)
 
 const deliveryType = computed(() => currentOrder.value?.delivery_type ?? 'pickup')
 const deliveryLabel = computed(() => (deliveryType.value === 'delivery' ? 'Доставка' : 'Самовывоз'))
@@ -778,6 +830,7 @@ watch(currentOrder, (order) => {
 })
 
 onMounted(() => {
+  void crmStore.fetchStaffSettings().catch(() => undefined)
   void refreshOrder()
   void loadHistory()
 })
@@ -939,7 +992,7 @@ function normalizeDiscounts() {
 }
 
 async function saveChanges() {
-  if (!currentOrder.value || !canSave.value) return
+  if (!currentOrder.value || !canSave.value) return false
   saveError.value = ''
   saveSuccess.value = ''
   isSaving.value = true
@@ -990,9 +1043,16 @@ async function saveChanges() {
     successTimer = setTimeout(() => {
       saveSuccess.value = ''
     }, 6000)
+    return true
   } catch (error: any) {
+    if (await handleShiftRequired(
+      error,
+      `Сохранить заказ #${currentOrder.value?.order_number || ''}`,
+      saveChanges,
+    )) return false
     console.error('[CRM] update order error', error)
     saveError.value = formatErrorMessage(error?.message || error?.error || 'Не удалось сохранить изменения')
+    return false
   } finally {
     isSaving.value = false
   }
@@ -1057,9 +1117,9 @@ function describeSendError(reason: string | undefined): string {
   return reason
 }
 
-async function removePayment() {
-  if (!currentOrder.value || deletingPayment.value) return
-  if (!confirm('Удалить оплату и вернуть заказ в работу?')) return
+async function removePayment(confirmed = false) {
+  if (!currentOrder.value || deletingPayment.value) return false
+  if (!confirmed && !confirm('Удалить оплату и вернуть заказ в работу?')) return false
   deletingPayment.value = true
   saveError.value = ''
   try {
@@ -1071,17 +1131,24 @@ async function removePayment() {
     successTimer = setTimeout(() => {
       saveSuccess.value = ''
     }, 4000)
+    return true
   } catch (error: any) {
+    if (await handleShiftRequired(
+      error,
+      `Отменить оплату заказа #${currentOrder.value?.order_number || ''}`,
+      () => removePayment(true),
+    )) return false
     console.error('[CRM] delete payment error', error)
     saveError.value = formatErrorMessage(error?.message || error?.error || 'Не удалось удалить оплату')
+    return false
   } finally {
     deletingPayment.value = false
   }
 }
 
-async function reactivateOrder() {
-  if (!currentOrder.value || reactivating.value) return
-  if (!confirm('Возобновить отменённый заказ?')) return
+async function reactivateOrder(confirmed = false) {
+  if (!currentOrder.value || reactivating.value) return false
+  if (!confirmed && !confirm('Возобновить отменённый заказ?')) return false
   reactivating.value = true
   saveError.value = ''
   try {
@@ -1093,9 +1160,16 @@ async function reactivateOrder() {
     successTimer = setTimeout(() => {
       saveSuccess.value = ''
     }, 4000)
+    return true
   } catch (error: any) {
+    if (await handleShiftRequired(
+      error,
+      `Возобновить заказ #${currentOrder.value?.order_number || ''}`,
+      () => reactivateOrder(true),
+    )) return false
     console.error('[CRM] reactivate order error', error)
     saveError.value = formatErrorMessage(error?.message || error?.error || 'Не удалось возобновить заказ')
+    return false
   } finally {
     reactivating.value = false
   }
@@ -1137,7 +1211,7 @@ function statusLabel(status: Order['status'], deliveryType?: 'pickup' | 'deliver
     // Условные статусы: доставка → доставлена, самовывоз → выдан
     return deliveryType === 'delivery' ? 'Доставлена' : 'Выдан'
   }
-  return statusOptions.find((option) => option.value === status)?.label ?? status
+  return allStatusOptions.find((option) => option.value === status)?.label ?? status
 }
 
 function formatFullDate(dateString?: string | null) {

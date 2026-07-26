@@ -3,6 +3,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import AdminStockTransferModal from '@/components/admin/AdminStockTransferModal.vue'
 import { useAdminStore } from '@/stores/admin'
+import { useCrmStore } from '@/stores/crm'
 
 const draftTransfer = {
   id: 'move_1',
@@ -28,6 +29,7 @@ const draftTransfer = {
 describe('AdminStockTransferModal', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
+    useCrmStore().$patch({ staffTrackingEnabled: true })
   })
 
   afterEach(() => {
@@ -44,6 +46,11 @@ describe('AdminStockTransferModal', () => {
             props: ['isOpen'],
             emits: ['close'],
             template: '<section v-if="isOpen"><slot /><slot name="footer" /><button data-test="modal-close" @click="$emit(\'close\')">x</button></section>',
+          },
+          StaffActorPrompt: {
+            props: ['open', 'context'],
+            emits: ['confirm', 'close'],
+            template: '<div v-if="open"><p data-test="actor-context">{{ context }}</p><button data-test="actor-confirm" @click="$emit(\'confirm\', { employeeId: \'employee_1\', pin: \'1234\' })">Подтвердить сотрудника</button></div>',
           },
         },
       },
@@ -86,12 +93,17 @@ describe('AdminStockTransferModal', () => {
 
     const saveButton = wrapper.findAll('button').find((button) => button.text().includes('Создать заявку'))
     await saveButton!.trigger('click')
+    expect(wrapper.get('[data-test="actor-context"]').text()).toContain('Склад → Розница')
+    expect(wrapper.get('[data-test="actor-context"]').text()).toContain('1 позиция · 2 шт')
+    await wrapper.get('[data-test="actor-confirm"]').trigger('click')
     await flushPromises()
 
     expect(createTransfer).toHaveBeenCalledWith(expect.objectContaining({
       source_location: 'warehouse',
       destination_location: 'retail',
       items: [{ product_id: 'product_1', variant_id: null, quantity: 2 }],
+      actor_employee_id: 'employee_1',
+      actor_pin: '1234',
     }))
     expect(wrapper.emitted('saved')).toEqual([[{ number: 1 }]])
     expect(wrapper.emitted('completed')).toBeUndefined()
@@ -122,9 +134,16 @@ describe('AdminStockTransferModal', () => {
     await flushPromises()
     const completeButton = wrapper.findAll('button').find((button) => button.text() === 'Оприходовать 2 шт')
     await completeButton!.trigger('click')
+    expect(wrapper.get('[data-test="actor-context"]').text()).toContain('Перемещение №1')
+    expect(wrapper.get('[data-test="actor-context"]').text()).toContain('Склад → Розница')
+    await wrapper.get('[data-test="actor-confirm"]').trigger('click')
     await flushPromises()
 
-    expect(completeTransfer).toHaveBeenCalledWith('move_1')
+    expect(completeTransfer).toHaveBeenCalledWith('move_1', expect.objectContaining({
+      actor_employee_id: 'employee_1',
+      actor_pin: '1234',
+      idempotency_key: expect.any(String),
+    }))
     expect(wrapper.emitted('completed')).toEqual([[{ quantity: 2, destination: 'retail' }]])
     expect(wrapper.text()).toContain('Оприходовано')
     expect(wrapper.text()).toContain('Манго, Холодный манго')
@@ -162,5 +181,78 @@ describe('AdminStockTransferModal', () => {
 
     expect(wrapper.text()).toContain('Перемещение №2')
     expect(wrapper.text()).not.toContain('Перемещение №999')
+  })
+
+  it('uses the same completion key after a lost response', async () => {
+    const store = useAdminStore()
+    vi.spyOn(store, 'fetchInventoryTransfers').mockResolvedValue({
+      transfers: [draftTransfer],
+      pagination: { page: 1, totalPages: 1 },
+    } as any)
+    vi.spyOn(store, 'fetchInventoryTransfer').mockResolvedValue(draftTransfer as any)
+    const completeTransfer = vi.spyOn(store, 'completeInventoryTransfer')
+      .mockRejectedValueOnce(Object.assign(new Error('network'), { outcomeUnknown: true }))
+      .mockResolvedValueOnce({ ...draftTransfer, status: 'completed' } as any)
+
+    const wrapper = mountModal()
+    await wrapper.setProps({ isOpen: true })
+    await flushPromises()
+    const openButton = wrapper.findAll('button').find((button) => button.text().includes('Перемещение №1'))
+    await openButton!.trigger('click')
+    await flushPromises()
+    await wrapper.findAll('button').find((button) => button.text() === 'Оприходовать 2 шт')!.trigger('click')
+    await wrapper.get('[data-test="actor-confirm"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-test="actor-confirm"]').trigger('click')
+    await flushPromises()
+
+    const firstKey = completeTransfer.mock.calls[0][1].idempotency_key
+    const secondKey = completeTransfer.mock.calls[1][1].idempotency_key
+    expect(firstKey).toBeTruthy()
+    expect(secondKey).toBe(firstKey)
+  })
+
+  it('keeps the legacy flow without employee prompt when tracking is off', async () => {
+    useCrmStore().$patch({ staffTrackingEnabled: false })
+    const store = useAdminStore()
+    vi.spyOn(store, 'fetchInventoryTransfers').mockResolvedValue({
+      transfers: [],
+      pagination: { page: 1, totalPages: 1 },
+    })
+    vi.spyOn(store, 'fetchInventoryItems').mockResolvedValue([{
+      id: 'product_1',
+      title: 'Манго',
+      available_stock: 5,
+    }] as any)
+    const createTransfer = vi.spyOn(store, 'createInventoryTransfer').mockResolvedValue(draftTransfer as any)
+    const completeTransfer = vi.spyOn(store, 'completeInventoryTransfer').mockResolvedValue({
+      ...draftTransfer,
+      status: 'completed',
+    } as any)
+
+    const wrapper = mountModal()
+    await wrapper.setProps({ isOpen: true })
+    await flushPromises()
+    await wrapper.get('button').trigger('click')
+    await flushPromises()
+    await wrapper.get('button[aria-label="Увеличить количество"]').trigger('click')
+    await wrapper.findAll('button').find((button) => button.text().includes('Создать заявку'))!.trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('[data-test="actor-confirm"]').exists()).toBe(false)
+    expect(createTransfer).toHaveBeenCalledWith(expect.not.objectContaining({
+      actor_employee_id: expect.anything(),
+      actor_pin: expect.anything(),
+    }))
+    await wrapper.findAll('button').find((button) => button.text() === 'Оприходовать 2 шт')!.trigger('click')
+    await flushPromises()
+    expect(wrapper.find('[data-test="actor-confirm"]').exists()).toBe(false)
+    expect(completeTransfer).toHaveBeenCalledWith(
+      draftTransfer.id,
+      expect.not.objectContaining({
+        actor_employee_id: expect.anything(),
+        actor_pin: expect.anything(),
+      }),
+    )
   })
 })

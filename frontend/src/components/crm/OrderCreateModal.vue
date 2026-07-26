@@ -337,7 +337,7 @@
               </Transition>
               <button
                 class="flex w-full items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-300"
-                :disabled="isSubmitting || !canSubmit"
+                :disabled="isSubmitting || !canSubmit || Boolean(submitSuccess)"
                 @click="handleSubmit"
               >
                 <svg
@@ -378,6 +378,10 @@ interface Props {
 interface Emits {
   (e: 'close'): void
   (e: 'created', order: Order): void
+  (
+    e: 'shift-required',
+    payload: { label: string; retry: () => Promise<boolean> },
+  ): void
 }
 
 const props = defineProps<Props>()
@@ -395,6 +399,8 @@ let searchDebounce: ReturnType<typeof setTimeout> | null = null
 const isSubmitting = ref(false)
 const submitError = ref('')
 const submitSuccess = ref('')
+const preserveNextClose = ref(false)
+const createRequestKey = ref(newRequestKey())
 let successTimer: ReturnType<typeof setTimeout> | null = null
 
 // Expandable items list
@@ -536,6 +542,13 @@ function resetForm() {
   productSuggestions.value = []
   submitError.value = ''
   isItemsExpanded.value = false
+  createRequestKey.value = newRequestKey()
+}
+
+function newRequestKey() {
+  return typeof crypto !== 'undefined' && 'randomUUID' in crypto
+    ? crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(16).slice(2)}`
 }
 
 function customerLabel(customer: Customer) {
@@ -589,8 +602,8 @@ function itemTotal(item: typeof form.items[number]) {
   return base - discount
 }
 
-async function handleSubmit() {
-  if (!canSubmit.value || isSubmitting.value) return
+async function handleSubmit(): Promise<boolean> {
+  if (!canSubmit.value || isSubmitting.value || submitSuccess.value) return false
 
   submitError.value = ''
   submitSuccess.value = ''
@@ -599,6 +612,7 @@ async function handleSubmit() {
 
   try {
     const payload = {
+      idempotency_key: createRequestKey.value,
       customer_id: form.customerId || undefined,
       delivery_type: form.deliveryType,
       delivery_address: form.deliveryType === 'delivery' ? form.deliveryAddress.trim() || undefined : undefined,
@@ -623,8 +637,21 @@ async function handleSubmit() {
       emit('created', order)
       resetForm()
     }, 3000)
+    return true
   } catch (error: any) {
-    submitError.value = formatErrorMessage(error?.message || error?.error || 'Не удалось создать заказ')
+    if (error?.code === 'shift_required') {
+      preserveNextClose.value = true
+      submitError.value = 'Сначала откройте смену. Заказ сохранён в форме и не отправлялся повторно.'
+      emit('shift-required', {
+        label: 'Создать заказ',
+        retry: handleSubmit,
+      })
+      return false
+    }
+    submitError.value = error?.outcomeUnknown
+      ? 'Ответ сервера не получен. Проверьте список заказов перед повтором: заказ мог быть создан.'
+      : formatErrorMessage(error?.message || error?.error || 'Не удалось создать заказ')
+    return false
   } finally {
     isSubmitting.value = false
   }
@@ -650,6 +677,10 @@ watch(
   () => props.isOpen,
   (open) => {
     if (!open) {
+      if (preserveNextClose.value) {
+        preserveNextClose.value = false
+        return
+      }
       resetForm()
     }
   }

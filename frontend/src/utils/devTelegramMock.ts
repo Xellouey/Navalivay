@@ -444,3 +444,7 @@ export function applyDevTelegramMockIfNeeded(): void {
 
   console.warn('[dev] Telegram WebApp mock applied', identity)
 }
+
+export function isDevTelegramMockActive(): boolean {
+  return import.meta.env.DEV && Boolean(readStoredIdentity())
+}

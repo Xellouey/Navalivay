@@ -107,6 +107,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue"
 import CustomerModalShell from "@/components/CustomerModalShell.vue";
 import { useCustomerBlock } from "@/composables/useCustomerBlock";
 import { getTelegramIdentity } from "@/utils/customerOrders";
+import { isDevTelegramMockActive } from "@/utils/devTelegramMock";
 import { getTelegramInitData, withTelegramAuthHeaders } from "@/utils/telegramAuth";
 
 type GatePhase = "hidden" | "checking" | "required" | "error";
@@ -242,7 +243,7 @@ async function refreshStatus(options: { retryUsername?: boolean } = {}) {
     options.retryUsername ? USERNAME_RETRY_TIMEOUT_MS : STATUS_CHECK_TIMEOUT_MS,
   );
   const identity = getTelegramIdentity();
-  if (!getTelegramInitData() || !identity.telegramId) {
+  if ((!getTelegramInitData() && !isDevTelegramMockActive()) || !identity.telegramId) {
     window.clearTimeout(timeout);
     if (activeRefreshController === controller) activeRefreshController = null;
     errorMessage.value = "Откройте приложение через Telegram, чтобы пройти авторизацию.";

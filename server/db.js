@@ -67,6 +67,8 @@ import { migrateInventoryLocations } from './migrations/add_inventory_locations.
 import { migrateReferralAuthorization } from './migrations/add_referral_authorization.js';
 import { migrateReferralWelcomeNotifications } from './migrations/add_referral_welcome_notifications.js';
 import { migratePickupCells } from './migrations/add_pickup_cells.js';
+import { migrateStaffManagement } from './migrations/add_staff_management.js';
+import { migrateInternalNotifications } from './migrations/add_internal_notifications.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -230,6 +232,8 @@ export function initDb() {
   migratePendingNotifications();
   migrateCategoryGroupTotalControl();
   migrateInventoryLocations();
+  migrateStaffManagement(db);
+  migrateInternalNotifications(db);
   migrateReferralAuthorization();
   migrateReferralWelcomeNotifications();
   migratePickupCells();

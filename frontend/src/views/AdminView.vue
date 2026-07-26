@@ -2014,6 +2014,9 @@ function handleLogout() {
 function handleLock() {
   isLocked.value = true
   localStorage.setItem(LOCK_STATE_KEY, 'true')
+  // Экран блокировки — граница смены пользователя. Общий пароль CRM
+  // не должен наследовать допуск, выданный по личному ПИН руководителя.
+  crmStore.lockStaffAccess()
   // Также сбрасываем доступ к финансовым данным при блокировке
   crmStore.lockProfitAccess()
 }

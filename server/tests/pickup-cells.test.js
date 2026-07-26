@@ -169,6 +169,20 @@ assert(
     !/ячейк/i.test(prepared.text),
   'ready message always contains customer order number without internal wording',
 );
+upsertStatusTemplate('order_assembled', {
+  title: 'Собран',
+  body: 'Заказ №{order_number} готов.',
+  is_active: 1,
+});
+const preparedWithNumber = prepareStatusNotification({
+  orderId: 'cell_o3',
+  event: 'order_assembled',
+});
+assert(
+  preparedWithNumber.ok &&
+    (preparedWithNumber.text.match(/заказ №1/gi) || []).length === 1,
+  'ready message does not duplicate the customer order number from template',
+);
 
 console.log('\n=== notification cycle follows current assignment ===');
 db.prepare(

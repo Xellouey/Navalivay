@@ -280,7 +280,7 @@
 
       <div class="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
         <button type="button" class="rounded-xl border border-gray-300 px-5 py-2.5 text-sm font-semibold text-gray-700 hover:bg-gray-50" :disabled="submitting" @click="backToList">Отмена</button>
-        <button type="button" class="rounded-xl bg-brand-dark px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-brand-dark/90 disabled:cursor-not-allowed disabled:opacity-40" :disabled="!selectedItems.length || submitting" @click="submitTransfer">
+        <button type="button" class="min-h-[44px] rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-40" :disabled="!selectedItems.length || submitting" @click="requestCreateTransfer">
           {{ submitting ? 'Сохраняем…' : `Создать заявку на ${totalQuantity} шт` }}
         </button>
       </div>
@@ -298,22 +298,39 @@
         </button>
         <button
           type="button"
-          class="rounded-xl bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:bg-emerald-300"
+          class="min-h-[44px] rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:bg-blue-300"
           :disabled="actionSubmitting"
-          @click="completeTransfer"
+          @click="requestCompleteTransfer"
         >
           {{ actionSubmitting ? 'Оприходуем…' : `Оприходовать ${Number(activeTransfer.total_quantity || 0)} шт` }}
         </button>
       </div>
     </template>
   </AdminModal>
+  <StaffActorPrompt
+    :open="actorPromptOpen"
+    :title="actorPromptAction === 'complete' ? 'Оприходовать перемещение' : 'Создать перемещение'"
+    :description="actorPromptAction === 'complete'
+      ? 'После подтверждения остатки изменятся сразу.'
+      : 'Подтвердите сотрудника. Состав заявки сохранится при ошибке.'"
+    :context="actorPromptContext"
+    :action-label="actorPromptAction === 'complete' ? 'Оприходовать' : 'Создать заявку'"
+    :loading="actorActionLoading"
+    :error="actorPromptError"
+    :error-code="actorPromptErrorCode"
+    @close="closeActorPrompt"
+    @confirm="confirmActorAction"
+  />
 </template>
 
 <script setup lang="ts">
 import { computed, onUnmounted, ref, watch } from 'vue'
+import { storeToRefs } from 'pinia'
 import AdminModal from '@/components/AdminModal.vue'
 import { useAdminStore } from '@/stores/admin'
+import { useCrmStore } from '@/stores/crm'
 import { BUSINESS_TIME_ZONE } from '@/utils/businessTime'
+import StaffActorPrompt from '@/components/admin/staff/StaffActorPrompt.vue'
 
 type Location = 'retail' | 'warehouse'
 type TransferStatus = 'draft' | 'completed' | 'cancelled'
@@ -377,6 +394,8 @@ const emit = defineEmits<{
 }>()
 
 const adminStore = useAdminStore()
+const crmStore = useCrmStore()
+const { staffTrackingEnabled } = storeToRefs(crmStore)
 const view = ref<ModalView>('list')
 const transfers = ref<StockTransfer[]>([])
 const activeTransfer = ref<StockTransfer | null>(null)
@@ -399,8 +418,32 @@ const results = ref<InventoryItem[]>([])
 const selectedItems = ref<SelectedItem[]>([])
 const loading = ref(false)
 const submitting = ref(false)
+const transferCreateKey = ref(newRequestKey())
 const errorMessage = ref('')
 const loadErrorMessage = ref('')
+const actorPromptOpen = ref(false)
+const actorPromptError = ref('')
+const actorPromptErrorCode = ref('')
+const actorPromptAction = ref<'create' | 'complete' | null>(null)
+const actorActionLoading = computed(() => submitting.value || actionSubmitting.value)
+const actorPromptContext = computed(() => {
+  if (actorPromptAction.value === 'complete' && activeTransfer.value) {
+    return [
+      `Перемещение №${activeTransfer.value.transfer_number}`,
+      `${locationLabel(activeTransfer.value.source_location)} → ${locationLabel(activeTransfer.value.destination_location)}`,
+      `${positionsLabel(Number(activeTransfer.value.item_count || 0))} · ${Number(activeTransfer.value.total_quantity || 0)} шт`,
+    ].join('\n')
+  }
+  if (actorPromptAction.value === 'create') {
+    return [
+      'Новая заявка на перемещение',
+      `${locationLabel(sourceLocation.value)} → ${locationLabel(destinationLocation.value)}`,
+      `${positionsLabel(selectedItems.value.length)} · ${totalQuantity.value} шт`,
+    ].join('\n')
+  }
+  return ''
+})
+const transferCompletionKeys = new Map<string, string>()
 let searchTimer: ReturnType<typeof setTimeout> | null = null
 let requestId = 0
 let detailsRequestId = 0
@@ -601,6 +644,13 @@ function resetForm() {
   errorMessage.value = ''
   loadErrorMessage.value = ''
   loading.value = false
+  transferCreateKey.value = newRequestKey()
+}
+
+function newRequestKey() {
+  return typeof crypto !== 'undefined' && 'randomUUID' in crypto
+    ? crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(16).slice(2)}`
 }
 
 function openCreate() {
@@ -646,50 +696,144 @@ function closeModal() {
   emit('close')
 }
 
-async function submitTransfer() {
+async function ensureStaffTrackingKnown() {
+  if (staffTrackingEnabled.value !== null) return true
+  try {
+    await crmStore.fetchStaffSettings()
+    return true
+  } catch {
+    errorMessage.value = 'Не удалось проверить режим учёта сотрудников'
+    return false
+  }
+}
+
+async function requestCreateTransfer() {
+  if (!selectedItems.value.length || submitting.value) return
+  selectedItems.value.forEach(clampQuantity)
+  if (!await ensureStaffTrackingKnown()) return
+  if (!staffTrackingEnabled.value) {
+    await submitTransfer()
+    return
+  }
+  actorPromptAction.value = 'create'
+  actorPromptError.value = ''
+  actorPromptErrorCode.value = ''
+  actorPromptOpen.value = true
+}
+
+async function requestCompleteTransfer() {
+  if (!activeTransfer.value || actionSubmitting.value) return
+  if (!await ensureStaffTrackingKnown()) return
+  if (!staffTrackingEnabled.value) {
+    await completeTransfer()
+    return
+  }
+  actorPromptAction.value = 'complete'
+  actorPromptError.value = ''
+  actorPromptErrorCode.value = ''
+  actorPromptOpen.value = true
+}
+
+function closeActorPrompt() {
+  if (actorActionLoading.value) return
+  actorPromptOpen.value = false
+  actorPromptError.value = ''
+  actorPromptErrorCode.value = ''
+  actorPromptAction.value = null
+}
+
+async function confirmActorAction(actor: { employeeId: string; pin: string }) {
+  if (actorActionLoading.value) return
+  if (actorPromptAction.value === 'create') {
+    await submitTransfer(actor)
+    return
+  }
+  if (actorPromptAction.value === 'complete') {
+    await completeTransfer(actor)
+  }
+}
+
+async function submitTransfer(actor?: { employeeId: string; pin: string }) {
   if (!selectedItems.value.length || submitting.value) return
   selectedItems.value.forEach(clampQuantity)
   submitting.value = true
   errorMessage.value = ''
+  actorPromptError.value = ''
+  actorPromptErrorCode.value = ''
   try {
     const transfer = await adminStore.createInventoryTransfer({
+      idempotency_key: transferCreateKey.value,
       source_location: sourceLocation.value,
       destination_location: destinationLocation.value,
       comment: comment.value.trim() || undefined,
+      ...(actor
+        ? {
+            actor_employee_id: actor.employeeId,
+            actor_pin: actor.pin,
+          }
+        : {}),
       items: selectedItems.value.map((item) => ({ product_id: item.productId, variant_id: item.variantId, quantity: item.quantity })),
     })
     emit('saved', { number: transfer.transfer_number })
     resetForm()
     activeTransfer.value = transfer
     view.value = 'details'
+    actorPromptOpen.value = false
+    actorPromptAction.value = null
     void loadTransfers()
   } catch (error: any) {
+    actorPromptErrorCode.value = String(error?.code || error?.data?.error || '')
     const code = String(error?.data?.error || '')
-    errorMessage.value = code.startsWith('insufficient_stock:')
+    actorPromptError.value = error?.outcomeUnknown
+      ? 'Ответ сервера не получен. Обновите список перемещений перед повтором, чтобы не создать дубль.'
+      : code.startsWith('insufficient_stock:')
       ? 'Остаток изменился. Обновите список и проверьте количество.'
-      : 'Не удалось сохранить заявку'
+      : error?.status === 409
+        ? 'Данные уже изменились. Обновите остатки и проверьте заявку.'
+        : error?.data?.message || error?.message || 'Не удалось сохранить заявку. Состав не потерян.'
   } finally {
     submitting.value = false
   }
 }
 
-async function completeTransfer() {
+async function completeTransfer(actor?: { employeeId: string; pin: string }) {
   if (!activeTransfer.value || actionSubmitting.value) return
-  if (!confirm(`Оприходовать перемещение №${activeTransfer.value.transfer_number}? Остатки изменятся сразу.`)) return
+  const transferId = activeTransfer.value.id
+  const idempotencyKey =
+    transferCompletionKeys.get(transferId) || newRequestKey()
+  transferCompletionKeys.set(transferId, idempotencyKey)
   actionSubmitting.value = true
   errorMessage.value = ''
   actionMessage.value = ''
+  actorPromptError.value = ''
+  actorPromptErrorCode.value = ''
   try {
-    const completed = await adminStore.completeInventoryTransfer(activeTransfer.value.id)
+    const completed = await adminStore.completeInventoryTransfer(transferId, {
+      ...(actor
+        ? {
+            actor_employee_id: actor.employeeId,
+            actor_pin: actor.pin,
+          }
+        : {}),
+      idempotency_key: idempotencyKey,
+    })
+    transferCompletionKeys.delete(transferId)
     activeTransfer.value = completed
     actionMessage.value = 'Перемещение оприходовано'
+    actorPromptOpen.value = false
+    actorPromptAction.value = null
     emit('completed', { quantity: Number(completed.total_quantity || 0), destination: completed.destination_location })
     void loadTransfers()
   } catch (error: any) {
+    actorPromptErrorCode.value = String(error?.code || error?.data?.error || '')
     const code = String(error?.data?.error || '')
-    errorMessage.value = code.startsWith('insufficient_stock:')
+    actorPromptError.value = error?.outcomeUnknown
+      ? 'Ответ сервера не получен. Обновите перемещение перед повтором: оно могло быть оприходовано.'
+      : code.startsWith('insufficient_stock:')
       ? 'В точке отправления уже не хватает товара. Проверьте остатки.'
-      : 'Не удалось оприходовать перемещение'
+      : error?.status === 409
+        ? 'Перемещение уже изменено другим пользователем. Обновите данные.'
+        : error?.data?.message || error?.message || 'Не удалось оприходовать перемещение'
   } finally {
     actionSubmitting.value = false
   }
@@ -717,6 +861,10 @@ async function cancelTransfer() {
 
 watch(() => props.isOpen, (open) => {
   if (!open) {
+    actorPromptOpen.value = false
+    actorPromptAction.value = null
+    actorPromptError.value = ''
+    actorPromptErrorCode.value = ''
     detailsRequestId += 1
     openingTransferId.value = ''
     invalidateTransferLoads()

@@ -278,7 +278,7 @@ globalThis.fetch = async (url, init) => {
   }
   if (u.includes('127.0.0.1') && u.includes('/send-message')) {
     userbotSendBody9 = JSON.parse(init.body);
-    return { ok: true, async json() { return { ok: true, telegram_message_id: 4242 }; } };
+    return { ok: true, status: 200, async json() { return { ok: true, telegram_message_id: 4242 }; } };
   }
   throw new Error(`unexpected fetch ${u}`);
 };
@@ -296,7 +296,7 @@ try {
   assertEq(userbotSendBody9.auto, true, 'auto=true в payload userbot');
   assertEq(userbotSendBody9.username, 'tester', 'username прокинут (для resolveUsername fallback)');
   assert(
-    userbotSendBody9.text.includes('заказ №1') &&
+    userbotSendBody9.text.toLowerCase().includes('заказ №1') &&
       !userbotSendBody9.text.includes('1001') &&
       !/ячейк/i.test(userbotSendBody9.text),
     'текст содержит только короткий клиентский номер',
@@ -374,7 +374,7 @@ globalThis.fetch = async (url, init) => {
   }
   if (u.includes('127.0.0.1') && u.includes('/send-message')) {
     userbotSendBody11 = JSON.parse(init.body);
-    return { ok: true, async json() { return { ok: true, telegram_message_id: 99 }; } };
+    return { ok: true, status: 200, async json() { return { ok: true, telegram_message_id: 99 }; } };
   }
   throw new Error(`unexpected fetch ${u}`);
 };
@@ -508,7 +508,7 @@ globalThis.fetch = async (url) => {
     return { ok: true, async json() { return { ok: true, connected: true }; } };
   }
   if (u.includes('127.0.0.1') && u.includes('/send-message')) {
-    return { ok: true, async json() { return { ok: true, telegram_message_id: 15150 }; } };
+    return { ok: true, status: 200, async json() { return { ok: true, telegram_message_id: 15150 }; } };
   }
   throw new Error(`unexpected fetch ${u}`);
 };
@@ -549,7 +549,7 @@ globalThis.fetch = async (url, init) => {
   }
   if (u.includes('127.0.0.1') && u.includes('/send-message')) {
     userbotSendBody16 = JSON.parse(init.body);
-    return { ok: true, async json() { return { ok: true, telegram_message_id: 1 }; } };
+    return { ok: true, status: 200, async json() { return { ok: true, telegram_message_id: 1 }; } };
   }
   throw new Error(`unexpected fetch ${u}`);
 };
@@ -637,7 +637,7 @@ globalThis.fetch = async (url) => {
   }
   if (u.includes('/send-message')) {
     userbotHits18 += 1;
-    return { ok: true, async json() { return { ok: true }; } };
+    return { ok: true, status: 200, async json() { return { ok: true }; } };
   }
   throw new Error(`unexpected fetch ${u}`);
 };

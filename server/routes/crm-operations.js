@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import express from "express";
 import { db } from "../db.js";
 import { authMiddleware } from "../auth.js";
@@ -45,8 +46,117 @@ import {
   restartPickupCellAssignmentCycle,
   setPickupCellCapacity,
 } from "../utils/pickup-cells.js";
+import {
+  StaffServiceError,
+  createShiftRequiredMiddleware,
+  createStaffActorMiddleware,
+  getStaffOperationReplay,
+  isStaffOrderShiftRestrictionEnabled,
+  isStaffTrackingEnabled,
+  recheckActiveShiftProof,
+  recheckStaffActorProof,
+  recordSystemStaffEvent,
+  runStaffIdempotentOperation,
+  sendStaffServiceError,
+  storeStaffOperationResult,
+} from "../utils/staff-service.js";
+import {
+  enqueueInternalNotificationForGroup,
+} from "../utils/internal-notifications.js";
 
 export const crmOperationsRouter = express.Router();
+const requireOrderShift = createShiftRequiredMiddleware({
+  orderRestriction: true,
+});
+const requireDocumentActor = createStaffActorMiddleware();
+
+function stableValue(value) {
+  if (Array.isArray(value)) return value.map(stableValue);
+  if (value && typeof value === "object") {
+    return Object.keys(value)
+      .sort()
+      .reduce((result, key) => {
+        if (!["actor_pin", "pin"].includes(key)) {
+          result[key] = stableValue(value[key]);
+        }
+        return result;
+      }, {});
+  }
+  return value;
+}
+
+function staffOperationName(base, body) {
+  const fingerprint = crypto
+    .createHash("sha256")
+    .update(JSON.stringify(stableValue(body || {})))
+    .digest("hex");
+  return `${base}:${fingerprint}`;
+}
+
+function requestIdempotencyKey(req) {
+  return String(req.get("Idempotency-Key") || "").trim() || null;
+}
+
+function unwrapStaffOperation(result) {
+  if (
+    result
+    && typeof result === "object"
+    && Object.hasOwn(result, "replayed")
+    && Object.hasOwn(result, "result")
+  ) {
+    return result;
+  }
+  return { replayed: false, result };
+}
+
+function recheckOrderShift(req) {
+  if (!isStaffTrackingEnabled()) return null;
+  if (!isStaffOrderShiftRestrictionEnabled()) {
+    if (!req.staffShiftProof) return null;
+    try {
+      return recheckActiveShiftProof(req.staffShiftProof);
+    } catch (error) {
+      if (error?.code === "shift_required") return null;
+      throw error;
+    }
+  }
+  return recheckActiveShiftProof(req.staffShiftProof);
+}
+
+function recheckDocumentActor(req) {
+  if (!isStaffTrackingEnabled()) return null;
+  return recheckStaffActorProof(req.staffActorProof);
+}
+
+function isStaffServiceError(error) {
+  return error instanceof StaffServiceError
+    || String(error?.code || "").startsWith("staff_")
+    || ["shift_required", "shift_expired", "idempotency_key_conflict"].includes(
+      error?.code,
+  );
+}
+
+function getCreatedOrderPayload(orderId) {
+  const order = db
+    .prepare("SELECT * FROM orders WHERE id = ?")
+    .get(orderId);
+  if (!order) return null;
+  const orderItems = db
+    .prepare(`
+      SELECT oi.*, p.description as product_description
+      FROM order_items oi
+      LEFT JOIN products p ON oi.product_id = p.id
+      WHERE oi.order_id = ?
+    `)
+    .all(orderId);
+  const pickupCell = getActivePickupCellAssignment(orderId);
+  return {
+    ...order,
+    pickup_cell_number: pickupCell?.cell_number ?? null,
+    pickup_cell_assignment_id: pickupCell?.id ?? null,
+    items: orderItems,
+  };
+}
 
 crmOperationsRouter.get(
   "/api/admin/crm/total-control-groups",
@@ -70,6 +180,74 @@ function generateId(prefix) {
 function getNextNumber(table, field) {
   const row = db.prepare(`SELECT MAX(${field}) as maxNum FROM ${table}`).get();
   return (row?.maxNum || 0) + 1;
+}
+
+function orderInventoryTarget(item) {
+  const product = db
+    .prepare("SELECT id, title, has_variants, stock FROM products WHERE id = ?")
+    .get(item?.product_id);
+  if (!product) {
+    throw new StaffServiceError("inventory_target_missing", 409);
+  }
+  const hasVariants = Number(product.has_variants || 0) === 1;
+  if (item?.variant_id) {
+    if (!hasVariants) {
+      throw new StaffServiceError("inventory_target_mismatch", 409);
+    }
+    const variant = db.prepare(`
+      SELECT id, product_id, stock
+      FROM product_variants
+      WHERE id = ? AND product_id = ?
+    `).get(item.variant_id, item.product_id);
+    if (!variant) {
+      throw new StaffServiceError("inventory_target_missing", 409);
+    }
+    return {
+      table: "product_variants",
+      id: variant.id,
+      stock: Number(variant.stock || 0),
+      title: item.product_title || product.title || item.product_id,
+    };
+  }
+  if (hasVariants) {
+    throw new StaffServiceError("inventory_target_missing", 409);
+  }
+  return {
+    table: "products",
+    id: product.id,
+    stock: Number(product.stock || 0),
+    title: item?.product_title || product.title || product.id,
+  };
+}
+
+function adjustOrderItemStock(item, delta) {
+  const quantity = Number(item?.quantity || 0);
+  if (!Number.isInteger(quantity) || quantity <= 0) {
+    throw new StaffServiceError("invalid_item_quantity", 400);
+  }
+  const target = orderInventoryTarget(item);
+  const amount = Number(delta);
+  if (!Number.isInteger(amount) || amount === 0) {
+    throw new StaffServiceError("invalid_stock_adjustment", 500);
+  }
+  if (amount < 0 && target.stock < Math.abs(amount)) {
+    throw new Error(`Недостаточно товара на складе: ${target.title}`);
+  }
+  const updated = amount < 0
+    ? db.prepare(`
+        UPDATE ${target.table}
+        SET stock = stock + ?
+        WHERE id = ? AND stock >= ?
+      `).run(amount, target.id, Math.abs(amount))
+    : db.prepare(`
+        UPDATE ${target.table}
+        SET stock = stock + ?
+        WHERE id = ?
+      `).run(amount, target.id);
+  if (updated.changes !== 1) {
+    throw new StaffServiceError("inventory_conflict", 409);
+  }
+  return target;
 }
 
 function recordStatusChange(orderId, previousStatus, newStatus, note) {
@@ -182,20 +360,34 @@ function buildAdminOrderItemsWithLoyalty({
       throw new Error(`Product not found: ${item.product_id}`);
     }
 
-    const quantity = Math.max(1, Math.round(Number(item.quantity || 0)));
-    const manualDiscountAmount = Math.max(
-      0,
-      Number(item.manual_discount_amount ?? item.discount_amount ?? 0),
+    const quantity = Number(item.quantity);
+    if (!Number.isInteger(quantity) || quantity <= 0) {
+      throw new Error("invalid_item_quantity");
+    }
+    const rawManualDiscount = Number(
+      item.manual_discount_amount ?? item.discount_amount ?? 0,
     );
+    if (!Number.isFinite(rawManualDiscount) || rawManualDiscount < 0) {
+      throw new Error("invalid_item_discount");
+    }
+    const manualDiscountAmount = rawManualDiscount;
 
     let variantData = null;
     if (item.variant_id) {
+      if (Number(product.has_variants || 0) !== 1) {
+        throw new Error("variant_not_allowed");
+      }
       variantData = db
         .prepare("SELECT * FROM product_variants WHERE id = ?")
         .get(item.variant_id);
       if (!variantData) {
         throw new Error(`Variant not found: ${item.variant_id}`);
       }
+      if (String(variantData.product_id) !== String(item.product_id)) {
+        throw new Error("variant_product_mismatch");
+      }
+    } else if (Number(product.has_variants || 0) === 1) {
+      throw new Error("variant_required");
     }
 
     const pricePerUnit = Number(
@@ -203,6 +395,9 @@ function buildAdminOrderItemsWithLoyalty({
         ? item.price_per_unit
         : variantData?.price_rub ?? product.priceRub,
     );
+    if (!Number.isFinite(pricePerUnit) || pricePerUnit < 0) {
+      throw new Error("invalid_item_price");
+    }
     const costPerUnit = Number(product.cost_price || 0);
 
     totalAmount += pricePerUnit * quantity;
@@ -751,6 +946,7 @@ crmOperationsRouter.get(
 crmOperationsRouter.post(
   "/api/admin/crm/orders",
   authMiddleware,
+  requireOrderShift,
   (req, res) => {
     try {
       const {
@@ -767,8 +963,30 @@ crmOperationsRouter.post(
         return res.status(400).json({ error: "items_required" });
       }
 
-      const orderId = generateId("order");
-      const orderNumber = getNextNumber("orders", "order_number");
+      const trackingEnabled = isStaffTrackingEnabled();
+      const idempotencyKey = trackingEnabled
+        ? requestIdempotencyKey(req)
+        : null;
+      if (trackingEnabled && !idempotencyKey) {
+        throw new StaffServiceError("idempotency_key_required", 400);
+      }
+      const idempotencyOperation = staffOperationName("order.create", req.body);
+      const earlyReplay = trackingEnabled && idempotencyKey
+        ? getStaffOperationReplay({
+            key: idempotencyKey,
+            operation: idempotencyOperation,
+          })
+        : null;
+      if (earlyReplay) {
+        const replayPayload = getCreatedOrderPayload(earlyReplay.entity_id);
+        if (!replayPayload) {
+          throw new StaffServiceError("idempotency_entity_missing", 409);
+        }
+        return res.json(replayPayload);
+      }
+
+      let orderId = generateId("order");
+      let orderNumber = null;
 
       // Рассчитываем суммы
       let totalAmount = 0;
@@ -776,29 +994,46 @@ crmOperationsRouter.post(
       let itemsSubtotal = 0;
 
       let orderItems = items.map((item) => {
+        if (!item || !item.product_id) {
+          throw new Error("invalid_item");
+        }
         const product = db
           .prepare("SELECT * FROM products WHERE id = ?")
           .get(item.product_id);
         if (!product) {
           throw new Error(`Product not found: ${item.product_id}`);
         }
+        const quantity = Number(item.quantity);
+        if (!Number.isInteger(quantity) || quantity <= 0) {
+          throw new Error("invalid_item_quantity");
+        }
 
         // Проверяем наличие на складе и получаем данные варианта
         // Для вариантов - проверяем сток варианта, для обычных товаров - сток продукта
         let variantData = null;
         if (item.variant_id) {
+          if (Number(product.has_variants || 0) !== 1) {
+            throw new Error("variant_not_allowed");
+          }
           variantData = db
             .prepare("SELECT * FROM product_variants WHERE id = ?")
             .get(item.variant_id);
           if (!variantData) {
             throw new Error(`Variant not found: ${item.variant_id}`);
           }
-          if (variantData.stock < item.quantity) {
+          if (
+            String(variantData.product_id) !== String(item.product_id)
+          ) {
+            throw new Error("variant_product_mismatch");
+          }
+          if (variantData.stock < quantity) {
             throw new Error(
               `Insufficient stock for variant ${item.variant_id}`,
             );
           }
-        } else if (product.stock < item.quantity) {
+        } else if (Number(product.has_variants || 0) === 1) {
+          throw new Error("variant_required");
+        } else if (product.stock < quantity) {
           throw new Error(`Insufficient stock for ${product.title}`);
         }
 
@@ -817,10 +1052,10 @@ crmOperationsRouter.post(
         const pricePerUnit = item.price_per_unit || product.priceRub;
         const costPerUnit = product.cost_price || 0;
         const itemDiscount = item.discount_amount || 0;
-        const totalPrice = pricePerUnit * item.quantity - itemDiscount;
-        const totalItemCost = costPerUnit * item.quantity;
+        const totalPrice = pricePerUnit * quantity - itemDiscount;
+        const totalItemCost = costPerUnit * quantity;
 
-        totalAmount += pricePerUnit * item.quantity;
+        totalAmount += pricePerUnit * quantity;
         itemsSubtotal += totalPrice;
         totalCost += totalItemCost;
 
@@ -849,7 +1084,7 @@ crmOperationsRouter.post(
           group_name: groupName,
           base_product_id: baseProductId,
           base_product_title: baseProductTitle,
-          quantity: item.quantity,
+          quantity,
           price_per_unit: pricePerUnit,
           cost_per_unit: costPerUnit,
           discount_amount: itemDiscount,
@@ -880,18 +1115,30 @@ crmOperationsRouter.post(
 
       // Создаем заказ в транзакции
       const tx = db.transaction(() => {
+        const shiftActor = recheckOrderShift(req);
+        if (trackingEnabled && idempotencyKey) {
+          const replay = getStaffOperationReplay({
+            key: idempotencyKey,
+            operation: idempotencyOperation,
+          });
+          if (replay) {
+            return { id: replay.entity_id, replayed: true };
+          }
+        }
+        orderNumber = getNextNumber("orders", "order_number");
         // Вставляем заказ
         db.prepare(
           `
         INSERT INTO orders (
-          id, order_number, customer_id, status, delivery_type, delivery_address,
+          id, order_number, customer_id, employee_id, status, delivery_type, delivery_address,
           total_amount, discount_amount, discount_percent, final_amount, profit, notes
-        ) VALUES (?, ?, ?, 'new', ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, 'new', ?, ?, ?, ?, ?, ?, ?, ?)
       `,
         ).run(
           orderId,
           orderNumber,
           customer_id || null,
+          shiftActor?.employeeId || null,
           delivery_type,
           delivery_address || null,
           totalAmount,
@@ -961,33 +1208,38 @@ crmOperationsRouter.post(
 
         assignLowestAvailablePickupCell(orderId);
 
+        if (trackingEnabled && idempotencyKey) {
+          storeStaffOperationResult({
+            key: idempotencyKey,
+            operation: idempotencyOperation,
+            entityType: "order",
+            entityId: orderId,
+            response: { id: orderId },
+          });
+        }
+
+        return { id: orderId, replayed: false };
       });
 
-      tx.immediate();
+      const createResult = tx.immediate();
+      orderId = createResult.id;
 
-      const order = db
-        .prepare("SELECT * FROM orders WHERE id = ?")
-        .get(orderId);
-      const items_result = db
-        .prepare(`
-          SELECT oi.*, p.description as product_description 
-          FROM order_items oi
-          LEFT JOIN products p ON oi.product_id = p.id
-          WHERE oi.order_id = ?
-        `)
-        .all(orderId);
+      const createdPayload = getCreatedOrderPayload(orderId);
+      if (!createdPayload) {
+        throw new StaffServiceError("idempotency_entity_missing", 409);
+      }
+      if (!createResult.replayed) {
+        recordStatusChange(
+          orderId,
+          null,
+          createdPayload.status,
+          "Создан заказ",
+        );
+      }
 
-      recordStatusChange(orderId, null, order.status, "Создан заказ");
+      res.json(createdPayload);
 
-      const pickupCell = getActivePickupCellAssignment(orderId);
-      res.json({
-        ...order,
-        pickup_cell_number: pickupCell?.cell_number ?? null,
-        pickup_cell_assignment_id: pickupCell?.id ?? null,
-        items: items_result,
-      });
-
-      if (customer_id) {
+      if (customer_id && !createResult.replayed) {
         setImmediate(() => {
           void autoNotifyOrderAcceptedAfterRecipientWarmup({ orderId }).catch((notifyErr) => {
             console.error("[crm] deferred order-accepted notify error:", notifyErr);
@@ -996,6 +1248,9 @@ crmOperationsRouter.post(
       }
     } catch (error) {
       console.error("[crm] Create order error:", error);
+      if (isStaffServiceError(error)) {
+        return sendStaffServiceError(res, error);
+      }
       if (error.code === "pickup_cells_full") {
         return res.status(409).json({
           error: "pickup_cells_full",
@@ -1006,6 +1261,11 @@ crmOperationsRouter.post(
         "items_required",
         "invalid_item",
         "invalid_item_quantity",
+        "invalid_item_discount",
+        "invalid_item_price",
+        "variant_not_allowed",
+        "variant_required",
+        "variant_product_mismatch",
         "promo_and_loyalty_conflict",
         "loyalty_category_not_available",
         "loyalty_balance_not_enough",
@@ -1028,6 +1288,7 @@ crmOperationsRouter.post(
 crmOperationsRouter.patch(
   "/api/admin/crm/orders/:id",
   authMiddleware,
+  requireOrderShift,
   async (req, res) => {
     try {
       const { id } = req.params;
@@ -1063,8 +1324,14 @@ crmOperationsRouter.patch(
       if (status !== undefined && !allowedStatuses.includes(status)) {
         return res.status(400).json({ error: "invalid_status" });
       }
+      if (
+        isStaffTrackingEnabled()
+        && ["completed", "delivered"].includes(status)
+      ) {
+        return res.status(409).json({ error: "issue_endpoint_required" });
+      }
 
-      const order = db.prepare("SELECT * FROM orders WHERE id = ?").get(id);
+      let order = db.prepare("SELECT * FROM orders WHERE id = ?").get(id);
       if (!order) {
         return res.status(404).json({ error: "not_found" });
       }
@@ -1101,6 +1368,7 @@ crmOperationsRouter.patch(
       let statusAtTxStart = order.status;
 
       const tx = db.transaction(() => {
+        const shiftActor = recheckOrderShift(req);
         // Перечитываем статус под write-лок'ом транзакции. better-sqlite3
         // в WAL-режиме выполняет db.transaction() как IMMEDIATE — write-лок
         // берётся при первой записи, но мы хотим дополнительно убедиться,
@@ -1113,10 +1381,18 @@ crmOperationsRouter.patch(
         // Без этого re-read обе транзакции считали бы, что статус был 'new',
         // и обе вызывали бы auto-notify, отправляя клиенту дубль.
         const fresh = db
-          .prepare(`SELECT status, stock_deducted, previous_status FROM orders WHERE id = ?`)
+          .prepare("SELECT * FROM orders WHERE id = ?")
           .get(id);
         if (fresh) {
+          order = fresh;
           statusAtTxStart = fresh.status;
+          desiredStatus = fresh.status;
+          if (reactivate && fresh.status === "cancelled") {
+            desiredStatus = "new";
+          }
+          if (status !== undefined) {
+            desiredStatus = status;
+          }
         }
 
         if (
@@ -1135,6 +1411,17 @@ crmOperationsRouter.patch(
 
         const updateFields = [];
         const updateValues = [];
+
+        if (
+          shiftActor
+          && desiredStatus === "in_progress"
+          && statusAtTxStart !== "in_progress"
+        ) {
+          updateFields.push("assembled_by_employee_id = ?");
+          updateValues.push(shiftActor.employeeId);
+          updateFields.push("assembled_at = ?");
+          updateValues.push(new Date().toISOString());
+        }
 
         if (delivery_address !== undefined) {
           updateFields.push("delivery_address = ?");
@@ -1186,48 +1473,20 @@ crmOperationsRouter.patch(
               .prepare("SELECT * FROM order_items WHERE order_id = ?")
               .all(id);
 
-            // Сначала проверяем достаточность стока
+            // Сначала проверяем, что товар/вариант всё ещё существует и
+            // относится к нужному товару. Затем списываем условным UPDATE.
             for (const item of orderItems) {
-              if (item.variant_id) {
-                const variant = db
-                  .prepare("SELECT stock FROM product_variants WHERE id = ?")
-                  .get(item.variant_id);
-                if (
-                  variant &&
-                  variant.stock !== null &&
-                  variant.stock < item.quantity
-                ) {
-                  throw new Error(
-                    `Недостаточно товара на складе: ${item.product_title || item.product_id}`,
-                  );
-                }
-              } else if (item.product_id) {
-                const product = db
-                  .prepare("SELECT stock, title FROM products WHERE id = ?")
-                  .get(item.product_id);
-                if (
-                  product &&
-                  product.stock !== null &&
-                  product.stock < item.quantity
-                ) {
-                  throw new Error(
-                    `Недостаточно товара на складе: ${product.title || item.product_id}`,
-                  );
-                }
+              const target = orderInventoryTarget(item);
+              if (target.stock < Number(item.quantity || 0)) {
+                throw new Error(
+                  `Недостаточно товара на складе: ${target.title}`,
+                );
               }
             }
 
             // Теперь списываем сток
             for (const item of orderItems) {
-              if (item.variant_id) {
-                db.prepare(
-                  "UPDATE product_variants SET stock = stock - ? WHERE id = ?",
-                ).run(item.quantity, item.variant_id);
-              } else if (item.product_id) {
-                db.prepare(
-                  "UPDATE products SET stock = stock - ? WHERE id = ?",
-                ).run(item.quantity, item.product_id);
-              }
+              adjustOrderItemStock(item, -Number(item.quantity));
             }
             updateFields.push("stock_deducted = 1");
           }
@@ -1242,15 +1501,7 @@ crmOperationsRouter.patch(
               .prepare("SELECT * FROM order_items WHERE order_id = ?")
               .all(id);
             for (const item of orderItems) {
-              if (item.variant_id) {
-                db.prepare(
-                  "UPDATE product_variants SET stock = stock + ? WHERE id = ?",
-                ).run(item.quantity, item.variant_id);
-              } else if (item.product_id) {
-                db.prepare(
-                  "UPDATE products SET stock = stock + ? WHERE id = ?",
-                ).run(item.quantity, item.product_id);
-              }
+              adjustOrderItemStock(item, Number(item.quantity));
             }
             updateFields.push("stock_deducted = 0");
           }
@@ -1268,15 +1519,7 @@ crmOperationsRouter.patch(
                 .prepare("SELECT * FROM order_items WHERE order_id = ?")
                 .all(id);
               for (const item of orderItems) {
-                if (item.variant_id) {
-                  db.prepare(
-                    "UPDATE product_variants SET stock = stock + ? WHERE id = ?",
-                  ).run(item.quantity, item.variant_id);
-                } else if (item.product_id) {
-                  db.prepare(
-                    "UPDATE products SET stock = stock + ? WHERE id = ?",
-                  ).run(item.quantity, item.product_id);
-                }
+                adjustOrderItemStock(item, Number(item.quantity));
               }
               updateFields.push("stock_deducted = 0");
             }
@@ -1363,16 +1606,7 @@ crmOperationsRouter.patch(
               // Сохраняем количество для каждого варианта/товара
               const key = oldItem.variant_id || oldItem.product_id;
               oldItemsMap.set(key, oldItem.quantity);
-              
-              if (oldItem.variant_id) {
-                db.prepare(
-                  "UPDATE product_variants SET stock = stock + ? WHERE id = ?",
-                ).run(oldItem.quantity, oldItem.variant_id);
-              } else if (oldItem.product_id) {
-                db.prepare(
-                  "UPDATE products SET stock = stock + ? WHERE id = ?",
-                ).run(oldItem.quantity, oldItem.product_id);
-              }
+              adjustOrderItemStock(oldItem, Number(oldItem.quantity));
             }
           }
 
@@ -1419,9 +1653,13 @@ crmOperationsRouter.patch(
             }
 
             const quantity = Number(item.quantity || 0);
-            if (!Number.isFinite(quantity) || quantity <= 0) {
+            if (!Number.isInteger(quantity) || quantity <= 0) {
               throw new Error("invalid_item_quantity");
             }
+            const inventoryTarget = orderInventoryTarget({
+              ...item,
+              quantity,
+            });
 
             const pricePerUnit = Number(
               item.price_per_unit !== undefined
@@ -1435,28 +1673,10 @@ crmOperationsRouter.patch(
             // Если stock_deducted = 0, сток не будет списываться, проверка не нужна
             // Если позиции не изменились, сток уже списан, проверка не нужна
             if (shouldDeductUpdatedItems) {
-              if (item.variant_id) {
-                const variant = db
-                  .prepare("SELECT stock FROM product_variants WHERE id = ?")
-                  .get(item.variant_id);
-                if (!variant) {
-                  throw new Error(`Variant not found: ${item.variant_id}`);
-                }
-                // Учитываем уже возвращенный сток из этого заказа
-                const availableStock = Number(variant.stock || 0);
-                if (availableStock < quantity) {
-                  throw new Error(
-                    `Insufficient stock for variant ${item.variant_id}`,
-                  );
-                }
-              } else {
-                // Учитываем уже возвращенный сток из этого заказа
-                const availableStock = Number(product.stock || 0);
-                if (availableStock < quantity) {
-                  throw new Error(
-                    `Insufficient stock for ${product.title || product.id}`,
-                  );
-                }
+              if (inventoryTarget.stock < quantity) {
+                throw new Error(
+                  `Insufficient stock for ${inventoryTarget.title}`,
+                );
               }
             }
 
@@ -1512,15 +1732,10 @@ crmOperationsRouter.patch(
             // Списываем сток ТОЛЬКО если заказ уже был собран (stock_deducted = 1) И позиции изменились
             // Если позиции не изменились, сток уже списан, не нужно списывать заново
             if (shouldDeductUpdatedItems) {
-              if (item.variant_id) {
-                db.prepare(
-                  "UPDATE product_variants SET stock = stock - ? WHERE id = ?",
-                ).run(quantity, item.variant_id);
-              } else {
-                db.prepare(
-                  "UPDATE products SET stock = stock - ? WHERE id = ?",
-                ).run(quantity, item.product_id);
-              }
+              adjustOrderItemStock(
+                { ...item, quantity },
+                -quantity,
+              );
             }
           }
 
@@ -1739,6 +1954,9 @@ crmOperationsRouter.patch(
       }
     } catch (error) {
       console.error("[crm] Update order error:", error);
+      if (isStaffServiceError(error)) {
+        return sendStaffServiceError(res, error);
+      }
       if (error.code === "pickup_cells_full") {
         return res.status(409).json({
           error: "pickup_cells_full",
@@ -1751,6 +1969,11 @@ crmOperationsRouter.patch(
         "invalid_paid_amount",
         "invalid_item",
         "invalid_item_quantity",
+        "invalid_item_discount",
+        "invalid_item_price",
+        "variant_not_allowed",
+        "variant_required",
+        "variant_product_mismatch",
         "invalid_quantity",
         "invalid_cost",
         "items_required",
@@ -1800,6 +2023,7 @@ crmOperationsRouter.get(
 crmOperationsRouter.post(
   "/api/admin/crm/orders/:id/resolve-action",
   authMiddleware,
+  requireOrderShift,
   (req, res) => {
     try {
       const { id } = req.params;
@@ -1814,6 +2038,14 @@ crmOperationsRouter.post(
       }
 
       const tx = db.transaction(() => {
+        recheckOrderShift(req);
+        const freshOrder = db
+          .prepare("SELECT * FROM orders WHERE id = ?")
+          .get(id);
+        if (!freshOrder || !freshOrder.needs_manager_action) {
+          throw new StaffServiceError("no_action_required", 409);
+        }
+        Object.assign(order, freshOrder);
         if (order.manager_action_type === "modified") {
           // Измененный заказ - возвращаем в "Новые" для пересборки
           // Если сток был списан (заказ был собран до изменения), возвращаем сток
@@ -1822,27 +2054,22 @@ crmOperationsRouter.post(
               .prepare("SELECT * FROM order_items WHERE order_id = ?")
               .all(id);
             for (const item of orderItems) {
-              if (item.variant_id) {
-                db.prepare(
-                  "UPDATE product_variants SET stock = stock + ? WHERE id = ?",
-                ).run(item.quantity, item.variant_id);
-              } else if (item.product_id) {
-                db.prepare(
-                  "UPDATE products SET stock = stock + ? WHERE id = ?",
-                ).run(item.quantity, item.product_id);
-              }
+              adjustOrderItemStock(item, Number(item.quantity));
             }
           }
 
-          db.prepare(
+          const resolved = db.prepare(
             `UPDATE orders SET
               needs_manager_action = 0,
               manager_action_resolved_at = DATETIME('now'),
               status = 'new',
               stock_deducted = 0,
               updated_at = DATETIME('now')
-            WHERE id = ?`,
+            WHERE id = ? AND needs_manager_action = 1`,
           ).run(id);
+          if (resolved.changes !== 1) {
+            throw new StaffServiceError("no_action_required", 409);
+          }
 
           // Физическое место сохраняется, но создаётся новый цикл назначения:
           // повторная сборка должна отправить клиенту новое уведомление.
@@ -1851,30 +2078,36 @@ crmOperationsRouter.post(
           recordStatusChange(id, order.status, "new", "Менеджер принял изменения, заказ на пересборку");
         } else if (order.manager_action_type === "cancelled_by_customer") {
           // Отмененный покупателем - просто сбрасываем флаг, заказ остается cancelled
-          db.prepare(
+          const resolved = db.prepare(
             `UPDATE orders SET
               needs_manager_action = 0,
               manager_action_resolved_at = DATETIME('now'),
               updated_at = DATETIME('now')
-            WHERE id = ?`,
+            WHERE id = ? AND needs_manager_action = 1`,
           ).run(id);
+          if (resolved.changes !== 1) {
+            throw new StaffServiceError("no_action_required", 409);
+          }
 
           releaseActivePickupCell(id, "customer_cancellation_resolved");
 
           recordStatusChange(id, order.status, order.status, "Менеджер подтвердил отмену, заказ разобран");
         } else {
           // Неизвестный тип - просто сбрасываем флаг
-          db.prepare(
+          const resolved = db.prepare(
             `UPDATE orders SET
               needs_manager_action = 0,
               manager_action_resolved_at = DATETIME('now'),
               updated_at = DATETIME('now')
-            WHERE id = ?`,
+            WHERE id = ? AND needs_manager_action = 1`,
           ).run(id);
+          if (resolved.changes !== 1) {
+            throw new StaffServiceError("no_action_required", 409);
+          }
         }
       });
 
-      tx();
+      tx.immediate();
 
       const updated = db
         .prepare(
@@ -1913,6 +2146,9 @@ crmOperationsRouter.post(
       res.json({ ...updated, customer_name: customerName, items: updatedItems });
     } catch (error) {
       console.error("[crm] Resolve manager action error:", error);
+      if (isStaffServiceError(error)) {
+        return sendStaffServiceError(res, error);
+      }
       res.status(500).json({ error: "failed", message: error.message });
     }
   },
@@ -1922,6 +2158,7 @@ crmOperationsRouter.post(
 crmOperationsRouter.post(
   "/api/admin/crm/orders/:id/issue",
   authMiddleware,
+  requireOrderShift,
   async (req, res) => {
     try {
       const { id } = req.params;
@@ -1963,11 +2200,28 @@ crmOperationsRouter.post(
 
       const description = `Оплата заказа #${order.order_number} (наличные)`;
       const transactionId = generateId("trans");
-      const previousStatus = order.status;
+      let previousStatus = order.status;
 
       const tx = db.transaction(() => {
+        const shiftActor = recheckOrderShift(req);
+        const freshOrder = db
+          .prepare("SELECT * FROM orders WHERE id = ?")
+          .get(id);
+        if (!freshOrder) {
+          throw new StaffServiceError("not_found", 404);
+        }
+        if (
+          freshOrder.status !== "in_progress"
+          && freshOrder.status !== "completed"
+        ) {
+          throw new StaffServiceError("invalid_status_state", 409);
+        }
+        if (Number(freshOrder.paid_amount || 0) > 0) {
+          throw new StaffServiceError("already_paid", 409);
+        }
+        previousStatus = freshOrder.status;
         const completedAt = new Date().toISOString();
-        db.prepare(
+        const issued = db.prepare(
           `
         UPDATE orders
         SET status = 'delivered',
@@ -1978,8 +2232,12 @@ crmOperationsRouter.post(
             paid_at = DATETIME('now'),
             payment_notes = ?,
             completed_at = ?,
+            issued_by_employee_id = ?,
+            issued_at = ?,
             updated_at = DATETIME('now')
         WHERE id = ?
+          AND status IN ('in_progress', 'completed')
+          AND COALESCE(paid_amount, 0) <= 0
       `,
         ).run(
           previousStatus,
@@ -1988,15 +2246,29 @@ crmOperationsRouter.post(
           parsedAmount,
           payment_notes || null,
           completedAt,
+          shiftActor?.employeeId || null,
+          completedAt,
           id,
         );
+        if (issued.changes !== 1) {
+          throw new StaffServiceError("already_paid", 409);
+        }
 
         db.prepare(
           `
-        INSERT INTO cash_transactions (id, account_id, type, amount, description, order_id)
-        VALUES (?, ?, 'income', ?, ?, ?)
+        INSERT INTO cash_transactions (
+          id, account_id, type, amount, description, order_id, employee_id
+        )
+        VALUES (?, ?, 'income', ?, ?, ?, ?)
       `,
-        ).run(transactionId, payment_account_id, parsedAmount, description, id);
+        ).run(
+          transactionId,
+          payment_account_id,
+          parsedAmount,
+          description,
+          id,
+          shiftActor?.employeeId || null,
+        );
 
         releaseActivePickupCell(id, "issued");
 
@@ -2006,9 +2278,9 @@ crmOperationsRouter.post(
 
         consumePromoUsageForOrder({
           orderId: id,
-          promoCodeId: order.promo_code_id || null,
-          customerId: order.customer_id || null,
-          discountApplied: Number(order.discount_amount || 0),
+          promoCodeId: freshOrder.promo_code_id || null,
+          customerId: freshOrder.customer_id || null,
+          discountApplied: Number(freshOrder.discount_amount || 0),
           consumedAt: completedAt,
           idFactory: () => generateId("pu"),
         });
@@ -2021,7 +2293,7 @@ crmOperationsRouter.post(
         }
       });
 
-      tx();
+      tx.immediate();
 
       const updatedOrder = db
         .prepare(
@@ -2082,6 +2354,9 @@ crmOperationsRouter.post(
       }
     } catch (error) {
       console.error("[crm] Issue order error:", error);
+      if (isStaffServiceError(error)) {
+        return sendStaffServiceError(res, error);
+      }
       res.status(500).json({ error: "failed", message: error.message });
     }
   },
@@ -2091,6 +2366,7 @@ crmOperationsRouter.post(
 crmOperationsRouter.delete(
   "/api/admin/crm/orders/:id/payment",
   authMiddleware,
+  requireOrderShift,
   (req, res) => {
     try {
       const { id } = req.params;
@@ -2112,7 +2388,7 @@ crmOperationsRouter.delete(
         return res.status(400).json({ error: "transaction_not_found" });
       }
 
-      const restoredStatus = order.previous_status || "in_progress";
+      let restoredStatus = order.previous_status || "in_progress";
       const hadPickupCellHistory = Boolean(
         db.prepare(
           `SELECT 1 FROM order_pickup_cell_assignments WHERE order_id = ? LIMIT 1`,
@@ -2120,7 +2396,21 @@ crmOperationsRouter.delete(
       );
 
       const tx = db.transaction(() => {
-        for (const transaction of transactions) {
+        recheckOrderShift(req);
+        const freshOrder = db
+          .prepare("SELECT * FROM orders WHERE id = ?")
+          .get(id);
+        if (!freshOrder || Number(freshOrder.paid_amount || 0) <= 0) {
+          throw new StaffServiceError("payment_not_found", 409);
+        }
+        restoredStatus = freshOrder.previous_status || "in_progress";
+        const freshTransactions = db
+          .prepare("SELECT * FROM cash_transactions WHERE order_id = ?")
+          .all(id);
+        if (!freshTransactions.length) {
+          throw new StaffServiceError("transaction_not_found", 409);
+        }
+        for (const transaction of freshTransactions) {
           db.prepare("DELETE FROM cash_transactions WHERE id = ?").run(
             transaction.id,
           );
@@ -2149,6 +2439,8 @@ crmOperationsRouter.delete(
             payment_notes = NULL,
             previous_status = NULL,
             completed_at = NULL,
+            issued_by_employee_id = NULL,
+            issued_at = NULL,
             updated_at = DATETIME('now')
         WHERE id = ?
       `,
@@ -2159,28 +2451,28 @@ crmOperationsRouter.delete(
           assignLowestAvailablePickupCell(id);
         }
 
-        if (order.promo_code_id) {
+        if (freshOrder.promo_code_id) {
           if (["completed", "delivered"].includes(restoredStatus)) {
             consumePromoUsageForOrder({
               orderId: id,
-              promoCodeId: order.promo_code_id,
-              customerId: order.customer_id || null,
-              discountApplied: Number(order.discount_amount || 0),
+              promoCodeId: freshOrder.promo_code_id,
+              customerId: freshOrder.customer_id || null,
+              discountApplied: Number(freshOrder.discount_amount || 0),
               idFactory: () => generateId("pu"),
             });
           } else {
             reservePromoUsageForOrder({
-              promoCodeId: order.promo_code_id,
+              promoCodeId: freshOrder.promo_code_id,
               orderId: id,
-              customerId: order.customer_id || null,
-              discountApplied: Number(order.discount_amount || 0),
+              customerId: freshOrder.customer_id || null,
+              discountApplied: Number(freshOrder.discount_amount || 0),
               idFactory: () => generateId("pu"),
             });
           }
         }
       });
 
-      tx();
+      tx.immediate();
 
       const updatedOrder = db
         .prepare("SELECT * FROM orders WHERE id = ?")
@@ -2210,6 +2502,9 @@ crmOperationsRouter.delete(
       });
     } catch (error) {
       console.error("[crm] Remove order payment error:", error);
+      if (isStaffServiceError(error)) {
+        return sendStaffServiceError(res, error);
+      }
       if (error.code === "pickup_cells_full") {
         return res.status(409).json({
           error: "pickup_cells_full",
@@ -2232,9 +2527,18 @@ crmOperationsRouter.get(
       const procurements = db
         .prepare(
           `
-      SELECT p.*, e.first_name || ' ' || e.last_name as employee_name
+      SELECT
+        p.*,
+        legacy_employee.first_name || ' ' || legacy_employee.last_name
+          AS employee_name,
+        creator.first_name || ' ' || creator.last_name
+          AS created_by_name,
+        acceptor.first_name || ' ' || acceptor.last_name
+          AS accepted_by_name
       FROM procurements p
-      LEFT JOIN employees e ON e.id = p.employee_id
+      LEFT JOIN employees legacy_employee ON legacy_employee.id = p.employee_id
+      LEFT JOIN employees creator ON creator.id = p.created_by_employee_id
+      LEFT JOIN employees acceptor ON acceptor.id = p.accepted_by_employee_id
       ORDER BY p.created_at DESC
     `,
         )
@@ -2255,9 +2559,24 @@ crmOperationsRouter.get(
     try {
       const { id } = req.params;
 
-      const procurement = db
-        .prepare("SELECT * FROM procurements WHERE id = ?")
-        .get(id);
+      const procurement = db.prepare(`
+        SELECT
+          procurement.*,
+          legacy_employee.first_name || ' ' || legacy_employee.last_name
+            AS employee_name,
+          creator.first_name || ' ' || creator.last_name
+            AS created_by_name,
+          acceptor.first_name || ' ' || acceptor.last_name
+            AS accepted_by_name
+        FROM procurements AS procurement
+        LEFT JOIN employees AS legacy_employee
+          ON legacy_employee.id = procurement.employee_id
+        LEFT JOIN employees AS creator
+          ON creator.id = procurement.created_by_employee_id
+        LEFT JOIN employees AS acceptor
+          ON acceptor.id = procurement.accepted_by_employee_id
+        WHERE procurement.id = ?
+      `).get(id);
       if (!procurement) {
         return res.status(404).json({ error: "not_found" });
       }
@@ -2306,6 +2625,7 @@ crmOperationsRouter.get(
 crmOperationsRouter.post(
   "/api/admin/crm/procurements",
   authMiddleware,
+  requireDocumentActor,
   (req, res) => {
     try {
       const { supplier_name, items, notes } = req.body;
@@ -2314,24 +2634,39 @@ crmOperationsRouter.post(
         return res.status(400).json({ error: "items_required" });
       }
 
-      const procurementId = generateId("proc");
-      const procurementNumber = getNextNumber(
-        "procurements",
-        "procurement_number",
-      );
+      let procurementId = generateId("proc");
+      let procurementNumber = null;
+      const trackingEnabled = isStaffTrackingEnabled();
+      const idempotencyKey = trackingEnabled
+        ? requestIdempotencyKey(req)
+        : null;
+      if (trackingEnabled && !idempotencyKey) {
+        throw new StaffServiceError("idempotency_key_required", 400);
+      }
 
       let totalAmount = 0;
 
-      const tx = db.transaction(() => {
+      const executeCreate = () => {
+        const tx = db.transaction(() => {
+        const actor = recheckDocumentActor(req);
+        procurementNumber = getNextNumber(
+          "procurements",
+          "procurement_number",
+        );
         // Создаем закупку
         db.prepare(
           `
-        INSERT INTO procurements (id, procurement_number, supplier_name, total_amount, status, notes)
-        VALUES (?, ?, ?, 0, 'draft', ?)
+        INSERT INTO procurements (
+          id, procurement_number, employee_id, created_by_employee_id,
+          supplier_name, total_amount, status, notes
+        )
+        VALUES (?, ?, ?, ?, ?, 0, 'draft', ?)
       `,
         ).run(
           procurementId,
           procurementNumber,
+          actor?.employeeId || null,
+          actor?.employeeId || null,
           supplier_name || null,
           notes || null,
         );
@@ -2393,9 +2728,53 @@ crmOperationsRouter.post(
           totalAmount,
           procurementId,
         );
-      });
 
-      tx();
+        if (actor) {
+          const eventKey = `procurement:${procurementId}:created`;
+          recordSystemStaffEvent({
+            employeeId: actor.employeeId,
+            eventType: "procurement_created",
+            entityType: "procurement",
+            entityId: procurementId,
+            idempotencyKey: eventKey,
+            sourceNumber: procurementNumber,
+            sourceType: "procurement",
+            sourceName: supplier_name || "Без поставщика",
+            payload: {
+              total_amount: totalAmount,
+              item_count: items.length,
+            },
+          });
+          enqueueInternalNotificationForGroup(db, {
+            eventGroup: "documents",
+            uniqueKey: eventKey,
+            eventType: "procurement.created",
+            payload: {
+              document_number: procurementNumber,
+              employee_name: actor.employeeName,
+            },
+          });
+        }
+        });
+
+        tx();
+        return { id: procurementId };
+      };
+
+      if (trackingEnabled) {
+        const operation = staffOperationName("procurement.create", req.body);
+        const operationResult = unwrapStaffOperation(
+          runStaffIdempotentOperation({
+            key: idempotencyKey,
+            operation,
+            entityType: "procurement",
+            execute: executeCreate,
+          }),
+        );
+        procurementId = operationResult.result.id;
+      } else {
+        executeCreate();
+      }
 
       const procurement = db
         .prepare("SELECT * FROM procurements WHERE id = ?")
@@ -2435,6 +2814,9 @@ crmOperationsRouter.post(
       res.json({ ...procurement, items: procurementItems });
     } catch (error) {
       console.error("[crm] Create procurement error:", error);
+      if (isStaffServiceError(error)) {
+        return sendStaffServiceError(res, error);
+      }
       if ([
         "invalid_quantity",
         "invalid_cost",
@@ -2460,7 +2842,7 @@ crmOperationsRouter.patch(
       const { id } = req.params;
       const { supplier_name, notes, items } = req.body || {};
 
-      const procurement = db
+      let procurement = db
         .prepare("SELECT * FROM procurements WHERE id = ?")
         .get(id);
       if (!procurement) {
@@ -2472,12 +2854,23 @@ crmOperationsRouter.patch(
       }
 
       const tx = db.transaction(() => {
+        const freshProcurement = db
+          .prepare("SELECT * FROM procurements WHERE id = ?")
+          .get(id);
+        if (!freshProcurement) {
+          throw new StaffServiceError("not_found", 404);
+        }
+        if (freshProcurement.status !== "draft") {
+          throw new StaffServiceError("edit_not_allowed", 409);
+        }
+        procurement = freshProcurement;
+
         if (supplier_name !== undefined || notes !== undefined) {
-          db.prepare(
+          const updatedMetadata = db.prepare(
             `
           UPDATE procurements
           SET supplier_name = ?, notes = ?
-          WHERE id = ?
+          WHERE id = ? AND status = 'draft'
         `,
           ).run(
             supplier_name !== undefined
@@ -2486,6 +2879,9 @@ crmOperationsRouter.patch(
             notes !== undefined ? notes || null : procurement.notes,
             id,
           );
+          if (updatedMetadata.changes !== 1) {
+            throw new StaffServiceError("edit_not_allowed", 409);
+          }
         }
 
         if (Array.isArray(items)) {
@@ -2560,13 +2956,16 @@ crmOperationsRouter.patch(
             );
           }
 
-          db.prepare(
-            "UPDATE procurements SET total_amount = ? WHERE id = ?",
+          const updatedTotal = db.prepare(
+            "UPDATE procurements SET total_amount = ? WHERE id = ? AND status = 'draft'",
           ).run(totalAmount, id);
+          if (updatedTotal.changes !== 1) {
+            throw new StaffServiceError("edit_not_allowed", 409);
+          }
         }
       });
 
-      tx();
+      tx.immediate();
 
       const updated = db
         .prepare("SELECT * FROM procurements WHERE id = ?")
@@ -2606,6 +3005,9 @@ crmOperationsRouter.patch(
       res.json({ ...updated, items: updatedItems });
     } catch (error) {
       console.error("[crm] Update procurement error:", error);
+      if (isStaffServiceError(error)) {
+        return sendStaffServiceError(res, error);
+      }
       const clientErrors = new Set([
         "items_required",
         "invalid_item",
@@ -2634,18 +3036,31 @@ crmOperationsRouter.delete(
     try {
       const { id } = req.params;
 
-      const procurement = db
+      let procurement = db
         .prepare("SELECT * FROM procurements WHERE id = ?")
         .get(id);
       if (!procurement) {
         return res.status(404).json({ error: "not_found" });
       }
 
-      const items = db
+      let items = db
         .prepare("SELECT * FROM procurement_items WHERE procurement_id = ? ORDER BY rowid ASC")
         .all(id);
 
       const tx = db.transaction(() => {
+        const freshProcurement = db
+          .prepare("SELECT * FROM procurements WHERE id = ?")
+          .get(id);
+        if (!freshProcurement) {
+          throw new StaffServiceError("not_found", 404);
+        }
+        procurement = freshProcurement;
+        items = db
+          .prepare(
+            "SELECT * FROM procurement_items WHERE procurement_id = ? ORDER BY rowid ASC",
+          )
+          .all(id);
+
         if (procurement.status === "completed") {
           for (const item of [...items].reverse()) {
             const product = db
@@ -2653,6 +3068,9 @@ crmOperationsRouter.delete(
               .get(item.product_id);
             if (!product) {
               continue;
+            }
+            if (Number(product.has_variants || 0) === 1 && !item.variant_id) {
+              throw new StaffServiceError("inventory_target_missing", 409);
             }
 
             const quantity = Number(item.quantity || 0);
@@ -2723,15 +3141,23 @@ crmOperationsRouter.delete(
         db.prepare(
           "DELETE FROM procurement_items WHERE procurement_id = ?",
         ).run(id);
-        db.prepare("DELETE FROM procurements WHERE id = ?").run(id);
+        const deleted = db.prepare(
+          "DELETE FROM procurements WHERE id = ?",
+        ).run(id);
+        if (deleted.changes !== 1) {
+          throw new StaffServiceError("procurement_conflict", 409);
+        }
       });
 
-      tx();
+      tx.immediate();
       syncGroupsForProducts(items.map((item) => item.product_id));
 
       res.json({ ok: true });
     } catch (error) {
       console.error("[crm] Delete procurement error:", error);
+      if (isStaffServiceError(error)) {
+        return sendStaffServiceError(res, error);
+      }
       if (
         error.message &&
         error.message.startsWith("insufficient_stock_to_rollback")
@@ -2806,6 +3232,7 @@ crmOperationsRouter.delete(
 crmOperationsRouter.post(
   "/api/admin/crm/procurements/:id/complete",
   authMiddleware,
+  requireDocumentActor,
   (req, res) => {
     try {
       const { id } = req.params;
@@ -2821,33 +3248,95 @@ crmOperationsRouter.post(
         return res.status(400).json({ error: "already_completed" });
       }
 
-      const items = db
+      let items = db
         .prepare("SELECT * FROM procurement_items WHERE procurement_id = ? ORDER BY rowid ASC")
         .all(id);
 
       const tx = db.transaction(() => {
+        const actor = recheckDocumentActor(req);
+        const freshProcurement = db
+          .prepare("SELECT * FROM procurements WHERE id = ?")
+          .get(id);
+        if (!freshProcurement) {
+          throw new StaffServiceError("not_found", 404);
+        }
+        if (freshProcurement.status === "completed") {
+          throw new StaffServiceError("already_completed", 409);
+        }
+        if (freshProcurement.status !== "draft") {
+          throw new StaffServiceError("invalid_status", 409);
+        }
+        items = db
+          .prepare(
+            "SELECT * FROM procurement_items WHERE procurement_id = ? ORDER BY rowid ASC",
+          )
+          .all(id);
+        if (!items.length) {
+          throw new StaffServiceError("items_required", 409);
+        }
         for (const item of items) {
+          const product = db
+            .prepare("SELECT id, has_variants FROM products WHERE id = ?")
+            .get(item.product_id);
+          if (!product) {
+            throw new StaffServiceError("product_not_found", 409);
+          }
           const quantity = Number(item.quantity || 0);
           const warehouseQuantity = Number(item.warehouse_quantity || 0);
+          const costPerUnit = Number(item.cost_per_unit || 0);
+          if (
+            !Number.isInteger(quantity)
+            || quantity <= 0
+            || !Number.isInteger(warehouseQuantity)
+            || warehouseQuantity < 0
+            || warehouseQuantity > quantity
+            || !Number.isFinite(costPerUnit)
+            || costPerUnit < 0
+          ) {
+            throw new StaffServiceError("invalid_procurement_item", 409);
+          }
+          if (Number(product.has_variants || 0) === 1 && !item.variant_id) {
+            throw new StaffServiceError("variant_required", 409);
+          }
+          if (Number(product.has_variants || 0) === 0 && item.variant_id) {
+            throw new StaffServiceError("variant_not_allowed", 409);
+          }
           const retailQuantity = quantity - warehouseQuantity;
           const avgCost = calculateAverageCost(
             item.product_id,
             quantity,
-            item.cost_per_unit,
+            costPerUnit,
           );
           // Проверяем, это вариант или обычный товар
           if (item.variant_id) {
-            db.prepare(
+            const variant = db.prepare(
+              "SELECT id FROM product_variants WHERE id = ? AND product_id = ?",
+            ).get(item.variant_id, item.product_id);
+            if (!variant) {
+              throw new StaffServiceError("variant_not_found", 409);
+            }
+            const updatedVariant = db.prepare(
               `UPDATE product_variants
                SET stock = stock + ?, warehouse_stock = warehouse_stock + ?
-               WHERE id = ?`
-            ).run(retailQuantity, warehouseQuantity, item.variant_id);
+               WHERE id = ? AND product_id = ?`
+            ).run(
+              retailQuantity,
+              warehouseQuantity,
+              item.variant_id,
+              item.product_id,
+            );
+            if (updatedVariant.changes !== 1) {
+              throw new StaffServiceError("variant_not_found", 409);
+            }
 
-            db.prepare(
+            const updatedProduct = db.prepare(
               `UPDATE products SET cost_price = ? WHERE id = ?`
             ).run(avgCost, item.product_id);
+            if (updatedProduct.changes !== 1) {
+              throw new StaffServiceError("product_not_found", 409);
+            }
           } else {
-            db.prepare(
+            const updatedProduct = db.prepare(
               `
             UPDATE products 
             SET stock = stock + ?,
@@ -2856,17 +3345,25 @@ crmOperationsRouter.post(
             WHERE id = ?
           `,
             ).run(retailQuantity, warehouseQuantity, avgCost, item.product_id);
+            if (updatedProduct.changes !== 1) {
+              throw new StaffServiceError("product_not_found", 409);
+            }
           }
         }
 
         // Обновляем статус закупки
-        db.prepare(
+        const completed = db.prepare(
           `
         UPDATE procurements 
-        SET status = 'completed', completed_at = DATETIME('now')
-        WHERE id = ?
+        SET status = 'completed',
+            completed_at = DATETIME('now'),
+            accepted_by_employee_id = ?
+        WHERE id = ? AND status = 'draft'
       `,
-        ).run(id);
+        ).run(actor?.employeeId || null, id);
+        if (completed.changes !== 1) {
+          throw new StaffServiceError("already_completed", 409);
+        }
 
         // Списываем деньги из кассы
         const defaultAccount = db
@@ -2876,19 +3373,22 @@ crmOperationsRouter.post(
           const transId = generateId("trans");
           db.prepare(
             `
-          INSERT INTO cash_transactions (id, account_id, type, amount, description)
-          VALUES (?, ?, 'expense', ?, ?)
+          INSERT INTO cash_transactions (
+            id, account_id, type, amount, description, employee_id
+          )
+          VALUES (?, ?, 'expense', ?, ?, ?)
         `,
           ).run(
             transId,
             defaultAccount.id,
-            procurement.total_amount,
+            freshProcurement.total_amount,
             `Закупка #${procurement.procurement_number}`,
+            actor?.employeeId || null,
           );
 
           db.prepare(
             "UPDATE cash_accounts SET balance = balance - ? WHERE id = ?",
-          ).run(procurement.total_amount, defaultAccount.id);
+          ).run(freshProcurement.total_amount, defaultAccount.id);
 
           db.prepare(
             `
@@ -2896,11 +3396,38 @@ crmOperationsRouter.post(
           SET expense_transaction_id = ?
           WHERE id = ?
         `,
-          ).run(transId, id);
+            ).run(transId, id);
+        }
+
+        if (actor) {
+          const eventKey = `procurement:${id}:accepted`;
+          recordSystemStaffEvent({
+            employeeId: actor.employeeId,
+            eventType: "procurement_accepted",
+            entityType: "procurement",
+            entityId: id,
+            idempotencyKey: eventKey,
+            sourceNumber: freshProcurement.procurement_number,
+            sourceType: "procurement",
+            sourceName: freshProcurement.supplier_name || "Без поставщика",
+            payload: {
+              total_amount: Number(freshProcurement.total_amount || 0),
+              item_count: items.length,
+            },
+          });
+          enqueueInternalNotificationForGroup(db, {
+            eventGroup: "documents",
+            uniqueKey: eventKey,
+            eventType: "procurement.accepted",
+            payload: {
+              document_number: freshProcurement.procurement_number,
+              employee_name: actor.employeeName,
+            },
+          });
         }
       });
 
-      tx();
+      tx.immediate();
       syncGroupsForProducts(items.map((item) => item.product_id));
 
       const updated = db
@@ -2909,6 +3436,9 @@ crmOperationsRouter.post(
       res.json(updated);
     } catch (error) {
       console.error("[crm] Complete procurement error:", error);
+      if (isStaffServiceError(error)) {
+        return sendStaffServiceError(res, error);
+      }
       res.status(500).json({ error: "failed", message: error.message });
     }
   },
@@ -2920,16 +3450,28 @@ crmOperationsRouter.post(
 crmOperationsRouter.post(
   "/api/admin/crm/archive-delivered-orders",
   authMiddleware,
+  requireOrderShift,
   (req, res) => {
     try {
       console.log("[crm] Manual archiving triggered");
-      const result = archiveOldDeliveredOrders();
+      let result = null;
+      const tx = db.transaction(() => {
+        recheckOrderShift(req);
+        result = archiveOldDeliveredOrders();
+        if (result?.error) {
+          throw new Error(result.error);
+        }
+      });
+      tx.immediate();
       res.json({
         ok: true,
         ...result,
       });
     } catch (error) {
       console.error("[crm] Manual archiving error:", error);
+      if (isStaffServiceError(error)) {
+        return sendStaffServiceError(res, error);
+      }
       res.status(500).json({ error: "failed", message: error.message });
     }
   },
@@ -2982,25 +3524,24 @@ crmOperationsRouter.get(
 crmOperationsRouter.post(
   "/api/admin/crm/fix-delivered-completed-at",
   authMiddleware,
+  requireOrderShift,
   (req, res) => {
     try {
       console.log("[crm] Fixing delivered orders without completed_at");
 
-      const ordersToFix = db
-        .prepare(
-          `
-      SELECT id, order_number, created_at, completed_at, paid_at
-      FROM orders 
-      WHERE status = 'delivered' AND completed_at IS NULL
-    `,
-        )
-        .all();
-
-      if (ordersToFix.length === 0) {
-        return res.json({ ok: true, fixed: 0, message: "No orders to fix" });
-      }
+      let ordersToFix = [];
 
       const tx = db.transaction(() => {
+        recheckOrderShift(req);
+        ordersToFix = db
+          .prepare(
+            `
+          SELECT id, order_number, created_at, completed_at, paid_at
+          FROM orders
+          WHERE status = 'delivered' AND completed_at IS NULL
+        `,
+          )
+          .all();
         for (const order of ordersToFix) {
           const completedDate = order.paid_at || order.created_at;
           let isoDate;
@@ -3020,11 +3561,20 @@ crmOperationsRouter.post(
         }
       });
 
-      tx();
+      tx.immediate();
 
-      res.json({ ok: true, fixed: ordersToFix.length });
+      res.json({
+        ok: true,
+        fixed: ordersToFix.length,
+        ...(ordersToFix.length === 0
+          ? { message: "No orders to fix" }
+          : {}),
+      });
     } catch (error) {
       console.error("[crm] Fix completed_at error:", error);
+      if (isStaffServiceError(error)) {
+        return sendStaffServiceError(res, error);
+      }
       res.status(500).json({ error: "failed", message: error.message });
     }
   },

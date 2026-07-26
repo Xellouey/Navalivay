@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import express from 'express';
 import slugify from 'slugify';
 import path from 'path';
@@ -32,6 +33,18 @@ import {
   normalizeStorefrontFiltersProfile,
   normalizeStrengthTier,
 } from '../utils/storefront-filters.js';
+import {
+  StaffServiceError,
+  createStaffActorMiddleware,
+  isStaffTrackingEnabled,
+  recheckStaffActorProof,
+  recordSystemStaffEvent,
+  runStaffIdempotentOperation,
+  sendStaffServiceError,
+} from '../utils/staff-service.js';
+import {
+  enqueueInternalNotificationForGroup,
+} from '../utils/internal-notifications.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -42,6 +55,61 @@ function ensureDir(p) {
 }
 
 const MAX_SQL_VARS = 900;
+const requireInventoryActor = createStaffActorMiddleware();
+
+function stableStaffOperationValue(value) {
+  if (Array.isArray(value)) return value.map(stableStaffOperationValue);
+  if (value && typeof value === 'object') {
+    return Object.keys(value)
+      .sort()
+      .reduce((result, key) => {
+        if (!['actor_pin', 'pin'].includes(key)) {
+          result[key] = stableStaffOperationValue(value[key]);
+        }
+        return result;
+      }, {});
+  }
+  return value;
+}
+
+function staffOperationName(base, body) {
+  const fingerprint = crypto
+    .createHash('sha256')
+    .update(JSON.stringify(stableStaffOperationValue(body || {})))
+    .digest('hex');
+  return `${base}:${fingerprint}`;
+}
+
+function requestIdempotencyKey(req) {
+  return String(req.get('Idempotency-Key') || '').trim() || null;
+}
+
+function unwrapStaffOperation(result) {
+  if (
+    result
+    && typeof result === 'object'
+    && Object.hasOwn(result, 'replayed')
+    && Object.hasOwn(result, 'result')
+  ) {
+    return result;
+  }
+  return { replayed: false, result };
+}
+
+function recheckInventoryActor(req) {
+  if (!isStaffTrackingEnabled()) return null;
+  return recheckStaffActorProof(req.staffActorProof);
+}
+
+function isStaffServiceError(error) {
+  return error instanceof StaffServiceError
+    || String(error?.code || '').startsWith('staff_')
+    || error?.code === 'idempotency_key_conflict';
+}
+
+function inventoryLocationLabel(location) {
+  return location === 'warehouse' ? 'Склад' : 'Розница';
+}
 
 function chunkArray(arr, size = MAX_SQL_VARS) {
   const chunks = [];
@@ -781,7 +849,13 @@ adminRouter.patch('/api/admin/products/:id', authMiddleware, async (req, res) =>
       const usedInProcurement = db.prepare(
         'SELECT 1 FROM procurement_items WHERE variant_id = ? LIMIT 1',
       ).get(variant.id);
-      if (hasStock || usedInProcurement) {
+      const usedInOrder = db.prepare(
+        'SELECT 1 FROM order_items WHERE variant_id = ? LIMIT 1',
+      ).get(variant.id);
+      const usedInTransfer = db.prepare(
+        'SELECT 1 FROM stock_transfer_items WHERE variant_id = ? LIMIT 1',
+      ).get(variant.id);
+      if (hasStock || usedInProcurement || usedInOrder || usedInTransfer) {
         return res.status(400).json({ error: hasStock ? 'variant_has_stock' : 'variant_in_use' });
       }
     }
@@ -789,13 +863,25 @@ adminRouter.patch('/api/admin/products/:id', authMiddleware, async (req, res) =>
     const protectedVariant = db.prepare(`
       SELECT v.id,
              CASE WHEN COALESCE(v.stock, 0) > 0 OR COALESCE(v.warehouse_stock, 0) > 0 THEN 1 ELSE 0 END AS has_stock,
-             EXISTS (SELECT 1 FROM procurement_items pi WHERE pi.variant_id = v.id) AS in_use
+             (
+               EXISTS (SELECT 1 FROM procurement_items pi WHERE pi.variant_id = v.id)
+               OR EXISTS (SELECT 1 FROM order_items oi WHERE oi.variant_id = v.id)
+               OR EXISTS (
+                 SELECT 1 FROM stock_transfer_items sti
+                 WHERE sti.variant_id = v.id
+               )
+             ) AS in_use
       FROM product_variants v
       WHERE v.product_id = ?
         AND (
           COALESCE(v.stock, 0) > 0
           OR COALESCE(v.warehouse_stock, 0) > 0
           OR EXISTS (SELECT 1 FROM procurement_items pi WHERE pi.variant_id = v.id)
+          OR EXISTS (SELECT 1 FROM order_items oi WHERE oi.variant_id = v.id)
+          OR EXISTS (
+            SELECT 1 FROM stock_transfer_items sti
+            WHERE sti.variant_id = v.id
+          )
         )
       LIMIT 1
     `).get(id);
@@ -1318,7 +1404,11 @@ adminRouter.get('/api/admin/inventory/transfers/:id', authMiddleware, async (req
   }
 });
 
-adminRouter.post('/api/admin/inventory/transfers', authMiddleware, async (req, res) => {
+adminRouter.post(
+  '/api/admin/inventory/transfers',
+  authMiddleware,
+  requireInventoryActor,
+  async (req, res) => {
   try {
     const { source_location: source, destination_location: destination, comment, items } = req.body || {};
     const locations = new Set(['retail', 'warehouse']);
@@ -1329,18 +1419,36 @@ adminRouter.post('/api/admin/inventory/transfers', authMiddleware, async (req, r
       return res.status(400).json({ error: 'items_required' });
     }
 
-    const transferId = `move_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    let transferId = `move_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     const sourceColumn = source === 'warehouse' ? 'warehouse_stock' : 'stock';
-    const actor = inventoryActor(req);
     let nextNumber = 0;
+    const trackingEnabled = isStaffTrackingEnabled();
+    const idempotencyKey = trackingEnabled
+      ? requestIdempotencyKey(req)
+      : null;
+    if (trackingEnabled && !idempotencyKey) {
+      throw new StaffServiceError('idempotency_key_required', 400);
+    }
 
-    const tx = db.transaction(() => {
+    const executeCreate = () => {
+      const tx = db.transaction(() => {
+      const staffActor = recheckInventoryActor(req);
+      const actorName = staffActor?.employeeName || inventoryActor(req);
       nextNumber = Number(db.prepare('SELECT MAX(transfer_number) AS value FROM stock_transfers').get()?.value || 0) + 1;
       db.prepare(`
         INSERT INTO stock_transfers (
-          id, transfer_number, source_location, destination_location, comment, status, created_by
-        ) VALUES (?, ?, ?, ?, ?, 'draft', ?)
-      `).run(transferId, nextNumber, source, destination, String(comment || '').trim() || null, actor);
+          id, transfer_number, source_location, destination_location, comment,
+          status, created_by, created_by_employee_id
+        ) VALUES (?, ?, ?, ?, ?, 'draft', ?, ?)
+      `).run(
+        transferId,
+        nextNumber,
+        source,
+        destination,
+        String(comment || '').trim() || null,
+        actorName,
+        staffActor?.employeeId || null,
+      );
 
       const insertItem = db.prepare(`
         INSERT INTO stock_transfer_items (
@@ -1382,6 +1490,9 @@ adminRouter.post('/api/admin/inventory/transfers', authMiddleware, async (req, r
         if (variantId) {
           const variant = db.prepare('SELECT id, product_id, name FROM product_variants WHERE id = ?').get(variantId);
           if (!variant || variant.product_id !== productId) throw new Error('variant_not_found');
+          if (Number(product.has_variants || 0) !== 1) {
+            throw new Error('variant_not_allowed');
+          }
           variantName = variant.name || null;
         } else if (Number(product.has_variants || 0) === 1) {
           throw new Error('variant_required');
@@ -1418,27 +1529,92 @@ adminRouter.post('/api/admin/inventory/transfers', authMiddleware, async (req, r
           quantity,
         );
       }
-    });
+      if (staffActor) {
+        const eventKey = `transfer:${transferId}:created`;
+        recordSystemStaffEvent({
+          employeeId: staffActor.employeeId,
+          eventType: 'transfer_created',
+          entityType: 'stock_transfer',
+          entityId: transferId,
+          idempotencyKey: eventKey,
+          sourceNumber: nextNumber,
+          sourceType: 'transfer',
+          sourceName: `${inventoryLocationLabel(source)} → ${inventoryLocationLabel(destination)}`,
+          payload: {
+            source_location: source,
+            destination_location: destination,
+            item_count: items.length,
+          },
+        });
+        enqueueInternalNotificationForGroup(db, {
+          eventGroup: 'documents',
+          uniqueKey: eventKey,
+          eventType: 'transfer.created',
+          payload: {
+            document_number: nextNumber,
+            from_location: inventoryLocationLabel(source),
+            to_location: inventoryLocationLabel(destination),
+            employee_name: staffActor.employeeName,
+          },
+        });
+      }
+      });
 
-    tx();
+      if (trackingEnabled) {
+        tx();
+      } else {
+        tx.immediate();
+      }
+      return { id: transferId };
+    };
+
+    if (trackingEnabled) {
+      const operationResult = unwrapStaffOperation(
+        runStaffIdempotentOperation({
+          key: idempotencyKey,
+          operation: staffOperationName('transfer.create', req.body),
+          entityType: 'stock_transfer',
+          execute: executeCreate,
+        }),
+      );
+      transferId = operationResult.result.id;
+    } else {
+      executeCreate();
+    }
     res.json(await getInventoryTransfer(transferId));
   } catch (error) {
     console.error('[admin] Create inventory transfer error:', error);
+    if (isStaffServiceError(error)) {
+      return sendStaffServiceError(res, error);
+    }
     const clientError = String(error.message || '');
     if (
-      ['invalid_item', 'duplicate_item', 'product_not_found', 'variant_not_found', 'variant_required'].includes(clientError)
+      [
+        'invalid_item',
+        'duplicate_item',
+        'product_not_found',
+        'variant_not_found',
+        'variant_required',
+        'variant_not_allowed',
+      ].includes(clientError)
       || clientError.startsWith('insufficient_stock:')
     ) {
       return res.status(400).json({ error: clientError });
     }
     res.status(500).json({ error: 'failed', message: error.message });
   }
-});
+  },
+);
 
-adminRouter.post('/api/admin/inventory/transfers/:id/complete', authMiddleware, async (req, res) => {
+adminRouter.post(
+  '/api/admin/inventory/transfers/:id/complete',
+  authMiddleware,
+  requireInventoryActor,
+  async (req, res) => {
   const affectedGroupIds = new Set();
   try {
     const tx = db.transaction(() => {
+      const staffActor = recheckInventoryActor(req);
       const transfer = db.prepare('SELECT * FROM stock_transfers WHERE id = ?').get(req.params.id);
       if (!transfer) throw new Error('not_found');
       if (transfer.status !== 'draft') throw new Error('invalid_status');
@@ -1454,7 +1630,9 @@ adminRouter.post('/api/admin/inventory/transfers/:id/complete', authMiddleware, 
       if (!items.length) throw new Error('items_required');
 
       for (const item of items) {
-        const product = db.prepare('SELECT id, groupId FROM products WHERE id = ?').get(item.product_id);
+        const product = db.prepare(
+          'SELECT id, groupId, has_variants FROM products WHERE id = ?',
+        ).get(item.product_id);
         if (!product) throw new Error('product_not_found');
         if (product.groupId) affectedGroupIds.add(product.groupId);
 
@@ -1463,28 +1641,76 @@ adminRouter.post('/api/admin/inventory/transfers/:id/complete', authMiddleware, 
         if (item.variant_id) {
           const variant = db.prepare('SELECT product_id FROM product_variants WHERE id = ?').get(item.variant_id);
           if (!variant || variant.product_id !== item.product_id) throw new Error('variant_not_found');
+          if (Number(product.has_variants || 0) !== 1) {
+            throw new Error('variant_not_allowed');
+          }
+        } else if (Number(product.has_variants || 0) === 1) {
+          throw new Error('variant_required');
+        }
+        const quantity = Number(item.quantity || 0);
+        if (!Number.isInteger(quantity) || quantity <= 0) {
+          throw new Error('invalid_item');
         }
         const stockRow = db.prepare(`SELECT ${sourceColumn} AS available FROM ${table} WHERE id = ?`).get(rowId);
-        if (Number(stockRow?.available || 0) < Number(item.quantity || 0)) {
+        if (Number(stockRow?.available || 0) < quantity) {
           throw new Error(`insufficient_stock:${rowId}`);
         }
-        db.prepare(`
+        const moved = db.prepare(`
           UPDATE ${table}
           SET ${sourceColumn} = ${sourceColumn} - ?,
               ${destinationColumn} = ${destinationColumn} + ?
-          WHERE id = ?
-        `).run(item.quantity, item.quantity, rowId);
+          WHERE id = ? AND ${sourceColumn} >= ?
+        `).run(quantity, quantity, rowId, quantity);
+        if (moved.changes !== 1) {
+          throw new Error(`inventory_conflict:${rowId}`);
+        }
       }
 
       const updated = db.prepare(`
         UPDATE stock_transfers
-        SET status = 'completed', completed_by = ?, completed_at = DATETIME('now')
+        SET status = 'completed',
+            completed_by = ?,
+            completed_by_employee_id = ?,
+            completed_at = DATETIME('now')
         WHERE id = ? AND status = 'draft'
-      `).run(inventoryActor(req), transfer.id);
+      `).run(
+        staffActor?.employeeName || inventoryActor(req),
+        staffActor?.employeeId || null,
+        transfer.id,
+      );
       if (updated.changes !== 1) throw new Error('invalid_status');
+
+      if (staffActor) {
+        const eventKey = `transfer:${transfer.id}:accepted`;
+        recordSystemStaffEvent({
+          employeeId: staffActor.employeeId,
+          eventType: 'transfer_accepted',
+          entityType: 'stock_transfer',
+          entityId: transfer.id,
+          idempotencyKey: eventKey,
+          sourceNumber: transfer.transfer_number,
+          sourceType: 'transfer',
+          sourceName: `${inventoryLocationLabel(transfer.source_location)} → ${inventoryLocationLabel(transfer.destination_location)}`,
+          payload: {
+            source_location: transfer.source_location,
+            destination_location: transfer.destination_location,
+            item_count: items.length,
+          },
+        });
+        enqueueInternalNotificationForGroup(db, {
+          eventGroup: 'documents',
+          uniqueKey: eventKey,
+          eventType: 'transfer.accepted',
+          payload: {
+            document_number: transfer.transfer_number,
+            to_location: inventoryLocationLabel(transfer.destination_location),
+            employee_name: staffActor.employeeName,
+          },
+        });
+      }
     });
 
-    tx();
+    tx.immediate();
     affectedGroupIds.forEach((groupId) => {
       try {
         syncGroupParking(groupId);
@@ -1495,18 +1721,30 @@ adminRouter.post('/api/admin/inventory/transfers/:id/complete', authMiddleware, 
     res.json(await getInventoryTransfer(req.params.id));
   } catch (error) {
     console.error('[admin] Complete inventory transfer error:', error);
+    if (isStaffServiceError(error)) {
+      return sendStaffServiceError(res, error);
+    }
     const clientError = String(error.message || '');
     if (clientError === 'not_found') return res.status(404).json({ error: clientError });
     if (clientError === 'invalid_status') return res.status(409).json({ error: clientError });
     if (
-      ['items_required', 'product_not_found', 'variant_not_found'].includes(clientError)
+      [
+        'items_required',
+        'invalid_item',
+        'product_not_found',
+        'variant_not_found',
+        'variant_required',
+        'variant_not_allowed',
+      ].includes(clientError)
       || clientError.startsWith('insufficient_stock:')
+      || clientError.startsWith('inventory_conflict:')
     ) {
       return res.status(400).json({ error: clientError });
     }
     res.status(500).json({ error: 'failed', message: error.message });
   }
-});
+  },
+);
 
 adminRouter.post('/api/admin/inventory/transfers/:id/cancel', authMiddleware, async (req, res) => {
   try {

@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 
 import { $fetch } from '@/utils/http'
+import { getInMemoryStaffHeaders, useCrmStore } from './crm'
 
 // Types
 export interface User {
@@ -172,6 +173,28 @@ interface ApiError {
 
 // Реальный стор админки. Без моков.
 
+function clientRequestKey() {
+  return typeof crypto !== 'undefined' && 'randomUUID' in crypto
+    ? crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(16).slice(2)}`
+}
+
+const pendingAdminMutationKeys = new Map<string, string>()
+
+function pendingAdminMutationKey(scope: string, payload: unknown) {
+  const signature = `${scope}:${JSON.stringify(payload)}`
+  let key = pendingAdminMutationKeys.get(signature)
+  if (!key) {
+    key = clientRequestKey()
+    pendingAdminMutationKeys.set(signature, key)
+    if (pendingAdminMutationKeys.size > 100) {
+      const oldest = pendingAdminMutationKeys.keys().next().value
+      if (oldest) pendingAdminMutationKeys.delete(oldest)
+    }
+  }
+  return { key, signature }
+}
+
 export const useAdminStore = defineStore('admin', () => {
   // Authentication state
   const isAuthenticated = ref(false)
@@ -316,6 +339,9 @@ export const useAdminStore = defineStore('admin', () => {
 
   // Authentication methods (реальные запросы)
   async function login(credentials: { username: string; password: string }) {
+    // Новый основной вход всегда начинает отдельную сессию пользователя.
+    // Нельзя переносить в неё допуск сотрудника/руководителя по личному ПИН.
+    useCrmStore().lockStaffAccess()
     try {
       isLoading.value = true
       error.value = null
@@ -347,7 +373,10 @@ export const useAdminStore = defineStore('admin', () => {
     token.value = ''
     user.value = null
     isAuthenticated.value = false
-    if (typeof window !== 'undefined') localStorage.removeItem('admin_token')
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('admin_token')
+    }
+    useCrmStore().lockStaffAccess()
   }
 
   async function checkAuth() {
@@ -356,6 +385,7 @@ export const useAdminStore = defineStore('admin', () => {
       isAuthenticated.value = false
       user.value = null
       token.value = ''
+      useCrmStore().lockStaffAccess()
       return false
     }
     
@@ -375,6 +405,7 @@ export const useAdminStore = defineStore('admin', () => {
       isAuthenticated.value = false
       user.value = null
       token.value = ''
+      useCrmStore().lockStaffAccess()
       return false
     }
   }
@@ -384,9 +415,10 @@ export const useAdminStore = defineStore('admin', () => {
     if (!token.value) {
       throw new Error('No authentication token')
     }
-    return {
+    const headers: Record<string, string> = {
       Authorization: `Bearer ${token.value}`
     }
+    return { ...headers, ...getInMemoryStaffHeaders() }
   }
 
   // Upload files (real API): /api/admin/upload?target=...
@@ -1379,19 +1411,29 @@ async function createCategory(category: { name: string; hideEmpty?: boolean; cov
   }
 
   async function createInventoryTransfer(data: {
+    idempotency_key?: string
     source_location: 'retail' | 'warehouse'
     destination_location: 'retail' | 'warehouse'
     comment?: string
+    actor_employee_id?: string
+    actor_pin?: string
     items: Array<{ product_id: string; variant_id?: string | null; quantity: number }>
   }) {
-    return await $fetch<any>(
+    const { idempotency_key, ...body } = data
+    const pending = pendingAdminMutationKey('transfer.create', body)
+    const result = await $fetch<any>(
       '/api/admin/inventory/transfers',
       {
         method: 'POST',
-        headers: getAuthHeaders(),
-        body: data,
+        headers: {
+          ...getAuthHeaders(),
+          'Idempotency-Key': idempotency_key || pending.key,
+        },
+        body,
       },
     )
+    pendingAdminMutationKeys.delete(pending.signature)
+    return result
   }
 
   async function fetchInventoryTransfers(options: { page?: number; limit?: number } = {}) {
@@ -1410,10 +1452,22 @@ async function createCategory(category: { name: string; hideEmpty?: boolean; cov
     })
   }
 
-  async function completeInventoryTransfer(id: string) {
+  async function completeInventoryTransfer(
+    id: string,
+    actor: {
+      actor_employee_id?: string
+      actor_pin?: string
+      idempotency_key?: string
+    } = {},
+  ) {
+    const { idempotency_key, ...body } = actor
     return await $fetch<any>(`/api/admin/inventory/transfers/${id}/complete`, {
       method: 'POST',
-      headers: getAuthHeaders(),
+      headers: {
+        ...getAuthHeaders(),
+        'Idempotency-Key': idempotency_key || clientRequestKey(),
+      },
+      body,
     })
   }
 
@@ -1814,6 +1868,9 @@ async function createCategory(category: { name: string; hideEmpty?: boolean; cov
       const tokenInStorage = typeof window !== 'undefined' ? localStorage.getItem('admin_token') : null
       if (!tokenInStorage) {
         isAuthenticated.value = false
+        user.value = null
+        token.value = ''
+        useCrmStore().lockStaffAccess()
         return false
       }
       token.value = tokenInStorage
@@ -1827,11 +1884,17 @@ async function createCategory(category: { name: string; hideEmpty?: boolean; cov
         return true
       }
       isAuthenticated.value = false
+      user.value = null
+      token.value = ''
+      useCrmStore().lockStaffAccess()
       return false
     } catch (err) {
       // invalid token
       if (typeof window !== 'undefined') localStorage.removeItem('admin_token')
       isAuthenticated.value = false
+      user.value = null
+      token.value = ''
+      useCrmStore().lockStaffAccess()
       return false
     }
   }

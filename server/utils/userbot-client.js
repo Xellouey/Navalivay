@@ -59,11 +59,12 @@ export function _resetHealthCacheForTests() {
  *   - ENOTFOUND     — DNS не разрешился (нерелевантно для 127.0.0.1, но всё же)
  *   - EAI_AGAIN     — DNS-таймаут
  *   - getaddrinfo ENOTFOUND
- *   - connect ECONNRESET — TCP сброшен ДО handshake (нет «возможно дошло»)
+ *   - только ошибки, которые однозначно произошли до соединения
  *
  * Опасные для fallback (могло долететь):
  *   - timeout / AbortError — userbot мог получить запрос, ответ не успел
- *   - ECONNRESET после handshake — соединение разорвалось в момент response
+ *   - ECONNRESET — по коду ошибки нельзя доказать, на какой фазе оборвалось
+ *     соединение; запрос уже мог быть принят и отправлен в Telegram
  *   - всё остальное — по умолчанию считаем ambiguous (fail-safe)
  */
 function classifyFetchError(err) {
@@ -87,12 +88,6 @@ function classifyFetchError(err) {
   if (unreachableCodes.some((code) => combined.includes(code))) {
     return { ok: false, outcome: 'unreachable', error: errorText };
   }
-  // ECONNRESET без явного «дошло» — обычно во время connect, до отправки
-  // тела запроса. Считаем безопасным для fallback.
-  if (combined.includes('ECONNRESET')) {
-    return { ok: false, outcome: 'unreachable', error: errorText };
-  }
-
   // По умолчанию — fail-safe ambiguous: лучше упустить сообщение, чем
   // отправить дубль клиенту в чат (это гораздо более позорный UX).
   return { ok: false, outcome: 'ambiguous', error: errorText };
@@ -180,35 +175,76 @@ export async function sendViaUserbot({
     healthCache = null;
     return classifyFetchError(err);
   }
-  // Got an HTTP response — read it. JSON parse error treats as rejected
-  // (server is alive, response is malformed → fallback safe, не дойдёт до
-  // Telegram дважды, потому что валидный ответ был бы JSON-ом).
+  // Полученный HTTP-ответ ещё не доказывает, что сообщение не отправилось:
+  // userbot мог успеть отправить его и потерять/повредить ответ. Поэтому
+  // битый, неполный или противоречивый ответ всегда ambiguous.
   let data;
   try {
     data = await response.json();
   } catch {
     healthCache = null;
-    return { ok: false, outcome: 'rejected', error: `http_${response.status}_bad_json` };
+    return { ok: false, outcome: 'ambiguous', error: `http_${response.status}_bad_json` };
   }
-  if (!response.ok || !data?.ok) {
+  if (
+    !data
+    || typeof data !== 'object'
+    || Array.isArray(data)
+    || typeof data.ok !== 'boolean'
+    || typeof response?.ok !== 'boolean'
+    || !Number.isInteger(Number(response?.status))
+    || response.ok !== (
+      Number(response.status) >= 200 && Number(response.status) < 300
+    )
+    || (response.ok === false && data.ok === true)
+  ) {
     healthCache = null;
-    // 429 (FloodWait) и 503 (disconnected/session_dead) — userbot временно
-    // не работает, но точно не отправил. Помечаем как unreachable —
-    // fallback на business-mode безопасен (нет дубля), и при этом не путаем
-    // с rejected (где это была "осознанная" ошибка отправки).
+    return {
+      ok: false,
+      outcome: 'ambiguous',
+      error: `http_${response?.status ?? 'unknown'}_invalid_response`,
+    };
+  }
+  if (!response.ok) {
+    healthCache = null;
     const status = response.status;
-    if (status === 429 || status === 503) {
+    const errorCode = String(data.error || '');
+    // Эти ответы формируются userbot до sendMessage либо при заведомо
+    // нерабочей сессии. Telegram точно не принял новое сообщение.
+    if (
+      (status === 429 && errorCode === 'flood_wait')
+      || (
+        status === 503
+        && ['disconnected', 'session_dead'].includes(errorCode)
+      )
+    ) {
       return {
         ok: false,
         outcome: 'unreachable',
-        error: data?.error || `http_${status}`,
+        error: errorCode || `http_${status}`,
         retry_after_seconds: data?.retry_after_seconds,
+      };
+    }
+    // 5xx после начала обработки может означать, что Telegram принял
+    // сообщение, а userbot потерял результат. Автоповтор создаст дубль.
+    if (status >= 500) {
+      return {
+        ok: false,
+        outcome: 'ambiguous',
+        error: errorCode || `http_${status}`,
       };
     }
     return {
       ok: false,
       outcome: 'rejected',
-      error: data?.error || `http_${status}`,
+      error: errorCode || `http_${status}`,
+    };
+  }
+  if (data.ok === false) {
+    healthCache = null;
+    return {
+      ok: false,
+      outcome: 'rejected',
+      error: data.error || `http_${response.status}`,
     };
   }
   return { ok: true, telegram_message_id: data.telegram_message_id ?? null };

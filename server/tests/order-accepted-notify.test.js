@@ -111,7 +111,7 @@ resetDb();
     }
     if (u.includes('/send-message')) {
       calls.push(`send:${JSON.parse(init.body).text}`);
-      return { ok: true, async json() { return { ok: true, telegram_message_id: 227 }; } };
+      return { ok: true, status: 200, async json() { return { ok: true, telegram_message_id: 227 }; } };
     }
     throw new Error(`unexpected ${u}`);
   };
@@ -160,7 +160,7 @@ function mockUserbotOk({ captureBody = null, captureCalls = null } = {}) {
     if (u.includes('127.0.0.1') && u.includes('/send-message')) {
       if (captureCalls) captureCalls.push('send');
       if (captureBody) captureBody.value = JSON.parse(init.body);
-      return { ok: true, async json() { return { ok: true, telegram_message_id: 9001 }; } };
+      return { ok: true, status: 200, async json() { return { ok: true, telegram_message_id: 9001 }; } };
     }
     throw new Error(`unexpected fetch ${u}`);
   };
@@ -312,7 +312,7 @@ resetDb();
     }
     if (u.includes('/send-message')) {
       calls.push({ kind: 'send' });
-      return { ok: true, async json() { return { ok: true, telegram_message_id: 225 }; } };
+      return { ok: true, status: 200, async json() { return { ok: true, telegram_message_id: 225 }; } };
     }
     throw new Error(`unexpected ${u}`);
   };
@@ -454,7 +454,7 @@ globalThis.fetch = async (url, init) => {
   }
   if (u.includes('/send-message')) {
     sendCount++;
-    return { ok: true, async json() { return { ok: true, telegram_message_id: 1 }; } };
+    return { ok: true, status: 200, async json() { return { ok: true, telegram_message_id: 1 }; } };
   }
   throw new Error(`unexpected ${u}`);
 };
@@ -555,7 +555,7 @@ globalThis.fetch = async (url) => {
   }
   if (u.includes('/send-message')) {
     t9SendCount++;
-    return { ok: true, async json() { return { ok: true, telegram_message_id: 901 }; } };
+    return { ok: true, status: 200, async json() { return { ok: true, telegram_message_id: 901 }; } };
   }
   throw new Error(`unexpected ${u}`);
 };
@@ -573,7 +573,7 @@ try {
     }
     if (u.includes('/send-message')) {
       t9SendCount++;
-      return { ok: true, async json() { return { ok: true, telegram_message_id: 901 }; } };
+      return { ok: true, status: 200, async json() { return { ok: true, telegram_message_id: 901 }; } };
     }
     throw new Error(`unexpected ${u}`);
   };
@@ -711,7 +711,7 @@ globalThis.fetch = async (url, init) => {
   if (u.includes('/send-message')) {
     t15SendCount++;
     await new Promise((r) => setTimeout(r, 30));
-    return { ok: true, async json() { return { ok: true, telegram_message_id: 906 }; } };
+    return { ok: true, status: 200, async json() { return { ok: true, telegram_message_id: 906 }; } };
   }
   throw new Error(`unexpected ${u}`);
 };
@@ -748,7 +748,7 @@ globalThis.fetch = async (url, init) => {
   if (u.includes('/send-message')) {
     const body = JSON.parse(init.body);
     t16Events.push(body.text?.includes('принят') ? 'accepted' : 'assembled');
-    return { ok: true, async json() { return { ok: true, telegram_message_id: 907 }; } };
+    return { ok: true, status: 200, async json() { return { ok: true, telegram_message_id: 907 }; } };
   }
   throw new Error(`unexpected ${u}`);
 };
@@ -778,7 +778,8 @@ const seeded = db
   .get();
 assertEq(seeded?.event, 'order_accepted', 'event seeded');
 assertEq(seeded?.is_active, 1, 'is_active=1');
-assert(seeded?.body?.includes('{order_number}'), 'body содержит плейсхолдер');
+assert(!seeded?.body?.includes('{order_number}'), 'номер получения до сборки не раскрывается');
+assert(seeded?.body?.includes('{final_amount}'), 'body содержит сумму заказа');
 const bodyBefore = seeded.body;
 migrateOrderAcceptedTemplate();
 const afterSecond = db
