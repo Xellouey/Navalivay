@@ -709,16 +709,10 @@ describe("CrmEmployees: вход сотрудника", () => {
 
     const wrapper = mountEmployees();
     await flushPromises();
-    expect(wrapper.text()).toContain("Обязанности сотрудника");
-    expect(wrapper.text()).toContain(
-      "Направления работы, закреплённые за сотрудником",
-    );
-    expect(wrapper.text()).toContain("Работа с командой");
-    expect(wrapper.text()).toContain("Работа с зарплатами");
-    expect(wrapper.text()).toContain("Работа со сменами");
+    expect(wrapper.text()).not.toContain("Обязанности сотрудника");
     expect(
-      wrapper.findAll('[aria-label="Обязанности сотрудника"] li'),
-    ).toHaveLength(3);
+      wrapper.find('[aria-label="Обязанности сотрудника"]').exists(),
+    ).toBe(false);
     const sectionSelect = wrapper.get("#staff-manager-section");
     const cardEmployeeSelect = wrapper.get(
       '[aria-label="Сотрудник в карточке"]',
