@@ -1335,21 +1335,32 @@
                     <option value="salary">Зарплата</option>
                   </select>
                 </label>
-                <label class="block">
-                  <span class="mb-1 block text-sm font-medium text-slate-700">Имя пользователя Telegram</span>
-                  <input v-model.trim="recipientForm.username" required placeholder="@username" class="min-h-[44px] w-full rounded-xl border border-slate-300 px-3" />
-                </label>
+                <div class="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
+                  <label class="block">
+                    <span class="mb-1 block text-sm font-medium text-slate-700">Имя пользователя Telegram</span>
+                    <input v-model.trim="recipientForm.username" required placeholder="@username" class="min-h-[44px] w-full rounded-xl border border-slate-300 px-3" />
+                  </label>
+                  <CrmButton
+                    v-if="!resolvedRecipient"
+                    type="submit"
+                    variant="primary"
+                    class="w-full sm:min-w-[104px] sm:w-auto"
+                    :loading="notificationSaving"
+                  >
+                    Найти
+                  </CrmButton>
+                </div>
                 <div v-if="resolvedRecipient" class="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-950">
                   <div class="font-semibold">{{ resolvedRecipient.display_name }}</div>
                   <div class="mt-1 text-xs">@{{ resolvedRecipient.telegram_username }}</div>
                 </div>
                 <p v-if="notificationFormError" class="text-sm text-red-700" role="alert">{{ notificationFormError }}</p>
-                <div class="flex justify-end gap-2">
-                  <CrmButton v-if="resolvedRecipient" type="button" variant="secondary" :disabled="notificationSaving" @click="resolvedRecipient = null">
+                <div v-if="resolvedRecipient" class="grid gap-2 sm:grid-cols-[auto_minmax(0,1fr)]">
+                  <CrmButton type="button" variant="secondary" class="w-full" :disabled="notificationSaving" @click="resolvedRecipient = null">
                     Найти заново
                   </CrmButton>
-                  <CrmButton type="submit" variant="primary" :loading="notificationSaving">
-                    {{ resolvedRecipient ? "Подтвердить и добавить" : "Найти" }}
+                  <CrmButton type="submit" variant="primary" class="w-full" :loading="notificationSaving">
+                    Подтвердить и добавить
                   </CrmButton>
                 </div>
               </form>
