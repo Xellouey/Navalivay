@@ -120,7 +120,7 @@
                 </button>
               </div>
               <div v-else-if="!cardEmployees.length" class="py-8 text-center text-sm text-slate-500">
-                Никого не найдено
+                Сотрудники не найдены. Измените поиск или фильтр.
               </div>
               <div v-else class="mt-2 max-h-[540px] space-y-1 overflow-y-auto">
                 <button
@@ -550,7 +550,7 @@
             <CrmButton class="mt-4" variant="secondary" @click="loadCurrentView">Повторить</CrmButton>
           </div>
           <div v-else-if="!teamEmployees.length" class="rounded-2xl border border-dashed border-slate-300 bg-white py-14 text-center text-sm text-slate-500">
-            Сотрудников по этому фильтру нет
+            Сотрудники не найдены. Измените поиск или фильтр.
           </div>
 
           <template v-else>
@@ -744,7 +744,9 @@
             <CrmButton class="mt-4" variant="secondary" @click="loadSalaries">Повторить</CrmButton>
           </div>
           <div v-else-if="!salaryRows.length" class="rounded-2xl border border-dashed border-slate-300 bg-white py-14 text-center">
-            <p class="text-sm text-slate-600">Нет сотрудников для заполнения</p>
+            <p class="text-sm text-slate-600">
+              Нет сотрудников. Добавьте сотрудника во вкладке «Команда».
+            </p>
           </div>
           <template v-else>
             <div class="space-y-3 sm:hidden">
@@ -955,6 +957,16 @@
                     </div>
                   </template>
                 </div>
+              </div>
+              <div class="mt-3 flex flex-wrap gap-x-4 gap-y-2 text-xs text-slate-500">
+                <span class="inline-flex items-center gap-1.5">
+                  <span class="h-2 w-2 rounded-full bg-emerald-500" aria-hidden="true" />
+                  Смена ещё идёт
+                </span>
+                <span class="inline-flex items-center gap-1.5">
+                  <span class="h-2 w-2 rounded-full bg-amber-500" aria-hidden="true" />
+                  Время смены исправляли
+                </span>
               </div>
             </section>
 
@@ -1176,7 +1188,7 @@
                 </label>
                 <div v-if="resolvedRecipient" class="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-950">
                   <div class="font-semibold">{{ resolvedRecipient.display_name }}</div>
-                  <div class="mt-1 text-xs">@{{ resolvedRecipient.telegram_username }} · {{ resolvedRecipient.telegram_id }}</div>
+                  <div class="mt-1 text-xs">@{{ resolvedRecipient.telegram_username }}</div>
                 </div>
                 <p v-if="notificationFormError" class="text-sm text-red-700" role="alert">{{ notificationFormError }}</p>
                 <div class="flex justify-end gap-2">
@@ -1234,11 +1246,11 @@
                     <p v-if="notificationPayloadSummary(item)" class="mt-2 text-sm text-slate-700">
                       {{ notificationPayloadSummary(item) }}
                     </p>
-                    <p v-if="item.telegram_message_id" class="mt-1 text-xs text-emerald-700">
-                      Telegram message ID: {{ item.telegram_message_id }}
+                    <p v-if="item.status === 'failed'" class="mt-1 text-xs text-red-700">
+                      Не удалось доставить уведомление. Проверьте получателя.
                     </p>
-                    <p v-if="item.last_error" class="mt-1 break-words text-xs text-red-700">
-                      Ошибка: {{ item.last_error }}
+                    <p v-else-if="item.status === 'unknown'" class="mt-1 text-xs text-amber-700">
+                      Telegram не подтвердил доставку. Перед повтором проверьте сообщения получателя.
                     </p>
                   </div>
                   <CrmButton v-if="item.status === 'unknown'" variant="secondary" size="sm" :disabled="notificationSaving" @click="resumeNotification(item)">
@@ -1443,7 +1455,9 @@
         <p v-if="formError" class="sm:col-span-2 text-sm text-red-700" role="alert">{{ formError }}</p>
         <div class="flex flex-col-reverse gap-3 sm:col-span-2 sm:flex-row sm:justify-end">
           <CrmButton variant="secondary" type="button" :disabled="formSaving || avatarUploading" @click="closeEmployeeEditor">Отмена</CrmButton>
-          <CrmButton variant="primary" type="submit" :loading="formSaving" :disabled="avatarUploading">Сохранить</CrmButton>
+          <CrmButton variant="primary" type="submit" :loading="formSaving" :disabled="avatarUploading">
+            {{ editingEmployee ? "Сохранить изменения" : "Добавить сотрудника" }}
+          </CrmButton>
         </div>
       </form>
     </AdminModal>
@@ -1514,7 +1528,7 @@
         <p v-if="formError" class="text-sm text-red-700" role="alert">{{ formError }}</p>
         <div class="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
           <CrmButton variant="secondary" type="button" :disabled="formSaving" @click="closeSalaryEditor">Отмена</CrmButton>
-          <CrmButton variant="primary" type="submit" :loading="formSaving">Сохранить</CrmButton>
+          <CrmButton variant="primary" type="submit" :loading="formSaving">Сохранить сумму</CrmButton>
         </div>
       </form>
     </AdminModal>
@@ -1565,7 +1579,9 @@
         <p v-if="formError" class="text-sm text-red-700" role="alert">{{ formError }}</p>
         <div class="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
           <CrmButton variant="secondary" type="button" :disabled="formSaving" @click="closeMarkEditor">Отмена</CrmButton>
-          <CrmButton variant="primary" type="submit" :loading="formSaving">Сохранить</CrmButton>
+          <CrmButton variant="primary" type="submit" :loading="formSaving">
+            {{ editingMark ? "Сохранить изменения" : "Добавить отметку" }}
+          </CrmButton>
         </div>
       </form>
     </AdminModal>
@@ -1589,7 +1605,7 @@
         <p v-if="formError" class="text-sm text-red-700" role="alert">{{ formError }}</p>
         <div class="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
           <CrmButton variant="secondary" type="button" :disabled="formSaving" @click="voidMarkOpen = false">Отмена</CrmButton>
-          <CrmButton variant="danger" type="submit" :loading="formSaving">Аннулировать</CrmButton>
+          <CrmButton variant="danger" type="submit" :loading="formSaving">Аннулировать отметку</CrmButton>
         </div>
       </form>
     </AdminModal>
@@ -2734,7 +2750,7 @@ function notificationGroupLabel(group: string) {
     tasks: "Задачи",
     salary: "Зарплата",
   };
-  return labels[group] || group;
+  return labels[group] || "Служебные сообщения";
 }
 function notificationRecipientCount(group: string) {
   return notificationRecipients.value.filter(
@@ -2754,10 +2770,10 @@ function notificationStatusLabel(status: string) {
     pending: "Ожидает отправки",
     sending: "Отправляется",
     sent: "Отправлено",
-    failed: "Ошибка",
-    unknown: "Исход неизвестен",
+    failed: "Не доставлено",
+    unknown: "Доставка не подтверждена",
   };
-  return labels[status] || status;
+  return labels[status] || "Статус не определён";
 }
 function notificationOutboxGroup(item: Record<string, any>) {
   const type = String(item.event_type || "");
@@ -2775,15 +2791,11 @@ function notificationEventLabel(type: string) {
     task_review_requested: "Задача отправлена на проверку",
     salary_assignment_reminder: "Напоминание о зарплатах",
   };
-  return labels[type] || type || "Внутреннее уведомление";
+  return labels[type] || "Внутреннее уведомление";
 }
 function notificationRecipientLabel(item: Record<string, any>) {
   const username = String(item.recipient_username || "").replace(/^@+/, "");
-  const telegramId = String(item.recipient_telegram_id || "");
-  return [
-    username ? `@${username}` : "",
-    telegramId ? `ID ${telegramId}` : "",
-  ].filter(Boolean).join(" · ") || "не указан";
+  return username ? `@${username}` : "не указан";
 }
 function notificationPayloadSummary(item: Record<string, any>) {
   let payload: Record<string, any> = {};
@@ -3175,9 +3187,6 @@ async function confirmRequestedAction() {
 
 async function updateTracking(next: boolean) {
   await crmStore.updateStaffTracking(next);
-  if (!next && staffOrderShiftRestrictionEnabled.value) {
-    await crmStore.updateStaffOrderShiftRestriction(false);
-  }
   pageMessageKind.value = "info";
   pageMessage.value = next ? "Общий учёт включён" : "Общий учёт выключен";
 }
@@ -3354,7 +3363,7 @@ async function toggleEmployeeActive(employee: Employee) {
       pageMessageKind.value = "info";
       pageMessage.value = activating
         ? "Сотрудник восстановлен"
-        : "Сотрудник деактивирован";
+        : "Сотрудник уволен";
     },
   });
 }

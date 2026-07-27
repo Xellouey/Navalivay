@@ -351,7 +351,7 @@
           :disabled="actionSubmitting"
           @click="cancelTransfer()"
         >
-          {{ actionSubmitting ? 'Отменяем…' : 'Да, отменить' }}
+          {{ actionSubmitting ? 'Отменяем…' : 'Отменить перемещение' }}
         </button>
       </div>
     </div>
@@ -479,8 +479,8 @@ const actorPromptDescription = computed(() => {
   return 'Подтвердите сотрудника. Состав заявки сохранится при ошибке.'
 })
 const actorPromptActionLabel = computed(() => {
-  if (actorPromptAction.value === 'complete') return 'Оприходовать'
-  if (actorPromptAction.value === 'cancel') return 'Отменить заявку'
+  if (actorPromptAction.value === 'complete') return 'Оприходовать перемещение'
+  if (actorPromptAction.value === 'cancel') return 'Отменить перемещение'
   return 'Создать заявку'
 })
 const actorPromptContext = computed(() => {

@@ -145,7 +145,7 @@
                         @click="finishProcurement(procurement.id)"
                         class="text-green-600 transition hover:text-green-800"
                       >
-                        Завершить
+                        Оприходовать закупку
                       </button>
                       <button
                         v-if="procurement.status === 'draft'"
@@ -179,8 +179,7 @@
             Закупки пока не создавались
           </h3>
           <p class="mt-2 text-gray-600">
-            Начните с добавления первой закупки - товары подтянутся в складской
-            баланс автоматически.
+            Создайте первую закупку. Остатки изменятся после оприходования.
           </p>
           <button
             class="mt-6 inline-flex items-center rounded-lg bg-blue-600 px-5 py-2 text-sm font-medium text-white transition hover:bg-blue-700"
@@ -1229,7 +1228,7 @@ const actorPromptDescription = computed(() =>
     : "Подтвердите, кто оформляет закупку. Черновик формы останется на месте при ошибке.",
 );
 const actorPromptActionLabel = computed(() =>
-  actorAction.value === "complete" ? "Оприходовать" : "Сохранить",
+  actorAction.value === "complete" ? "Оприходовать закупку" : "Сохранить",
 );
 const actorPromptProcurement = computed(() => {
   const id = actorProcurementId.value || editingProcurementId.value;

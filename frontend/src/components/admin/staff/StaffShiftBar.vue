@@ -30,7 +30,7 @@
       <div class="flex flex-wrap gap-2">
         <template v-if="isShiftOpen">
           <CrmButton v-if="hasStaffAccess" variant="soft" size="sm" @click="tasksOpen = true">
-            Мои задачи
+            {{ tasksButtonLabel }}
             <span
               v-if="openStaffTaskCount"
               class="inline-flex min-w-5 items-center justify-center rounded-full bg-blue-600 px-1.5 py-0.5 text-[11px] font-bold text-white"
@@ -56,7 +56,7 @@
             Открыть личную карточку
           </CrmButton>
           <CrmButton v-else variant="ghost" size="sm" @click="crmStore.lockStaffAccess()">
-            Сменить карточку
+            Выйти из карточки
           </CrmButton>
         </template>
         <template v-else>
@@ -69,7 +69,7 @@
             Открыть смену
           </CrmButton>
           <CrmButton v-if="hasStaffAccess" variant="soft" size="sm" @click="tasksOpen = true">
-            Мои задачи
+            {{ tasksButtonLabel }}
             <span
               v-if="openStaffTaskCount"
               class="inline-flex min-w-5 items-center justify-center rounded-full bg-blue-600 px-1.5 py-0.5 text-[11px] font-bold text-white"
@@ -269,6 +269,7 @@ const {
   staffShiftCandidatesError,
   openStaffTaskCount,
   staffTrackingEnabled,
+  isStaffManager,
 } = storeToRefs(crmStore);
 const accessOpen = ref(false);
 const tasksOpen = ref(false);
@@ -335,6 +336,9 @@ const elapsedLabel = computed(() => {
   const rest = minutes % 60;
   return hours ? `${hours} ч ${rest} мин` : `${rest} мин`;
 });
+const tasksButtonLabel = computed(() =>
+  isStaffManager.value ? "Задачи команды" : "Мои задачи",
+);
 
 function safeColor(color?: string | null) {
   return color && /^#[0-9a-f]{6}$/i.test(color) ? color : "#2563eb";

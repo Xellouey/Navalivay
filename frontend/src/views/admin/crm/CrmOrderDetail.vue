@@ -527,7 +527,6 @@
                   </span>
                 </p>
                 <p v-if="currentOrder.completed_at">Выдан: {{ formatFullDate(currentOrder.completed_at) }}</p>
-                <p v-if="currentOrder.employee_id" class="text-xs text-gray-500">ID сотрудника: {{ currentOrder.employee_id }}</p>
               </div>
             </div>
           </div>

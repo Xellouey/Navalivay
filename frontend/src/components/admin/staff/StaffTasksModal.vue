@@ -12,8 +12,8 @@
     @cancel="requestClose"
   >
     <div class="space-y-4">
-      <div class="flex flex-wrap items-center justify-between gap-3">
-        <div class="flex gap-2" role="group" aria-label="Фильтр задач">
+      <div class="space-y-3">
+        <div class="grid grid-cols-2 gap-2 sm:flex" role="group" aria-label="Фильтр задач">
           <CrmButton
             v-for="option in filters"
             :key="option.value"
@@ -29,7 +29,7 @@
             </span>
           </CrmButton>
         </div>
-        <div class="flex gap-2">
+        <div class="flex flex-wrap justify-end gap-2">
           <CrmButton
             v-if="isStaffManager"
             variant="primary"
@@ -107,7 +107,9 @@
         @submit.prevent="createTask"
       >
         <label class="block sm:col-span-2">
-          <span class="mb-1 block text-sm font-medium text-slate-700">Задача</span>
+          <span class="mb-1 block text-sm font-medium text-slate-700">
+            Название задачи <span aria-hidden="true">*</span>
+          </span>
           <input
             v-model.trim="taskForm.title"
             required
@@ -117,17 +119,32 @@
           />
         </label>
         <label class="block">
-          <span class="mb-1 block text-sm font-medium text-slate-700">Срок</span>
+          <span class="mb-1 block text-sm font-medium text-slate-700">
+            Срок <span aria-hidden="true">*</span>
+          </span>
           <input
             v-model="taskForm.due_at"
             type="datetime-local"
             required
             :disabled="Boolean(actionDialog)"
-            class="min-h-[44px] w-full rounded-xl border border-slate-300 bg-white px-3"
+            class="min-h-[44px] w-full rounded-xl border bg-white px-3"
+            :class="taskDueError ? 'border-red-400' : 'border-slate-300'"
+            :aria-invalid="Boolean(taskDueError)"
+            :aria-describedby="taskDueError ? 'staff-task-due-error' : undefined"
           />
+          <span
+            v-if="taskDueError"
+            id="staff-task-due-error"
+            class="mt-1 block text-xs text-red-700"
+            role="alert"
+          >
+            {{ taskDueError }}
+          </span>
         </label>
         <label class="block sm:col-span-2">
-          <span class="mb-1 block text-sm font-medium text-slate-700">Пояснение</span>
+          <span class="mb-1 block text-sm font-medium text-slate-700">
+            Описание задачи <span aria-hidden="true">*</span>
+          </span>
           <textarea
             v-model.trim="taskForm.description"
             rows="3"
@@ -137,23 +154,35 @@
             class="w-full rounded-xl border border-slate-300 bg-white px-3 py-2"
           />
         </label>
-        <div class="flex justify-end gap-2 sm:col-span-2">
-          <CrmButton
-            type="button"
-            variant="secondary"
-            :disabled="creatingTask || Boolean(actionDialog)"
-            @click="createOpen = false"
+        <div class="sm:col-span-2">
+          <p class="mb-3 text-xs text-slate-500">
+            <span aria-hidden="true">*</span> Обязательные поля
+          </p>
+          <p
+            v-if="createTaskHint"
+            class="mb-3 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800"
+            aria-live="polite"
           >
-            Отмена
-          </CrmButton>
-          <CrmButton
-            type="submit"
-            variant="primary"
-            :loading="creatingTask"
-            :disabled="!canCreateTask || Boolean(actionDialog)"
-          >
-            Создать
-          </CrmButton>
+            {{ createTaskHint }}
+          </p>
+          <div class="flex justify-end gap-2">
+            <CrmButton
+              type="button"
+              variant="secondary"
+              :disabled="creatingTask || Boolean(actionDialog)"
+              @click="createOpen = false"
+            >
+              Отмена
+            </CrmButton>
+            <CrmButton
+              type="submit"
+              variant="primary"
+              :loading="creatingTask"
+              :disabled="!canCreateTask || Boolean(actionDialog)"
+            >
+              Создать задачу
+            </CrmButton>
+          </div>
         </div>
       </form>
 
@@ -189,9 +218,15 @@
             <dd class="whitespace-pre-line text-slate-800">{{ actionDialog.task.result_note }}</dd>
           </template>
         </dl>
+        <p
+          v-if="actionDialog.action === 'cancel'"
+          class="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900"
+        >
+          Задача исчезнет из рабочего списка, но запись останется в истории.
+        </p>
         <label v-if="actionDialog.action !== 'approve'" class="mt-4 block">
           <span class="mb-1 block text-sm font-medium text-slate-700">
-            {{ actionDialog.action === "cancel" ? "Причина отмены" : "Результат работы" }}
+            {{ actionDialog.action === "cancel" ? "Причина отмены" : "Результат работы (необязательно)" }}
           </span>
           <textarea
             ref="actionNoteInput"
@@ -202,7 +237,7 @@
             class="w-full rounded-xl border border-slate-300 bg-white px-3 py-2"
             :placeholder="actionDialog.action === 'cancel'
               ? 'Почему задача отменяется'
-              : 'Что сделано — можно оставить пустым'"
+              : 'Например: пересчитал витрину, расхождений нет'"
             :disabled="taskBusy"
           />
         </label>
@@ -281,8 +316,8 @@
                 v-if="task.result_note"
                 class="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900"
               >
-                <span class="font-medium">Результат сотрудника:</span>
-                <span class="whitespace-pre-line"> {{ task.result_note }}</span>
+                <span class="block font-medium">Результат сотрудника</span>
+                <span class="mt-1 block whitespace-pre-line">{{ task.result_note }}</span>
               </div>
             </div>
             <div class="flex flex-wrap gap-2 sm:max-w-[260px] sm:justify-end">
@@ -408,13 +443,31 @@ const taskForm = ref({
   description: "",
   due_at: "",
 });
+const taskDueError = computed(() => {
+  if (!taskForm.value.due_at) return "";
+  const dueAt = businessDateTimeInputToIso(taskForm.value.due_at);
+  if (!dueAt) return "Укажите корректные дату и время";
+  return new Date(dueAt).getTime() <= Date.now()
+    ? "Срок должен быть в будущем по времени Минска"
+    : "";
+});
 const canCreateTask = computed(() =>
   Boolean(
     taskForm.value.title.trim() &&
       taskForm.value.description.trim() &&
-      taskForm.value.due_at,
+      taskForm.value.due_at &&
+      !taskDueError.value,
   ),
 );
+const createTaskHint = computed(() => {
+  const missing = [
+    !taskForm.value.title.trim() ? "название" : "",
+    !taskForm.value.due_at ? "срок" : "",
+    !taskForm.value.description.trim() ? "описание" : "",
+  ].filter(Boolean);
+  if (missing.length) return `Чтобы создать задачу, заполните: ${missing.join(", ")}.`;
+  return taskDueError.value;
+});
 const taskBusy = computed(
   () => creatingTask.value || Boolean(pendingActionId.value),
 );
@@ -592,7 +645,7 @@ function statusLabel(status: StaffTaskStatus) {
     open: "Свободна",
     claimed: "В работе",
     submitted: "На проверке",
-    approved: "Принята",
+    approved: "Завершена",
     cancelled: "Отменена",
   }[status];
 }
@@ -630,14 +683,14 @@ function actionsFor(task: StaffTask): Array<{
     (!task.target_employee_id || task.target_employee_id === selfId) &&
     !claimBlockedByOtherShift.value
   ) {
-    actions.push({ value: "claim", label: "Взять", variant: "primary" });
+    actions.push({ value: "claim", label: "Взять задачу", variant: "primary" });
   }
   if (
     task.status === "claimed" &&
     task.assignee_employee_id === selfId &&
     !claimBlockedByOtherShift.value
   ) {
-    actions.push({ value: "submit", label: "Готово", variant: "success" });
+    actions.push({ value: "submit", label: "Отправить на проверку", variant: "success" });
   }
   if (
     task.status === "submitted" &&
@@ -647,7 +700,7 @@ function actionsFor(task: StaffTask): Array<{
     actions.push({ value: "submit", label: "Сдать повторно", variant: "primary" });
   }
   if (task.status === "claimed" && isStaffManager.value) {
-    actions.push({ value: "release", label: "Освободить", variant: "secondary" });
+    actions.push({ value: "release", label: "Вернуть задачу в общий пул", variant: "secondary" });
   }
   if (task.status === "submitted" && isStaffManager.value) {
     actions.push({
@@ -660,7 +713,7 @@ function actionsFor(task: StaffTask): Array<{
     isStaffManager.value &&
     !["approved", "cancelled"].includes(task.status)
   ) {
-    actions.push({ value: "cancel", label: "Отменить", variant: "danger" });
+    actions.push({ value: "cancel", label: "Отменить задачу", variant: "danger" });
   }
   return actions;
 }
@@ -832,11 +885,11 @@ async function runAction(
 
 function actionLabel(action: TaskAction) {
   return {
-    claim: "Взять",
+    claim: "Взять задачу",
     submit: "Отправить на проверку",
     approve: "Подтвердить выполнение",
-    cancel: "Отменить",
-    release: "Освободить",
+    cancel: "Отменить задачу",
+    release: "Вернуть задачу в общий пул",
   }[action];
 }
 

@@ -175,6 +175,12 @@ function activeManagerCount() {
   `).get()?.count || 0);
 }
 
+function ensureManagerBootstrapAvailable() {
+  if (activeManagerCount() > 0) {
+    throw new StaffServiceError('manager_already_bootstrapped', 409);
+  }
+}
+
 function activeEmployeePinReadiness() {
   const row = db.prepare(`
     SELECT
@@ -727,6 +733,7 @@ staffRouter.get(
 
 async function createEmployeeRecord(input, {
   forceRole = null,
+  beforeWrite = null,
 } = {}) {
   const firstName = cleanText(input?.first_name, {
     required: true,
@@ -761,29 +768,32 @@ async function createEmployeeRecord(input, {
   );
   const timestamp = nowIso();
   try {
-    db.prepare(`
-      INSERT INTO employees (
-        id, username, password_hash, first_name, last_name, position,
-        active, avatar_url, color, responsibilities, role,
-        pin_hash, pin_fingerprint, pin_updated_at, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      employeeId,
-      username,
-      impossibleLegacyPassword,
-      firstName,
-      lastName,
-      position,
-      avatarUrl,
-      color,
-      stringifyJson(responsibilities, []),
-      role,
-      credentials.hash,
-      credentials.fingerprint,
-      timestamp,
-      timestamp,
-      timestamp,
-    );
+    db.transaction(() => {
+      beforeWrite?.();
+      db.prepare(`
+        INSERT INTO employees (
+          id, username, password_hash, first_name, last_name, position,
+          active, avatar_url, color, responsibilities, role,
+          pin_hash, pin_fingerprint, pin_updated_at, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        employeeId,
+        username,
+        impossibleLegacyPassword,
+        firstName,
+        lastName,
+        position,
+        avatarUrl,
+        color,
+        stringifyJson(responsibilities, []),
+        role,
+        credentials.hash,
+        credentials.fingerprint,
+        timestamp,
+        timestamp,
+        timestamp,
+      );
+    }).immediate();
   } catch (error) {
     if (String(error?.message || '').includes('pin_fingerprint')) {
       throw new StaffServiceError('pin_already_in_use', 409);
@@ -797,12 +807,16 @@ async function createEmployeeRecord(input, {
   return created;
 }
 
-async function setEmployeePin(employeeId, pin) {
+async function setEmployeePin(employeeId, pin, {
+  beforeWrite = null,
+  promoteToManager = false,
+} = {}) {
   const employee = requireEmployee(employeeId);
   const credentials = await createStaffPinCredentials(pin);
   const timestamp = nowIso();
   try {
     db.transaction(() => {
+      beforeWrite?.();
       db.prepare(`
         UPDATE employees
         SET pin_hash = ?, pin_fingerprint = ?, pin_updated_at = ?,
@@ -815,8 +829,15 @@ async function setEmployeePin(employeeId, pin) {
         timestamp,
         employee.id,
       );
+      if (promoteToManager) {
+        db.prepare(`
+          UPDATE employees
+          SET role = 'manager', active = 1, deactivated_at = NULL, updated_at = ?
+          WHERE id = ?
+        `).run(timestamp, employee.id);
+      }
       revokeStaffSessions(employee.id, new Date(timestamp));
-    })();
+    }).immediate();
   } catch (error) {
     if (String(error?.message || '').includes('pin_fingerprint')) {
       throw new StaffServiceError('pin_already_in_use', 409);
@@ -831,34 +852,23 @@ staffRouter.post(`${BASE}/bootstrap-manager`, adminReauthLimiter, asyncRoute(asy
   if (!adminPassword || !(await verifyPassword(adminPassword))) {
     throw new StaffServiceError('invalid_admin_password', 401);
   }
-  const existingManager = db.prepare(`
-    SELECT id FROM employees
-    WHERE active = 1
-      AND deactivated_at IS NULL
-      AND role = 'manager'
-      AND pin_hash IS NOT NULL
-      AND pin_fingerprint IS NOT NULL
-    LIMIT 1
-  `).get();
-  if (existingManager) {
-    throw new StaffServiceError('manager_already_bootstrapped', 409);
-  }
+  ensureManagerBootstrapAvailable();
 
   let manager;
   if (req.body?.employee_id) {
     const employee = requireEmployee(req.body.employee_id);
-    manager = await setEmployeePin(employee.id, req.body?.new_pin);
-    const timestamp = nowIso();
-    db.prepare(`
-      UPDATE employees
-      SET role = 'manager', active = 1, deactivated_at = NULL, updated_at = ?
-      WHERE id = ?
-    `).run(timestamp, employee.id);
+    manager = await setEmployeePin(employee.id, req.body?.new_pin, {
+      beforeWrite: ensureManagerBootstrapAvailable,
+      promoteToManager: true,
+    });
     manager = requireEmployee(employee.id);
   } else {
     manager = await createEmployeeRecord(
       { ...req.body, pin: req.body?.new_pin },
-      { forceRole: 'manager' },
+      {
+        forceRole: 'manager',
+        beforeWrite: ensureManagerBootstrapAvailable,
+      },
     );
   }
   if (req.body?.enable_tracking === true) setStaffTrackingEnabled(true);
@@ -919,7 +929,12 @@ staffRouter.put(
     if (typeof req.body?.enabled !== 'boolean') {
       throw new StaffServiceError('enabled_boolean_required', 400);
     }
-    res.json({ enabled: setStaffTrackingEnabled(req.body.enabled) });
+    const enabled = setStaffTrackingEnabled(req.body.enabled);
+    res.json({
+      enabled,
+      order_shift_restriction_enabled:
+        isStaffOrderShiftRestrictionEnabled(),
+    });
   }),
 );
 

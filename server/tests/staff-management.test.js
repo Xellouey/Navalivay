@@ -121,19 +121,48 @@ try {
   });
   assertStatus(badBootstrap, 401, 'bootstrap requires main password');
 
-  const bootstrap = await requestJson('/api/admin/crm/staff/bootstrap-manager', {
-    method: 'POST',
-    body: {
-      admin_password: adminPassword,
-      first_name: 'Мария',
-      last_name: '',
-      position: 'Руководитель',
-      color: '#2244AA',
-      responsibilities: ['Управление командой'],
-      new_pin: '1200',
-    },
-  });
-  assertStatus(bootstrap, 201, 'bootstrap manager');
+  const bootstrapAttempts = await Promise.all([
+    requestJson('/api/admin/crm/staff/bootstrap-manager', {
+      method: 'POST',
+      body: {
+        admin_password: adminPassword,
+        first_name: 'Мария',
+        last_name: '',
+        position: 'Руководитель',
+        color: '#2244AA',
+        responsibilities: ['Управление командой'],
+        new_pin: '1200',
+      },
+    }),
+    requestJson('/api/admin/crm/staff/bootstrap-manager', {
+      method: 'POST',
+      body: {
+        admin_password: adminPassword,
+        first_name: 'Дубль',
+        last_name: 'Руководителя',
+        position: 'Руководитель',
+        new_pin: '1200',
+      },
+    }),
+  ]);
+  assert.deepEqual(
+    bootstrapAttempts.map((result) => result.response.status).sort(),
+    [201, 409],
+    'only one concurrent manager bootstrap may succeed',
+  );
+  const bootstrap = bootstrapAttempts.find(
+    (result) => result.response.status === 201,
+  );
+  assert.ok(bootstrap, 'successful manager bootstrap response is present');
+  assert.equal(
+    db.prepare(`
+      SELECT COUNT(*) AS count
+      FROM employees
+      WHERE role = 'manager' AND active = 1 AND deactivated_at IS NULL
+    `).get().count,
+    1,
+    'concurrent bootstrap creates exactly one manager',
+  );
   const managerId = bootstrap.data.employee.id;
   assert.equal(bootstrap.data.employee.role, 'manager');
   assert.equal(bootstrap.data.tracking_enabled, false);
@@ -187,6 +216,7 @@ try {
   });
   assertStatus(enableTracking, 200, 'enable tracking');
   assert.equal(enableTracking.data.enabled, true);
+  assert.equal(enableTracking.data.order_shift_restriction_enabled, false);
   assert.equal(
     enableTracking.response.headers.get('cache-control'),
     'no-store, max-age=0',
@@ -922,6 +952,11 @@ try {
     },
   );
   assertStatus(disableTrackingForTaskGuard, 200, 'disable tracking for task guard');
+  assert.equal(disableTrackingForTaskGuard.data.enabled, false);
+  assert.equal(
+    disableTrackingForTaskGuard.data.order_shift_restriction_enabled,
+    false,
+  );
   const tasksWhileDisabled = await requestJson('/api/admin/crm/staff/tasks', {
     staffToken: managerToken,
   });

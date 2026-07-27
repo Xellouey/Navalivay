@@ -457,7 +457,13 @@ describe("безопасность учёта сотрудников", () => {
           order_shift_restriction_enabled: false,
         }),
       )
-      .mockResolvedValueOnce(jsonResponse({ enabled: true }));
+      .mockResolvedValueOnce(jsonResponse({ enabled: true }))
+      .mockResolvedValueOnce(
+        jsonResponse({
+          enabled: false,
+          order_shift_restriction_enabled: false,
+        }),
+      );
     vi.stubGlobal("fetch", fetchMock);
 
     const store = useCrmStore();
@@ -480,6 +486,10 @@ describe("безопасность учёта сотрудников", () => {
       },
     });
     await store.updateStaffOrderShiftRestriction(true);
+    expect(store.staffOrderShiftRestrictionEnabled).toBe(true);
+    await store.updateStaffTracking(false);
+    expect(store.staffTrackingEnabled).toBe(false);
+    expect(store.staffOrderShiftRestrictionEnabled).toBe(false);
 
     expect(fetchMock.mock.calls[0][0]).toBe(
       "/api/admin/crm/staff/settings/tracking",
@@ -491,6 +501,9 @@ describe("безопасность учёта сотрудников", () => {
       method: "PUT",
       body: JSON.stringify({ enabled: true }),
     });
+    expect(fetchMock.mock.calls[2][0]).toBe(
+      "/api/admin/crm/staff/settings/tracking",
+    );
   });
 
   it("настраивает и восстанавливает руководителя только через основной пароль", async () => {
@@ -907,6 +920,78 @@ describe("безопасность учёта сотрудников", () => {
     }));
     await staleShifts;
     expect(store.staffShiftHistory[0]?.id).toBe("shift-history-new");
+  });
+
+  it("не откатывает изменённую задачу поздним ответом старого списка", async () => {
+    const oldTasks = deferred<Response>();
+    const updatedTask = {
+      id: "task-1",
+      title: "Проверить остатки",
+      status: "submitted" as const,
+      assignee_employee_id: "employee-1",
+      result_note: "Всё сверено",
+    };
+    const fetchMock = vi
+      .fn()
+      .mockImplementationOnce(() => oldTasks.promise)
+      .mockResolvedValueOnce(jsonResponse({ task: updatedTask }));
+    vi.stubGlobal("fetch", fetchMock);
+    const store = useCrmStore();
+    store.$patch({
+      staffToken: "employee-token",
+      staffIdentity: {
+        role: "employee",
+        employee: {
+          id: "employee-1",
+          first_name: "Анна",
+          last_name: "Иванова",
+          position: null,
+          active: true,
+        },
+      },
+    });
+
+    const staleRequest = store.fetchStaffTasks();
+    await Promise.resolve();
+    await store.performStaffTaskAction("task-1", "submit", {
+      result_note: "Всё сверено",
+    });
+    oldTasks.resolve(
+      jsonResponse({
+        tasks: [
+          {
+            ...updatedTask,
+            status: "claimed",
+            result_note: null,
+          },
+        ],
+      }),
+    );
+    await staleRequest;
+
+    expect(store.staffTasks[0]?.status).toBe("submitted");
+    expect(store.staffTasks[0]?.result_note).toBe("Всё сверено");
+  });
+
+  it("переводит коды ошибок сотрудников на понятный язык", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse({ error: "employee_not_found" }, 404),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({ error: "technical_internal_code" }, 409),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    const store = useCrmStore();
+    store.$patch({ staffToken: "staff-token" });
+
+    await expect(store.fetchStaffAnalytics()).rejects.toMatchObject({
+      message: "Сотрудник не найден. Обновите список",
+    });
+    await expect(store.fetchStaffAnalytics()).rejects.toMatchObject({
+      message: "Не удалось выполнить действие. Проверьте данные и повторите",
+    });
   });
 
   it("загружает историю отметки и зарплаты через защищённые методы", async () => {

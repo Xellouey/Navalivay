@@ -243,6 +243,7 @@ describe("CrmEmployees: вход сотрудника", () => {
     expect(salaryModal.text()).toContain("2026");
     expect(salaryModal.text().replace(/\s/g, " ")).toContain("1 450,5 BYN");
     expect(salaryModal.text()).toContain("Ожидаемая зарплата, BYN");
+    expect(salaryModal.text()).toContain("Сохранить сумму");
     await salaryModal
       .findAll("button")
       .find((button) => button.text() === "Отмена")!
@@ -264,6 +265,7 @@ describe("CrmEmployees: вход сотрудника", () => {
     expect(markModal.text()).toContain(
       "Положительная · Аккуратно принял поставку",
     );
+    expect(markModal.text()).toContain("Сохранить изменения");
     await markModal
       .findAll("button")
       .find((button) => button.text() === "Отмена")!
@@ -280,6 +282,8 @@ describe("CrmEmployees: вход сотрудника", () => {
       .findAll("button")
       .find((button) => button.text() === "Исправить")!
       .trigger("click");
+    expect(wrapper.text()).toContain("Смена ещё идёт");
+    expect(wrapper.text()).toContain("Время смены исправляли");
     const shiftModal = wrapper.get('[data-modal-title="Исправить смену"]');
     expect(shiftModal.text()).toContain("Павел Сергеевич");
     expect(shiftModal.text()).toContain("Текущее время");
@@ -641,5 +645,75 @@ describe("CrmEmployees: вход сотрудника", () => {
 
     await wrapper.get('[aria-label="Тип действий"]').setValue("tasks");
     expect(wrapper.text()).toContain("По выбранному фильтру записей нет");
+  });
+
+  it("не показывает служебные коды и ошибки Telegram руководителю", async () => {
+    const store = useCrmStore();
+    const notifications = {
+      settings: [
+        { event_group: "documents", enabled: true },
+        { event_group: "tasks", enabled: true },
+        { event_group: "salary", enabled: true },
+      ],
+      recipients: [
+        {
+          id: "recipient-1",
+          event_group: "tasks",
+          display_name: "Иван",
+          telegram_username: "ivan_manager",
+          telegram_id: "123456789",
+        },
+      ],
+      outbox: [
+        {
+          id: "outbox-1",
+          event_type: "unknown_internal_event",
+          status: "failed",
+          attempts: 2,
+          recipient_username: "ivan_manager",
+          recipient_telegram_id: "123456789",
+          telegram_message_id: 777,
+          last_error: "ETELEGRAM: chat not found",
+          created_at: "2026-07-27T10:00:00.000Z",
+        },
+      ],
+    };
+    store.$patch({
+      staffTrackingEnabled: true,
+      staffToken: "manager-token",
+      staffIdentity: { role: "manager", employee: manager },
+      staffEmployees: [manager, employee],
+      staffNotifications: notifications,
+    });
+    vi.spyOn(store, "fetchStaffSettings").mockResolvedValue({
+      trackingEnabled: true,
+      orderShiftRestrictionEnabled: false,
+    });
+    vi.spyOn(store, "fetchStaffEmployees").mockResolvedValue([manager, employee]);
+    vi.spyOn(store, "fetchStaffAnalytics").mockImplementation(async () => {
+      const analytics: StaffAnalytics = { employee: manager };
+      store.$patch({ staffAnalytics: analytics });
+      return analytics;
+    });
+    vi.spyOn(store, "fetchStaffMarks").mockResolvedValue([]);
+    vi.spyOn(store, "fetchStaffNotifications").mockImplementation(async () => {
+      store.$patch({ staffNotifications: notifications });
+      return notifications;
+    });
+
+    const wrapper = mountEmployees();
+    await flushPromises();
+    await wrapper.get("#staff-manager-section").setValue("notifications");
+    await flushPromises();
+
+    expect(wrapper.text()).toContain("Внутреннее уведомление");
+    expect(wrapper.text()).toContain("Не доставлено");
+    expect(wrapper.text()).toContain(
+      "Не удалось доставить уведомление. Проверьте получателя.",
+    );
+    expect(wrapper.text()).not.toContain("unknown_internal_event");
+    expect(wrapper.text()).not.toContain("ETELEGRAM");
+    expect(wrapper.text()).not.toContain("123456789");
+    expect(wrapper.text()).not.toContain("777");
   });
 });

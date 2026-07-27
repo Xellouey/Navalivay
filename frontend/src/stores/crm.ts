@@ -1002,12 +1002,93 @@ async function staffFetchAPI<T>(
       active_manager_required: "Сначала настройте активного руководителя",
       staff_pins_required:
         "Сначала задайте ПИН каждому действующему сотруднику",
+      employee_not_found: "Сотрудник не найден. Обновите список",
+      employee_inactive: "Сотрудник уволен. Выберите другого сотрудника",
+      employee_scope_required: "Выберите сотрудника",
+      staff_employee_required: "Выберите сотрудника",
+      username_already_in_use: "Это имя пользователя уже занято",
+      invalid_username: "Проверьте имя пользователя Telegram",
+      too_many_responsibilities:
+        "Укажите не более 30 зон ответственности",
+      invalid_responsibility:
+        "Сократите описание зоны ответственности",
+      first_name_required: "Укажите имя сотрудника",
+      invalid_employee_avatar: "Выберите другое фото сотрудника",
+      invalid_employee_color: "Выберите корректный цвет метки",
+      invalid_employee_role: "Выберите роль сотрудника",
+      last_active_manager_required:
+        "Нельзя уволить или понизить последнего действующего руководителя",
+      manager_recovery_target_required:
+        "Выберите действующего руководителя",
+      enabled_boolean_required: "Не удалось изменить настройку",
+      active_shift_must_be_closed_first:
+        "Сначала закройте открытую смену сотрудника",
+      shift_not_active: "Смена уже закрыта. Обновите список",
+      shift_period_conflict:
+        "У сотрудника уже есть смена в это время",
+      shift_version_required:
+        "Смена уже изменилась. Обновите список",
+      invalid_shift_period: "Проверьте начало и окончание смены",
+      staff_actor_changed:
+        "Выбранный сотрудник изменился. Подтвердите действие ещё раз",
+      staff_actor_proof_expired:
+        "Время подтверждения истекло. Введите ПИН ещё раз",
+      invalid_month: "Выберите корректный месяц",
+      invalid_salary_amount: "Укажите корректную сумму зарплаты",
+      salary_currency_must_be_byn: "Зарплата указывается в BYN",
+      salary_not_found:
+        "Запись о зарплате не найдена. Обновите список",
+      mark_not_found: "Отметка не найдена. Обновите список",
+      mark_already_voided: "Отметка уже аннулирована",
+      mark_conflict: "Отметка уже изменилась. Обновите список",
+      mark_version_required:
+        "Отметка уже изменилась. Обновите список",
+      invalid_mark_type: "Выберите тип отметки",
+      invalid_mark_date: "Проверьте дату отметки",
+      invalid_event_date: "Проверьте дату события",
+      task_not_found: "Задача не найдена. Обновите список",
+      task_due_at_required: "Укажите срок задачи",
+      invalid_task_due_at: "Проверьте срок задачи",
+      task_target_not_supported:
+        "Назначение этой задачи недоступно",
+      invalid_notification_group: "Выберите тип сообщений",
+      invalid_notification_setting:
+        "Не удалось изменить настройку уведомлений",
+      notification_group_not_found:
+        "Настройка уведомлений не найдена. Обновите страницу",
+      notification_recipient_not_found:
+        "Получатель не найден. Обновите список",
+      invalid_telegram_id: "Не удалось подтвердить Telegram-профиль",
+      telegram_recipient_not_found: "Telegram-профиль не найден",
+      telegram_recipient_ambiguous:
+        "Найдено несколько профилей. Уточните имя пользователя",
+      telegram_recipient_invalid: "Telegram-профиль недоступен",
+      telegram_recipient_confirmation_mismatch:
+        "Telegram-профиль изменился. Найдите его заново",
+      notification_not_unknown:
+        "Повтор для этого уведомления уже недоступен",
+      internal_notifications_not_initialized:
+        "Уведомления временно недоступны",
+      idempotency_key_conflict:
+        "Действие уже выполнялось с другими данными. Обновите страницу",
+      idempotency_key_too_long: "Не удалось подготовить действие",
+      staff_event_idempotency_conflict:
+        "Действие уже выполнено. Обновите данные",
+      invalid_analytics_period: "Выберите корректный период",
+      invalid_analytics_range: "Проверьте даты периода",
+      analytics_range_too_large: "Выберите более короткий период",
+      invalid_analytics_year: "Выберите корректный год",
+      invalid_date: "Проверьте дату",
     };
+    const serverMessage = String(record.message || "").trim();
+    const safeServerMessage =
+      serverMessage && !/^[a-z0-9_.-]+$/i.test(serverMessage)
+        ? serverMessage
+        : "";
     const message = String(
-      record.message ||
-        knownMessages[code] ||
-        record.error ||
-        "Не удалось выполнить действие",
+      knownMessages[code] ||
+        safeServerMessage ||
+        "Не удалось выполнить действие. Проверьте данные и повторите",
     );
     if (
       code === "staff_access_expired" ||
@@ -1914,6 +1995,7 @@ export const useCrmStore = defineStore("crm", () => {
   let staffShiftMutationEpoch = 0;
   let staffAnalyticsRequestSequence = 0;
   let staffTeamAnalyticsRequestSequence = 0;
+  let staffTasksRequestSequence = 0;
   let staffSalaryRequestSequence = 0;
   let staffMarksRequestSequence = 0;
   let staffShiftHistoryRequestSequence = 0;
@@ -1993,6 +2075,7 @@ export const useCrmStore = defineStore("crm", () => {
     staffShiftMutationEpoch += 1;
     staffAnalyticsRequestSequence += 1;
     staffTeamAnalyticsRequestSequence += 1;
+    staffTasksRequestSequence += 1;
     staffSalaryRequestSequence += 1;
     staffMarksRequestSequence += 1;
     staffShiftHistoryRequestSequence += 1;
@@ -2090,7 +2173,10 @@ export const useCrmStore = defineStore("crm", () => {
     staffSettingsLoading.value = true;
     staffSettingsError.value = "";
     try {
-      const response = await staffFetchAPI<{ enabled: boolean }>(
+      const response = await staffFetchAPI<{
+        enabled: boolean;
+        order_shift_restriction_enabled?: boolean;
+      }>(
         `${API_BASE}/staff/settings/tracking`,
         {
           method: "PUT",
@@ -2098,6 +2184,9 @@ export const useCrmStore = defineStore("crm", () => {
         },
       );
       staffTrackingEnabled.value = Boolean(response.enabled);
+      staffOrderShiftRestrictionEnabled.value = Boolean(
+        response.order_shift_restriction_enabled,
+      );
       return staffTrackingEnabled.value;
     } catch (error: any) {
       staffSettingsError.value =
@@ -2675,6 +2764,7 @@ export const useCrmStore = defineStore("crm", () => {
       staffTasks.value = [];
       return [];
     }
+    const requestSequence = ++staffTasksRequestSequence;
     staffTasksLoading.value = true;
     staffTasksError.value = "";
     try {
@@ -2685,16 +2775,25 @@ export const useCrmStore = defineStore("crm", () => {
       const response = await staffFetchAPI<
         StaffTask[] | { tasks?: StaffTask[]; items?: StaffTask[]; data?: StaffTask[] }
       >(`${API_BASE}/staff/tasks${suffix}`);
-      staffTasks.value = listFromPayload(
+      const tasks = listFromPayload(
         response,
         !Array.isArray(response) ? response.tasks : undefined,
       ).map(normalizeStaffTask);
+      if (requestSequence !== staffTasksRequestSequence) {
+        return staffTasks.value;
+      }
+      staffTasks.value = tasks;
       return staffTasks.value;
     } catch (error: any) {
-      staffTasksError.value = error?.message || "Не удалось загрузить задачи";
+      if (requestSequence === staffTasksRequestSequence) {
+        staffTasksError.value =
+          error?.message || "Не удалось загрузить задачи";
+      }
       throw error;
     } finally {
-      staffTasksLoading.value = false;
+      if (requestSequence === staffTasksRequestSequence) {
+        staffTasksLoading.value = false;
+      }
     }
   }
 
@@ -2729,6 +2828,9 @@ export const useCrmStore = defineStore("crm", () => {
     const task = normalizeStaffTask(
       "task" in response ? response.task : response,
     );
+    staffTasksRequestSequence += 1;
+    staffTasksLoading.value = false;
+    staffTasksError.value = "";
     staffTasks.value = [task, ...staffTasks.value];
     return task;
   }
@@ -2754,6 +2856,9 @@ export const useCrmStore = defineStore("crm", () => {
     const task = normalizeStaffTask(
       "task" in response ? response.task : response,
     );
+    staffTasksRequestSequence += 1;
+    staffTasksLoading.value = false;
+    staffTasksError.value = "";
     const index = staffTasks.value.findIndex((item) => item.id === id);
     if (index === -1) staffTasks.value.unshift(task);
     else staffTasks.value[index] = task;

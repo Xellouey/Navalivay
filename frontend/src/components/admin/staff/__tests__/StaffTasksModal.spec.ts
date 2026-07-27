@@ -98,7 +98,7 @@ describe("StaffTasksModal: рабочая очередь руководител�
     expect(wrapper.text()).toContain("Проверить витрину");
     expect(wrapper.text()).toContain("Сейчас смена Павел Сергеевич");
     expect(
-      wrapper.findAll("button").some((button) => button.text() === "Взять"),
+      wrapper.findAll("button").some((button) => button.text() === "Взять задачу"),
     ).toBe(false);
 
     await wrapper
@@ -147,7 +147,111 @@ describe("StaffTasksModal: рабочая очередь руководител�
       "Сейчас смена Константин Жмурков. Сдать задачу можно в своей смене",
     );
     expect(
-      wrapper.findAll("button").some((button) => button.text() === "Готово"),
+      wrapper
+        .findAll("button")
+        .some((button) => button.text() === "Отправить на проверку"),
     ).toBe(false);
+  });
+
+  it("объясняет обязательные поля и оставляет все фильтры доступными на телефоне", async () => {
+    const store = useCrmStore();
+    store.$patch({
+      staffToken: "manager-token",
+      staffIdentity: { role: "manager", employee: manager },
+      staffTasks: tasks,
+      currentStaffShift: {
+        id: "shift-manager",
+        version: 1,
+        employee_id: manager.id,
+        employee_name: "Константин Жмурков",
+        status: "active",
+      },
+    });
+    vi.spyOn(store, "fetchStaffTasks").mockResolvedValue(tasks);
+
+    const wrapper = mount(StaffTasksModal, {
+      props: { open: true },
+      global: { stubs: { AdminModal: modalStub } },
+    });
+    await flushPromises();
+
+    const filterGroup = wrapper.get('[role="group"][aria-label="Фильтр задач"]');
+    expect(filterGroup.classes()).toContain("grid");
+    expect(filterGroup.classes()).toContain("grid-cols-2");
+    expect(filterGroup.findAll("button")).toHaveLength(4);
+
+    await wrapper
+      .findAll("button")
+      .find((button) => button.text() === "Новая задача")!
+      .trigger("click");
+    expect(wrapper.text()).toContain("Название задачи *");
+    expect(wrapper.text()).toContain("Срок *");
+    expect(wrapper.text()).toContain("Описание задачи *");
+    expect(wrapper.text()).toContain(
+      "Чтобы создать задачу, заполните: название, срок, описание.",
+    );
+    expect(
+      wrapper
+        .findAll("button")
+        .find((button) => button.text() === "Создать задачу")!
+        .attributes("disabled"),
+    ).toBeDefined();
+
+    await wrapper.get('input[type="datetime-local"]').setValue("2020-01-01T12:00");
+    expect(wrapper.text()).toContain(
+      "Срок должен быть в будущем по времени Минска",
+    );
+  });
+
+  it("называет отправку на проверку и завершённый статус без двусмысленности", async () => {
+    const employeeTasks: StaffTask[] = [
+      {
+        id: "claimed-1",
+        title: "Проверить остатки",
+        description: "Сверить полку",
+        status: "claimed",
+        assignee_employee_id: staffEmployee.id,
+        assignee_name: "Павел Сергеевич",
+        due_at: "2099-07-28T12:00:00.000Z",
+      },
+      {
+        id: "done-1",
+        title: "Закрытая задача",
+        status: "approved",
+        assignee_employee_id: staffEmployee.id,
+        assignee_name: "Павел Сергеевич",
+        result_note: "Готово, расхождений нет",
+        due_at: "2099-07-28T12:00:00.000Z",
+      },
+    ];
+    const store = useCrmStore();
+    store.$patch({
+      staffToken: "employee-token",
+      staffIdentity: { role: "employee", employee: staffEmployee },
+      staffTasks: employeeTasks,
+      currentStaffShift: {
+        id: "shift-employee",
+        version: 1,
+        employee_id: staffEmployee.id,
+        employee_name: "Павел Сергеевич",
+        status: "active",
+      },
+    });
+    vi.spyOn(store, "fetchStaffTasks").mockResolvedValue(employeeTasks);
+
+    const wrapper = mount(StaffTasksModal, {
+      props: { open: true },
+      global: { stubs: { AdminModal: modalStub } },
+    });
+    await flushPromises();
+
+    expect(wrapper.text()).toContain("Отправить на проверку");
+    await wrapper
+      .findAll("button")
+      .find((button) => button.text().includes("Завершённые"))!
+      .trigger("click");
+    expect(wrapper.text()).toContain("Завершена");
+    expect(wrapper.text()).toContain("Результат сотрудника");
+    expect(wrapper.text()).toContain("Готово, расхождений нет");
   });
 });
