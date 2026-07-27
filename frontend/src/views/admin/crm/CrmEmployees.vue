@@ -569,7 +569,7 @@
               <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <h2 class="font-semibold text-slate-950">Сравнение команды</h2>
-                  <p class="mt-1 text-xs text-slate-500">Один показатель — без искусственного общего рейтинга.</p>
+                  <p class="mt-1 text-xs text-slate-500">Сравнение строится по одному показателю без общего рейтинга.</p>
                 </div>
                 <select
                   v-model="teamChartMetric"
@@ -656,14 +656,14 @@
                     </dd>
                   </div>
                   <div class="rounded-xl bg-slate-50 px-3 py-2">
-                    <dt class="text-[11px] text-slate-500">Поставки созд. / прин.</dt>
+                    <dt class="text-[11px] text-slate-500">Поставки: создано / принято</dt>
                     <dd class="mt-0.5 text-sm font-semibold text-slate-900">
                       {{ Number(teamSummary(employee).procurements_created || 0) }} /
                       {{ Number(teamSummary(employee).procurements_completed || 0) }}
                     </dd>
                   </div>
                   <div class="rounded-xl bg-slate-50 px-3 py-2">
-                    <dt class="text-[11px] text-slate-500">Перемещения созд. / прин.</dt>
+                    <dt class="text-[11px] text-slate-500">Перемещения: создано / принято</dt>
                     <dd class="mt-0.5 text-sm font-semibold text-slate-900">
                       {{ Number(teamSummary(employee).transfers_created || 0) }} /
                       {{ Number(teamSummary(employee).transfers_completed || 0) }}
@@ -1148,7 +1148,7 @@
                   >
                     {{ Boolean(setting.enabled) && notificationRecipientCount(String(setting.event_group)) === 0
                       ? "Включено, но отправлять пока некому"
-                      : "Отправлять события этой группы активным получателям" }}
+                      : "Отправлять эти уведомления активным получателям" }}
                   </span>
                 </span>
                 <input
@@ -1373,7 +1373,9 @@
     <AdminModal
       :is-open="employeeEditorOpen"
       :title="editingEmployee ? 'Изменить сотрудника' : 'Добавить сотрудника'"
-      description="ПИН состоит ровно из четырёх цифр."
+      :description="editingEmployee
+        ? 'Измените данные сотрудника. После смены роли ему потребуется снова войти по ПИН.'
+        : 'ПИН состоит ровно из четырёх цифр.'"
       size="md"
       :show-actions="false"
       :persistent="formSaving || avatarUploading"
@@ -1588,8 +1590,8 @@
 
     <AdminModal
       :is-open="voidMarkOpen"
-      title="Аннулировать отметку"
-      description="Запись останется в истории, рядом будет указана причина."
+      :title="voidMarkTitle"
+      :description="voidMarkDescription"
       size="sm"
       :show-actions="false"
       :persistent="formSaving"
@@ -1958,6 +1960,23 @@ const markForm = reactive({
 const voidMarkOpen = ref(false);
 const voidingMark = ref<StaffMark | null>(null);
 const voidReason = ref("");
+const voidMarkTitle = computed(() =>
+  voidingMark.value
+    ? `Аннулировать отметку «${voidingMark.value.title}»?`
+    : "Аннулировать отметку?",
+);
+const voidMarkDescription = computed(() => {
+  const mark = voidingMark.value;
+  if (!mark) return "Запись останется в истории, рядом будет указана причина.";
+  const employee = staffEmployees.value.find(
+    (item) => item.id === mark.employee_id,
+  );
+  const employeeName =
+    mark.employee_name ||
+    [employee?.first_name, employee?.last_name].filter(Boolean).join(" ");
+  const prefix = employeeName ? `Сотрудник: ${employeeName}. ` : "";
+  return `${prefix}Запись останется в истории, рядом будет указана причина.`;
+});
 const shiftCorrectionOpen = ref(false);
 const editingShift = ref<StaffShift | null>(null);
 const shiftCorrectionForm = reactive({ started_at: "", ended_at: "", reason: "" });
@@ -2113,19 +2132,19 @@ const metricGroups = computed<Array<{
     title: "Склад",
     metrics: [
       {
-        label: "Поставки создано",
+        label: "Создано поставок",
         value: Number(analyticsSummary.value.procurements_created || 0),
       },
       {
-        label: "Поставки принято",
+        label: "Принято поставок",
         value: Number(analyticsSummary.value.procurements_completed || 0),
       },
       {
-        label: "Перемещения создано",
+        label: "Создано перемещений",
         value: Number(analyticsSummary.value.transfers_created || 0),
       },
       {
-        label: "Перемещения принято",
+        label: "Принято перемещений",
         value: Number(analyticsSummary.value.transfers_completed || 0),
       },
     ],

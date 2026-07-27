@@ -2187,6 +2187,15 @@ export const useCrmStore = defineStore("crm", () => {
       staffOrderShiftRestrictionEnabled.value = Boolean(
         response.order_shift_restriction_enabled,
       );
+      if (!staffTrackingEnabled.value) {
+        staffShiftMutationEpoch += 1;
+        staffShiftFetchSequence += 1;
+        currentStaffShift.value = null;
+        clearStoredShiftToken();
+        staffShiftToken.value = "";
+        staffShiftLoading.value = false;
+        staffShiftError.value = "";
+      }
       return staffTrackingEnabled.value;
     } catch (error: any) {
       staffSettingsError.value =

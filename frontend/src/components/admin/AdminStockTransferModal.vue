@@ -467,7 +467,7 @@ const actorActionLoading = computed(() => submitting.value || actionSubmitting.v
 const actorPromptTitle = computed(() => {
   if (actorPromptAction.value === 'complete') return 'Оприходовать перемещение'
   if (actorPromptAction.value === 'cancel') return 'Отменить перемещение'
-  return 'Создать перемещение'
+  return 'Создать заявку на перемещение'
 })
 const actorPromptDescription = computed(() => {
   if (actorPromptAction.value === 'complete') {
@@ -481,7 +481,7 @@ const actorPromptDescription = computed(() => {
 const actorPromptActionLabel = computed(() => {
   if (actorPromptAction.value === 'complete') return 'Оприходовать перемещение'
   if (actorPromptAction.value === 'cancel') return 'Отменить перемещение'
-  return 'Создать заявку'
+  return 'Создать заявку на перемещение'
 })
 const actorPromptContext = computed(() => {
   if (

@@ -596,7 +596,7 @@
                 ? "Сохраняем…"
                 : editingProcurementId
                   ? "Сохранить изменения"
-                  : "Сохранить закупку"
+                  : "Создать закупку"
             }}
           </button>
         </aside>
@@ -1228,7 +1228,11 @@ const actorPromptDescription = computed(() =>
     : "Подтвердите, кто оформляет закупку. Черновик формы останется на месте при ошибке.",
 );
 const actorPromptActionLabel = computed(() =>
-  actorAction.value === "complete" ? "Оприходовать закупку" : "Сохранить",
+  actorAction.value === "complete"
+    ? "Оприходовать закупку"
+    : editingProcurementId.value
+      ? "Сохранить изменения"
+      : "Создать закупку",
 );
 const actorPromptProcurement = computed(() => {
   const id = actorProcurementId.value || editingProcurementId.value;

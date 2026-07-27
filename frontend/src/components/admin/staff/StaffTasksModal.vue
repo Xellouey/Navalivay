@@ -268,8 +268,8 @@
         <CrmButton class="mt-4" variant="secondary" @click="loadTasks">Повторить</CrmButton>
       </div>
       <div v-else-if="!visibleTasks.length" class="rounded-xl border border-dashed border-slate-300 px-5 py-12 text-center">
-        <p class="font-medium text-slate-800">Задач здесь пока нет</p>
-        <p class="mt-1 text-sm text-slate-500">Новые задачи появятся в этом списке.</p>
+        <p class="font-medium text-slate-800">{{ emptyState.title }}</p>
+        <p class="mt-1 text-sm text-slate-500">{{ emptyState.description }}</p>
       </div>
       <ul v-else class="divide-y divide-slate-200 border-y border-slate-200">
         <li
@@ -490,7 +490,7 @@ const canConfirmActionDialog = computed(() => {
 });
 
 const filters = computed<Array<{ value: TaskFilter; label: string }>>(() => [
-  { value: "active", label: "В работе" },
+  { value: "active", label: "Активные" },
   ...(isStaffManager.value
     ? [
         { value: "submitted" as const, label: "На проверке" },
@@ -613,6 +613,38 @@ const visibleTasks = computed(() => {
         : Number.POSITIVE_INFINITY;
       return leftDue - rightDue;
     });
+});
+const emptyState = computed(() => {
+  if (taskSearch.value.trim() || assigneeFilter.value) {
+    return {
+      title: "Ничего не найдено",
+      description: "Измените поиск или фильтр сотрудника.",
+    };
+  }
+  if (filter.value === "submitted") {
+    return {
+      title: "Нет задач на проверке",
+      description: "Когда сотрудник отправит результат, задача появится здесь.",
+    };
+  }
+  if (filter.value === "overdue") {
+    return {
+      title: "Просроченных задач нет",
+      description: "Все текущие задачи укладываются в срок.",
+    };
+  }
+  if (filter.value === "done") {
+    return {
+      title: "Завершённых задач пока нет",
+      description: "Здесь появятся выполненные и отменённые задачи.",
+    };
+  }
+  return {
+    title: "Активных задач пока нет",
+    description: isStaffManager.value
+      ? "Создайте новую задачу — она сразу появится в списке."
+      : "Новые задачи появятся здесь.",
+  };
 });
 function isTaskOverdue(task: StaffTask) {
   if (

@@ -93,7 +93,7 @@ describe("StaffTasksModal: рабочая очередь руководител�
 
     await wrapper
       .findAll("button")
-      .find((button) => button.text().includes("В работе"))!
+      .find((button) => button.text().includes("Активные"))!
       .trigger("click");
     expect(wrapper.text()).toContain("Проверить витрину");
     expect(wrapper.text()).toContain("Сейчас смена Павел Сергеевич");
@@ -108,6 +108,37 @@ describe("StaffTasksModal: рабочая очередь руководител�
     expect(wrapper.text()).toContain("Старая задача");
     expect(wrapper.text()).toContain("Просрочена");
     expect(wrapper.text()).not.toContain("Проверить витрину");
+  });
+
+  it("объясняет пустой список с учётом выбранного фильтра", async () => {
+    const store = useCrmStore();
+    store.$patch({
+      staffToken: "manager-token",
+      staffIdentity: { role: "manager", employee: manager },
+      staffTasks: [],
+    });
+    vi.spyOn(store, "fetchStaffTasks").mockResolvedValue([]);
+
+    const wrapper = mount(StaffTasksModal, {
+      props: { open: true },
+      global: { stubs: { AdminModal: modalStub } },
+    });
+    await flushPromises();
+
+    expect(wrapper.text()).toContain("Активных задач пока нет");
+    expect(wrapper.text()).toContain("Создайте новую задачу");
+
+    await wrapper
+      .findAll("button")
+      .find((button) => button.text().includes("На проверке"))!
+      .trigger("click");
+    expect(wrapper.text()).toContain("Нет задач на проверке");
+
+    await wrapper
+      .findAll("button")
+      .find((button) => button.text().includes("Завершённые"))!
+      .trigger("click");
+    expect(wrapper.text()).toContain("Завершённых задач пока нет");
   });
 
   it("не предлагает сдать задачу во время чужой смены", async () => {

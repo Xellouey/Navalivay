@@ -270,6 +270,19 @@ describe("CrmEmployees: вход сотрудника", () => {
       .findAll("button")
       .find((button) => button.text() === "Отмена")!
       .trigger("click");
+    await wrapper
+      .findAll("button")
+      .find((button) => button.text() === "Аннулировать")!
+      .trigger("click");
+    const voidMarkModal = wrapper.get(
+      '[data-modal-title="Аннулировать отметку «Аккуратно принял поставку»?"]',
+    );
+    expect(voidMarkModal.text()).toContain("Сотрудник: Павел Сергеевич.");
+    expect(voidMarkModal.text()).toContain("Запись останется в истории");
+    await voidMarkModal
+      .findAll("button")
+      .find((button) => button.text() === "Отмена")!
+      .trigger("click");
 
     await sectionSelect.setValue("shifts");
     await flushPromises();
@@ -470,6 +483,8 @@ describe("CrmEmployees: вход сотрудника", () => {
     expect(employeeRow!.text()).toContain("4 ч 0 мин · 3");
     expect(employeeRow!.text()).toContain("5 / 4");
     expect(employeeRow!.text().replace(/\s/g, " ")).toContain("640 BYN / 220 BYN");
+    expect(employeeRow!.text()).toContain("Поставки: создано / принято");
+    expect(employeeRow!.text()).toContain("Перемещения: создано / принято");
     expect(employeeRow!.text()).toContain("6 / 1");
   });
 

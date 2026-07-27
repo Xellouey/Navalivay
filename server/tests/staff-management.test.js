@@ -141,7 +141,7 @@ try {
         first_name: 'Дубль',
         last_name: 'Руководителя',
         position: 'Руководитель',
-        new_pin: '1200',
+        new_pin: '1299',
       },
     }),
   ]);
@@ -153,7 +153,15 @@ try {
   const bootstrap = bootstrapAttempts.find(
     (result) => result.response.status === 201,
   );
+  const rejectedBootstrap = bootstrapAttempts.find(
+    (result) => result.response.status === 409,
+  );
   assert.ok(bootstrap, 'successful manager bootstrap response is present');
+  assert.equal(
+    rejectedBootstrap?.data?.error,
+    'manager_already_bootstrapped',
+    'losing bootstrap must fail because a manager already exists',
+  );
   assert.equal(
     db.prepare(`
       SELECT COUNT(*) AS count
@@ -163,7 +171,19 @@ try {
     1,
     'concurrent bootstrap creates exactly one manager',
   );
+  assert.equal(
+    db.prepare(`
+      SELECT COUNT(*) AS count
+      FROM employees
+      WHERE first_name IN ('Мария', 'Дубль')
+    `).get().count,
+    1,
+    'losing bootstrap must not create a second employee',
+  );
   const managerId = bootstrap.data.employee.id;
+  const managerPin = bootstrap.data.employee.first_name === 'Мария'
+    ? '1200'
+    : '1299';
   assert.equal(bootstrap.data.employee.role, 'manager');
   assert.equal(bootstrap.data.tracking_enabled, false);
 
@@ -196,7 +216,7 @@ try {
 
   const managerAccessWhileDisabled = await requestJson('/api/admin/crm/staff/access', {
     method: 'POST',
-    body: { pin: '1200' },
+    body: { pin: managerPin },
   });
   assertStatus(managerAccessWhileDisabled, 200, 'manager can access setup while disabled');
   let managerToken = managerAccessWhileDisabled.data.staff_token;
@@ -539,7 +559,7 @@ try {
     '/api/admin/crm/staff/access',
     {
       method: 'POST',
-      body: { pin: '1200' },
+      body: { pin: managerPin },
     },
   );
   assertStatus(
@@ -1664,7 +1684,7 @@ try {
   await assert.rejects(
     isolatedClockService.openShift({
       employeeId: managerId,
-      pin: '1200',
+      pin: managerPin,
       rateKey: 'shift-test-manager',
     }),
     (error) => error.code === 'shift_conflict',
@@ -1732,7 +1752,7 @@ try {
   assertStatus(revokedManagerSession, 403, 'manager recovery revokes old sessions');
   const oldManagerPin = await requestJson('/api/admin/crm/staff/access', {
     method: 'POST',
-    body: { pin: '1200' },
+    body: { pin: managerPin },
   });
   assertStatus(oldManagerPin, 401, 'old manager pin no longer works');
   const recoveredManagerAccess = await requestJson('/api/admin/crm/staff/access', {
