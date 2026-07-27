@@ -1,0 +1,649 @@
+<template>
+  <AdminModal
+    :is-open="open"
+    title="Мои задачи"
+    :description="description"
+    size="lg"
+    :show-actions="false"
+    :persistent="taskBusy || Boolean(actionDialog)"
+    :is-loading="taskBusy"
+    :show-close-button="!actionDialog"
+    @close="requestClose"
+    @cancel="requestClose"
+  >
+    <div class="space-y-4">
+      <div class="flex flex-wrap items-center justify-between gap-3">
+        <div class="flex gap-2" role="group" aria-label="Фильтр задач">
+          <CrmButton
+            v-for="option in filters"
+            :key="option.value"
+            variant="filter"
+            size="sm"
+            :pressed="filter === option.value"
+            :disabled="Boolean(actionDialog)"
+            @click="filter = option.value"
+          >
+            {{ option.label }}
+          </CrmButton>
+        </div>
+        <div class="flex gap-2">
+          <CrmButton
+            v-if="isStaffManager"
+            variant="primary"
+            size="sm"
+            :disabled="Boolean(actionDialog)"
+            @click="createOpen = !createOpen"
+          >
+            Новая задача
+          </CrmButton>
+          <CrmButton
+            variant="secondary"
+            size="sm"
+            refresh-icon
+            :loading="staffTasksLoading"
+            :disabled="Boolean(actionDialog)"
+            @click="loadTasks"
+          >
+            Обновить
+          </CrmButton>
+        </div>
+      </div>
+
+      <form
+        v-if="isStaffManager && createOpen"
+        class="grid gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4 sm:grid-cols-2"
+        @submit.prevent="createTask"
+      >
+        <label class="block sm:col-span-2">
+          <span class="mb-1 block text-sm font-medium text-slate-700">Задача</span>
+          <input
+            v-model.trim="taskForm.title"
+            required
+            maxlength="200"
+            :disabled="Boolean(actionDialog)"
+            class="min-h-[44px] w-full rounded-xl border border-slate-300 bg-white px-3"
+          />
+        </label>
+        <label class="block">
+          <span class="mb-1 block text-sm font-medium text-slate-700">Срок</span>
+          <input
+            v-model="taskForm.due_at"
+            type="datetime-local"
+            required
+            :disabled="Boolean(actionDialog)"
+            class="min-h-[44px] w-full rounded-xl border border-slate-300 bg-white px-3"
+          />
+        </label>
+        <label class="block sm:col-span-2">
+          <span class="mb-1 block text-sm font-medium text-slate-700">Пояснение</span>
+          <textarea
+            v-model.trim="taskForm.description"
+            rows="3"
+            maxlength="4000"
+            required
+            :disabled="Boolean(actionDialog)"
+            class="w-full rounded-xl border border-slate-300 bg-white px-3 py-2"
+          />
+        </label>
+        <div class="flex justify-end gap-2 sm:col-span-2">
+          <CrmButton
+            type="button"
+            variant="secondary"
+            :disabled="creatingTask || Boolean(actionDialog)"
+            @click="createOpen = false"
+          >
+            Отмена
+          </CrmButton>
+          <CrmButton
+            type="submit"
+            variant="primary"
+            :loading="creatingTask"
+            :disabled="!canCreateTask || Boolean(actionDialog)"
+          >
+            Создать
+          </CrmButton>
+        </div>
+      </form>
+
+      <p
+        v-if="message"
+        class="rounded-xl border px-4 py-3 text-sm"
+        :class="messageKind === 'error'
+          ? 'border-red-200 bg-red-50 text-red-700'
+          : 'border-blue-200 bg-blue-50 text-blue-800'"
+        :role="messageKind === 'error' ? 'alert' : 'status'"
+        aria-live="polite"
+      >
+        {{ message }}
+      </p>
+
+      <section
+        v-if="actionDialog"
+        class="rounded-2xl border border-blue-200 bg-blue-50 p-4"
+        aria-labelledby="staff-task-action-title"
+      >
+        <h3 id="staff-task-action-title" class="text-base font-semibold text-slate-950">
+          {{ actionDialogTitle }}
+        </h3>
+        <dl class="mt-3 grid gap-2 text-sm sm:grid-cols-[120px_minmax(0,1fr)]">
+          <dt class="text-slate-500">Задача</dt>
+          <dd class="font-medium text-slate-900">{{ actionDialog.task.title }}</dd>
+          <template v-if="actionDialog.task.assignee_name">
+            <dt class="text-slate-500">Исполнитель</dt>
+            <dd class="font-medium text-slate-900">{{ actionDialog.task.assignee_name }}</dd>
+          </template>
+          <template v-if="actionDialog.task.result_note">
+            <dt class="text-slate-500">Отчёт</dt>
+            <dd class="whitespace-pre-line text-slate-800">{{ actionDialog.task.result_note }}</dd>
+          </template>
+        </dl>
+        <label v-if="actionDialog.action !== 'approve'" class="mt-4 block">
+          <span class="mb-1 block text-sm font-medium text-slate-700">
+            {{ actionDialog.action === "cancel" ? "Причина отмены" : "Результат работы" }}
+          </span>
+          <textarea
+            ref="actionNoteInput"
+            v-model.trim="actionDialog.note"
+            rows="4"
+            :required="actionDialog.action === 'cancel'"
+            maxlength="4000"
+            class="w-full rounded-xl border border-slate-300 bg-white px-3 py-2"
+            :placeholder="actionDialog.action === 'cancel'
+              ? 'Почему задача отменяется'
+              : 'Что сделано — можно оставить пустым'"
+            :disabled="taskBusy"
+          />
+        </label>
+        <p v-if="actionDialog.action === 'approve'" class="mt-4 text-sm text-slate-700">
+          После подтверждения задача закроется, а сотруднику добавится одна положительная отметка.
+        </p>
+        <div class="mt-4 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+          <CrmButton type="button" variant="secondary" :disabled="taskBusy" @click="closeActionDialog">
+            Назад
+          </CrmButton>
+          <CrmButton
+            type="button"
+            :variant="actionDialog.action === 'cancel' ? 'danger' : 'success'"
+            :loading="taskBusy"
+            :disabled="!canConfirmActionDialog"
+            @click="confirmActionDialog"
+          >
+            {{ actionDialogConfirmLabel }}
+          </CrmButton>
+        </div>
+      </section>
+
+      <div v-if="staffTasksLoading && !staffTasks.length" class="py-12 text-center text-sm text-slate-500">
+        Загружаем задачи…
+      </div>
+      <div v-else-if="staffTasksError && !staffTasks.length" class="py-8 text-center">
+        <p class="text-sm text-red-700">{{ staffTasksError }}</p>
+        <CrmButton class="mt-4" variant="secondary" @click="loadTasks">Повторить</CrmButton>
+      </div>
+      <div v-else-if="!visibleTasks.length" class="rounded-xl border border-dashed border-slate-300 px-5 py-12 text-center">
+        <p class="font-medium text-slate-800">Задач здесь пока нет</p>
+        <p class="mt-1 text-sm text-slate-500">Новые задачи появятся в этом списке.</p>
+      </div>
+      <ul v-else class="divide-y divide-slate-200 border-y border-slate-200">
+        <li v-for="task in visibleTasks" :key="task.id" class="py-4">
+          <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+            <div class="min-w-0">
+              <div class="flex flex-wrap items-center gap-2">
+                <span class="h-2 w-2 rounded-full" :class="priorityClass(task.priority)" aria-hidden="true" />
+                <h3 class="font-semibold text-slate-900">{{ task.title }}</h3>
+                <span class="rounded-full bg-slate-100 px-2 py-1 text-xs font-medium text-slate-600">
+                  {{ statusLabel(task.status) }}
+                </span>
+              </div>
+              <p v-if="task.description" class="mt-2 whitespace-pre-line text-sm text-slate-600">
+                {{ task.description }}
+              </p>
+              <div class="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500">
+                <span v-if="task.assignee_name">Исполнитель: {{ task.assignee_name }}</span>
+                <span v-else-if="task.target_employee_name_snapshot">
+                  Назначена: {{ task.target_employee_name_snapshot }}
+                </span>
+                <span v-if="task.due_at">Срок: {{ formatDate(task.due_at) }}</span>
+              </div>
+              <div
+                v-if="task.result_note"
+                class="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900"
+              >
+                <span class="font-medium">Результат сотрудника:</span>
+                <span class="whitespace-pre-line"> {{ task.result_note }}</span>
+              </div>
+            </div>
+            <div class="flex flex-wrap gap-2 sm:max-w-[260px] sm:justify-end">
+              <CrmButton
+                v-for="action in actionsFor(task)"
+                :key="action.value"
+                :variant="action.variant"
+                size="sm"
+                :loading="pendingActionId === `${task.id}:${action.value}`"
+                :disabled="Boolean(actionDialog) || Boolean(pendingActionId)"
+                @click="handleActionClick(task, action.value)"
+              >
+                {{ action.label }}
+              </CrmButton>
+              <CrmButton
+                v-if="canViewTaskHistory(task)"
+                variant="soft"
+                size="sm"
+                :loading="historyLoadingId === task.id"
+                :disabled="Boolean(actionDialog) || Boolean(historyLoadingId)"
+                @click="toggleTaskHistory(task)"
+              >
+                {{ historyTaskId === task.id ? "Скрыть историю" : "История" }}
+              </CrmButton>
+            </div>
+          </div>
+          <div
+            v-if="historyTaskId === task.id"
+            class="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4"
+          >
+            <p v-if="historyError" class="text-sm text-red-700" role="alert">
+              {{ historyError }}
+            </p>
+            <p v-else-if="!taskHistory.length" class="text-sm text-slate-500">
+              Записей пока нет
+            </p>
+            <ol v-else class="space-y-3">
+              <li
+                v-for="entry in taskHistory"
+                :key="String(entry.id || `${entry.action}-${entry.created_at}`)"
+                class="border-l-2 border-slate-300 pl-3 text-sm"
+              >
+                <div class="font-medium text-slate-800">
+                  {{ taskHistoryActionLabel(String(entry.action || "")) }}
+                </div>
+                <div class="mt-0.5 text-xs text-slate-500">
+                  {{ entry.actor_name_snapshot || "Система" }}
+                  <template v-if="entry.created_at">
+                    · {{ formatDate(String(entry.created_at)) }}
+                  </template>
+                </div>
+                <p v-if="entry.note" class="mt-1 whitespace-pre-line text-slate-600">
+                  {{ entry.note }}
+                </p>
+              </li>
+            </ol>
+          </div>
+        </li>
+      </ul>
+    </div>
+  </AdminModal>
+</template>
+
+<script setup lang="ts">
+import { computed, nextTick, ref, watch } from "vue";
+import { storeToRefs } from "pinia";
+import AdminModal from "@/components/AdminModal.vue";
+import CrmButton from "@/components/admin/crm/CrmButton.vue";
+import {
+  useCrmStore,
+  type StaffApiError,
+  type StaffTask,
+  type StaffTaskStatus,
+} from "@/stores/crm";
+import {
+  BUSINESS_TIME_ZONE,
+  businessDateTimeInputToIso,
+} from "@/utils/businessTime";
+
+const props = defineProps<{ open: boolean }>();
+const emit = defineEmits<{
+  close: [];
+  shiftRequired: [payload: { label: string; retry: () => Promise<unknown> }];
+}>();
+const crmStore = useCrmStore();
+const {
+  staffTasks,
+  staffTasksLoading,
+  staffTasksError,
+  staffIdentity,
+  isStaffManager,
+} = storeToRefs(crmStore);
+const filter = ref<"active" | "done">("active");
+const pendingActionId = ref("");
+const message = ref("");
+const messageKind = ref<"info" | "error">("info");
+const createOpen = ref(false);
+const creatingTask = ref(false);
+const historyTaskId = ref("");
+const historyLoadingId = ref("");
+const historyError = ref("");
+const taskHistory = ref<Array<Record<string, any>>>([]);
+type TaskAction = "claim" | "submit" | "approve" | "cancel" | "release";
+type ConfirmedTaskAction = Extract<TaskAction, "submit" | "approve" | "cancel">;
+const actionDialog = ref<{
+  task: StaffTask;
+  action: ConfirmedTaskAction;
+  note: string;
+} | null>(null);
+const actionNoteInput = ref<HTMLTextAreaElement | null>(null);
+const taskForm = ref({
+  title: "",
+  description: "",
+  due_at: "",
+});
+const canCreateTask = computed(() =>
+  Boolean(
+    taskForm.value.title.trim() &&
+      taskForm.value.description.trim() &&
+      taskForm.value.due_at,
+  ),
+);
+const taskBusy = computed(
+  () => creatingTask.value || Boolean(pendingActionId.value),
+);
+const actionDialogTitle = computed(() => {
+  if (actionDialog.value?.action === "approve") return "Подтвердить выполнение?";
+  if (actionDialog.value?.action === "cancel") return "Отменить задачу?";
+  return actionDialog.value?.task.status === "submitted"
+    ? "Сдать задачу повторно"
+    : "Отправить задачу на проверку";
+});
+const actionDialogConfirmLabel = computed(() => ({
+  approve: "Подтвердить выполнение",
+  cancel: "Отменить задачу",
+  submit: "Отправить на проверку",
+}[actionDialog.value?.action || "submit"]));
+const canConfirmActionDialog = computed(() => {
+  if (!actionDialog.value || taskBusy.value) return false;
+  return actionDialog.value.action !== "cancel"
+    || Boolean(actionDialog.value.note.trim());
+});
+
+const filters = [
+  { value: "active" as const, label: "В работе" },
+  { value: "done" as const, label: "Завершённые" },
+];
+const description = computed(() =>
+  isStaffManager.value
+    ? "Задачи команды и действия, ожидающие проверки."
+    : "Возьмите задачу, выполните её и отправьте на проверку.",
+);
+const visibleTasks = computed(() =>
+  staffTasks.value.filter((task) =>
+    filter.value === "done"
+      ? ["approved", "cancelled"].includes(task.status)
+      : !["approved", "cancelled"].includes(task.status),
+  ),
+);
+function statusLabel(status: StaffTaskStatus) {
+  return {
+    open: "Свободна",
+    claimed: "В работе",
+    submitted: "На проверке",
+    approved: "Принята",
+    cancelled: "Отменена",
+  }[status];
+}
+
+function priorityClass(priority?: string) {
+  if (priority === "high") return "bg-red-500";
+  if (priority === "low") return "bg-slate-300";
+  return "bg-blue-500";
+}
+
+function formatDate(value: string) {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime())
+    ? value
+    : new Intl.DateTimeFormat("ru-RU", {
+        day: "2-digit",
+        month: "short",
+        hour: "2-digit",
+        minute: "2-digit",
+        timeZone: BUSINESS_TIME_ZONE,
+      }).format(date);
+}
+
+type ButtonVariant = "primary" | "secondary" | "soft" | "success" | "danger";
+
+function actionsFor(task: StaffTask): Array<{
+  value: TaskAction;
+  label: string;
+  variant: ButtonVariant;
+}> {
+  const selfId = staffIdentity.value?.employee.id;
+  const actions: Array<{ value: TaskAction; label: string; variant: ButtonVariant }> = [];
+  if (
+    task.status === "open" &&
+    (!task.target_employee_id || task.target_employee_id === selfId)
+  ) {
+    actions.push({ value: "claim", label: "Взять", variant: "primary" });
+  }
+  if (task.status === "claimed" && task.assignee_employee_id === selfId) {
+    actions.push({ value: "submit", label: "Готово", variant: "success" });
+  }
+  if (task.status === "submitted" && task.assignee_employee_id === selfId) {
+    actions.push({ value: "submit", label: "Сдать повторно", variant: "primary" });
+  }
+  if (task.status === "claimed" && isStaffManager.value) {
+    actions.push({ value: "release", label: "Освободить", variant: "secondary" });
+  }
+  if (task.status === "submitted" && isStaffManager.value) {
+    actions.push({
+      value: "approve",
+      label: "Проверить и подтвердить",
+      variant: "success",
+    });
+  }
+  if (
+    isStaffManager.value &&
+    !["approved", "cancelled"].includes(task.status)
+  ) {
+    actions.push({ value: "cancel", label: "Отменить", variant: "danger" });
+  }
+  return actions;
+}
+
+function canViewTaskHistory(task: StaffTask) {
+  return isStaffManager.value
+    || task.assignee_employee_id === staffIdentity.value?.employee.id;
+}
+
+async function loadTasks() {
+  message.value = "";
+  try {
+    await crmStore.fetchStaffTasks();
+  } catch {
+    // The store owns the visible error and retry state.
+  }
+}
+
+async function createTask() {
+  if (creatingTask.value) return false;
+  if (!canCreateTask.value) {
+    messageKind.value = "error";
+    message.value = "Заполните заголовок, описание и срок задачи";
+    return false;
+  }
+  const dueAt = businessDateTimeInputToIso(taskForm.value.due_at);
+  if (!dueAt || new Date(dueAt).getTime() <= Date.now()) {
+    messageKind.value = "error";
+    message.value = "Срок задачи должен быть в будущем по времени Минска";
+    return false;
+  }
+  creatingTask.value = true;
+  message.value = "";
+  try {
+    await crmStore.createStaffTask({
+      title: taskForm.value.title,
+      description: taskForm.value.description || undefined,
+      due_at: dueAt,
+    });
+    taskForm.value = {
+      title: "",
+      description: "",
+      due_at: "",
+    };
+    createOpen.value = false;
+    filter.value = "active";
+    messageKind.value = "info";
+    message.value = "Задача создана";
+    return true;
+  } catch (error: any) {
+    messageKind.value = "error";
+    message.value = error?.outcomeUnknown
+      ? "Ответ сервера не получен. Обновите список перед повтором."
+      : error?.message || "Не удалось создать задачу";
+    if (error?.outcomeUnknown) void loadTasks();
+    return false;
+  } finally {
+    creatingTask.value = false;
+  }
+}
+
+function requestClose() {
+  if (taskBusy.value || actionDialog.value) return;
+  emit("close");
+}
+
+async function openActionDialog(
+  task: StaffTask,
+  action: ConfirmedTaskAction,
+) {
+  if (taskBusy.value) return;
+  actionDialog.value = {
+    task,
+    action,
+    note: action === "submit" ? String(task.result_note || "") : "",
+  };
+  if (action !== "approve") {
+    await nextTick();
+    actionNoteInput.value?.focus();
+  }
+}
+
+function closeActionDialog() {
+  if (taskBusy.value) return;
+  actionDialog.value = null;
+}
+
+function handleActionClick(task: StaffTask, action: TaskAction) {
+  if (["submit", "approve", "cancel"].includes(action)) {
+    void openActionDialog(task, action as ConfirmedTaskAction);
+    return;
+  }
+  void runAction(task, action);
+}
+
+async function confirmActionDialog() {
+  const dialog = actionDialog.value;
+  if (!dialog || !canConfirmActionDialog.value) return false;
+  const data: Record<string, string> = {};
+  if (dialog.action === "cancel") data.reason = dialog.note.trim();
+  if (dialog.action === "submit" && dialog.note.trim()) {
+    data.result_note = dialog.note.trim();
+  }
+  return runAction(dialog.task, dialog.action, data);
+}
+
+async function runAction(
+  task: StaffTask,
+  action: TaskAction,
+  data: Record<string, string> = {},
+) {
+  if (pendingActionId.value) return false;
+  pendingActionId.value = `${task.id}:${action}`;
+  message.value = "";
+  try {
+    await crmStore.performStaffTaskAction(task.id, action, data);
+    if (
+      actionDialog.value?.task.id === task.id
+      && actionDialog.value.action === action
+    ) {
+      actionDialog.value = null;
+    }
+    messageKind.value = "info";
+    message.value = "Задача обновлена";
+    return true;
+  } catch (error: any) {
+    const staffError = error as StaffApiError;
+    if (staffError.code === "shift_required") {
+      emit("shiftRequired", {
+        label: `${actionLabel(action)} задачу «${task.title}»`,
+        retry: () => runAction(task, action, data),
+      });
+      return false;
+    }
+    messageKind.value = "error";
+    if (staffError.outcomeUnknown) {
+      message.value =
+        "Ответ сервера не получен. Обновите список перед повтором, чтобы не выполнить действие дважды.";
+      void loadTasks();
+    } else if (staffError.status === 409) {
+      message.value = "Задача уже изменилась. Список обновлён.";
+      void loadTasks();
+    } else {
+      message.value = staffError.message || "Не удалось обновить задачу";
+    }
+    return false;
+  } finally {
+    pendingActionId.value = "";
+  }
+}
+
+function actionLabel(action: TaskAction) {
+  return {
+    claim: "Взять",
+    submit: "Отправить на проверку",
+    approve: "Подтвердить выполнение",
+    cancel: "Отменить",
+    release: "Освободить",
+  }[action];
+}
+
+function taskHistoryActionLabel(action: string) {
+  const labels: Record<string, string> = {
+    create: "Задача создана",
+    claim: "Задача принята",
+    submit: "Отправлена на проверку",
+    approve: "Выполнение подтверждено",
+    cancel: "Задача отменена",
+    release: "Исполнитель освобождён",
+  };
+  return labels[action] || action || "Изменение";
+}
+
+async function toggleTaskHistory(task: StaffTask) {
+  if (historyLoadingId.value) return;
+  if (historyTaskId.value === task.id) {
+    historyTaskId.value = "";
+    taskHistory.value = [];
+    historyError.value = "";
+    return;
+  }
+  historyTaskId.value = task.id;
+  historyLoadingId.value = task.id;
+  historyError.value = "";
+  taskHistory.value = [];
+  try {
+    const response = await crmStore.fetchStaffTaskHistory(task.id);
+    if (historyTaskId.value === task.id) {
+      taskHistory.value = response.history || [];
+    }
+  } catch (error: any) {
+    if (historyTaskId.value === task.id) {
+      historyError.value = error?.message || "Не удалось загрузить историю";
+    }
+  } finally {
+    if (historyLoadingId.value === task.id) {
+      historyLoadingId.value = "";
+    }
+  }
+}
+
+watch(
+  () => props.open,
+  (open) => {
+    if (open) {
+      void loadTasks();
+    } else if (!taskBusy.value) {
+      actionDialog.value = null;
+    }
+  },
+);
+</script>
