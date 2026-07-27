@@ -296,13 +296,23 @@ describe("CrmEmployees: вход сотрудника", () => {
     expect(wrapper.get('[aria-label="Месяц истории смен"]').exists()).toBe(true);
     await wrapper
       .findAll("button")
-      .find((button) => button.text() === "Исправить")!
+      .find((button) => button.text() === "Исправить время")!
       .trigger("click");
+    expect(wrapper.text()).toContain("Журнал смен");
+    expect(wrapper.text()).toContain(
+      "Проверяйте время работы и исправляйте неточности.",
+    );
+    expect(wrapper.text()).toContain("Начало:");
+    expect(wrapper.text()).toContain("Окончание:");
     expect(wrapper.text()).toContain("Смена ещё идёт");
     expect(wrapper.text()).toContain("Время смены исправляли");
-    const shiftModal = wrapper.get('[data-modal-title="Исправить смену"]');
+    const shiftModal = wrapper.get('[data-modal-title="Исправить время смены"]');
     expect(shiftModal.text()).toContain("Павел Сергеевич");
     expect(shiftModal.text()).toContain("Текущее время");
+    expect(shiftModal.text()).toContain(
+      "Измените начало или окончание смены и укажите причину.",
+    );
+    expect(shiftModal.text()).toContain("Сохранить время");
   });
 
   it("полностью объясняет последствия отключения учёта и отдельно подтверждает снятие ограничения", async () => {

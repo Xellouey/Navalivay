@@ -1036,13 +1036,12 @@
             </section>
 
             <section class="rounded-2xl border border-slate-200 bg-white shadow-sm">
-              <div class="flex items-center justify-between border-b border-slate-200 px-5 py-4">
+              <div class="flex flex-col gap-2 border-b border-slate-200 px-5 py-4 sm:flex-row sm:items-start sm:justify-between">
                 <div>
-                  <h3 class="font-semibold text-slate-950">Последние смены</h3>
-                  <p class="mt-1 text-xs text-slate-500">
-                    Сначала новые · всего {{ staffShiftHistory.length }}
-                  </p>
+                  <h3 class="font-semibold text-slate-950">Журнал смен</h3>
+                  <p class="mt-1 text-sm text-slate-600">Проверяйте время работы и исправляйте неточности.</p>
                 </div>
+                <span class="text-xs text-slate-500">{{ staffShiftHistory.length }} записей · новые сверху</span>
               </div>
               <div class="divide-y divide-slate-200">
               <article
@@ -1055,20 +1054,25 @@
                   <div class="flex flex-wrap items-center gap-2">
                     <h3 class="font-semibold text-slate-950">{{ shiftEmployeeLabel(shift) }}</h3>
                     <span class="rounded-full px-2 py-0.5 text-xs font-medium" :class="shiftActive(shift) ? 'bg-blue-50 text-blue-700' : 'bg-slate-100 text-slate-600'">
-                      {{ shiftActive(shift) ? "Идёт" : "Закрыта" }}
+                      {{ shiftActive(shift) ? "Смена идёт" : "Смена закрыта" }}
                     </span>
-                    <span v-if="shift.corrected_at" class="text-xs text-slate-500">исправлена</span>
+                    <span v-if="shift.corrected_at" class="rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700">
+                      Время исправлено
+                    </span>
                   </div>
-                  <p class="mt-1 text-sm text-slate-600">
-                    {{ formatDateTime(shiftStart(shift)) }} →
-                    {{ shiftEnd(shift) ? formatDateTime(shiftEnd(shift)!) : "сейчас" }}
+                  <p class="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-sm text-slate-600">
+                    <span><span class="font-medium text-slate-700">Начало:</span> {{ formatDateTime(shiftStart(shift)) }}</span>
+                    <span>
+                      <span class="font-medium text-slate-700">Окончание:</span>
+                      {{ shiftEnd(shift) ? formatDateTime(shiftEnd(shift)!) : "ещё не закрыта" }}
+                    </span>
                   </p>
                   <p v-if="shift.correction_reason" class="mt-1 text-xs text-slate-500">
                     Причина: {{ shift.correction_reason }}
                   </p>
                 </div>
                 <CrmButton variant="secondary" size="sm" @click="openShiftCorrection(shift)">
-                  {{ shiftActive(shift) ? "Закрыть с причиной" : "Исправить" }}
+                  {{ shiftActive(shift) ? "Закрыть смену" : "Исправить время" }}
                 </CrmButton>
               </article>
               </div>
@@ -1723,7 +1727,10 @@
 
     <AdminModal
       :is-open="shiftCorrectionOpen"
-      :title="editingShift && shiftActive(editingShift) ? 'Принудительно закрыть смену' : 'Исправить смену'"
+      :title="editingShift && shiftActive(editingShift) ? 'Закрыть смену сотрудника' : 'Исправить время смены'"
+      :description="editingShift && shiftActive(editingShift)
+        ? 'Укажите время окончания и причину закрытия.'
+        : 'Измените начало или окончание смены и укажите причину.'"
       size="sm"
       :show-actions="false"
       :persistent="formSaving"
@@ -1763,7 +1770,9 @@
         <p v-if="formError" class="text-sm text-red-700" role="alert">{{ formError }}</p>
         <div class="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
           <CrmButton variant="secondary" type="button" :disabled="formSaving" @click="shiftCorrectionOpen = false">Отмена</CrmButton>
-          <CrmButton variant="primary" type="submit" :loading="formSaving">Сохранить исправление</CrmButton>
+          <CrmButton variant="primary" type="submit" :loading="formSaving">
+            {{ editingShift && shiftActive(editingShift) ? "Закрыть смену" : "Сохранить время" }}
+          </CrmButton>
         </div>
       </form>
     </AdminModal>
