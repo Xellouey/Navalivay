@@ -752,7 +752,7 @@
                             class="min-h-[44px] rounded-lg px-3 py-2 text-left text-sm font-medium text-slate-700 transition-colors hover:bg-slate-100 focus-visible:bg-slate-100 focus-visible:outline-none"
                             @click="handleEmployeeMenuAction(employee, 'pin')"
                           >
-                            Сбросить ПИН
+                            {{ employee.pin_configured ? "Сбросить ПИН" : "Настроить ПИН" }}
                           </button>
                           <div class="my-1 h-px bg-slate-100" aria-hidden="true" />
                           <button
@@ -1110,30 +1110,112 @@
           <div v-if="staffSettingsError" class="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700" role="alert">
             {{ staffSettingsError }}
           </div>
-
-          <div class="grid gap-3 sm:grid-cols-3">
-            <div class="rounded-xl border border-slate-200 bg-white px-4 py-3">
-              <div class="text-xs text-slate-500">Действующих сотрудников</div>
-              <div class="mt-1 font-bold text-slate-950">{{ activeStaffCount }}</div>
-            </div>
-            <div
-              class="rounded-xl border px-4 py-3"
-              :class="orderRestrictionReady
-                ? 'border-emerald-200 bg-emerald-50'
-                : 'border-amber-200 bg-amber-50'"
-            >
-              <div class="text-xs" :class="orderRestrictionReady ? 'text-emerald-700' : 'text-amber-700'">
-                ПИНы настроены
-              </div>
-              <div class="mt-1 font-bold text-slate-950">
-                {{ pinReadyStaffCount }} из {{ activeStaffCount }}
-              </div>
-            </div>
-            <div class="rounded-xl border border-slate-200 bg-white px-4 py-3">
-              <div class="text-xs text-slate-500">Готовность смены</div>
-              <div class="mt-1 text-sm font-semibold text-slate-950">{{ currentShiftReadinessLabel }}</div>
+          <div
+            v-if="staffEmployeesError && staffEmployees.length"
+            class="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3"
+            role="alert"
+          >
+            <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <p class="text-sm text-amber-800">Не удалось обновить список. Показаны последние данные.</p>
+              <CrmButton variant="secondary" size="sm" @click="loadEmployees">Повторить</CrmButton>
             </div>
           </div>
+
+          <div
+            v-if="staffEmployeesLoading && !staffEmployees.length"
+            class="rounded-xl border border-slate-200 bg-white px-4 py-6 text-center text-sm text-slate-500"
+          >
+            Загружаем сотрудников…
+          </div>
+          <div
+            v-else-if="staffEmployeesError && !staffEmployees.length"
+            class="rounded-xl border border-red-200 bg-red-50 px-4 py-4"
+            role="alert"
+          >
+            <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <p class="text-sm text-red-700">Не удалось загрузить список сотрудников</p>
+              <CrmButton variant="secondary" size="sm" @click="loadEmployees">Повторить</CrmButton>
+            </div>
+          </div>
+          <template v-else>
+            <div class="grid gap-3 sm:grid-cols-3">
+              <div class="rounded-xl border border-slate-200 bg-white px-4 py-3">
+                <div class="text-xs text-slate-500">Действующих сотрудников</div>
+                <div class="mt-1 font-bold text-slate-950">{{ activeStaffCount }}</div>
+              </div>
+              <div
+                class="rounded-xl border px-4 py-3"
+                :class="orderRestrictionReady
+                  ? 'border-emerald-200 bg-emerald-50'
+                  : 'border-amber-200 bg-amber-50'"
+              >
+                <div class="text-xs" :class="orderRestrictionReady ? 'text-emerald-700' : 'text-amber-700'">
+                  ПИНы настроены
+                </div>
+                <div class="mt-1 font-bold text-slate-950">
+                  {{ pinReadyStaffCount }} из {{ activeStaffCount }}
+                </div>
+              </div>
+              <div class="rounded-xl border border-slate-200 bg-white px-4 py-3">
+                <div class="text-xs text-slate-500">Готовность смены</div>
+                <div class="mt-1 text-sm font-semibold text-slate-950">{{ currentShiftReadinessLabel }}</div>
+              </div>
+            </div>
+
+            <section
+              v-if="staffWithoutPin.length"
+              data-testid="staff-pin-setup-panel"
+              class="overflow-hidden rounded-2xl border border-amber-200 bg-white shadow-sm"
+            >
+              <div class="border-b border-amber-200 bg-amber-50 px-5 py-4">
+                <h3 class="font-semibold text-amber-950">
+                  Нужно настроить ПИН: {{ staffWithoutPin.length }}
+                </h3>
+                <p class="mt-1 text-sm text-amber-800">
+                  Без ПИНа сотрудник не сможет войти в карточку и открыть смену.
+                </p>
+              </div>
+              <div class="divide-y divide-slate-100">
+                <div
+                  v-for="employee in staffWithoutPin"
+                  :key="employee.id"
+                  :data-testid="`staff-pin-missing-${employee.id}`"
+                  class="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center sm:justify-between"
+                >
+                  <div class="flex min-w-0 items-center gap-3">
+                    <span
+                      class="h-3 w-3 shrink-0 rounded-full"
+                      :style="{ backgroundColor: safeColor(employee.color) }"
+                      aria-hidden="true"
+                    />
+                    <div class="min-w-0">
+                      <div class="truncate font-semibold text-slate-950">
+                        {{ employee.first_name }} {{ employee.last_name }}
+                      </div>
+                      <div class="truncate text-sm text-slate-500">
+                        {{ employee.position || (employee.role === "manager" ? "Руководитель" : "Должность не указана") }}
+                      </div>
+                    </div>
+                  </div>
+                  <CrmButton
+                    variant="primary"
+                    size="sm"
+                    class="w-full sm:w-auto"
+                    @click="employee.role === 'manager' ? openStaffSetup('recovery') : openPinReset(employee)"
+                  >
+                    {{ employee.role === "manager" ? "Восстановить ПИН руководителя" : "Настроить ПИН" }}
+                  </CrmButton>
+                </div>
+              </div>
+            </section>
+
+            <div
+              v-else-if="activeStaffCount === 0"
+              class="rounded-xl border border-slate-200 bg-white px-5 py-4 text-sm text-slate-600"
+            >
+              Сначала добавьте сотрудника во вкладке «Команда».
+            </div>
+          </template>
 
           <div class="divide-y divide-slate-200 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
             <div class="flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between">
@@ -1524,8 +1606,8 @@
 
     <AdminModal
       :is-open="pinResetOpen"
-      title="Сбросить ПИН"
-      :description="pinResetEmployee ? `${pinResetEmployee.first_name} ${pinResetEmployee.last_name}` : ''"
+      :title="pinResetTitle"
+      description="После сохранения сотрудник сможет войти по новому ПИНу. ПИН не будет показан снова."
       size="sm"
       :show-actions="false"
       :persistent="formSaving"
@@ -1535,13 +1617,20 @@
     >
       <form class="space-y-4" @submit.prevent="savePinReset">
         <label class="block">
-          <span class="mb-1 block text-sm font-medium text-slate-700">Новый ПИН</span>
-          <input v-model="newPin" type="password" inputmode="numeric" maxlength="4" pattern="[0-9]{4}" autocomplete="new-password" required class="min-h-[52px] w-full rounded-xl border border-slate-300 px-3 text-center text-xl tracking-[0.45em]" @input="sanitizeResetPin" />
+          <span class="mb-1 block text-sm font-medium text-slate-700">Новый ПИН, 4 цифры</span>
+          <input ref="newPinInput" v-model="newPin" type="password" inputmode="numeric" maxlength="4" pattern="[0-9]{4}" autocomplete="new-password" required class="min-h-[52px] w-full rounded-xl border border-slate-300 px-3 text-center text-xl tracking-[0.45em]" @input="sanitizeResetPin" />
         </label>
+        <label class="block">
+          <span class="mb-1 block text-sm font-medium text-slate-700">Повторите ПИН</span>
+          <input v-model="repeatedPin" type="password" inputmode="numeric" maxlength="4" pattern="[0-9]{4}" autocomplete="new-password" required class="min-h-[52px] w-full rounded-xl border border-slate-300 px-3 text-center text-xl tracking-[0.45em]" @input="sanitizeRepeatedPin" />
+        </label>
+        <p v-if="repeatedPin.length === 4 && newPin !== repeatedPin" class="text-sm text-red-700" role="alert">ПИНы не совпадают</p>
         <p v-if="formError" class="text-sm text-red-700" role="alert">{{ formError }}</p>
         <div class="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
           <CrmButton variant="secondary" type="button" :disabled="formSaving" @click="closePinReset">Отмена</CrmButton>
-          <CrmButton variant="primary" type="submit" :loading="formSaving" :disabled="newPin.length !== 4">Сохранить новый ПИН</CrmButton>
+          <CrmButton variant="primary" type="submit" :loading="formSaving" :disabled="newPin.length !== 4 || repeatedPin.length !== 4 || newPin !== repeatedPin">
+            Сохранить ПИН
+          </CrmButton>
         </div>
       </form>
     </AdminModal>
@@ -2015,6 +2104,13 @@ const employeeForm = reactive({
 const pinResetOpen = ref(false);
 const pinResetEmployee = ref<Employee | null>(null);
 const newPin = ref("");
+const repeatedPin = ref("");
+const newPinInput = ref<HTMLInputElement | null>(null);
+const pinResetTitle = computed(() => {
+  if (!pinResetEmployee.value) return "Настроить ПИН";
+  const name = `${pinResetEmployee.value.first_name} ${pinResetEmployee.value.last_name}`.trim();
+  return `${pinResetEmployee.value.pin_configured ? "Сбросить" : "Настроить"} ПИН: ${name}`;
+});
 const salaryEditorOpen = ref(false);
 const salaryForm = reactive({
   employee_id: "",
@@ -2504,6 +2600,11 @@ const pinReadyStaffCount = computed(
     staffEmployees.value.filter(
       (employee) => employeeActive(employee) && employee.pin_configured,
     ).length,
+);
+const staffWithoutPin = computed(() =>
+  staffEmployees.value.filter(
+    (employee) => employeeActive(employee) && !employee.pin_configured,
+  ),
 );
 const orderRestrictionReady = computed(
   () =>
@@ -3608,32 +3709,50 @@ async function toggleEmployeeActive(employee: Employee) {
     },
   });
 }
-function openPinReset(employee: Employee) {
+async function openPinReset(employee: Employee) {
   pinResetEmployee.value = employee;
   newPin.value = "";
+  repeatedPin.value = "";
   formError.value = "";
   pinResetOpen.value = true;
+  await nextTick();
+  newPinInput.value?.focus();
 }
 function closePinReset() {
   if (formSaving.value) return;
   pinResetOpen.value = false;
   pinResetEmployee.value = null;
   newPin.value = "";
+  repeatedPin.value = "";
 }
 function sanitizeResetPin(event: Event) {
   newPin.value = (event.target as HTMLInputElement).value.replace(/\D/g, "").slice(0, 4);
 }
+function sanitizeRepeatedPin(event: Event) {
+  repeatedPin.value = (event.target as HTMLInputElement).value.replace(/\D/g, "").slice(0, 4);
+}
 async function savePinReset() {
-  if (!pinResetEmployee.value || !/^\d{4}$/.test(newPin.value)) return;
+  if (
+    formSaving.value ||
+    !pinResetEmployee.value ||
+    !/^\d{4}$/.test(newPin.value) ||
+    newPin.value !== repeatedPin.value
+  ) return;
+  const employee = pinResetEmployee.value;
+  const wasConfigured = Boolean(employee.pin_configured);
+  const employeeName = `${employee.first_name} ${employee.last_name}`.trim();
   formSaving.value = true;
   formError.value = "";
   try {
-    await crmStore.resetStaffEmployeePin(pinResetEmployee.value.id, newPin.value);
+    await crmStore.resetStaffEmployeePin(employee.id, newPin.value);
     pinResetOpen.value = false;
     pinResetEmployee.value = null;
     newPin.value = "";
+    repeatedPin.value = "";
     pageMessageKind.value = "info";
-    pageMessage.value = "ПИН обновлён";
+    pageMessage.value = wasConfigured
+      ? `ПИН обновлён: ${employeeName}`
+      : `ПИН настроен: ${employeeName}`;
   } catch (error: any) {
     formError.value = error?.message || "Не удалось обновить ПИН";
   } finally {
