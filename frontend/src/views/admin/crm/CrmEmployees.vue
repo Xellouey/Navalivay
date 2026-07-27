@@ -669,29 +669,97 @@
                 </dl>
                 <div class="flex flex-wrap items-start gap-2 xl:max-w-[250px] xl:justify-end">
                   <CrmButton variant="primary" size="sm" @click="openEmployeeCard(employee)">Открыть</CrmButton>
-                  <details class="group relative">
-                    <summary class="flex min-h-[36px] cursor-pointer list-none items-center rounded-lg border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-700 hover:bg-slate-50">
+                  <div data-employee-action-menu>
+                    <button
+                      :id="`employee-action-trigger-${employee.id}`"
+                      type="button"
+                      class="inline-flex min-h-[40px] items-center gap-1.5 rounded-lg border bg-white px-3 text-sm font-semibold shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 sm:min-h-[44px]"
+                      :class="
+                        activeEmployeeActionMenuId === employee.id
+                          ? 'border-blue-300 bg-blue-50 text-blue-700'
+                          : 'border-slate-200 text-slate-700 hover:border-slate-300 hover:bg-slate-50'
+                      "
+                      aria-haspopup="menu"
+                      :aria-expanded="activeEmployeeActionMenuId === employee.id"
+                      :aria-controls="`employee-action-menu-${employee.id}`"
+                      @click.stop="toggleEmployeeActionMenu(employee.id, $event)"
+                      @keydown.down.prevent.stop="openEmployeeActionMenu(employee.id, $event)"
+                      @keydown.up.prevent.stop="openEmployeeActionMenu(employee.id, $event, true)"
+                    >
                       Действия
-                    </summary>
-                    <div class="mt-2 flex min-w-[170px] flex-col gap-2 rounded-xl border border-slate-200 bg-slate-50 p-2">
-                      <CrmButton variant="secondary" size="sm" @click="openEmployeeEditor(employee)">Изменить</CrmButton>
-                      <CrmButton
-                        v-if="canResetEmployeePin(employee)"
-                        variant="secondary"
-                        size="sm"
-                        @click="openPinReset(employee)"
+                      <svg
+                        class="h-4 w-4 transition-transform duration-150"
+                        :class="{ 'rotate-180': activeEmployeeActionMenuId === employee.id }"
+                        viewBox="0 0 20 20"
+                        fill="currentColor"
+                        aria-hidden="true"
                       >
-                        Сбросить ПИН
-                      </CrmButton>
-                      <CrmButton
-                        :variant="employeeActive(employee) ? 'danger' : 'soft'"
-                        size="sm"
-                        @click="toggleEmployeeActive(employee)"
+                        <path
+                          fill-rule="evenodd"
+                          d="M5.22 7.22a.75.75 0 0 1 1.06 0L10 10.94l3.72-3.72a.75.75 0 1 1 1.06 1.06l-4.25 4.25a.75.75 0 0 1-1.06 0L5.22 8.28a.75.75 0 0 1 0-1.06Z"
+                          clip-rule="evenodd"
+                        />
+                      </svg>
+                    </button>
+                    <Teleport to="body">
+                      <Transition
+                        enter-active-class="transition duration-150 ease-out"
+                        enter-from-class="translate-y-1 scale-[0.98] opacity-0"
+                        enter-to-class="translate-y-0 scale-100 opacity-100"
+                        leave-active-class="transition duration-100 ease-in"
+                        leave-from-class="translate-y-0 scale-100 opacity-100"
+                        leave-to-class="translate-y-1 scale-[0.98] opacity-0"
                       >
-                        {{ employeeActive(employee) ? "Уволить" : "Восстановить" }}
-                      </CrmButton>
-                    </div>
-                  </details>
+                        <div
+                          v-if="activeEmployeeActionMenuId === employee.id"
+                          :id="`employee-action-menu-${employee.id}`"
+                          role="menu"
+                          data-employee-action-menu
+                          :aria-label="`Действия с сотрудником ${employee.first_name} ${employee.last_name}`"
+                          :style="{
+                            top: `${employeeActionMenuPosition.top}px`,
+                            left: `${employeeActionMenuPosition.left}px`,
+                          }"
+                          class="fixed z-[100] flex w-56 max-w-[calc(100vw-2rem)] flex-col rounded-xl border border-slate-200/80 bg-white p-1.5 shadow-xl shadow-slate-900/10"
+                          @click.stop
+                          @focusout="handleEmployeeActionMenuFocusOut(employee.id, $event)"
+                          @keydown="handleEmployeeActionMenuKeydown(employee.id, $event)"
+                        >
+                          <button
+                            type="button"
+                            role="menuitem"
+                            class="min-h-[44px] rounded-lg px-3 py-2 text-left text-sm font-medium text-slate-700 transition-colors hover:bg-slate-100 focus-visible:bg-slate-100 focus-visible:outline-none"
+                            @click="handleEmployeeMenuAction(employee, 'edit')"
+                          >
+                            Изменить данные
+                          </button>
+                          <button
+                            v-if="canResetEmployeePin(employee)"
+                            type="button"
+                            role="menuitem"
+                            class="min-h-[44px] rounded-lg px-3 py-2 text-left text-sm font-medium text-slate-700 transition-colors hover:bg-slate-100 focus-visible:bg-slate-100 focus-visible:outline-none"
+                            @click="handleEmployeeMenuAction(employee, 'pin')"
+                          >
+                            Сбросить ПИН
+                          </button>
+                          <div class="my-1 h-px bg-slate-100" aria-hidden="true" />
+                          <button
+                            type="button"
+                            role="menuitem"
+                            class="min-h-[44px] rounded-lg px-3 py-2 text-left text-sm font-semibold transition-colors focus-visible:outline-none"
+                            :class="
+                              employeeActive(employee)
+                                ? 'text-rose-600 hover:bg-rose-50 focus-visible:bg-rose-50'
+                                : 'text-emerald-700 hover:bg-emerald-50 focus-visible:bg-emerald-50'
+                            "
+                            @click="handleEmployeeMenuAction(employee, 'status')"
+                          >
+                            {{ employeeActive(employee) ? "Уволить сотрудника" : "Восстановить сотрудника" }}
+                          </button>
+                        </div>
+                      </Transition>
+                    </Teleport>
+                  </div>
                 </div>
               </article>
             </div>
@@ -1777,7 +1845,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from "vue";
+import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from "vue";
 import { storeToRefs } from "pinia";
 import { LockClosedIcon } from "@heroicons/vue/24/outline";
 import AdminModal from "@/components/AdminModal.vue";
@@ -1878,6 +1946,8 @@ const employeeStatusFilter = ref<"active" | "inactive" | "all">("active");
 const cardEmployeeSearch = ref("");
 const cardEmployeeStatusFilter = ref<"active" | "inactive" | "all">("all");
 const teamSort = ref<"shift" | "hours" | "issued" | "tasks" | "name">("shift");
+const activeEmployeeActionMenuId = ref<string | null>(null);
+const employeeActionMenuPosition = ref({ top: 0, left: 0 });
 const teamChartMetric = ref<"hours" | "issued" | "tasks">("hours");
 const activityMetric = ref<"actions" | "hours" | "issued" | "tasks">("actions");
 type TimelineFilter = "all" | "orders" | "warehouse" | "tasks" | "marks";
@@ -2599,6 +2669,146 @@ function canResetEmployeePin(employee: Employee) {
     employee.id !== staffIdentity.value?.employee.id
   );
 }
+type EmployeeMenuAction = "edit" | "pin" | "status";
+
+async function openEmployeeActionMenu(
+  employeeId: string,
+  event: Event,
+  focusLast = false,
+) {
+  const trigger = event.currentTarget as HTMLElement | null;
+  if (!trigger) return;
+
+  const triggerRect = trigger.getBoundingClientRect();
+  const viewportMargin = 16;
+  const gap = 8;
+  employeeActionMenuPosition.value = {
+    top: triggerRect.bottom + gap,
+    left: Math.max(
+      viewportMargin,
+      Math.min(triggerRect.right - 224, window.innerWidth - 224 - viewportMargin),
+    ),
+  };
+  activeEmployeeActionMenuId.value = employeeId;
+
+  await nextTick();
+  const menu = document.getElementById(`employee-action-menu-${employeeId}`);
+  if (!menu) return;
+  const menuRect = menu.getBoundingClientRect();
+  const below = triggerRect.bottom + gap;
+  const above = triggerRect.top - menuRect.height - gap;
+  employeeActionMenuPosition.value = {
+    top:
+      below + menuRect.height <= window.innerHeight - viewportMargin
+        ? below
+        : Math.max(viewportMargin, above),
+    left: Math.max(
+      viewportMargin,
+      Math.min(
+        triggerRect.right - menuRect.width,
+        window.innerWidth - menuRect.width - viewportMargin,
+      ),
+    ),
+  };
+
+  await nextTick();
+  const items = menu.querySelectorAll<HTMLElement>(
+    '[role="menuitem"]:not([disabled])',
+  );
+  (focusLast ? items[items.length - 1] : items[0])?.focus();
+}
+
+function toggleEmployeeActionMenu(employeeId: string, event: Event) {
+  if (activeEmployeeActionMenuId.value === employeeId) {
+    activeEmployeeActionMenuId.value = null;
+    return;
+  }
+  void openEmployeeActionMenu(employeeId, event);
+}
+
+function closeEmployeeActionMenu(restoreFocus = false) {
+  const employeeId = activeEmployeeActionMenuId.value;
+  activeEmployeeActionMenuId.value = null;
+  if (!restoreFocus || !employeeId) return;
+  void nextTick(() => {
+    document
+      .getElementById(`employee-action-trigger-${employeeId}`)
+      ?.focus({ preventScroll: true });
+  });
+}
+
+function handleEmployeeActionMenuFocusOut(
+  employeeId: string,
+  event: FocusEvent,
+) {
+  const menu = event.currentTarget as HTMLElement | null;
+  const nextTarget = event.relatedTarget as Node | null;
+  const trigger = document.getElementById(
+    `employee-action-trigger-${employeeId}`,
+  );
+  if (nextTarget && (menu?.contains(nextTarget) || trigger?.contains(nextTarget))) {
+    return;
+  }
+  activeEmployeeActionMenuId.value = null;
+}
+
+function handleEmployeeActionMenuKeydown(
+  employeeId: string,
+  event: KeyboardEvent,
+) {
+  const menu = event.currentTarget as HTMLElement | null;
+  if (!menu) return;
+  const items = Array.from(
+    menu.querySelectorAll<HTMLElement>('[role="menuitem"]:not([disabled])'),
+  );
+  if (!items.length) return;
+
+  if (event.key === "Escape") {
+    event.preventDefault();
+    event.stopPropagation();
+    closeEmployeeActionMenu(true);
+    return;
+  }
+  if (event.key === "Tab") {
+    activeEmployeeActionMenuId.value = null;
+    return;
+  }
+
+  const currentIndex = items.indexOf(document.activeElement as HTMLElement);
+  let nextIndex: number | null = null;
+  if (event.key === "ArrowDown") nextIndex = (currentIndex + 1) % items.length;
+  if (event.key === "ArrowUp") {
+    nextIndex = (currentIndex - 1 + items.length) % items.length;
+  }
+  if (event.key === "Home") nextIndex = 0;
+  if (event.key === "End") nextIndex = items.length - 1;
+  if (nextIndex === null) return;
+
+  event.preventDefault();
+  event.stopPropagation();
+  items[nextIndex]?.focus();
+}
+
+function handleEmployeeMenuAction(
+  employee: Employee,
+  action: EmployeeMenuAction,
+) {
+  closeEmployeeActionMenu();
+  if (action === "edit") openEmployeeEditor(employee);
+  if (action === "pin") openPinReset(employee);
+  if (action === "status") void toggleEmployeeActive(employee);
+}
+
+function handleEmployeeActionMenuClickOutside(event: MouseEvent) {
+  if (!(event.target as HTMLElement | null)?.closest("[data-employee-action-menu]")) {
+    closeEmployeeActionMenu();
+  }
+}
+
+function handleEmployeeActionMenuViewportChange() {
+  closeEmployeeActionMenu();
+}
+
 function formatMoney(value: number) {
   return formatBynCurrency(value);
 }
@@ -2986,6 +3196,7 @@ async function loadNotifications() {
   }
 }
 async function loadCurrentView() {
+  closeEmployeeActionMenu();
   pageMessage.value = "";
   if (isStaffManager.value && !staffEmployees.value.length) await loadEmployees();
   if (activeTab.value === "card") await loadCard();
@@ -3723,8 +3934,12 @@ function ensureEmployeeSelections() {
 }
 
 watch(activeTab, () => {
+  closeEmployeeActionMenu();
   ensureEmployeeSelections();
   void loadCurrentView();
+});
+watch([employeeSearch, employeeStatusFilter, teamSort], () => {
+  closeEmployeeActionMenu();
 });
 watch(
   [
@@ -3801,6 +4016,9 @@ watch(
 );
 
 onMounted(async () => {
+  document.addEventListener("click", handleEmployeeActionMenuClickOutside);
+  window.addEventListener("scroll", handleEmployeeActionMenuViewportChange, true);
+  window.addEventListener("resize", handleEmployeeActionMenuViewportChange);
   await crmStore.fetchStaffSettings().catch(() => undefined);
   if (!hasStaffAccess.value) return;
   selectedEmployeeId.value = staffIdentity.value?.employee.id || "";
@@ -3812,5 +4030,11 @@ onMounted(async () => {
     return;
   }
   await loadCard();
+});
+
+onUnmounted(() => {
+  document.removeEventListener("click", handleEmployeeActionMenuClickOutside);
+  window.removeEventListener("scroll", handleEmployeeActionMenuViewportChange, true);
+  window.removeEventListener("resize", handleEmployeeActionMenuViewportChange);
 });
 </script>

@@ -1,6 +1,6 @@
 import { nextTick } from "vue";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { flushPromises, mount } from "@vue/test-utils";
+import { enableAutoUnmount, flushPromises, mount } from "@vue/test-utils";
 import { createPinia, setActivePinia } from "pinia";
 import CrmEmployees from "@/views/admin/crm/CrmEmployees.vue";
 import { useCrmStore, type StaffAnalytics } from "@/stores/crm";
@@ -32,6 +32,8 @@ const modalStub = {
     </section>
   `,
 };
+
+enableAutoUnmount(afterEach);
 
 function mountEmployees() {
   return mount(CrmEmployees, {
@@ -487,6 +489,35 @@ describe("CrmEmployees: вход сотрудника", () => {
     expect(employeeRow!.text()).toContain("Поставки: создано / принято");
     expect(employeeRow!.text()).toContain("Перемещения: создано / принято");
     expect(employeeRow!.text()).toContain("6 / 1");
+
+    const actionsButton = employeeRow!
+      .findAll("button")
+      .find((button) => button.text().includes("Действия"))!;
+    expect(actionsButton.attributes("aria-expanded")).toBe("false");
+    await actionsButton.trigger("click");
+    await nextTick();
+
+    const actionMenu = document.querySelector<HTMLElement>('[role="menu"]');
+    expect(actionMenu).not.toBeNull();
+    expect(actionMenu!.classList.contains("fixed")).toBe(true);
+    expect(actionMenu!.textContent).toContain("Изменить данные");
+    expect(actionMenu!.textContent).toContain("Уволить сотрудника");
+    expect(document.activeElement?.textContent).toContain("Изменить данные");
+    expect(actionsButton.attributes("aria-expanded")).toBe("true");
+
+    actionMenu!.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+    );
+    await nextTick();
+    expect(document.querySelector('[role="menu"]')).toBeNull();
+    expect(actionsButton.attributes("aria-expanded")).toBe("false");
+
+    await actionsButton.trigger("click");
+    await nextTick();
+    expect(document.querySelector('[role="menu"]')).not.toBeNull();
+    document.body.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await nextTick();
+    expect(document.querySelector('[role="menu"]')).toBeNull();
   });
 
   it("просит новый ПИН при восстановлении старого сотрудника без ПИНа", async () => {
@@ -541,8 +572,15 @@ describe("CrmEmployees: вход сотрудника", () => {
     expect(formerRow).toBeTruthy();
     await formerRow!
       .findAll("button")
-      .find((button) => button.text() === "Восстановить")!
+      .find((button) => button.text().includes("Действия"))!
       .trigger("click");
+    await nextTick();
+    const restoreButton = Array.from(
+      document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]'),
+    ).find((button) => button.textContent?.trim() === "Восстановить сотрудника");
+    expect(restoreButton).toBeTruthy();
+    restoreButton!.click();
+    await nextTick();
 
     const modal = wrapper.get(
       '[data-modal-title="Восстановить сотрудника?"]',
