@@ -288,16 +288,21 @@
 
               <section
                 v-if="responsibilityItems(selectedEmployee?.responsibilities).length"
-                class="flex flex-col gap-2 border-t border-slate-200 pt-4 sm:flex-row sm:items-center sm:gap-3"
+                class="border-t border-slate-200 pt-4"
               >
-                <h3 class="shrink-0 text-sm font-semibold text-slate-700">Ответственность</h3>
-                <ul class="m-0 flex min-w-0 list-none flex-wrap gap-2 p-0" aria-label="Зоны ответственности сотрудника">
+                <div>
+                  <h3 class="text-sm font-semibold text-slate-800">Обязанности сотрудника</h3>
+                  <p class="mt-1 text-xs text-slate-500">
+                    Направления работы, закреплённые за сотрудником.
+                  </p>
+                </div>
+                <ul class="m-0 mt-3 flex min-w-0 list-none flex-wrap gap-2 p-0" aria-label="Обязанности сотрудника">
                   <li
                     v-for="item in responsibilityItems(selectedEmployee?.responsibilities)"
                     :key="item"
                     class="max-w-full rounded-lg bg-slate-100 px-3 py-1.5 text-sm font-medium leading-5 text-slate-700"
                   >
-                    {{ item }}
+                    {{ responsibilityLabel(item) }}
                   </li>
                 </ul>
               </section>
@@ -1620,8 +1625,16 @@
           />
         </label>
         <label class="block sm:col-span-2">
-          <span class="mb-1 block text-sm font-medium text-slate-700">Зона ответственности</span>
-          <textarea v-model.trim="employeeForm.responsibilities" rows="4" class="w-full rounded-xl border border-slate-300 px-3 py-2" />
+          <span class="block text-sm font-medium text-slate-700">Обязанности и направления работы</span>
+          <span class="mb-2 mt-1 block text-xs text-slate-500">
+            Каждое направление укажите с новой строки. Например: заказы, поставки, склад.
+          </span>
+          <textarea
+            v-model.trim="employeeForm.responsibilities"
+            rows="4"
+            placeholder="Заказы&#10;Поставки"
+            class="w-full rounded-xl border border-slate-300 px-3 py-2"
+          />
         </label>
         <p v-if="formError" class="sm:col-span-2 text-sm text-red-700" role="alert">{{ formError }}</p>
         <div class="flex flex-col-reverse gap-3 sm:col-span-2 sm:flex-row sm:justify-end">
@@ -2811,6 +2824,20 @@ function responsibilityText(value?: string | string[] | null) {
 function responsibilityItems(value?: string | string[] | null) {
   const items = Array.isArray(value) ? value : String(value || "").split(/\r?\n/);
   return [...new Set(items.map((item) => item.trim()).filter(Boolean))];
+}
+function responsibilityLabel(value: string) {
+  const labels: Record<string, string> = {
+    заказы: "Работа с заказами",
+    поставки: "Работа с поставками",
+    склад: "Работа со складом",
+    команда: "Работа с командой",
+    зарплаты: "Работа с зарплатами",
+    смены: "Работа со сменами",
+    отметки: "Оценка работы сотрудников",
+    настройки: "Настройки учёта сотрудников",
+    уведомления: "Уведомления руководителю",
+  };
+  return labels[value.trim().toLocaleLowerCase("ru")] || value;
 }
 function employeeActive(employee: Employee) {
   return Boolean(Number(employee.active));
