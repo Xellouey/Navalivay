@@ -361,22 +361,27 @@
             </p>
             <ol v-else class="space-y-3">
               <li
-                v-for="entry in taskHistory"
+                v-for="(entry, index) in taskHistory"
                 :key="String(entry.id || `${entry.action}-${entry.created_at}`)"
-                class="border-l-2 border-slate-300 pl-3 text-sm"
+                class="flex gap-2 text-sm"
               >
-                <div class="font-medium text-slate-800">
-                  {{ taskHistoryActionLabel(String(entry.action || "")) }}
+                <span class="w-5 shrink-0 pt-0.5 text-right text-xs font-medium text-slate-400">
+                  {{ index + 1 }}.
+                </span>
+                <div class="min-w-0 flex-1 border-l-2 border-slate-300 pl-3">
+                  <div class="font-medium text-slate-800">
+                    {{ taskHistoryActionLabel(String(entry.action || "")) }}
+                  </div>
+                  <div class="mt-0.5 text-xs text-slate-500">
+                    {{ entry.actor_name_snapshot || "Система" }}
+                    <template v-if="entry.created_at">
+                      · {{ formatDate(String(entry.created_at)) }}
+                    </template>
+                  </div>
+                  <p v-if="entry.note" class="mt-1 whitespace-pre-line text-slate-600">
+                    {{ entry.note }}
+                  </p>
                 </div>
-                <div class="mt-0.5 text-xs text-slate-500">
-                  {{ entry.actor_name_snapshot || "Система" }}
-                  <template v-if="entry.created_at">
-                    · {{ formatDate(String(entry.created_at)) }}
-                  </template>
-                </div>
-                <p v-if="entry.note" class="mt-1 whitespace-pre-line text-slate-600">
-                  {{ entry.note }}
-                </p>
               </li>
             </ol>
           </div>
