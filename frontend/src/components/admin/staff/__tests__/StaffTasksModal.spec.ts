@@ -11,6 +11,13 @@ const manager = {
   role: "manager" as const,
   active: true,
 };
+const staffEmployee = {
+  id: "employee-1",
+  first_name: "Павел",
+  last_name: "Сергеевич",
+  role: "employee" as const,
+  active: true,
+};
 
 const tasks: StaffTask[] = [
   {
@@ -101,5 +108,46 @@ describe("StaffTasksModal: рабочая очередь руководител�
     expect(wrapper.text()).toContain("Старая задача");
     expect(wrapper.text()).toContain("Просрочена");
     expect(wrapper.text()).not.toContain("Проверить витрину");
+  });
+
+  it("не предлагает сдать задачу во время чужой смены", async () => {
+    const employeeTask: StaffTask = {
+      id: "employee-task",
+      title: "Проверить старые резервы",
+      description: "Задача Павла",
+      status: "claimed",
+      assignee_employee_id: staffEmployee.id,
+      assignee_name: "Павел Сергеевич",
+      due_at: "2099-07-28T12:00:00.000Z",
+    };
+    const store = useCrmStore();
+    store.$patch({
+      staffToken: "employee-token",
+      staffIdentity: { role: "employee", employee: staffEmployee },
+      staffTasks: [employeeTask],
+      currentStaffShift: {
+        id: "shift-manager",
+        version: 1,
+        employee_id: manager.id,
+        employee_name: "Константин Жмурков",
+        status: "active",
+      },
+    });
+    vi.spyOn(store, "fetchStaffTasks").mockResolvedValue([employeeTask]);
+
+    const wrapper = mount(StaffTasksModal, {
+      props: { open: false },
+      global: { stubs: { AdminModal: modalStub } },
+    });
+    await wrapper.setProps({ open: true });
+    await flushPromises();
+
+    expect(wrapper.text()).toContain("Проверить старые резервы");
+    expect(wrapper.text()).toContain(
+      "Сейчас смена Константин Жмурков. Сдать задачу можно в своей смене",
+    );
+    expect(
+      wrapper.findAll("button").some((button) => button.text() === "Готово"),
+    ).toBe(false);
   });
 });

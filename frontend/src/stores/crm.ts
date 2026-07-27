@@ -2269,10 +2269,16 @@ export const useCrmStore = defineStore("crm", () => {
     return employee;
   }
 
-  async function restoreStaffEmployee(id: string) {
+  async function restoreStaffEmployee(
+    id: string,
+    params: { newPin?: string; adminPassword?: string } = {},
+  ) {
+    const body: Record<string, string> = {};
+    if (params.newPin) body.new_pin = params.newPin;
+    if (params.adminPassword) body.admin_password = params.adminPassword;
     const response = await staffFetchAPI<Employee | { employee: Employee }>(
       `${API_BASE}/staff/employees/${id}/restore`,
-      { method: "POST", body: "{}" },
+      { method: "POST", body: JSON.stringify(body) },
     );
     const employee = "employee" in response ? response.employee : response;
     const index = staffEmployees.value.findIndex((item) => item.id === id);

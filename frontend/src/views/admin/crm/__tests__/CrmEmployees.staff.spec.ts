@@ -469,6 +469,79 @@ describe("CrmEmployees: вход сотрудника", () => {
     expect(employeeRow!.text()).toContain("6 / 1");
   });
 
+  it("просит новый ПИН при восстановлении старого сотрудника без ПИНа", async () => {
+    const formerEmployee = {
+      ...employee,
+      id: "employee-former",
+      first_name: "Анна",
+      last_name: "Бывшая",
+      active: false,
+      pin_configured: false,
+    };
+    const store = useCrmStore();
+    store.$patch({
+      staffTrackingEnabled: true,
+      staffOrderShiftRestrictionEnabled: true,
+      staffToken: "manager-token",
+      staffIdentity: { role: "manager", employee: manager },
+      staffEmployees: [manager, formerEmployee],
+    });
+    vi.spyOn(store, "fetchStaffSettings").mockResolvedValue({
+      trackingEnabled: true,
+      orderShiftRestrictionEnabled: true,
+    });
+    vi.spyOn(store, "fetchStaffEmployees").mockResolvedValue([
+      manager,
+      formerEmployee,
+    ]);
+    vi.spyOn(store, "fetchStaffAnalytics").mockImplementation(async () => {
+      const analytics: StaffAnalytics = { employee: manager };
+      store.$patch({ staffAnalytics: analytics });
+      return analytics;
+    });
+    vi.spyOn(store, "fetchStaffMarks").mockResolvedValue([]);
+    vi.spyOn(store, "fetchStaffTeamAnalytics").mockResolvedValue([
+      { employee: manager },
+      { employee: formerEmployee },
+    ]);
+    const restoreEmployee = vi
+      .spyOn(store, "restoreStaffEmployee")
+      .mockResolvedValue({ ...formerEmployee, active: true, pin_configured: true });
+
+    const wrapper = mountEmployees();
+    await flushPromises();
+    await wrapper.get("#staff-manager-section").setValue("team");
+    await flushPromises();
+    await wrapper.get('[aria-label="Статус сотрудника"]').setValue("inactive");
+    await flushPromises();
+
+    const formerRow = wrapper
+      .findAll("article")
+      .find((article) => article.text().includes("Анна Бывшая"));
+    expect(formerRow).toBeTruthy();
+    await formerRow!
+      .findAll("button")
+      .find((button) => button.text() === "Восстановить")!
+      .trigger("click");
+
+    const modal = wrapper.get(
+      '[data-modal-title="Восстановить сотрудника?"]',
+    );
+    expect(modal.text()).toContain("Сразу задайте ему новый ПИН");
+    const pinInput = modal.get('[aria-label="Новый ПИН сотрудника"]');
+    await pinInput.setValue("1234");
+    await modal
+      .findAll("button")
+      .find((button) => button.text() === "Восстановить")!
+      .trigger("click");
+    await flushPromises();
+
+    expect(restoreEmployee).toHaveBeenCalledWith(formerEmployee.id, {
+      newPin: "1234",
+      adminPassword: undefined,
+    });
+  });
+
   it("показывает длинную историю смен порциями", async () => {
     const store = useCrmStore();
     const shifts = Array.from({ length: 25 }, (_, index) => ({

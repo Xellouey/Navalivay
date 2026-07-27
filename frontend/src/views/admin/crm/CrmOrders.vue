@@ -1143,6 +1143,8 @@
       @cancel="closePaymentModal"
     >
       <div class="grid gap-4">
+        <StaffCurrentActorBadge />
+
         <div>
           <label class="text-sm font-medium text-gray-700"
             >Сумма к оплате</label
@@ -1721,6 +1723,7 @@ import CustomerInviteBanModal from "@/components/admin/CustomerInviteBanModal.vu
 import { LockClosedIcon, NoSymbolIcon } from "@heroicons/vue/24/outline";
 import { buildAutoNotifyToast } from "@/utils/auto-notify-message";
 import CrmProfitPasswordField from "@/components/crm/CrmProfitPasswordField.vue";
+import StaffCurrentActorBadge from "@/components/admin/staff/StaffCurrentActorBadge.vue";
 import StaffShiftBar from "@/components/admin/staff/StaffShiftBar.vue";
 
 /** Отдаёт клик браузеру сразу — меньше [Violation] 'click' handler took Nms */

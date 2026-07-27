@@ -1711,6 +1711,34 @@
             class="w-full rounded-xl border border-slate-300 px-3 py-2"
           />
         </label>
+        <label v-if="confirmationAction?.requirePin" class="block">
+          <span class="mb-1 block text-sm font-medium text-slate-700">
+            {{ confirmationAction.pinLabel || "Новый ПИН сотрудника" }}
+          </span>
+          <input
+            v-model="confirmationPin"
+            type="password"
+            inputmode="numeric"
+            autocomplete="new-password"
+            maxlength="4"
+            placeholder="4 цифры"
+            aria-label="Новый ПИН сотрудника"
+            class="min-h-[44px] w-full rounded-xl border border-slate-300 px-3 tracking-[0.35em]"
+            @input="sanitizeConfirmationPin"
+          />
+        </label>
+        <label v-if="confirmationAction?.requireAdminPassword" class="block">
+          <span class="mb-1 block text-sm font-medium text-slate-700">
+            Основной пароль CRM
+          </span>
+          <input
+            v-model="confirmationAdminPassword"
+            type="password"
+            autocomplete="current-password"
+            aria-label="Основной пароль CRM"
+            class="min-h-[44px] w-full rounded-xl border border-slate-300 px-3"
+          />
+        </label>
         <p v-if="confirmationError" class="text-sm text-red-700" role="alert">
           {{ confirmationError }}
         </p>
@@ -1727,7 +1755,11 @@
             :variant="confirmationAction?.variant || 'primary'"
             type="button"
             :loading="confirmationSaving"
-            :disabled="Boolean(confirmationAction?.requireReason) && !confirmationReason"
+            :disabled="
+              (Boolean(confirmationAction?.requireReason) && !confirmationReason) ||
+              (Boolean(confirmationAction?.requirePin) && !/^\d{4}$/.test(confirmationPin)) ||
+              (Boolean(confirmationAction?.requireAdminPassword) && !confirmationAdminPassword)
+            "
             @click="confirmRequestedAction"
           >
             {{ confirmationAction?.confirmLabel || "Подтвердить" }}
@@ -1932,10 +1964,19 @@ type ConfirmationAction = {
   variant?: ConfirmationVariant;
   requireReason?: boolean;
   reasonLabel?: string;
-  run: (reason: string) => Promise<void>;
+  requirePin?: boolean;
+  pinLabel?: string;
+  requireAdminPassword?: boolean;
+  run: (
+    reason: string,
+    pin: string,
+    adminPassword: string,
+  ) => Promise<void>;
 };
 const confirmationAction = ref<ConfirmationAction | null>(null);
 const confirmationReason = ref("");
+const confirmationPin = ref("");
+const confirmationAdminPassword = ref("");
 const confirmationSaving = ref(false);
 const confirmationError = ref("");
 
@@ -3088,27 +3129,42 @@ async function recoverManager() {
 function requestConfirmation(action: ConfirmationAction) {
   confirmationAction.value = action;
   confirmationReason.value = "";
+  confirmationPin.value = "";
+  confirmationAdminPassword.value = "";
   confirmationError.value = "";
 }
 function closeConfirmation() {
   if (confirmationSaving.value) return;
   confirmationAction.value = null;
   confirmationReason.value = "";
+  confirmationPin.value = "";
+  confirmationAdminPassword.value = "";
   confirmationError.value = "";
+}
+function sanitizeConfirmationPin() {
+  confirmationPin.value = confirmationPin.value.replace(/\D/g, "").slice(0, 4);
 }
 async function confirmRequestedAction() {
   const action = confirmationAction.value;
   if (
     !action ||
     confirmationSaving.value ||
-    (action.requireReason && !confirmationReason.value.trim())
+    (action.requireReason && !confirmationReason.value.trim()) ||
+    (action.requirePin && !/^\d{4}$/.test(confirmationPin.value)) ||
+    (action.requireAdminPassword && !confirmationAdminPassword.value)
   ) return;
   confirmationSaving.value = true;
   confirmationError.value = "";
   try {
-    await action.run(confirmationReason.value.trim());
+    await action.run(
+      confirmationReason.value.trim(),
+      confirmationPin.value,
+      confirmationAdminPassword.value,
+    );
     confirmationAction.value = null;
     confirmationReason.value = "";
+    confirmationPin.value = "";
+    confirmationAdminPassword.value = "";
   } catch (error: any) {
     confirmationError.value =
       error?.message || "Не удалось выполнить действие";
@@ -3270,19 +3326,30 @@ async function saveEmployee() {
 }
 async function toggleEmployeeActive(employee: Employee) {
   const activating = !employeeActive(employee);
+  const needsPin = activating && !employee.pin_configured;
+  const needsAdminPassword = needsPin && employee.role === "manager";
   const employeeName = `${employee.first_name} ${employee.last_name}`.trim();
   requestConfirmation({
     title: activating ? "Восстановить сотрудника?" : "Уволить сотрудника?",
     description: activating
-      ? "Сотрудник снова появится в рабочих списках."
+      ? needsPin
+        ? "Сотрудник снова появится в рабочих списках. Сразу задайте ему новый ПИН."
+        : "Сотрудник снова появится в рабочих списках."
       : "Доступ и активные допуски закроются, вся история останется.",
     context: `${employeeName}\n${employee.position || "Должность не указана"}`,
     confirmLabel: activating ? "Восстановить" : "Уволить",
     variant: activating ? "success" : "danger",
     requireReason: !activating,
     reasonLabel: "Причина увольнения",
-    run: async (reason) => {
-      if (activating) await crmStore.restoreStaffEmployee(employee.id);
+    requirePin: needsPin,
+    requireAdminPassword: needsAdminPassword,
+    run: async (reason, pin, adminPassword) => {
+      if (activating) {
+        await crmStore.restoreStaffEmployee(employee.id, {
+          newPin: pin || undefined,
+          adminPassword: adminPassword || undefined,
+        });
+      }
       else await crmStore.deactivateStaffEmployee(employee.id, reason);
       pageMessageKind.value = "info";
       pageMessage.value = activating

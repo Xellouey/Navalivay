@@ -1101,14 +1101,65 @@ staffRouter.post(
 staffRouter.post(
   `${BASE}/employees/:id/restore`,
   managerAccess,
-  asyncRoute((req, res) => {
+  adminReauthLimiter,
+  asyncRoute(async (req, res) => {
     const employee = requireEmployee(req.params.id);
+    const pinConfigured = Boolean(
+      employee.pin_hash && employee.pin_fingerprint,
+    );
+    const hasNewPin = Object.prototype.hasOwnProperty.call(
+      req.body || {},
+      'new_pin',
+    );
+    const credentials = hasNewPin
+      ? await createStaffPinCredentials(req.body?.new_pin)
+      : null;
+    if (
+      isStaffOrderShiftRestrictionEnabled()
+      && !pinConfigured
+      && !credentials
+    ) {
+      throw new StaffServiceError('staff_pins_required', 409);
+    }
+    if (credentials && employee.role === 'manager') {
+      const adminPassword = String(req.body?.admin_password || '');
+      if (!adminPassword || !(await verifyPassword(adminPassword))) {
+        throw new StaffServiceError('invalid_admin_password', 401);
+      }
+    }
+
     const timestamp = nowIso();
-    db.prepare(`
-      UPDATE employees
-      SET active = 1, deactivated_at = NULL, updated_at = ?
-      WHERE id = ?
-    `).run(timestamp, employee.id);
+    try {
+      db.transaction(() => {
+        if (credentials) {
+          db.prepare(`
+            UPDATE employees
+            SET active = 1, deactivated_at = NULL,
+                pin_hash = ?, pin_fingerprint = ?, pin_updated_at = ?,
+                updated_at = ?
+            WHERE id = ?
+          `).run(
+            credentials.hash,
+            credentials.fingerprint,
+            timestamp,
+            timestamp,
+            employee.id,
+          );
+          revokeStaffSessions(employee.id, new Date(timestamp));
+          return;
+        }
+        db.prepare(`
+          UPDATE employees
+          SET active = 1, deactivated_at = NULL, updated_at = ?
+          WHERE id = ?
+        `).run(timestamp, employee.id);
+      }).immediate();
+    } catch (error) {
+      if (String(error?.message || '').includes('pin_fingerprint')) {
+        throw new StaffServiceError('pin_already_in_use', 409);
+      }
+      throw error;
+    }
     res.json({ employee: publicEmployee(requireEmployee(employee.id)) });
   }),
 );

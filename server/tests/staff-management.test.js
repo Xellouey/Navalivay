@@ -242,6 +242,42 @@ try {
   assertStatus(enableOrderRestriction, 200, 'enable order restriction separately');
   assert.equal(enableOrderRestriction.data.enabled, true);
 
+  const blockedLegacyRestore = await requestJson(
+    '/api/admin/crm/staff/employees/legacy_without_pin/restore',
+    {
+      method: 'POST',
+      staffToken: managerToken,
+      body: {},
+    },
+  );
+  assertStatus(
+    blockedLegacyRestore,
+    409,
+    'order restriction blocks restore without pin',
+  );
+  assert.equal(blockedLegacyRestore.data.error, 'staff_pins_required');
+
+  const restoredLegacyEmployee = await requestJson(
+    '/api/admin/crm/staff/employees/legacy_without_pin/restore',
+    {
+      method: 'POST',
+      staffToken: managerToken,
+      body: { new_pin: '7812' },
+    },
+  );
+  assertStatus(
+    restoredLegacyEmployee,
+    200,
+    'restore accepts a new pin in the same request',
+  );
+  assert.equal(restoredLegacyEmployee.data.employee.active, true);
+  assert.equal(restoredLegacyEmployee.data.employee.pin_configured, true);
+  db.prepare(`
+    UPDATE employees
+    SET active = 0, deactivated_at = DATETIME('now')
+    WHERE id = 'legacy_without_pin'
+  `).run();
+
   const malformedAccess = await requestJson('/api/admin/crm/staff/access', {
     method: 'POST',
     body: { pin: '12' },

@@ -98,7 +98,7 @@
         class="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800"
       >
         Сейчас смена {{ currentShiftOwnerName }}. Руководитель может проверять и распределять задачи,
-        но взять свободную задачу сможет только сотрудник этой смены.
+        но взять или сдать свою задачу сможет только сотрудник этой смены.
       </p>
 
       <form
@@ -632,10 +632,18 @@ function actionsFor(task: StaffTask): Array<{
   ) {
     actions.push({ value: "claim", label: "Взять", variant: "primary" });
   }
-  if (task.status === "claimed" && task.assignee_employee_id === selfId) {
+  if (
+    task.status === "claimed" &&
+    task.assignee_employee_id === selfId &&
+    !claimBlockedByOtherShift.value
+  ) {
     actions.push({ value: "submit", label: "Готово", variant: "success" });
   }
-  if (task.status === "submitted" && task.assignee_employee_id === selfId) {
+  if (
+    task.status === "submitted" &&
+    task.assignee_employee_id === selfId &&
+    !claimBlockedByOtherShift.value
+  ) {
     actions.push({ value: "submit", label: "Сдать повторно", variant: "primary" });
   }
   if (task.status === "claimed" && isStaffManager.value) {
@@ -664,6 +672,13 @@ function claimUnavailableReason(task: StaffTask) {
     claimBlockedByOtherShift.value
   ) {
     return `Сейчас смена ${currentShiftOwnerName.value}`;
+  }
+  if (
+    ["claimed", "submitted"].includes(task.status) &&
+    task.assignee_employee_id === staffIdentity.value?.employee.id &&
+    claimBlockedByOtherShift.value
+  ) {
+    return `Сейчас смена ${currentShiftOwnerName.value}. Сдать задачу можно в своей смене`;
   }
   return "";
 }

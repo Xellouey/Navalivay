@@ -1324,13 +1324,6 @@ crmOperationsRouter.patch(
       if (status !== undefined && !allowedStatuses.includes(status)) {
         return res.status(400).json({ error: "invalid_status" });
       }
-      if (
-        isStaffOrderShiftRestrictionEnabled()
-        && ["completed", "delivered"].includes(status)
-      ) {
-        return res.status(409).json({ error: "issue_endpoint_required" });
-      }
-
       let order = db.prepare("SELECT * FROM orders WHERE id = ?").get(id);
       if (!order) {
         return res.status(404).json({ error: "not_found" });
@@ -1393,6 +1386,14 @@ crmOperationsRouter.patch(
           if (status !== undefined) {
             desiredStatus = status;
           }
+        }
+
+        if (
+          isStaffOrderShiftRestrictionEnabled()
+          && ["completed", "delivered"].includes(desiredStatus)
+          && desiredStatus !== statusAtTxStart
+        ) {
+          throw new StaffServiceError("issue_endpoint_required", 409);
         }
 
         if (

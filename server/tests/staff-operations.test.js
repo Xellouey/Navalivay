@@ -662,6 +662,32 @@ try {
     1,
   );
 
+  const editIssuedOrder = await requestJson(
+    `/api/admin/crm/orders/${orderId}`,
+    {
+      method: "PATCH",
+      body: {
+        status: "delivered",
+        notes: "Комментарий после выдачи",
+      },
+    },
+  );
+  assert.equal(editIssuedOrder.response.status, 200);
+  assert.equal(editIssuedOrder.data.status, "delivered");
+  assert.equal(editIssuedOrder.data.notes, "Комментарий после выдачи");
+  assert.equal(
+    db
+      .prepare(
+        `
+      SELECT COUNT(*) AS count
+      FROM cash_transactions
+      WHERE order_id = ?
+    `,
+      )
+      .get(orderId).count,
+    1,
+  );
+
   closeActiveShift();
   const blockedPaymentRollback = await requestJson(
     `/api/admin/crm/orders/${orderId}/payment`,
