@@ -881,6 +881,67 @@ describe("безопасность учёта сотрудников", () => {
     expect(store.staffShiftToken).toBe("");
   });
 
+  it("убирает старую смену, если учёт выключили в другой вкладке", async () => {
+    const oldShift = deferred<Response>();
+    const employee = {
+      id: "employee-external-tracking-off",
+      first_name: "Анна",
+      last_name: "Иванова",
+      position: null,
+      active: true,
+      role: "employee" as const,
+    };
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse({
+          staff_token: "staff-active",
+          shift_token: "shift-active",
+          employee,
+          role: "employee",
+          shift: {
+            id: "shift-active",
+            version: 1,
+            employee_id: employee.id,
+            status: "active",
+          },
+        }),
+      )
+      .mockImplementationOnce(() => oldShift.promise)
+      .mockResolvedValueOnce(
+        jsonResponse({
+          enabled: false,
+          order_shift_restriction_enabled: false,
+        }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    const store = useCrmStore();
+
+    await store.openStaffShift({ employee_id: employee.id, pin: "1234" });
+    const staleRequest = store.fetchStaffShift();
+    await Promise.resolve();
+    await store.fetchStaffSettings();
+
+    expect(store.currentStaffShift).toBeNull();
+    expect(store.staffShiftToken).toBe("");
+
+    oldShift.resolve(
+      jsonResponse({
+        active: true,
+        shift: {
+          id: "shift-stale",
+          version: 1,
+          employee_id: employee.id,
+          status: "active",
+        },
+      }),
+    );
+    await staleRequest;
+
+    expect(store.currentStaffShift).toBeNull();
+    expect(store.staffShiftToken).toBe("");
+  });
+
   it("не заменяет новые показатели, зарплаты, отметки и смены поздними ответами", async () => {
     const oldAnalytics = deferred<Response>();
     const oldSalary = deferred<Response>();
