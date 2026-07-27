@@ -132,7 +132,7 @@ describe("CrmEmployees: вход сотрудника", () => {
     ).not.toContain("lg:grid-cols-[260px_minmax(0,1fr)]");
   });
 
-  it("явно показывает, что ожидаемая зарплата ещё не указана, и даёт текстовое описание графика", async () => {
+  it("показывает, что ожидаемая зарплата ещё не указана, и даёт доступное описание графика", async () => {
     const store = useCrmStore();
     store.$patch({
       staffTrackingEnabled: true,
@@ -163,7 +163,7 @@ describe("CrmEmployees: вход сотрудника", () => {
 
     expect(wrapper.text()).toContain("Ожидаемая зарплата");
     expect(wrapper.text()).toContain("Не указана");
-    expect(wrapper.text()).toContain("не означает факт выплаты");
+    expect(wrapper.text()).not.toContain("не означает факт выплаты");
     expect(wrapper.get('[role="img"]').attributes("aria-label")).toContain(
       "1 июля — 1 действие",
     );
@@ -261,10 +261,10 @@ describe("CrmEmployees: вход сотрудника", () => {
       .find((button) => button.text() === "Изменить")!
       .trigger("click");
     const markModal = wrapper.get('[data-modal-title="Изменить отметку"]');
-    expect(markModal.text()).toContain("Павел Сергеевич");
-    expect(markModal.text()).toContain(
-      "Положительная · Аккуратно принял поставку",
-    );
+    const markContext = markModal.get('[aria-label="Текущая отметка"]');
+    expect(markContext.text()).toContain("Павел Сергеевич");
+    expect(markContext.text()).toContain("Положительная");
+    expect(markContext.text()).toContain("Аккуратно принял поставку");
     expect(markModal.text()).toContain("Сохранить изменения");
     await markModal
       .findAll("button")
@@ -475,7 +475,8 @@ describe("CrmEmployees: вход сотрудника", () => {
     expect(fetchTeam).toHaveBeenCalledWith(
       expect.objectContaining({ period: "month" }),
     );
-    expect(wrapper.text()).toContain("без общего искусственного балла");
+    expect(wrapper.text()).not.toContain("без общего искусственного балла");
+    expect(wrapper.text()).not.toContain("без общего рейтинга");
     const employeeRow = wrapper
       .findAll("article")
       .find((article) => article.text().includes("Павел Сергеевич"));

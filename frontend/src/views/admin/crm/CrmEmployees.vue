@@ -4,9 +4,6 @@
       <header class="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h1 class="text-2xl font-bold text-slate-950 sm:text-3xl">Сотрудники и зарплаты</h1>
-          <p class="mt-1 text-sm text-slate-600">
-            Смены, действия и понятная история работы команды.
-          </p>
         </div>
         <div v-if="hasStaffAccess" class="flex flex-wrap gap-2">
           <CrmButton variant="secondary" refresh-icon :loading="pageLoading" @click="loadCurrentView">
@@ -286,9 +283,6 @@
                       <div class="mt-1 truncate text-base font-bold text-slate-950">{{ metric.value }}</div>
                     </div>
                   </dl>
-                  <p v-if="group.hint" class="mt-3 text-[11px] leading-4 text-slate-500">
-                    {{ group.hint }}
-                  </p>
                 </article>
               </section>
 
@@ -304,10 +298,6 @@
                 <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <div>
                     <h3 class="font-semibold text-slate-950">Динамика работы</h3>
-                    <p class="mt-1 text-xs text-slate-500">
-                      {{ activityChartGranularity === "month" ? "По месяцам" : "По дням" }} · нулевые периоды тоже показаны.
-                      <span v-if="activityChartPoints.length > 12">График можно листать.</span>
-                    </p>
                   </div>
                   <div
                     class="flex max-w-full flex-nowrap gap-2 overflow-x-auto pb-1 sm:ml-auto sm:shrink-0 sm:pb-0"
@@ -359,7 +349,6 @@
                 <div class="flex flex-col gap-3 border-b border-slate-200 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
                   <div>
                     <h3 class="font-semibold text-slate-950">Действия и отметки</h3>
-                    <p class="mt-1 text-xs text-slate-500">Системные события и ручные пояснения руководителя.</p>
                   </div>
                   <div class="flex items-center gap-2">
                     <span class="whitespace-nowrap text-xs text-slate-500">
@@ -488,9 +477,6 @@
             <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <h2 class="font-semibold text-slate-950">Показатели команды</h2>
-                <p class="mt-1 text-sm text-slate-500">
-                  Только фактические часы и действия, без общего искусственного балла.
-                </p>
               </div>
               <div class="flex flex-wrap gap-2">
                 <select
@@ -574,7 +560,6 @@
               <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <h2 class="font-semibold text-slate-950">Сравнение команды</h2>
-                  <p class="mt-1 text-xs text-slate-500">Сравнение строится по одному показателю без общего рейтинга.</p>
                 </div>
                 <select
                   v-model="teamChartMetric"
@@ -822,7 +807,6 @@
           <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <h2 class="text-lg font-semibold text-slate-950">Ручные отметки</h2>
-              <p class="mt-1 text-sm text-slate-500">Пояснение обязательно остаётся в истории.</p>
             </div>
             <div class="flex flex-col gap-2 sm:flex-row">
               <input
@@ -887,7 +871,6 @@
           <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <h2 class="text-lg font-semibold text-slate-950">История смен</h2>
-              <p class="mt-1 text-sm text-slate-500">Исправления сохраняются вместе с причиной.</p>
             </div>
             <div class="flex flex-col gap-2 sm:flex-row">
               <select
@@ -933,9 +916,6 @@
             <section class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
               <div>
                 <h3 class="font-semibold text-slate-950">Календарь смен</h3>
-                <p class="mt-1 text-xs text-slate-500">
-                  Чем насыщеннее ячейка, тем больше часов отработано в этот день.
-                </p>
               </div>
               <div class="mt-4 grid grid-cols-7 gap-1 text-center text-[10px] font-medium text-slate-400">
                 <span v-for="day in ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс']" :key="day">{{ day }}</span>
@@ -1041,9 +1021,6 @@
         <section v-else-if="activeTab === 'settings'" class="space-y-5">
           <div>
             <h2 class="text-lg font-semibold text-slate-950">Настройки учёта</h2>
-            <p class="mt-1 text-sm text-slate-500">
-              Сначала включите общий учёт. Ограничение заказов включается отдельно после проверки сотрудников и ПИНов.
-            </p>
           </div>
 
           <div v-if="staffSettingsError" class="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700" role="alert">
@@ -1118,9 +1095,6 @@
         <section v-else-if="activeTab === 'notifications'" class="space-y-5">
           <div>
             <h2 class="text-lg font-semibold text-slate-950">Уведомления руководителю</h2>
-            <p class="mt-1 text-sm text-slate-500">
-              Настройте, кому Telegram отправляет документы, задачи и напоминания о зарплате.
-            </p>
           </div>
 
           <div v-if="staffNotificationsLoading" class="rounded-2xl border border-slate-200 bg-white py-16 text-center text-sm text-slate-500">
@@ -1177,7 +1151,6 @@
               <form class="space-y-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm" @submit.prevent="resolvedRecipient ? addNotificationRecipient() : resolveNotificationRecipient()">
                 <div>
                   <h3 class="font-semibold text-slate-950">Добавить получателя</h3>
-                  <p class="mt-1 text-xs text-slate-500">Сначала найдём точный Telegram-профиль, затем вы подтвердите добавление.</p>
                 </div>
                 <label class="block">
                   <span class="mb-1 block text-sm font-medium text-slate-700">Тип сообщений</span>
@@ -1230,7 +1203,6 @@
             <div class="rounded-2xl border border-slate-200 bg-white shadow-sm">
               <div class="border-b border-slate-200 px-5 py-4">
                 <h3 class="font-semibold text-slate-950">Последние отправки</h3>
-                <p class="mt-1 text-xs text-slate-500">Это журнал доставки, а не входящие сообщения.</p>
               </div>
               <div v-if="!notificationOutbox.length" class="py-12 text-center text-sm text-slate-500">Отправок пока нет</div>
               <div v-else class="divide-y divide-slate-200">
@@ -1378,9 +1350,6 @@
     <AdminModal
       :is-open="employeeEditorOpen"
       :title="editingEmployee ? 'Изменить сотрудника' : 'Добавить сотрудника'"
-      :description="editingEmployee
-        ? 'Измените данные сотрудника. После смены роли ему потребуется снова войти по ПИН.'
-        : 'ПИН состоит ровно из четырёх цифр.'"
       size="md"
       :show-actions="false"
       :persistent="formSaving || avatarUploading"
@@ -1543,7 +1512,6 @@
     <AdminModal
       :is-open="markEditorOpen"
       :title="editingMark ? 'Изменить отметку' : 'Добавить отметку'"
-      description="Отметка будет видна сотруднику вместе с пояснением."
       size="sm"
       :show-actions="false"
       :persistent="formSaving"
@@ -1552,18 +1520,35 @@
       @cancel="closeMarkEditor"
     >
       <form class="space-y-4" @submit.prevent="saveMark">
-        <dl class="space-y-1 rounded-xl border border-blue-100 bg-blue-50 px-4 py-3 text-sm text-blue-950">
-          <div class="flex items-start justify-between gap-4">
-            <dt class="text-blue-700">Сотрудник</dt>
-            <dd class="text-right font-semibold">{{ selectedEmployeeLabel }}</dd>
+        <section class="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm" aria-label="Текущая отметка">
+          <div class="flex items-center gap-3 bg-slate-50 px-4 py-3">
+            <span class="flex size-9 shrink-0 items-center justify-center rounded-full bg-blue-100 text-sm font-bold text-blue-700">
+              {{ selectedEmployeeLabel.charAt(0).toUpperCase() }}
+            </span>
+            <div class="min-w-0">
+              <p class="text-xs font-medium text-slate-500">Сотрудник</p>
+              <p class="truncate font-semibold text-slate-950">{{ selectedEmployeeLabel }}</p>
+            </div>
           </div>
-          <div v-if="editingMark" class="flex items-start justify-between gap-4">
-            <dt class="text-blue-700">Текущая отметка</dt>
-            <dd class="max-w-[65%] text-right font-semibold">
-              {{ markKindLabel(editingMark.kind) }} · {{ editingMark.title }}
-            </dd>
+          <div v-if="editingMark" class="border-t border-slate-200 px-4 py-4">
+            <div class="flex flex-wrap items-center justify-between gap-2">
+              <p class="text-xs font-medium uppercase tracking-wide text-slate-500">Текущая отметка</p>
+              <span
+                class="rounded-full px-2.5 py-1 text-xs font-semibold"
+                :class="
+                  editingMark.kind === 'positive'
+                    ? 'bg-emerald-100 text-emerald-800'
+                    : 'bg-rose-100 text-rose-800'
+                "
+              >
+                {{ markKindLabel(editingMark.kind) }}
+              </span>
+            </div>
+            <p class="mt-2 text-base font-semibold leading-snug text-slate-950">
+              {{ editingMark.title }}
+            </p>
           </div>
-        </dl>
+        </section>
         <label class="block">
           <span class="mb-1 block text-sm font-medium text-slate-700">Тип</span>
           <select v-model="markForm.kind" class="min-h-[44px] w-full rounded-xl border border-slate-300 bg-white px-3">
@@ -1620,7 +1605,6 @@
     <AdminModal
       :is-open="historyOpen"
       :title="historyTitle"
-      description="Версии сохраняются сервером и не перезаписываются."
       size="md"
       :show-actions="false"
       @close="historyOpen = false"
@@ -1660,7 +1644,6 @@
     <AdminModal
       :is-open="shiftCorrectionOpen"
       :title="editingShift && shiftActive(editingShift) ? 'Принудительно закрыть смену' : 'Исправить смену'"
-      description="Причина обязательна и сохраняется в истории."
       size="sm"
       :show-actions="false"
       :persistent="formSaving"
@@ -2116,7 +2099,6 @@ const headlineMetrics = computed<MetricItem[]>(() => [
 const metricGroups = computed<Array<{
   title: string;
   metrics: MetricItem[];
-  hint?: string;
 }>>(() => [
   {
     title: "Заказы",
@@ -2178,7 +2160,6 @@ const metricGroups = computed<Array<{
             : formatMoney(Number(analyticsSummary.value.estimated_salary)),
       },
     ],
-    hint: "Задаётся руководителем вручную и не означает факт выплаты.",
   },
 ]);
 type ActivityDay = {

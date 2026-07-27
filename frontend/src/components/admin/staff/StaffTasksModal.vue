@@ -2,7 +2,6 @@
   <AdminModal
     :is-open="open"
     :title="modalTitle"
-    :description="description"
     size="lg"
     :show-actions="false"
     :persistent="taskBusy || Boolean(actionDialog)"
@@ -501,11 +500,6 @@ const filters = computed<Array<{ value: TaskFilter; label: string }>>(() => [
 ]);
 const modalTitle = computed(() =>
   isStaffManager.value ? "Задачи команды" : "Мои задачи",
-);
-const description = computed(() =>
-  isStaffManager.value
-    ? "Задачи команды и действия, ожидающие проверки."
-    : "Возьмите задачу, выполните её и отправьте на проверку.",
 );
 const currentShiftOwnerId = computed(() => {
   const shift = currentStaffShift.value;
