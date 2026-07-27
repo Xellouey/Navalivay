@@ -238,9 +238,10 @@ export function computeLowStockGroups() {
 }
 
 /**
- * Возвращает вкусы (товары) линейки от меньшего остатка к большему.
- * Для товара с вариантами считаем общий остаток всех вариантов так же,
- * как в суммарном остатке линейки.
+ * Возвращает позиции линейки от меньшего розничного остатка к большему.
+ * Обычный товар идёт одной строкой, а товар с вариантами — отдельной строкой
+ * на каждый вкус/цвет. Так менеджер видит, какой именно вариант заканчивается,
+ * а не только общий остаток модели.
  */
 export function getGroupStockItems(groupId) {
   if (!groupId) {
@@ -259,17 +260,25 @@ export function getGroupStockItems(groupId) {
   return db
     .prepare(
       `SELECT
-         p.id,
-         p.title AS name,
-         CASE WHEN p.has_variants = 1
-              THEN (SELECT COALESCE(SUM(pv.stock), 0)
-                      FROM product_variants pv
-                     WHERE pv.product_id = p.id)
-              ELSE COALESCE(p.stock, 0)
+         CASE
+           WHEN COALESCE(p.has_variants, 0) = 1 AND pv.id IS NOT NULL THEN pv.id
+           ELSE p.id
+         END AS id,
+         CASE
+           WHEN COALESCE(p.has_variants, 0) = 1 AND pv.id IS NOT NULL
+             THEN COALESCE(NULLIF(TRIM(pv.name), ''), p.title)
+           ELSE p.title
+         END AS name,
+         CASE
+           WHEN COALESCE(p.has_variants, 0) = 1 THEN COALESCE(pv.stock, 0)
+           ELSE COALESCE(p.stock, 0)
          END AS stock
        FROM products p
+       LEFT JOIN product_variants pv
+         ON pv.product_id = p.id
+        AND COALESCE(p.has_variants, 0) = 1
        WHERE p.groupId = ?
-       ORDER BY stock ASC, p.title COLLATE NOCASE ASC, p.id ASC`,
+       ORDER BY stock ASC, name COLLATE NOCASE ASC, id ASC`,
     )
     .all(String(groupId))
     .map((item) => ({

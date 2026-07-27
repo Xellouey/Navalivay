@@ -80,6 +80,9 @@ function setup() {
     { id: 'p_g2_a', groupId: 'g2', title: 'Много', stock: 8 },
     { id: 'p_g2_b', groupId: 'g2', title: 'Нет', stock: 0 },
     { id: 'p_g2_c', groupId: 'g2', title: 'Варианты', stock: 0, hasVariants: 1 },
+    // У вариативного товара родительский stock не участвует в продаже.
+    // Даже при битом/устаревшем значении без вариантов должен отображаться 0.
+    { id: 'p_g2_d', groupId: 'g2', title: 'Без цветов', stock: 99, hasVariants: 1 },
     { id: 'p_g3_a', groupId: 'g3', stock: 0 },
     { id: 'p_g4_a', groupId: 'g4', stock: 3 },
     // g5 — без продуктов
@@ -91,8 +94,12 @@ function setup() {
     ).run(p.id, p.groupId, p.title ?? 'test', p.stock, p.hasVariants ?? 0);
   });
   db.prepare(
-    `INSERT INTO product_variants (id, product_id, name, stock, position)
-     VALUES ('pv_g2_c_1', 'p_g2_c', 'Первый', 2, 1)`,
+    `INSERT INTO product_variants
+       (id, product_id, name, stock, warehouse_stock, position)
+     VALUES
+       ('pv_g2_c_1', 'p_g2_c', 'Первый', 2, 0, 1),
+       ('pv_g2_c_2', 'p_g2_c', 'Нулевой', 0, 50, 2),
+       ('pv_g2_c_3', 'p_g2_c', '   ', 1, 0, 3)`,
   ).run();
 }
 
@@ -114,11 +121,22 @@ function runTests() {
   assertEq(g3?.threshold, null, 'g3.threshold = null (порог не задан)');
   assertEq(g3?.totalStock, 0, 'g3.totalStock = 0');
 
-  console.log('\n=== Test 1a: вкусы отсортированы от нулевого остатка к большему ===');
+  console.log('\n=== Test 1a: варианты идут отдельно от меньшего остатка к большему ===');
   const flavors = getGroupStockItems('g2');
-  assertEq(JSON.stringify(flavors.map((item) => item.stock)), JSON.stringify([0, 2, 8]),
-    'остатки вкусов идут 0, 2, 8');
-  assertEq(flavors[1]?.name, 'Варианты', 'для товара с вариантами остаток суммируется');
+  assertEq(JSON.stringify(flavors), JSON.stringify([
+    { id: 'p_g2_d', name: 'Без цветов', stock: 0 },
+    { id: 'p_g2_b', name: 'Нет', stock: 0 },
+    { id: 'pv_g2_c_2', name: 'Нулевой', stock: 0 },
+    { id: 'pv_g2_c_3', name: 'Варианты', stock: 1 },
+    { id: 'pv_g2_c_1', name: 'Первый', stock: 2 },
+    { id: 'p_g2_a', name: 'Много', stock: 8 },
+  ]), 'цвета и обычные товары возвращаются отдельными строками');
+  assertEq(flavors.find((item) => item.id === 'pv_g2_c_2')?.stock, 0,
+    'складской остаток варианта не попадает в розничный список');
+  assertEq(flavors.find((item) => item.id === 'p_g2_d')?.stock, 0,
+    'родительский stock вариативного товара без цветов игнорируется');
+  assertEq(flavors.find((item) => item.id === 'pv_g2_c_3')?.name, 'Варианты',
+    'пустое название цвета заменяется названием товара');
 
   console.log('\n=== Test 2: getLowStockSummary совпадает с computeLowStockGroups ===');
   const summary = getLowStockSummary();
