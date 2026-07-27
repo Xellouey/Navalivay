@@ -344,6 +344,15 @@ try {
   });
   assert.equal(stagedOrder.response.status, 200);
   assert.equal(stagedOrder.data.employee_id, null);
+  const stagedLegacyCompletion = await requestJson(
+    `/api/admin/crm/orders/${stagedOrder.data.id}`,
+    {
+      method: "PATCH",
+      body: { status: "completed" },
+    },
+  );
+  assert.equal(stagedLegacyCompletion.response.status, 200);
+  assert.equal(stagedLegacyCompletion.data.status, "completed");
 
   console.log("staff operations: every order mutation requires a shift");
   setStaffOrderShiftRestrictionEnabled(true);
@@ -1331,15 +1340,53 @@ try {
     "stock_transfer",
     cancelledTransfer.data.id,
   );
+  const rejectedCancel = await requestJson(
+    `/api/admin/inventory/transfers/${cancelledTransfer.data.id}/cancel`,
+    {
+      method: "POST",
+      body: {
+        actor_employee_id: "employee_b",
+        actor_pin: "9999",
+      },
+    },
+  );
+  assert.equal(rejectedCancel.response.status, 401);
+  assert.equal(rejectedCancel.data.error, "invalid_staff_credentials");
+  assert.equal(
+    db
+      .prepare("SELECT status FROM stock_transfers WHERE id = ?")
+      .get(cancelledTransfer.data.id).status,
+    "draft",
+  );
   const cancelResult = await requestJson(
     `/api/admin/inventory/transfers/${cancelledTransfer.data.id}/cancel`,
-    { method: "POST" },
+    {
+      method: "POST",
+      body: {
+        actor_employee_id: "employee_b",
+        actor_pin: "2222",
+      },
+    },
   );
   assert.equal(cancelResult.response.status, 200);
+  assert.equal(cancelResult.data.cancelled_by_employee_id, "employee_b");
+  assert.match(String(cancelResult.data.cancelled_by || ""), /Борис/);
   assert.equal(
     eventCount("stock_transfer", cancelledTransfer.data.id),
     eventsBeforeCancel,
   );
+  const repeatedCancel = await requestJson(
+    `/api/admin/inventory/transfers/${cancelledTransfer.data.id}/cancel`,
+    {
+      method: "POST",
+      body: {
+        actor_employee_id: "employee_b",
+        actor_pin: "2222",
+      },
+    },
+  );
+  assert.equal(repeatedCancel.response.status, 409);
+  assert.equal(repeatedCancel.data.error, "invalid_status");
 
   console.log("staff-operations.test.js: ok");
 } finally {

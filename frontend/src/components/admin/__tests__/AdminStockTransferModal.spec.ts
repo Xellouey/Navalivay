@@ -212,6 +212,37 @@ describe('AdminStockTransferModal', () => {
     expect(secondKey).toBe(firstKey)
   })
 
+  it('asks for the employee PIN before cancelling a draft', async () => {
+    const store = useAdminStore()
+    vi.spyOn(store, 'fetchInventoryTransfers').mockResolvedValue({
+      transfers: [draftTransfer],
+      pagination: { page: 1, totalPages: 1 },
+    } as any)
+    vi.spyOn(store, 'fetchInventoryTransfer').mockResolvedValue(draftTransfer as any)
+    const cancelTransfer = vi.spyOn(store, 'cancelInventoryTransfer').mockResolvedValue({
+      ...draftTransfer,
+      status: 'cancelled',
+      cancelled_by_employee_id: 'employee_1',
+    } as any)
+
+    const wrapper = mountModal()
+    await wrapper.setProps({ isOpen: true })
+    await flushPromises()
+    await wrapper.findAll('button').find((button) => button.text().includes('Перемещение №1'))!.trigger('click')
+    await flushPromises()
+    await wrapper.findAll('button').find((button) => button.text() === 'Отменить заявку')!.trigger('click')
+
+    expect(wrapper.get('[data-test="actor-context"]').text()).toContain('Перемещение №1')
+    await wrapper.get('[data-test="actor-confirm"]').trigger('click')
+    await flushPromises()
+
+    expect(cancelTransfer).toHaveBeenCalledWith('move_1', {
+      actor_employee_id: 'employee_1',
+      actor_pin: '1234',
+    })
+    expect(wrapper.emitted('cancelled')).toEqual([[{ number: 1 }]])
+  })
+
   it('keeps the legacy flow without employee prompt when tracking is off', async () => {
     useCrmStore().$patch({ staffTrackingEnabled: false })
     const store = useAdminStore()

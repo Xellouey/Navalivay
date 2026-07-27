@@ -1471,10 +1471,17 @@ async function createCategory(category: { name: string; hideEmpty?: boolean; cov
     })
   }
 
-  async function cancelInventoryTransfer(id: string) {
+  async function cancelInventoryTransfer(
+    id: string,
+    actor: {
+      actor_employee_id?: string
+      actor_pin?: string
+    } = {},
+  ) {
     return await $fetch<any>(`/api/admin/inventory/transfers/${id}/cancel`, {
       method: 'POST',
       headers: getAuthHeaders(),
+      body: actor,
     })
   }
 

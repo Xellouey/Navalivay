@@ -292,7 +292,7 @@
           type="button"
           class="rounded-xl border border-red-200 px-5 py-2.5 text-sm font-semibold text-red-600 transition hover:bg-red-50"
           :disabled="actionSubmitting"
-          @click="cancelTransfer"
+          @click="requestCancelTransfer"
         >
           Отменить заявку
         </button>
@@ -309,18 +309,53 @@
   </AdminModal>
   <StaffActorPrompt
     :open="actorPromptOpen"
-    :title="actorPromptAction === 'complete' ? 'Оприходовать перемещение' : 'Создать перемещение'"
-    :description="actorPromptAction === 'complete'
-      ? 'После подтверждения остатки изменятся сразу.'
-      : 'Подтвердите сотрудника. Состав заявки сохранится при ошибке.'"
+    :title="actorPromptTitle"
+    :description="actorPromptDescription"
     :context="actorPromptContext"
-    :action-label="actorPromptAction === 'complete' ? 'Оприходовать' : 'Создать заявку'"
+    :action-label="actorPromptActionLabel"
     :loading="actorActionLoading"
     :error="actorPromptError"
     :error-code="actorPromptErrorCode"
     @close="closeActorPrompt"
     @confirm="confirmActorAction"
   />
+  <AdminModal
+    :is-open="cancelConfirmOpen"
+    title="Отменить перемещение?"
+    description="Заявка останется в истории, а остатки не изменятся."
+    size="sm"
+    :show-actions="false"
+    :persistent="actionSubmitting"
+    @close="cancelConfirmOpen = false"
+    @cancel="cancelConfirmOpen = false"
+  >
+    <div class="space-y-5">
+      <div v-if="activeTransfer" class="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-800">
+        <div class="font-semibold">Перемещение №{{ activeTransfer.transfer_number }}</div>
+        <div class="mt-1 text-slate-600">
+          {{ locationLabel(activeTransfer.source_location) }} → {{ locationLabel(activeTransfer.destination_location) }}
+        </div>
+      </div>
+      <div class="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+        <button
+          type="button"
+          class="min-h-[44px] rounded-xl border border-slate-300 px-4 text-sm font-semibold text-slate-700"
+          :disabled="actionSubmitting"
+          @click="cancelConfirmOpen = false"
+        >
+          Оставить заявку
+        </button>
+        <button
+          type="button"
+          class="min-h-[44px] rounded-xl bg-red-600 px-4 text-sm font-semibold text-white disabled:bg-red-300"
+          :disabled="actionSubmitting"
+          @click="cancelTransfer()"
+        >
+          {{ actionSubmitting ? 'Отменяем…' : 'Да, отменить' }}
+        </button>
+      </div>
+    </div>
+  </AdminModal>
 </template>
 
 <script setup lang="ts">
@@ -370,8 +405,10 @@ interface StockTransfer {
   created_by?: string | null
   completed_at?: string | null
   completed_by?: string | null
+  completed_by_employee_id?: string | null
   cancelled_at?: string | null
   cancelled_by?: string | null
+  cancelled_by_employee_id?: string | null
   total_quantity: number
   item_count: number
   items?: Array<{
@@ -424,10 +461,33 @@ const loadErrorMessage = ref('')
 const actorPromptOpen = ref(false)
 const actorPromptError = ref('')
 const actorPromptErrorCode = ref('')
-const actorPromptAction = ref<'create' | 'complete' | null>(null)
+const actorPromptAction = ref<'create' | 'complete' | 'cancel' | null>(null)
+const cancelConfirmOpen = ref(false)
 const actorActionLoading = computed(() => submitting.value || actionSubmitting.value)
+const actorPromptTitle = computed(() => {
+  if (actorPromptAction.value === 'complete') return 'Оприходовать перемещение'
+  if (actorPromptAction.value === 'cancel') return 'Отменить перемещение'
+  return 'Создать перемещение'
+})
+const actorPromptDescription = computed(() => {
+  if (actorPromptAction.value === 'complete') {
+    return 'После подтверждения остатки изменятся сразу.'
+  }
+  if (actorPromptAction.value === 'cancel') {
+    return 'Подтвердите сотрудника. Заявка останется в истории без изменения остатков.'
+  }
+  return 'Подтвердите сотрудника. Состав заявки сохранится при ошибке.'
+})
+const actorPromptActionLabel = computed(() => {
+  if (actorPromptAction.value === 'complete') return 'Оприходовать'
+  if (actorPromptAction.value === 'cancel') return 'Отменить заявку'
+  return 'Создать заявку'
+})
 const actorPromptContext = computed(() => {
-  if (actorPromptAction.value === 'complete' && activeTransfer.value) {
+  if (
+    ['complete', 'cancel'].includes(String(actorPromptAction.value))
+    && activeTransfer.value
+  ) {
     return [
       `Перемещение №${activeTransfer.value.transfer_number}`,
       `${locationLabel(activeTransfer.value.source_location)} → ${locationLabel(activeTransfer.value.destination_location)}`,
@@ -734,6 +794,19 @@ async function requestCompleteTransfer() {
   actorPromptOpen.value = true
 }
 
+async function requestCancelTransfer() {
+  if (!activeTransfer.value || actionSubmitting.value) return
+  if (!await ensureStaffTrackingKnown()) return
+  actorPromptError.value = ''
+  actorPromptErrorCode.value = ''
+  if (!staffTrackingEnabled.value) {
+    cancelConfirmOpen.value = true
+    return
+  }
+  actorPromptAction.value = 'cancel'
+  actorPromptOpen.value = true
+}
+
 function closeActorPrompt() {
   if (actorActionLoading.value) return
   actorPromptOpen.value = false
@@ -750,6 +823,10 @@ async function confirmActorAction(actor: { employeeId: string; pin: string }) {
   }
   if (actorPromptAction.value === 'complete') {
     await completeTransfer(actor)
+    return
+  }
+  if (actorPromptAction.value === 'cancel') {
+    await cancelTransfer(actor)
   }
 }
 
@@ -839,21 +916,39 @@ async function completeTransfer(actor?: { employeeId: string; pin: string }) {
   }
 }
 
-async function cancelTransfer() {
+async function cancelTransfer(actor?: { employeeId: string; pin: string }) {
   if (!activeTransfer.value || actionSubmitting.value) return
-  if (!confirm(`Отменить перемещение №${activeTransfer.value.transfer_number}?`)) return
   actionSubmitting.value = true
   errorMessage.value = ''
   actionMessage.value = ''
+  actorPromptError.value = ''
+  actorPromptErrorCode.value = ''
   try {
-    const cancelled = await adminStore.cancelInventoryTransfer(activeTransfer.value.id)
+    const cancelled = await adminStore.cancelInventoryTransfer(
+      activeTransfer.value.id,
+      actor
+        ? {
+            actor_employee_id: actor.employeeId,
+            actor_pin: actor.pin,
+          }
+        : {},
+    )
     activeTransfer.value = cancelled
     actionMessage.value = 'Заявка отменена'
+    cancelConfirmOpen.value = false
+    actorPromptOpen.value = false
+    actorPromptAction.value = null
     emit('cancelled', { number: cancelled.transfer_number })
     void loadTransfers()
-  } catch (error) {
+  } catch (error: any) {
     console.error('[inventory] Failed to cancel transfer', error)
-    errorMessage.value = 'Не удалось отменить заявку'
+    actorPromptErrorCode.value = String(error?.code || error?.data?.error || '')
+    const message =
+      error?.status === 409
+        ? 'Перемещение уже изменено другим пользователем. Обновите данные.'
+        : error?.data?.message || error?.message || 'Не удалось отменить заявку'
+    if (actorPromptOpen.value) actorPromptError.value = message
+    else errorMessage.value = message
   } finally {
     actionSubmitting.value = false
   }
@@ -863,6 +958,7 @@ watch(() => props.isOpen, (open) => {
   if (!open) {
     actorPromptOpen.value = false
     actorPromptAction.value = null
+    cancelConfirmOpen.value = false
     actorPromptError.value = ''
     actorPromptErrorCode.value = ''
     detailsRequestId += 1

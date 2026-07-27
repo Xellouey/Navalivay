@@ -1,7 +1,7 @@
 <template>
   <AdminModal
     :is-open="open"
-    title="Мои задачи"
+    :title="modalTitle"
     :description="description"
     size="lg"
     :show-actions="false"
@@ -24,6 +24,9 @@
             @click="filter = option.value"
           >
             {{ option.label }}
+            <span class="ml-1 rounded-full bg-white/80 px-1.5 py-0.5 text-[11px]">
+              {{ filterCount(option.value) }}
+            </span>
           </CrmButton>
         </div>
         <div class="flex gap-2">
@@ -48,6 +51,55 @@
           </CrmButton>
         </div>
       </div>
+
+      <div v-if="isStaffManager" class="grid grid-cols-2 gap-2 sm:grid-cols-4">
+        <div
+          v-for="metric in taskSummary"
+          :key="metric.label"
+          class="rounded-xl border px-3 py-2"
+          :class="metric.tone === 'danger'
+            ? 'border-red-200 bg-red-50'
+            : metric.tone === 'attention'
+              ? 'border-amber-200 bg-amber-50'
+              : 'border-slate-200 bg-slate-50'"
+        >
+          <div class="text-[11px] text-slate-500">{{ metric.label }}</div>
+          <div class="mt-0.5 text-lg font-bold text-slate-950">{{ metric.value }}</div>
+        </div>
+      </div>
+
+      <div v-if="isStaffManager" class="grid gap-2 sm:grid-cols-[minmax(0,1fr)_220px]">
+        <input
+          v-model.trim="taskSearch"
+          type="search"
+          placeholder="Найти задачу"
+          class="min-h-[44px] w-full rounded-xl border border-slate-300 bg-white px-3 text-sm"
+          aria-label="Поиск задач"
+        />
+        <select
+          v-model="assigneeFilter"
+          class="min-h-[44px] w-full rounded-xl border border-slate-300 bg-white px-3 text-sm"
+          aria-label="Исполнитель задачи"
+        >
+          <option value="">Все исполнители</option>
+          <option value="free">Свободные задачи</option>
+          <option
+            v-for="assignee in taskAssignees"
+            :key="assignee.id"
+            :value="assignee.id"
+          >
+            {{ assignee.name }}
+          </option>
+        </select>
+      </div>
+
+      <p
+        v-if="claimBlockedByOtherShift"
+        class="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800"
+      >
+        Сейчас смена {{ currentShiftOwnerName }}. Руководитель может проверять и распределять задачи,
+        но взять свободную задачу сможет только сотрудник этой смены.
+      </p>
 
       <form
         v-if="isStaffManager && createOpen"
@@ -185,7 +237,16 @@
         <p class="mt-1 text-sm text-slate-500">Новые задачи появятся в этом списке.</p>
       </div>
       <ul v-else class="divide-y divide-slate-200 border-y border-slate-200">
-        <li v-for="task in visibleTasks" :key="task.id" class="py-4">
+        <li
+          v-for="task in visibleTasks"
+          :key="task.id"
+          class="rounded-xl px-3 py-4"
+          :class="isTaskOverdue(task)
+            ? 'bg-red-50/70'
+            : task.status === 'submitted'
+              ? 'bg-amber-50/70'
+              : ''"
+        >
           <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             <div class="min-w-0">
               <div class="flex flex-wrap items-center gap-2">
@@ -193,6 +254,12 @@
                 <h3 class="font-semibold text-slate-900">{{ task.title }}</h3>
                 <span class="rounded-full bg-slate-100 px-2 py-1 text-xs font-medium text-slate-600">
                   {{ statusLabel(task.status) }}
+                </span>
+                <span
+                  v-if="isTaskOverdue(task)"
+                  class="rounded-full bg-red-100 px-2 py-1 text-xs font-semibold text-red-700"
+                >
+                  Просрочена
                 </span>
               </div>
               <p v-if="task.description" class="mt-2 whitespace-pre-line text-sm text-slate-600">
@@ -203,7 +270,12 @@
                 <span v-else-if="task.target_employee_name_snapshot">
                   Назначена: {{ task.target_employee_name_snapshot }}
                 </span>
-                <span v-if="task.due_at">Срок: {{ formatDate(task.due_at) }}</span>
+                <span
+                  v-if="task.due_at"
+                  :class="isTaskOverdue(task) ? 'font-semibold text-red-700' : ''"
+                >
+                  Срок: {{ formatDate(task.due_at) }}
+                </span>
               </div>
               <div
                 v-if="task.result_note"
@@ -235,6 +307,12 @@
               >
                 {{ historyTaskId === task.id ? "Скрыть историю" : "История" }}
               </CrmButton>
+              <span
+                v-if="claimUnavailableReason(task)"
+                class="w-full text-right text-xs text-amber-700"
+              >
+                {{ claimUnavailableReason(task) }}
+              </span>
             </div>
           </div>
           <div
@@ -302,8 +380,12 @@ const {
   staffTasksError,
   staffIdentity,
   isStaffManager,
+  currentStaffShift,
 } = storeToRefs(crmStore);
-const filter = ref<"active" | "done">("active");
+type TaskFilter = "active" | "submitted" | "overdue" | "done";
+const filter = ref<TaskFilter>("active");
+const taskSearch = ref("");
+const assigneeFilter = ref("");
 const pendingActionId = ref("");
 const message = ref("");
 const messageKind = ref<"info" | "error">("info");
@@ -354,22 +436,157 @@ const canConfirmActionDialog = computed(() => {
     || Boolean(actionDialog.value.note.trim());
 });
 
-const filters = [
-  { value: "active" as const, label: "В работе" },
-  { value: "done" as const, label: "Завершённые" },
-];
+const filters = computed<Array<{ value: TaskFilter; label: string }>>(() => [
+  { value: "active", label: "В работе" },
+  ...(isStaffManager.value
+    ? [
+        { value: "submitted" as const, label: "На проверке" },
+        { value: "overdue" as const, label: "Просрочены" },
+      ]
+    : []),
+  { value: "done", label: "Завершённые" },
+]);
+const modalTitle = computed(() =>
+  isStaffManager.value ? "Задачи команды" : "Мои задачи",
+);
 const description = computed(() =>
   isStaffManager.value
     ? "Задачи команды и действия, ожидающие проверки."
     : "Возьмите задачу, выполните её и отправьте на проверку.",
 );
-const visibleTasks = computed(() =>
-  staffTasks.value.filter((task) =>
-    filter.value === "done"
-      ? ["approved", "cancelled"].includes(task.status)
-      : !["approved", "cancelled"].includes(task.status),
-  ),
+const currentShiftOwnerId = computed(() => {
+  const shift = currentStaffShift.value;
+  if (
+    !shift ||
+    !["active", "open"].includes(String(shift.status || "")) ||
+    shift.ended_at ||
+    shift.closed_at
+  ) return "";
+  return String(shift.employee_id || "");
+});
+const currentShiftOwnerName = computed(() => {
+  const shift = currentStaffShift.value as any;
+  return (
+    shift?.employee_name ||
+    [shift?.employee?.first_name, shift?.employee?.last_name]
+      .filter(Boolean)
+      .join(" ") ||
+    "другого сотрудника"
+  );
+});
+const claimBlockedByOtherShift = computed(
+  () =>
+    Boolean(currentShiftOwnerId.value) &&
+    currentShiftOwnerId.value !== staffIdentity.value?.employee.id,
 );
+const taskAssignees = computed(() => {
+  const result = new Map<string, string>();
+  for (const task of staffTasks.value) {
+    const id = String(
+      task.assignee_employee_id || task.target_employee_id || "",
+    );
+    const name = String(
+      task.assignee_name || task.target_employee_name_snapshot || "",
+    );
+    if (id && name) result.set(id, name);
+  }
+  return [...result].map(([id, name]) => ({ id, name }));
+});
+const taskSummary = computed(() => [
+  {
+    label: "Свободные",
+    value: staffTasks.value.filter((task) => task.status === "open").length,
+    tone: "neutral",
+  },
+  {
+    label: "В работе",
+    value: staffTasks.value.filter((task) => task.status === "claimed").length,
+    tone: "neutral",
+  },
+  {
+    label: "На проверке",
+    value: staffTasks.value.filter((task) => task.status === "submitted").length,
+    tone: "attention",
+  },
+  {
+    label: "Просрочены",
+    value: staffTasks.value.filter(isTaskOverdue).length,
+    tone: "danger",
+  },
+]);
+const visibleTasks = computed(() => {
+  const query = taskSearch.value.trim().toLocaleLowerCase("ru");
+  return staffTasks.value
+    .filter((task) => {
+      if (
+        query &&
+        !`${task.title} ${task.description || ""} ${task.assignee_name || ""}`
+          .toLocaleLowerCase("ru")
+          .includes(query)
+      ) return false;
+      if (assigneeFilter.value === "free" && task.assignee_employee_id) {
+        return false;
+      }
+      if (
+        assigneeFilter.value &&
+        assigneeFilter.value !== "free" &&
+        ![
+          task.assignee_employee_id,
+          task.target_employee_id,
+        ].includes(assigneeFilter.value)
+      ) return false;
+      if (filter.value === "done") {
+        return ["approved", "cancelled"].includes(task.status);
+      }
+      if (filter.value === "submitted") return task.status === "submitted";
+      if (filter.value === "overdue") return isTaskOverdue(task);
+      return isStaffManager.value
+        ? ["open", "claimed"].includes(task.status)
+        : !["approved", "cancelled"].includes(task.status);
+    })
+    .sort((left, right) => {
+      const overdueDelta =
+        Number(isTaskOverdue(right)) - Number(isTaskOverdue(left));
+      if (overdueDelta) return overdueDelta;
+      const reviewDelta =
+        Number(right.status === "submitted") -
+        Number(left.status === "submitted");
+      if (reviewDelta) return reviewDelta;
+      const leftDue = left.due_at
+        ? new Date(left.due_at).getTime()
+        : Number.POSITIVE_INFINITY;
+      const rightDue = right.due_at
+        ? new Date(right.due_at).getTime()
+        : Number.POSITIVE_INFINITY;
+      return leftDue - rightDue;
+    });
+});
+function isTaskOverdue(task: StaffTask) {
+  if (
+    !task.due_at ||
+    ["approved", "cancelled"].includes(task.status)
+  ) return false;
+  const dueAt = new Date(task.due_at).getTime();
+  return Number.isFinite(dueAt) && dueAt < Date.now();
+}
+function filterCount(value: TaskFilter) {
+  if (value === "done") {
+    return staffTasks.value.filter((task) =>
+      ["approved", "cancelled"].includes(task.status),
+    ).length;
+  }
+  if (value === "submitted") {
+    return staffTasks.value.filter((task) => task.status === "submitted").length;
+  }
+  if (value === "overdue") {
+    return staffTasks.value.filter(isTaskOverdue).length;
+  }
+  return staffTasks.value.filter((task) =>
+    isStaffManager.value
+      ? ["open", "claimed"].includes(task.status)
+      : !["approved", "cancelled"].includes(task.status),
+  ).length;
+}
 function statusLabel(status: StaffTaskStatus) {
   return {
     open: "Свободна",
@@ -410,7 +627,8 @@ function actionsFor(task: StaffTask): Array<{
   const actions: Array<{ value: TaskAction; label: string; variant: ButtonVariant }> = [];
   if (
     task.status === "open" &&
-    (!task.target_employee_id || task.target_employee_id === selfId)
+    (!task.target_employee_id || task.target_employee_id === selfId) &&
+    !claimBlockedByOtherShift.value
   ) {
     actions.push({ value: "claim", label: "Взять", variant: "primary" });
   }
@@ -437,6 +655,17 @@ function actionsFor(task: StaffTask): Array<{
     actions.push({ value: "cancel", label: "Отменить", variant: "danger" });
   }
   return actions;
+}
+function claimUnavailableReason(task: StaffTask) {
+  if (
+    task.status === "open" &&
+    (!task.target_employee_id ||
+      task.target_employee_id === staffIdentity.value?.employee.id) &&
+    claimBlockedByOtherShift.value
+  ) {
+    return `Сейчас смена ${currentShiftOwnerName.value}`;
+  }
+  return "";
 }
 
 function canViewTaskHistory(task: StaffTask) {
@@ -640,7 +869,15 @@ watch(
   () => props.open,
   (open) => {
     if (open) {
-      void loadTasks();
+      taskSearch.value = "";
+      assigneeFilter.value = "";
+      void loadTasks().then(() => {
+        filter.value =
+          isStaffManager.value &&
+          staffTasks.value.some((task) => task.status === "submitted")
+            ? "submitted"
+            : "active";
+      });
     } else if (!taskBusy.value) {
       actionDialog.value = null;
     }

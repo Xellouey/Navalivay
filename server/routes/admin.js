@@ -1746,23 +1746,51 @@ adminRouter.post(
   },
 );
 
-adminRouter.post('/api/admin/inventory/transfers/:id/cancel', authMiddleware, async (req, res) => {
-  try {
-    const updated = db.prepare(`
-      UPDATE stock_transfers
-      SET status = 'cancelled', cancelled_by = ?, cancelled_at = DATETIME('now')
-      WHERE id = ? AND status = 'draft'
-    `).run(inventoryActor(req), req.params.id);
-    if (updated.changes !== 1) {
-      const exists = db.prepare('SELECT 1 FROM stock_transfers WHERE id = ?').get(req.params.id);
-      return res.status(exists ? 409 : 404).json({ error: exists ? 'invalid_status' : 'not_found' });
+adminRouter.post(
+  '/api/admin/inventory/transfers/:id/cancel',
+  authMiddleware,
+  requireInventoryActor,
+  async (req, res) => {
+    try {
+      const tx = db.transaction(() => {
+        const staffActor = recheckInventoryActor(req);
+        const updated = db.prepare(`
+          UPDATE stock_transfers
+          SET status = 'cancelled',
+              cancelled_by = ?,
+              cancelled_by_employee_id = ?,
+              cancelled_at = DATETIME('now')
+          WHERE id = ? AND status = 'draft'
+        `).run(
+          staffActor?.employeeName || inventoryActor(req),
+          staffActor?.employeeId || null,
+          req.params.id,
+        );
+        if (updated.changes !== 1) {
+          const exists = db
+            .prepare('SELECT 1 FROM stock_transfers WHERE id = ?')
+            .get(req.params.id);
+          throw new Error(exists ? 'invalid_status' : 'not_found');
+        }
+      });
+      tx.immediate();
+      res.json(await getInventoryTransfer(req.params.id));
+    } catch (error) {
+      console.error('[admin] Cancel inventory transfer error:', error);
+      if (isStaffServiceError(error)) {
+        return sendStaffServiceError(res, error);
+      }
+      const clientError = String(error.message || '');
+      if (clientError === 'not_found') {
+        return res.status(404).json({ error: clientError });
+      }
+      if (clientError === 'invalid_status') {
+        return res.status(409).json({ error: clientError });
+      }
+      res.status(500).json({ error: 'failed', message: error.message });
     }
-    res.json(await getInventoryTransfer(req.params.id));
-  } catch (error) {
-    console.error('[admin] Cancel inventory transfer error:', error);
-    res.status(500).json({ error: 'failed', message: error.message });
-  }
-});
+  },
+);
 
 adminRouter.get('/api/admin/products/:id', authMiddleware, (req, res) => {
   const id = req.params.id

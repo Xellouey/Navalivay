@@ -370,6 +370,12 @@ export function migrateStaffManagement(database = db) {
       'completed_by_employee_id',
       'TEXT REFERENCES employees(id) ON DELETE SET NULL',
     );
+    addColumn(
+      database,
+      'stock_transfers',
+      'cancelled_by_employee_id',
+      'TEXT REFERENCES employees(id) ON DELETE SET NULL',
+    );
 
     if (tableExists(database, 'orders')) {
       database.exec(`
@@ -393,6 +399,8 @@ export function migrateStaffManagement(database = db) {
           ON stock_transfers(created_by_employee_id, created_at);
         CREATE INDEX IF NOT EXISTS idx_stock_transfers_completed_employee
           ON stock_transfers(completed_by_employee_id, completed_at);
+        CREATE INDEX IF NOT EXISTS idx_stock_transfers_cancelled_employee
+          ON stock_transfers(cancelled_by_employee_id);
       `);
     }
 

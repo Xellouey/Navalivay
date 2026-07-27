@@ -43,7 +43,7 @@
             variant="secondary"
             size="sm"
             :loading="staffShiftLoading"
-            @click="closeShift"
+            @click="requestCloseShift"
           >
             Закрыть смену
           </CrmButton>
@@ -56,7 +56,7 @@
             Открыть личную карточку
           </CrmButton>
           <CrmButton v-else variant="ghost" size="sm" @click="crmStore.lockStaffAccess()">
-            Выйти из карточки
+            Сменить карточку
           </CrmButton>
         </template>
         <template v-else>
@@ -205,6 +205,43 @@
       </div>
     </form>
   </AdminModal>
+
+  <AdminModal
+    :is-open="closeShiftConfirmOpen"
+    title="Закрыть смену?"
+    description="После закрытия рабочие действия потребуют открытия новой смены."
+    size="sm"
+    :show-actions="false"
+    :persistent="staffShiftLoading"
+    :is-loading="staffShiftLoading"
+    @close="closeShiftConfirmOpen = false"
+    @cancel="closeShiftConfirmOpen = false"
+  >
+    <div class="space-y-5">
+      <div class="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm">
+        <div class="font-semibold text-slate-950">{{ shiftEmployeeName }}</div>
+        <div class="mt-1 text-slate-600">Смена идёт {{ elapsedLabel }}</div>
+      </div>
+      <div class="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+        <CrmButton
+          variant="secondary"
+          type="button"
+          :disabled="staffShiftLoading"
+          @click="closeShiftConfirmOpen = false"
+        >
+          Продолжить смену
+        </CrmButton>
+        <CrmButton
+          variant="danger"
+          type="button"
+          :loading="staffShiftLoading"
+          @click="closeShift"
+        >
+          Закрыть смену
+        </CrmButton>
+      </div>
+    </div>
+  </AdminModal>
 </template>
 
 <script setup lang="ts">
@@ -236,6 +273,7 @@ const {
 const accessOpen = ref(false);
 const tasksOpen = ref(false);
 const shiftOpen = ref(false);
+const closeShiftConfirmOpen = ref(false);
 const shiftEmployeeId = ref("");
 const shiftPin = ref("");
 const shiftPromptError = ref("");
@@ -380,12 +418,17 @@ async function openShift() {
   }
 }
 
+function requestCloseShift() {
+  if (staffShiftLoading.value) return;
+  closeShiftConfirmOpen.value = true;
+}
+
 async function closeShift() {
   if (staffShiftLoading.value) return;
-  if (!window.confirm("Закрыть текущую смену?")) return;
   barMessage.value = "";
   try {
     await crmStore.closeStaffShift();
+    closeShiftConfirmOpen.value = false;
     pendingRetry.value = null;
     retryReady.value = false;
     barMessageKind.value = "info";

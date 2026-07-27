@@ -1325,7 +1325,7 @@ crmOperationsRouter.patch(
         return res.status(400).json({ error: "invalid_status" });
       }
       if (
-        isStaffTrackingEnabled()
+        isStaffOrderShiftRestrictionEnabled()
         && ["completed", "delivered"].includes(status)
       ) {
         return res.status(409).json({ error: "issue_endpoint_required" });

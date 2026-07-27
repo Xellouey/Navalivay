@@ -104,6 +104,12 @@ try {
   assert.ok(integrationColumns.has('assembled_at'));
   assert.ok(integrationColumns.has('issued_by_employee_id'));
   assert.ok(integrationColumns.has('issued_at'));
+  const transferColumns = new Set(
+    db.prepare("PRAGMA table_info('stock_transfers')").all().map((row) => row.name),
+  );
+  assert.ok(transferColumns.has('created_by_employee_id'));
+  assert.ok(transferColumns.has('completed_by_employee_id'));
+  assert.ok(transferColumns.has('cancelled_by_employee_id'));
 
   const badBootstrap = await requestJson('/api/admin/crm/staff/bootstrap-manager', {
     method: 'POST',
@@ -192,6 +198,38 @@ try {
   );
   assertStatus(orderRestrictionBefore, 200, 'read order restriction setting');
   assert.equal(orderRestrictionBefore.data.enabled, false);
+
+  db.prepare(`
+    INSERT INTO employees (
+      id, username, password_hash, first_name, last_name, position, active
+    ) VALUES (?, ?, ?, ?, ?, ?, 1)
+  `).run(
+    'legacy_without_pin',
+    'legacy-without-pin',
+    'legacy-password-hash',
+    'Старый',
+    'Сотрудник',
+    'Продавец',
+  );
+  const blockedOrderRestriction = await requestJson(
+    '/api/admin/crm/staff/settings/order-shift-restriction',
+    {
+      method: 'PUT',
+      staffToken: managerToken,
+      body: { enabled: true },
+    },
+  );
+  assertStatus(
+    blockedOrderRestriction,
+    409,
+    'order restriction waits until every active employee has a pin',
+  );
+  assert.equal(blockedOrderRestriction.data.error, 'staff_pins_required');
+  db.prepare(`
+    UPDATE employees
+    SET active = 0, deactivated_at = DATETIME('now')
+    WHERE id = 'legacy_without_pin'
+  `).run();
 
   const enableOrderRestriction = await requestJson(
     '/api/admin/crm/staff/settings/order-shift-restriction',

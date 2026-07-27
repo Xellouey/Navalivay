@@ -12,7 +12,6 @@
           <CrmButton variant="secondary" refresh-icon :loading="pageLoading" @click="loadCurrentView">
             Обновить
           </CrmButton>
-          <CrmButton variant="ghost" @click="crmStore.lockStaffAccess()">Выйти из карточки</CrmButton>
         </div>
       </header>
 
@@ -86,17 +85,31 @@
           {{ pageMessage }}
         </div>
 
-        <section v-if="activeTab === 'card'" class="grid gap-6 lg:grid-cols-[260px_minmax(0,1fr)]">
-          <aside v-if="isStaffManager" class="space-y-3">
+        <section
+          v-if="activeTab === 'card'"
+          data-testid="staff-card-layout"
+          class="grid gap-6"
+          :class="isStaffManager ? 'lg:grid-cols-[260px_minmax(0,1fr)]' : 'grid-cols-1'"
+        >
+          <aside v-if="isStaffManager" class="hidden space-y-3 lg:block">
             <div class="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
               <label for="card-employee-search" class="sr-only">Найти сотрудника</label>
               <input
                 id="card-employee-search"
-                v-model="employeeSearch"
+                v-model="cardEmployeeSearch"
                 type="search"
                 class="min-h-[44px] w-full rounded-xl border border-slate-300 px-3 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
                 placeholder="Найти сотрудника"
               />
+              <select
+                v-model="cardEmployeeStatusFilter"
+                class="mt-2 min-h-[44px] w-full rounded-xl border border-slate-300 bg-white px-3 text-sm"
+                aria-label="Статус сотрудников в карточке"
+              >
+                <option value="all">Все сотрудники</option>
+                <option value="active">Работают</option>
+                <option value="inactive">Уволены</option>
+              </select>
               <div v-if="staffEmployeesLoading" class="py-8 text-center text-sm text-slate-500">
                 Загружаем…
               </div>
@@ -106,12 +119,12 @@
                   Повторить
                 </button>
               </div>
-              <div v-else-if="!filteredEmployees.length" class="py-8 text-center text-sm text-slate-500">
+              <div v-else-if="!cardEmployees.length" class="py-8 text-center text-sm text-slate-500">
                 Никого не найдено
               </div>
               <div v-else class="mt-2 max-h-[540px] space-y-1 overflow-y-auto">
                 <button
-                  v-for="employee in filteredEmployees"
+                  v-for="employee in cardEmployees"
                   :key="employee.id"
                   type="button"
                   class="flex min-h-[48px] w-full items-center gap-3 rounded-xl px-3 py-2 text-left transition"
@@ -140,6 +153,36 @@
           </aside>
 
           <div class="min-w-0 space-y-5">
+            <div
+              v-if="isStaffManager"
+              class="grid gap-2 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm sm:grid-cols-[minmax(0,1fr)_170px] lg:hidden"
+            >
+              <label class="block">
+                <span class="mb-1 block text-xs font-medium text-slate-500">Сотрудник</span>
+                <select
+                  v-model="selectedEmployeeId"
+                  class="min-h-[44px] w-full rounded-xl border border-slate-300 bg-white px-3 text-sm"
+                  aria-label="Сотрудник в карточке"
+                >
+                  <option v-for="employee in cardEmployees" :key="employee.id" :value="employee.id">
+                    {{ employee.first_name }} {{ employee.last_name }}
+                    {{ employeeActive(employee) ? "" : " · уволен" }}
+                  </option>
+                </select>
+              </label>
+              <label class="block">
+                <span class="mb-1 block text-xs font-medium text-slate-500">Показывать</span>
+                <select
+                  v-model="cardEmployeeStatusFilter"
+                  class="min-h-[44px] w-full rounded-xl border border-slate-300 bg-white px-3 text-sm"
+                >
+                  <option value="all">Всех</option>
+                  <option value="active">Работающих</option>
+                  <option value="inactive">Уволенных</option>
+                </select>
+              </label>
+            </div>
+
             <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div v-if="selectedEmployee" class="flex min-w-0 items-center gap-3">
                 <img
@@ -219,16 +262,34 @@
               <CrmButton class="mt-4" variant="secondary" @click="loadCard">Повторить</CrmButton>
             </div>
             <template v-else-if="staffAnalytics">
-              <section class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-                <div class="grid grid-cols-2 divide-x divide-y divide-slate-200 sm:grid-cols-3 lg:grid-cols-3">
-                  <div v-for="metric in metrics" :key="metric.label" class="min-h-[96px] p-4">
-                    <div class="text-xs font-medium text-slate-500">{{ metric.label }}</div>
-                    <div class="mt-2 text-xl font-bold text-slate-950">{{ metric.value }}</div>
-                    <p v-if="metric.hint" class="mt-1 text-[11px] leading-4 text-slate-500">
-                      {{ metric.hint }}
-                    </p>
-                  </div>
-                </div>
+              <section class="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                <article
+                  v-for="metric in headlineMetrics"
+                  :key="metric.label"
+                  class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
+                >
+                  <div class="text-xs font-medium text-slate-500">{{ metric.label }}</div>
+                  <div class="mt-2 text-xl font-bold text-slate-950">{{ metric.value }}</div>
+                </article>
+              </section>
+
+              <section class="grid gap-3 md:grid-cols-2">
+                <article
+                  v-for="group in metricGroups"
+                  :key="group.title"
+                  class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
+                >
+                  <h3 class="text-sm font-semibold text-slate-950">{{ group.title }}</h3>
+                  <dl class="mt-3 grid grid-cols-2 gap-3">
+                    <div v-for="metric in group.metrics" :key="metric.label" class="min-w-0">
+                      <div class="text-xs font-medium text-slate-500">{{ metric.label }}</div>
+                      <div class="mt-1 truncate text-base font-bold text-slate-950">{{ metric.value }}</div>
+                    </div>
+                  </dl>
+                  <p v-if="group.hint" class="mt-3 text-[11px] leading-4 text-slate-500">
+                    {{ group.hint }}
+                  </p>
+                </article>
               </section>
 
               <section
@@ -239,46 +300,92 @@
                 <p class="mt-1 whitespace-pre-line">{{ responsibilityText(selectedEmployee.responsibilities) }}</p>
               </section>
 
-              <section v-if="dailyActivity.length" class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-                <div class="flex items-center justify-between gap-4">
+              <section v-if="activityChartPoints.length" class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <div>
-                    <h3 class="font-semibold text-slate-950">Активность по дням</h3>
-                    <p class="mt-1 text-xs text-slate-500">Высота показывает количество зафиксированных действий.</p>
+                    <h3 class="font-semibold text-slate-950">Динамика работы</h3>
+                    <p class="mt-1 text-xs text-slate-500">
+                      {{ activityChartGranularity === "month" ? "По месяцам" : "По дням" }} · нулевые периоды тоже показаны.
+                      <span v-if="activityChartPoints.length > 12">График можно листать.</span>
+                    </p>
+                  </div>
+                  <div class="flex flex-wrap gap-2" role="group" aria-label="Показатель графика">
+                    <CrmButton
+                      v-for="option in activityMetricOptions"
+                      :key="option.value"
+                      variant="filter"
+                      size="sm"
+                      :pressed="activityMetric === option.value"
+                      @click="activityMetric = option.value"
+                    >
+                      {{ option.label }}
+                    </CrmButton>
                   </div>
                 </div>
                 <div
-                  class="mt-5 flex h-28 items-end gap-1 overflow-x-auto pb-1"
+                  class="mt-5 flex h-36 items-end gap-2 overflow-x-auto pb-1"
                   role="img"
                   :aria-label="activityChartLabel"
                 >
                   <div
-                    v-for="day in dailyActivity"
-                    :key="day.date"
-                    class="group flex min-w-5 flex-1 flex-col items-center justify-end"
-                    :title="`${formatDay(day.date)}: ${day.count || 0}`"
+                    v-for="point in activityChartPoints"
+                    :key="point.key"
+                    class="group flex h-full min-w-9 flex-1 flex-col items-center justify-end"
+                    :title="`${point.label}: ${activityMetricValueLabel(point.value)}`"
                   >
+                    <span class="mb-1 text-[10px] font-semibold text-slate-600">
+                      {{ activityMetricShortValue(point.value) }}
+                    </span>
                     <div
-                      class="w-full max-w-5 rounded-t bg-blue-500 transition-all duration-300 group-hover:bg-blue-700"
-                      :style="{ height: `${activityHeight(day.count || 0)}%` }"
+                      v-if="point.value > 0"
+                      class="w-full max-w-7 rounded-t bg-blue-500 transition-all duration-300 group-hover:bg-blue-700"
+                      :style="{ height: `${activityHeight(point.value)}%` }"
                     />
-                    <span class="mt-1 text-[9px] text-slate-400">{{ dayNumber(day.date) }}</span>
+                    <div v-else class="h-px w-full max-w-7 bg-slate-200" />
+                    <span class="mt-1 text-[9px] text-slate-400">{{ point.shortLabel }}</span>
                   </div>
                 </div>
               </section>
 
-              <section class="rounded-2xl border border-slate-200 bg-white shadow-sm">
-                <div class="flex items-center justify-between border-b border-slate-200 px-5 py-4">
+              <section
+                class="rounded-2xl border border-slate-200 bg-white shadow-sm"
+                data-testid="staff-activity-timeline"
+              >
+                <div class="flex flex-col gap-3 border-b border-slate-200 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
                   <div>
                     <h3 class="font-semibold text-slate-950">Действия и отметки</h3>
                     <p class="mt-1 text-xs text-slate-500">Системные события и ручные пояснения руководителя.</p>
                   </div>
+                  <div class="flex items-center gap-2">
+                    <span class="whitespace-nowrap text-xs text-slate-500">
+                      {{ filteredTimelineItems.length }} записей
+                    </span>
+                    <select
+                      v-model="timelineFilter"
+                      class="min-h-[40px] min-w-36 rounded-xl border border-slate-300 bg-white px-3 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
+                      aria-label="Тип действий"
+                    >
+                      <option
+                        v-for="option in timelineFilterOptions"
+                        :key="option.value"
+                        :value="option.value"
+                      >
+                        {{ option.label }}
+                      </option>
+                    </select>
+                  </div>
                 </div>
                 <div v-if="staffMarksLoading" class="py-10 text-center text-sm text-slate-500">Загружаем…</div>
-                <div v-else-if="!timelineItems.length" class="py-12 text-center text-sm text-slate-500">
-                  За этот месяц действий пока нет
+                <div v-else-if="!filteredTimelineItems.length" class="py-12 text-center text-sm text-slate-500">
+                  По выбранному фильтру записей нет
                 </div>
                 <ol v-else class="divide-y divide-slate-200">
-                  <li v-for="item in timelineItems" :key="item.key" class="flex gap-4 px-5 py-4">
+                  <li
+                    v-for="item in visibleTimelineItems"
+                    :key="item.key"
+                    class="flex gap-4 px-5 py-4"
+                    data-testid="staff-timeline-item"
+                  >
                     <span
                       class="mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full"
                       :class="timelineDotClass(item)"
@@ -305,6 +412,28 @@
                     </div>
                   </li>
                 </ol>
+                <div
+                  v-if="filteredTimelineItems.length > timelinePageSize"
+                  class="flex flex-wrap items-center justify-center gap-2 border-t border-slate-200 px-5 py-4"
+                >
+                  <CrmButton
+                    v-if="timelineRemaining > 0"
+                    variant="secondary"
+                    size="sm"
+                    data-testid="staff-timeline-more"
+                    @click="timelineLimit += timelinePageSize"
+                  >
+                    Показать ещё {{ Math.min(timelinePageSize, timelineRemaining) }}
+                  </CrmButton>
+                  <button
+                    v-if="timelineLimit > timelinePageSize"
+                    type="button"
+                    class="min-h-[36px] rounded-lg px-3 text-sm font-medium text-slate-600 hover:bg-slate-100"
+                    @click="timelineLimit = timelinePageSize"
+                  >
+                    Свернуть
+                  </button>
+                </div>
               </section>
             </template>
             <div v-else class="rounded-2xl border border-dashed border-slate-300 bg-white py-14 text-center text-sm text-slate-500">
@@ -315,7 +444,7 @@
 
         <section v-else-if="activeTab === 'team'" class="space-y-4">
           <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div class="flex flex-1 flex-col gap-3 sm:flex-row">
+            <div class="flex flex-1 flex-col gap-3 sm:flex-row sm:flex-wrap">
               <input
                 v-model="employeeSearch"
                 type="search"
@@ -331,6 +460,17 @@
                 <option value="active">Работают</option>
                 <option value="inactive">Уволены</option>
                 <option value="all">Все</option>
+              </select>
+              <select
+                v-model="teamSort"
+                class="min-h-[44px] rounded-xl border border-slate-300 bg-white px-3 text-sm"
+                aria-label="Сортировка сотрудников"
+              >
+                <option value="shift">Сначала на смене</option>
+                <option value="hours">По часам</option>
+                <option value="issued">По выдачам</option>
+                <option value="tasks">По задачам</option>
+                <option value="name">По имени</option>
               </select>
             </div>
             <div class="flex flex-wrap gap-2">
@@ -409,13 +549,60 @@
             <p class="text-sm text-red-700">{{ staffEmployeesError || staffTeamAnalyticsError }}</p>
             <CrmButton class="mt-4" variant="secondary" @click="loadCurrentView">Повторить</CrmButton>
           </div>
-          <div v-else-if="!filteredEmployees.length" class="rounded-2xl border border-dashed border-slate-300 bg-white py-14 text-center text-sm text-slate-500">
+          <div v-else-if="!teamEmployees.length" class="rounded-2xl border border-dashed border-slate-300 bg-white py-14 text-center text-sm text-slate-500">
             Сотрудников по этому фильтру нет
           </div>
-          <div v-else class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+
+          <template v-else>
+            <section class="grid grid-cols-2 gap-3 lg:grid-cols-5">
+              <article
+                v-for="metric in teamHeadlineMetrics"
+                :key="metric.label"
+                class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
+              >
+                <div class="text-xs font-medium text-slate-500">{{ metric.label }}</div>
+                <div class="mt-2 text-xl font-bold text-slate-950">{{ metric.value }}</div>
+              </article>
+            </section>
+
+            <section class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+              <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <h2 class="font-semibold text-slate-950">Сравнение команды</h2>
+                  <p class="mt-1 text-xs text-slate-500">Один показатель — без искусственного общего рейтинга.</p>
+                </div>
+                <select
+                  v-model="teamChartMetric"
+                  class="min-h-[44px] rounded-xl border border-slate-300 bg-white px-3 text-sm"
+                  aria-label="Показатель сравнения команды"
+                >
+                  <option value="hours">Отработанные часы</option>
+                  <option value="issued">Выданные заказы</option>
+                  <option value="tasks">Завершённые задачи</option>
+                </select>
+              </div>
+              <div class="mt-5 space-y-3" role="img" :aria-label="teamChartAriaLabel">
+                <div
+                  v-for="row in teamComparisonRows"
+                  :key="row.id"
+                  class="grid grid-cols-[minmax(90px,160px)_minmax(0,1fr)_auto] items-center gap-3"
+                >
+                  <div class="truncate text-sm font-medium text-slate-700">{{ row.name }}</div>
+                  <div class="h-3 overflow-hidden rounded-full bg-slate-100">
+                    <div
+                      class="h-full rounded-full bg-blue-500 transition-all duration-300"
+                      :style="{ width: `${row.percent}%` }"
+                    />
+                  </div>
+                  <div class="min-w-12 text-right text-sm font-bold text-slate-950">{{ row.label }}</div>
+                </div>
+              </div>
+            </section>
+
+            <div class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
             <div class="divide-y divide-slate-200">
               <article
-                v-for="employee in filteredEmployees"
+                v-for="employee in teamEmployees"
                 :key="employee.id"
                 class="grid gap-4 p-4 xl:grid-cols-[minmax(210px,0.75fr)_minmax(0,2fr)_auto] xl:items-center"
               >
@@ -426,6 +613,12 @@
                       <h3 class="font-semibold text-slate-950">{{ employee.first_name }} {{ employee.last_name }}</h3>
                       <span class="rounded-full px-2 py-0.5 text-xs font-medium" :class="employeeActive(employee) ? 'bg-blue-50 text-blue-700' : 'bg-slate-100 text-slate-500'">
                         {{ employeeActive(employee) ? "Работает" : "Уволен" }}
+                      </span>
+                      <span
+                        v-if="employeeShiftOpen(employee)"
+                        class="rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-semibold text-emerald-700"
+                      >
+                        Сейчас на смене
                       </span>
                     </div>
                     <p class="mt-1 text-sm text-slate-500">
@@ -484,35 +677,45 @@
                     </dd>
                   </div>
                 </dl>
-                <div class="flex flex-wrap gap-2 xl:max-w-[250px] xl:justify-end">
-                  <CrmButton variant="primary" size="sm" @click="openEmployeeCard(employee)">Карточка</CrmButton>
-                  <CrmButton variant="secondary" size="sm" @click="openEmployeeEditor(employee)">Изменить</CrmButton>
-                  <CrmButton
-                    v-if="canResetEmployeePin(employee)"
-                    variant="secondary"
-                    size="sm"
-                    @click="openPinReset(employee)"
-                  >
-                    Сбросить ПИН
-                  </CrmButton>
-                  <CrmButton
-                    :variant="employeeActive(employee) ? 'danger' : 'soft'"
-                    size="sm"
-                    @click="toggleEmployeeActive(employee)"
-                  >
-                    {{ employeeActive(employee) ? "Уволить" : "Восстановить" }}
-                  </CrmButton>
+                <div class="flex flex-wrap items-start gap-2 xl:max-w-[250px] xl:justify-end">
+                  <CrmButton variant="primary" size="sm" @click="openEmployeeCard(employee)">Открыть</CrmButton>
+                  <details class="group relative">
+                    <summary class="flex min-h-[36px] cursor-pointer list-none items-center rounded-lg border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-700 hover:bg-slate-50">
+                      Действия
+                    </summary>
+                    <div class="mt-2 flex min-w-[170px] flex-col gap-2 rounded-xl border border-slate-200 bg-slate-50 p-2">
+                      <CrmButton variant="secondary" size="sm" @click="openEmployeeEditor(employee)">Изменить</CrmButton>
+                      <CrmButton
+                        v-if="canResetEmployeePin(employee)"
+                        variant="secondary"
+                        size="sm"
+                        @click="openPinReset(employee)"
+                      >
+                        Сбросить ПИН
+                      </CrmButton>
+                      <CrmButton
+                        :variant="employeeActive(employee) ? 'danger' : 'soft'"
+                        size="sm"
+                        @click="toggleEmployeeActive(employee)"
+                      >
+                        {{ employeeActive(employee) ? "Уволить" : "Восстановить" }}
+                      </CrmButton>
+                    </div>
+                  </details>
                 </div>
               </article>
             </div>
           </div>
+          </template>
         </section>
 
         <section v-else-if="activeTab === 'salaries'" class="space-y-4">
           <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <h2 class="text-lg font-semibold text-slate-950">Зарплаты</h2>
-              <p class="mt-1 text-sm text-slate-500">Суммы задаются руководителем вручную.</p>
+              <h2 class="text-lg font-semibold text-slate-950">Ожидаемая зарплата</h2>
+              <p class="mt-1 text-sm text-slate-500">
+                Плановая сумма за месяц. Фактические выплаты здесь не ведутся.
+              </p>
             </div>
             <input
               v-model="selectedMonth"
@@ -520,6 +723,18 @@
               class="min-h-[44px] rounded-xl border border-slate-300 bg-white px-3 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
               aria-label="Месяц зарплаты"
             />
+          </div>
+          <div class="grid grid-cols-2 gap-3 sm:max-w-xl">
+            <article class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+              <div class="text-xs font-medium text-slate-500">Заполнено</div>
+              <div class="mt-2 text-xl font-bold text-slate-950">
+                {{ salaryAssignedCount }} из {{ salaryRows.length }}
+              </div>
+            </article>
+            <article class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+              <div class="text-xs font-medium text-slate-500">Всего ожидается</div>
+              <div class="mt-2 text-xl font-bold text-slate-950">{{ formatMoney(salaryExpectedTotal) }}</div>
+            </article>
           </div>
           <div v-if="staffSalariesLoading" class="rounded-2xl border border-slate-200 bg-white py-16 text-center text-sm text-slate-500">
             Загружаем зарплаты…
@@ -529,37 +744,71 @@
             <CrmButton class="mt-4" variant="secondary" @click="loadSalaries">Повторить</CrmButton>
           </div>
           <div v-else-if="!salaryRows.length" class="rounded-2xl border border-dashed border-slate-300 bg-white py-14 text-center">
-            <p class="text-sm text-slate-600">За этот месяц суммы ещё не указаны</p>
-            <CrmButton class="mt-4" variant="primary" @click="openSalaryEditor()">Указать зарплату</CrmButton>
+            <p class="text-sm text-slate-600">Нет сотрудников для заполнения</p>
           </div>
-          <div v-else class="overflow-x-auto rounded-2xl border border-slate-200 bg-white shadow-sm">
-            <table class="w-full min-w-[680px] text-left text-sm">
-              <thead class="border-b border-slate-200 bg-slate-50 text-xs uppercase text-slate-500">
-                <tr>
-                  <th class="px-5 py-3">Сотрудник</th>
-                  <th class="px-5 py-3">Сумма</th>
-                  <th class="px-5 py-3">Статус</th>
-                  <th class="px-5 py-3">Комментарий</th>
-                  <th class="px-5 py-3 text-right">Действия</th>
-                </tr>
-              </thead>
-              <tbody class="divide-y divide-slate-200">
-                <tr v-for="salary in salaryRows" :key="`${salary.employee_id}:${salary.month}`">
-                  <td class="px-5 py-4 font-medium text-slate-900">{{ salaryEmployeeName(salary) }}</td>
-                  <td class="px-5 py-4 font-semibold text-slate-950">{{ formatMoney(salary.final_amount ?? salary.estimated_amount ?? 0) }}</td>
-                  <td class="px-5 py-4">{{ salaryStatusLabel(salary.status) }}</td>
-                  <td class="max-w-xs truncate px-5 py-4 text-slate-500">{{ salary.note || "—" }}</td>
-                  <td class="px-5 py-4 text-right">
-                    <div class="flex justify-end gap-2">
-                      <CrmButton v-if="salary.id" variant="soft" size="sm" @click="openSalaryHistory(salary)">История</CrmButton>
-                      <CrmButton variant="secondary" size="sm" @click="openSalaryEditor(salary)">Изменить</CrmButton>
+          <template v-else>
+            <div class="space-y-3 sm:hidden">
+              <article
+                v-for="salary in salaryRows"
+                :key="`${salary.employee_id}:${salary.month}`"
+                class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
+              >
+                <div class="flex items-start justify-between gap-3">
+                  <div>
+                    <h3 class="font-semibold text-slate-950">{{ salaryEmployeeName(salary) }}</h3>
+                    <p class="mt-1 text-xs text-slate-500">{{ salaryUpdatedLabel(salary) }}</p>
+                  </div>
+                  <div class="text-right">
+                    <div
+                      class="font-bold"
+                      :class="salary.id ? 'text-slate-950' : 'text-amber-700'"
+                    >
+                      {{ salary.id ? formatMoney(salaryAmount(salary)) : "Не указана" }}
                     </div>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-          <CrmButton v-if="salaryRows.length" variant="primary" @click="openSalaryEditor()">Добавить сумму</CrmButton>
+                  </div>
+                </div>
+                <p v-if="salary.note" class="mt-3 text-sm text-slate-600">{{ salary.note }}</p>
+                <div class="mt-4 flex flex-wrap gap-2">
+                  <CrmButton v-if="salary.id" variant="soft" size="sm" @click="openSalaryHistory(salary)">История</CrmButton>
+                  <CrmButton variant="secondary" size="sm" @click="openSalaryEditor(salary)">
+                    {{ salary.id ? "Изменить" : "Указать сумму" }}
+                  </CrmButton>
+                </div>
+              </article>
+            </div>
+
+            <div class="hidden overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm sm:block">
+              <table class="w-full text-left text-sm">
+                <thead class="border-b border-slate-200 bg-slate-50 text-xs uppercase text-slate-500">
+                  <tr>
+                    <th class="px-5 py-3">Сотрудник</th>
+                    <th class="px-5 py-3">Ожидается</th>
+                    <th class="px-5 py-3">Обновлено</th>
+                    <th class="px-5 py-3">Комментарий</th>
+                    <th class="px-5 py-3 text-right">Действия</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-200">
+                  <tr v-for="salary in salaryRows" :key="`${salary.employee_id}:${salary.month}`">
+                    <td class="px-5 py-4 font-medium text-slate-900">{{ salaryEmployeeName(salary) }}</td>
+                    <td class="px-5 py-4 font-semibold" :class="salary.id ? 'text-slate-950' : 'text-amber-700'">
+                      {{ salary.id ? formatMoney(salaryAmount(salary)) : "Не указана" }}
+                    </td>
+                    <td class="px-5 py-4 text-slate-500">{{ salaryUpdatedLabel(salary) }}</td>
+                    <td class="max-w-xs truncate px-5 py-4 text-slate-500">{{ salary.note || "—" }}</td>
+                    <td class="px-5 py-4 text-right">
+                      <div class="flex justify-end gap-2">
+                        <CrmButton v-if="salary.id" variant="soft" size="sm" @click="openSalaryHistory(salary)">История</CrmButton>
+                        <CrmButton variant="secondary" size="sm" @click="openSalaryEditor(salary)">
+                          {{ salary.id ? "Изменить" : "Указать" }}
+                        </CrmButton>
+                      </div>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </template>
         </section>
 
         <section v-else-if="activeTab === 'marks'" class="space-y-4">
@@ -576,7 +825,7 @@
                 class="min-h-[44px] rounded-xl border border-slate-300 bg-white px-3 text-sm"
               />
               <select
-                v-model="selectedEmployeeId"
+                v-model="marksEmployeeId"
                 class="min-h-[44px] rounded-xl border border-slate-300 bg-white px-3 text-sm"
                 aria-label="Сотрудник для отметок"
               >
@@ -584,7 +833,13 @@
                   {{ employee.first_name }} {{ employee.last_name }}
                 </option>
               </select>
-              <CrmButton variant="primary" @click="openMarkEditor()">Добавить отметку</CrmButton>
+              <CrmButton
+                variant="primary"
+                :disabled="!marksEmployeeId"
+                @click="openMarkEditor()"
+              >
+                Добавить отметку
+              </CrmButton>
             </div>
           </div>
           <div v-if="staffMarksLoading" class="rounded-2xl border border-slate-200 bg-white py-16 text-center text-sm text-slate-500">
@@ -629,7 +884,7 @@
             </div>
             <div class="flex flex-col gap-2 sm:flex-row">
               <select
-                v-model="selectedEmployeeId"
+                v-model="shiftsEmployeeId"
                 class="min-h-[44px] rounded-xl border border-slate-300 bg-white px-3 text-sm"
                 aria-label="Сотрудник для истории смен"
               >
@@ -656,29 +911,114 @@
           <div v-else-if="!staffShiftHistory.length" class="rounded-2xl border border-dashed border-slate-300 bg-white py-14 text-center text-sm text-slate-500">
             За выбранный период смен нет
           </div>
-          <div v-else class="divide-y divide-slate-200 rounded-2xl border border-slate-200 bg-white shadow-sm">
-            <article v-for="shift in staffShiftHistory" :key="shift.id" class="flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between">
+          <template v-else>
+            <section class="grid grid-cols-3 gap-3">
+              <article
+                v-for="metric in shiftOverviewMetrics"
+                :key="metric.label"
+                class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
+              >
+                <div class="text-xs font-medium text-slate-500">{{ metric.label }}</div>
+                <div class="mt-2 text-lg font-bold text-slate-950">{{ metric.value }}</div>
+              </article>
+            </section>
+
+            <section class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
               <div>
-                <div class="flex flex-wrap items-center gap-2">
-                  <h3 class="font-semibold text-slate-950">{{ shiftEmployeeLabel(shift) }}</h3>
-                  <span class="rounded-full px-2 py-0.5 text-xs font-medium" :class="shiftActive(shift) ? 'bg-blue-50 text-blue-700' : 'bg-slate-100 text-slate-600'">
-                    {{ shiftActive(shift) ? "Идёт" : "Закрыта" }}
-                  </span>
-                  <span v-if="shift.corrected_at" class="text-xs text-slate-500">исправлена</span>
-                </div>
-                <p class="mt-1 text-sm text-slate-600">
-                  {{ formatDateTime(shiftStart(shift)) }} →
-                  {{ shiftEnd(shift) ? formatDateTime(shiftEnd(shift)!) : "сейчас" }}
-                </p>
-                <p v-if="shift.correction_reason" class="mt-1 text-xs text-slate-500">
-                  Причина: {{ shift.correction_reason }}
+                <h3 class="font-semibold text-slate-950">Календарь смен</h3>
+                <p class="mt-1 text-xs text-slate-500">
+                  Чем насыщеннее ячейка, тем больше часов отработано в этот день.
                 </p>
               </div>
-              <CrmButton variant="secondary" size="sm" @click="openShiftCorrection(shift)">
-                {{ shiftActive(shift) ? "Закрыть с причиной" : "Исправить" }}
-              </CrmButton>
-            </article>
-          </div>
+              <div class="mt-4 grid grid-cols-7 gap-1 text-center text-[10px] font-medium text-slate-400">
+                <span v-for="day in ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс']" :key="day">{{ day }}</span>
+              </div>
+              <div class="mt-1 grid grid-cols-7 gap-1">
+                <div
+                  v-for="cell in shiftCalendarCells"
+                  :key="cell.key"
+                  class="aspect-square rounded-lg border p-1.5 text-xs"
+                  :class="cell.empty ? 'border-transparent' : 'border-slate-200'"
+                  :style="cell.empty ? undefined : { backgroundColor: shiftHeatColor(cell.minutes) }"
+                  :title="cell.empty
+                    ? ''
+                    : `${cell.label}: ${formatMinutes(cell.minutes)}, смен: ${cell.count}`"
+                >
+                  <template v-if="!cell.empty">
+                    <div class="font-semibold text-slate-700">{{ cell.day }}</div>
+                    <div v-if="cell.minutes" class="mt-1 text-[10px] text-slate-600">
+                      {{ formatDecimal(cell.minutes / 60) }} ч
+                    </div>
+                    <div class="mt-1 flex gap-1">
+                      <span v-if="cell.active" class="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                      <span v-if="cell.corrected" class="h-1.5 w-1.5 rounded-full bg-amber-500" />
+                    </div>
+                  </template>
+                </div>
+              </div>
+            </section>
+
+            <section class="rounded-2xl border border-slate-200 bg-white shadow-sm">
+              <div class="flex items-center justify-between border-b border-slate-200 px-5 py-4">
+                <div>
+                  <h3 class="font-semibold text-slate-950">Последние смены</h3>
+                  <p class="mt-1 text-xs text-slate-500">
+                    Сначала новые · всего {{ staffShiftHistory.length }}
+                  </p>
+                </div>
+              </div>
+              <div class="divide-y divide-slate-200">
+              <article
+                v-for="shift in visibleShiftHistory"
+                :key="shift.id"
+                class="flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between"
+                data-testid="staff-shift-history-item"
+              >
+                <div>
+                  <div class="flex flex-wrap items-center gap-2">
+                    <h3 class="font-semibold text-slate-950">{{ shiftEmployeeLabel(shift) }}</h3>
+                    <span class="rounded-full px-2 py-0.5 text-xs font-medium" :class="shiftActive(shift) ? 'bg-blue-50 text-blue-700' : 'bg-slate-100 text-slate-600'">
+                      {{ shiftActive(shift) ? "Идёт" : "Закрыта" }}
+                    </span>
+                    <span v-if="shift.corrected_at" class="text-xs text-slate-500">исправлена</span>
+                  </div>
+                  <p class="mt-1 text-sm text-slate-600">
+                    {{ formatDateTime(shiftStart(shift)) }} →
+                    {{ shiftEnd(shift) ? formatDateTime(shiftEnd(shift)!) : "сейчас" }}
+                  </p>
+                  <p v-if="shift.correction_reason" class="mt-1 text-xs text-slate-500">
+                    Причина: {{ shift.correction_reason }}
+                  </p>
+                </div>
+                <CrmButton variant="secondary" size="sm" @click="openShiftCorrection(shift)">
+                  {{ shiftActive(shift) ? "Закрыть с причиной" : "Исправить" }}
+                </CrmButton>
+              </article>
+              </div>
+              <div
+                v-if="staffShiftHistory.length > shiftHistoryPageSize"
+                class="flex flex-wrap items-center justify-center gap-2 border-t border-slate-200 px-5 py-4"
+              >
+                <CrmButton
+                  v-if="shiftHistoryRemaining > 0"
+                  variant="secondary"
+                  size="sm"
+                  data-testid="staff-shift-history-more"
+                  @click="shiftHistoryLimit += shiftHistoryPageSize"
+                >
+                  Показать ещё {{ Math.min(shiftHistoryPageSize, shiftHistoryRemaining) }}
+                </CrmButton>
+                <button
+                  v-if="shiftHistoryLimit > shiftHistoryPageSize"
+                  type="button"
+                  class="min-h-[36px] rounded-lg px-3 text-sm font-medium text-slate-600 hover:bg-slate-100"
+                  @click="shiftHistoryLimit = shiftHistoryPageSize"
+                >
+                  Свернуть
+                </button>
+              </div>
+            </section>
+          </template>
         </section>
 
         <section v-else-if="activeTab === 'settings'" class="space-y-5">
@@ -691,6 +1031,30 @@
 
           <div v-if="staffSettingsError" class="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700" role="alert">
             {{ staffSettingsError }}
+          </div>
+
+          <div class="grid gap-3 sm:grid-cols-3">
+            <div class="rounded-xl border border-slate-200 bg-white px-4 py-3">
+              <div class="text-xs text-slate-500">Действующих сотрудников</div>
+              <div class="mt-1 font-bold text-slate-950">{{ activeStaffCount }}</div>
+            </div>
+            <div
+              class="rounded-xl border px-4 py-3"
+              :class="orderRestrictionReady
+                ? 'border-emerald-200 bg-emerald-50'
+                : 'border-amber-200 bg-amber-50'"
+            >
+              <div class="text-xs" :class="orderRestrictionReady ? 'text-emerald-700' : 'text-amber-700'">
+                ПИНы настроены
+              </div>
+              <div class="mt-1 font-bold text-slate-950">
+                {{ pinReadyStaffCount }} из {{ activeStaffCount }}
+              </div>
+            </div>
+            <div class="rounded-xl border border-slate-200 bg-white px-4 py-3">
+              <div class="text-xs text-slate-500">Готовность смены</div>
+              <div class="mt-1 text-sm font-semibold text-slate-950">{{ currentShiftReadinessLabel }}</div>
+            </div>
           </div>
 
           <div class="divide-y divide-slate-200 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
@@ -717,7 +1081,7 @@
               <CrmButton
                 :variant="staffOrderShiftRestrictionEnabled ? 'danger' : 'primary'"
                 :loading="staffSettingsLoading"
-                :disabled="!staffTrackingEnabled"
+                :disabled="!staffTrackingEnabled || (!staffOrderShiftRestrictionEnabled && !orderRestrictionReady)"
                 @click="toggleOrderShiftRestriction"
               >
                 {{ staffOrderShiftRestrictionEnabled ? "Выключить ограничение" : "Включить ограничение" }}
@@ -757,8 +1121,23 @@
                 class="flex min-h-[64px] items-center justify-between gap-4 px-5 py-3"
               >
                 <span>
-                  <span class="block font-medium text-slate-900">{{ notificationGroupLabel(String(setting.event_group)) }}</span>
-                  <span class="block text-xs text-slate-500">Отправлять события этой группы активным получателям</span>
+                  <span class="flex flex-wrap items-center gap-2 font-medium text-slate-900">
+                    {{ notificationGroupLabel(String(setting.event_group)) }}
+                    <span class="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-600">
+                      {{ notificationRecipientCount(String(setting.event_group)) }}
+                      {{ recipientWord(notificationRecipientCount(String(setting.event_group))) }}
+                    </span>
+                  </span>
+                  <span
+                    class="block text-xs"
+                    :class="Boolean(setting.enabled) && notificationRecipientCount(String(setting.event_group)) === 0
+                      ? 'font-medium text-amber-700'
+                      : 'text-slate-500'"
+                  >
+                    {{ Boolean(setting.enabled) && notificationRecipientCount(String(setting.event_group)) === 0
+                      ? "Включено, но отправлять пока некому"
+                      : "Отправлять события этой группы активным получателям" }}
+                  </span>
                 </span>
                 <input
                   :checked="Boolean(setting.enabled)"
@@ -769,6 +1148,13 @@
                 />
               </label>
             </div>
+            <p
+              v-if="notificationSettingError"
+              class="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
+              role="alert"
+            >
+              {{ notificationSettingError }}
+            </p>
 
             <div class="grid gap-5 lg:grid-cols-[minmax(0,380px)_minmax(0,1fr)]">
               <form class="space-y-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm" @submit.prevent="resolvedRecipient ? addNotificationRecipient() : resolveNotificationRecipient()">
@@ -1295,6 +1681,60 @@
         </div>
       </form>
     </AdminModal>
+
+    <AdminModal
+      :is-open="Boolean(confirmationAction)"
+      :title="confirmationAction?.title || 'Подтвердить действие'"
+      :description="confirmationAction?.description || ''"
+      size="sm"
+      :show-actions="false"
+      :persistent="confirmationSaving"
+      :is-loading="confirmationSaving"
+      @close="closeConfirmation"
+      @cancel="closeConfirmation"
+    >
+      <div class="space-y-4">
+        <div
+          v-if="confirmationAction?.context"
+          class="whitespace-pre-line rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-800"
+        >
+          {{ confirmationAction.context }}
+        </div>
+        <label v-if="confirmationAction?.requireReason" class="block">
+          <span class="mb-1 block text-sm font-medium text-slate-700">
+            {{ confirmationAction.reasonLabel || "Причина" }}
+          </span>
+          <textarea
+            v-model.trim="confirmationReason"
+            rows="4"
+            required
+            class="w-full rounded-xl border border-slate-300 px-3 py-2"
+          />
+        </label>
+        <p v-if="confirmationError" class="text-sm text-red-700" role="alert">
+          {{ confirmationError }}
+        </p>
+        <div class="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+          <CrmButton
+            variant="secondary"
+            type="button"
+            :disabled="confirmationSaving"
+            @click="closeConfirmation"
+          >
+            Отмена
+          </CrmButton>
+          <CrmButton
+            :variant="confirmationAction?.variant || 'primary'"
+            type="button"
+            :loading="confirmationSaving"
+            :disabled="Boolean(confirmationAction?.requireReason) && !confirmationReason"
+            @click="confirmRequestedAction"
+          >
+            {{ confirmationAction?.confirmLabel || "Подтвердить" }}
+          </CrmButton>
+        </div>
+      </div>
+    </AdminModal>
   </div>
 </template>
 
@@ -1362,6 +1802,7 @@ const {
   staffShiftHistory,
   staffShiftHistoryLoading,
   staffShiftHistoryError,
+  currentStaffShift,
   staffNotifications,
   staffNotificationsLoading,
   staffNotificationsError,
@@ -1391,9 +1832,22 @@ const selectedYear = ref(String(getBusinessDateParts().year));
 const customPeriodFrom = ref(currentBusinessDay());
 const customPeriodTo = ref(currentBusinessDay());
 const selectedEmployeeId = ref("");
+const marksEmployeeId = ref("");
+const shiftsEmployeeId = ref("");
 let syncedStaffAccessKey = "";
 const employeeSearch = ref("");
 const employeeStatusFilter = ref<"active" | "inactive" | "all">("active");
+const cardEmployeeSearch = ref("");
+const cardEmployeeStatusFilter = ref<"active" | "inactive" | "all">("all");
+const teamSort = ref<"shift" | "hours" | "issued" | "tasks" | "name">("shift");
+const teamChartMetric = ref<"hours" | "issued" | "tasks">("hours");
+const activityMetric = ref<"actions" | "hours" | "issued" | "tasks">("actions");
+type TimelineFilter = "all" | "orders" | "warehouse" | "tasks" | "marks";
+const timelineFilter = ref<TimelineFilter>("all");
+const timelinePageSize = 12;
+const timelineLimit = ref(timelinePageSize);
+const shiftHistoryPageSize = 20;
+const shiftHistoryLimit = ref(shiftHistoryPageSize);
 const pageMessage = ref("");
 const pageMessageKind = ref<"info" | "error">("info");
 const periodError = ref("");
@@ -1461,12 +1915,29 @@ const editingShift = ref<StaffShift | null>(null);
 const shiftCorrectionForm = reactive({ started_at: "", ended_at: "", reason: "" });
 const notificationSaving = ref(false);
 const notificationFormError = ref("");
+const notificationSettingError = ref("");
 const recipientForm = reactive({ event_group: "documents", username: "" });
 const resolvedRecipient = ref<{
   telegram_id: string;
   telegram_username: string;
   display_name: string;
 } | null>(null);
+
+type ConfirmationVariant = "primary" | "danger" | "success";
+type ConfirmationAction = {
+  title: string;
+  description: string;
+  context?: string;
+  confirmLabel: string;
+  variant?: ConfirmationVariant;
+  requireReason?: boolean;
+  reasonLabel?: string;
+  run: (reason: string) => Promise<void>;
+};
+const confirmationAction = ref<ConfirmationAction | null>(null);
+const confirmationReason = ref("");
+const confirmationSaving = ref(false);
+const confirmationError = ref("");
 
 const pageLoading = computed(
   () =>
@@ -1501,6 +1972,48 @@ const filteredEmployees = computed(() => {
       .includes(query);
   });
 });
+const cardEmployees = computed(() => {
+  const query = cardEmployeeSearch.value.trim().toLocaleLowerCase("ru");
+  return staffEmployees.value.filter((employee) => {
+    const matchesStatus =
+      cardEmployeeStatusFilter.value === "all" ||
+      (cardEmployeeStatusFilter.value === "active"
+        ? employeeActive(employee)
+        : !employeeActive(employee));
+    if (!matchesStatus) return false;
+    if (!query) return true;
+    return `${employee.first_name} ${employee.last_name} ${employee.position || ""}`
+      .toLocaleLowerCase("ru")
+      .includes(query);
+  });
+});
+const teamEmployees = computed(() => {
+  const rows = [...filteredEmployees.value];
+  const name = (employee: Employee) =>
+    `${employee.first_name} ${employee.last_name}`.trim();
+  const metric = (employee: Employee) => {
+    const summary = teamSummary(employee);
+    if (teamSort.value === "hours") return Number(summary.worked_minutes || 0);
+    if (teamSort.value === "issued") return Number(summary.orders_issued || 0);
+    if (teamSort.value === "tasks") return Number(summary.tasks_completed || 0);
+    return 0;
+  };
+  return rows.sort((left, right) => {
+    if (teamSort.value === "shift") {
+      const shiftDelta =
+        Number(employeeShiftOpen(right)) - Number(employeeShiftOpen(left));
+      if (shiftDelta) return shiftDelta;
+      const hoursDelta =
+        Number(teamSummary(right).worked_minutes || 0) -
+        Number(teamSummary(left).worked_minutes || 0);
+      if (hoursDelta) return hoursDelta;
+    } else if (teamSort.value !== "name") {
+      const delta = metric(right) - metric(left);
+      if (delta) return delta;
+    }
+    return name(left).localeCompare(name(right), "ru");
+  });
+});
 const teamAnalyticsByEmployee = computed(
   () =>
     new Map(
@@ -1512,51 +2025,164 @@ const teamAnalyticsByEmployee = computed(
 const analyticsSummary = computed<Record<string, any>>(
   () => ((staffAnalytics.value as any)?.summary || staffAnalytics.value || {}),
 );
-const metrics = computed<Array<{
-  label: string;
-  value: string | number;
-  hint?: string;
-}>>(() => [
+type MetricItem = { label: string; value: string | number };
+const headlineMetrics = computed<MetricItem[]>(() => [
   { label: "Отработано", value: formatMinutes(Number(analyticsSummary.value.worked_minutes || 0)) },
   { label: "Смен", value: Number(analyticsSummary.value.shifts_count || 0) },
   { label: "Задач", value: Number(analyticsSummary.value.tasks_completed || 0) },
-  { label: "Собрано", value: Number(analyticsSummary.value.orders_assembled || 0) },
   { label: "Выдано", value: Number(analyticsSummary.value.orders_issued || 0) },
+]);
+const metricGroups = computed<Array<{
+  title: string;
+  metrics: MetricItem[];
+  hint?: string;
+}>>(() => [
   {
-    label: "Выручка выданных",
-    value: formatMoney(Number(analyticsSummary.value.orders_amount || 0)),
+    title: "Заказы",
+    metrics: [
+      { label: "Собрано", value: Number(analyticsSummary.value.orders_assembled || 0) },
+      { label: "Выдано", value: Number(analyticsSummary.value.orders_issued || 0) },
+      {
+        label: "Выручка",
+        value: formatMoney(Number(analyticsSummary.value.orders_amount || 0)),
+      },
+      {
+        label: "Прибыль",
+        value: formatMoney(Number(analyticsSummary.value.issued_profit || 0)),
+      },
+    ],
   },
   {
-    label: "Прибыль выданных",
-    value: formatMoney(Number(analyticsSummary.value.issued_profit || 0)),
+    title: "Склад",
+    metrics: [
+      {
+        label: "Поставки создано",
+        value: Number(analyticsSummary.value.procurements_created || 0),
+      },
+      {
+        label: "Поставки принято",
+        value: Number(analyticsSummary.value.procurements_completed || 0),
+      },
+      {
+        label: "Перемещения создано",
+        value: Number(analyticsSummary.value.transfers_created || 0),
+      },
+      {
+        label: "Перемещения принято",
+        value: Number(analyticsSummary.value.transfers_completed || 0),
+      },
+    ],
   },
   {
-    label: "Положительные / отрицательные",
-    value: `${Number(analyticsSummary.value.mark_counts?.positive || 0)} / ${Number(analyticsSummary.value.mark_counts?.negative || 0)}`,
+    title: "Отметки",
+    metrics: [
+      {
+        label: "Положительные",
+        value: Number(analyticsSummary.value.mark_counts?.positive || 0),
+      },
+      {
+        label: "Отрицательные",
+        value: Number(analyticsSummary.value.mark_counts?.negative || 0),
+      },
+    ],
   },
   {
-    label: "Поставки: создано / принято",
-    value: `${Number(analyticsSummary.value.procurements_created || 0)} / ${Number(analyticsSummary.value.procurements_completed || 0)}`,
-  },
-  {
-    label: "Перемещения: создано / принято",
-    value: `${Number(analyticsSummary.value.transfers_created || 0)} / ${Number(analyticsSummary.value.transfers_completed || 0)}`,
-  },
-  {
-    label: "Ожидаемая зарплата",
-    value:
-      analyticsSummary.value.estimated_salary == null
-        ? "Не указана"
-        : formatMoney(Number(analyticsSummary.value.estimated_salary)),
+    title: "Ожидаемая зарплата",
+    metrics: [
+      {
+        label: "За месяц",
+        value:
+          analyticsSummary.value.estimated_salary == null
+            ? "Не указана"
+            : formatMoney(Number(analyticsSummary.value.estimated_salary)),
+      },
+    ],
     hint: "Задаётся руководителем вручную и не означает факт выплаты.",
   },
 ]);
-const dailyActivity = computed(
-  () =>
+type ActivityDay = {
+  date: string;
+  count?: number;
+  worked_minutes?: number;
+  events?: Record<string, number>;
+};
+type ActivityChartPoint = {
+  key: string;
+  label: string;
+  shortLabel: string;
+  value: number;
+};
+const activityMetricOptions = [
+  { value: "actions" as const, label: "Действия" },
+  { value: "hours" as const, label: "Часы" },
+  { value: "issued" as const, label: "Выдано" },
+  { value: "tasks" as const, label: "Задачи" },
+];
+const timelineFilterOptions: Array<{
+  value: TimelineFilter;
+  label: string;
+}> = [
+  { value: "all", label: "Все типы" },
+  { value: "orders", label: "Заказы" },
+  { value: "warehouse", label: "Склад" },
+  { value: "tasks", label: "Задачи" },
+  { value: "marks", label: "Отметки" },
+];
+const dailyActivity = computed<ActivityDay[]>(
+  () => (
     ((staffAnalytics.value as any)?.daily_activity ||
       (staffAnalytics.value as any)?.days ||
-      []) as Array<{ date: string; count?: number }>,
+      []) as ActivityDay[]
+  ).map((day) => ({
+    ...day,
+    date: String(day.date || "").slice(0, 10),
+  })),
 );
+const filledDailyActivity = computed<ActivityDay[]>(() => {
+  const [start, end] = activityDateBounds();
+  if (!start || !end) return [];
+  const source = new Map(dailyActivity.value.map((day) => [day.date, day]));
+  const result: ActivityDay[] = [];
+  const cursor = new Date(`${start}T12:00:00Z`);
+  const limit = new Date(`${end}T12:00:00Z`);
+  while (cursor <= limit && result.length < 367) {
+    const date = cursor.toISOString().slice(0, 10);
+    result.push(
+      source.get(date) || {
+        date,
+        count: 0,
+        worked_minutes: 0,
+        events: {},
+      },
+    );
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+  }
+  return result;
+});
+const activityChartGranularity = computed<"day" | "month">(() =>
+  filledDailyActivity.value.length > 62 ? "month" : "day",
+);
+const activityChartPoints = computed<ActivityChartPoint[]>(() => {
+  if (activityChartGranularity.value === "day") {
+    return filledDailyActivity.value.map((day) => ({
+      key: day.date,
+      label: formatDay(day.date),
+      shortLabel: String(Number(day.date.slice(8, 10))),
+      value: activityValue(day),
+    }));
+  }
+  const buckets = new Map<string, number>();
+  for (const day of filledDailyActivity.value) {
+    const month = day.date.slice(0, 7);
+    buckets.set(month, Number(buckets.get(month) || 0) + activityValue(day));
+  }
+  return [...buckets].map(([month, value]) => ({
+    key: month,
+    label: formatMonthLabel(month),
+    shortLabel: formatMonthShort(month),
+    value,
+  }));
+});
 const timelineItems = computed(() => {
   const activities = (
     ((staffAnalytics.value as any)?.activities ||
@@ -1565,6 +2191,7 @@ const timelineItems = computed(() => {
   ).map((item) => ({
     key: `activity:${item.id}`,
     type: "activity" as const,
+    eventType: String(item.type || item.event_type || ""),
     title: item.title || item.type || "Действие",
     description: item.description || "",
     at: item.occurred_at || item.created_at,
@@ -1576,6 +2203,7 @@ const timelineItems = computed(() => {
   const marks = staffMarks.value.map((mark) => ({
     key: `mark:${mark.id}`,
     type: "mark" as const,
+    eventType: "manual_mark",
     title: mark.title,
     description: mark.description || "",
     at: mark.occurred_at,
@@ -1588,7 +2216,248 @@ const timelineItems = computed(() => {
     (a, b) => new Date(b.at).getTime() - new Date(a.at).getTime(),
   );
 });
-const salaryRows = computed(() => staffSalaries.value);
+const filteredTimelineItems = computed(() => {
+  if (timelineFilter.value === "all") return timelineItems.value;
+  return timelineItems.value.filter((item) => {
+    if (timelineFilter.value === "marks") return item.type === "mark";
+    if (item.type !== "activity") return false;
+    if (timelineFilter.value === "orders") {
+      return item.eventType.startsWith("order");
+    }
+    if (timelineFilter.value === "warehouse") {
+      return (
+        item.eventType.startsWith("procurement") ||
+        item.eventType.startsWith("transfer")
+      );
+    }
+    return item.eventType.startsWith("task");
+  });
+});
+const visibleTimelineItems = computed(() =>
+  filteredTimelineItems.value.slice(0, timelineLimit.value),
+);
+const timelineRemaining = computed(() =>
+  Math.max(0, filteredTimelineItems.value.length - timelineLimit.value),
+);
+type SalaryRow = StaffSalary & { missing?: boolean };
+const salaryRows = computed<SalaryRow[]>(() => {
+  const saved = new Map(
+    staffSalaries.value.map((salary) => [salary.employee_id, salary]),
+  );
+  const activeRows = staffEmployees.value
+    .filter(employeeActive)
+    .map((employee) =>
+      saved.get(employee.id) || {
+        employee_id: employee.id,
+        employee_name: `${employee.first_name} ${employee.last_name}`.trim(),
+        month: selectedMonth.value,
+        missing: true,
+      },
+    );
+  const activeIds = new Set(activeRows.map((salary) => salary.employee_id));
+  return [
+    ...activeRows,
+    ...staffSalaries.value.filter(
+      (salary) => !activeIds.has(salary.employee_id),
+    ),
+  ];
+});
+const salaryAssignedCount = computed(
+  () => salaryRows.value.filter((salary) => Boolean(salary.id)).length,
+);
+const salaryExpectedTotal = computed(() =>
+  salaryRows.value.reduce(
+    (sum, salary) => sum + (salary.id ? salaryAmount(salary) : 0),
+    0,
+  ),
+);
+const teamHeadlineMetrics = computed<MetricItem[]>(() => {
+  const summaries = teamEmployees.value.map(teamSummary);
+  return [
+    {
+      label: "Сейчас на смене",
+      value: teamEmployees.value.filter(employeeShiftOpen).length,
+    },
+    {
+      label: "Отработано",
+      value: formatMinutes(
+        summaries.reduce(
+          (sum, summary) => sum + Number(summary.worked_minutes || 0),
+          0,
+        ),
+      ),
+    },
+    {
+      label: "Выдано",
+      value: summaries.reduce(
+        (sum, summary) => sum + Number(summary.orders_issued || 0),
+        0,
+      ),
+    },
+    {
+      label: "Задач",
+      value: summaries.reduce(
+        (sum, summary) => sum + Number(summary.tasks_completed || 0),
+        0,
+      ),
+    },
+    {
+      label: "Выручка",
+      value: formatMoney(
+        summaries.reduce(
+          (sum, summary) => sum + Number(summary.orders_amount || 0),
+          0,
+        ),
+      ),
+    },
+  ];
+});
+const teamComparisonRows = computed(() => {
+  const rows = teamEmployees.value.map((employee) => {
+    const summary = teamSummary(employee);
+    const value =
+      teamChartMetric.value === "hours"
+        ? Number(summary.worked_minutes || 0) / 60
+        : teamChartMetric.value === "issued"
+          ? Number(summary.orders_issued || 0)
+          : Number(summary.tasks_completed || 0);
+    return {
+      id: employee.id,
+      name: `${employee.first_name} ${employee.last_name}`.trim(),
+      value,
+    };
+  }).sort((left, right) => right.value - left.value);
+  const max = Math.max(1, ...rows.map((row) => row.value));
+  return rows.map((row) => ({
+    ...row,
+    percent: row.value > 0 ? Math.max(3, Math.round((row.value / max) * 100)) : 0,
+    label:
+      teamChartMetric.value === "hours"
+        ? `${formatDecimal(row.value)} ч`
+        : String(row.value),
+  }));
+});
+const teamChartAriaLabel = computed(
+  () =>
+    `Сравнение команды: ${teamComparisonRows.value
+      .map((row) => `${row.name} — ${row.label}`)
+      .join("; ")}`,
+);
+const activeStaffCount = computed(
+  () => staffEmployees.value.filter(employeeActive).length,
+);
+const pinReadyStaffCount = computed(
+  () =>
+    staffEmployees.value.filter(
+      (employee) => employeeActive(employee) && employee.pin_configured,
+    ).length,
+);
+const orderRestrictionReady = computed(
+  () =>
+    activeStaffCount.value > 0 &&
+    pinReadyStaffCount.value === activeStaffCount.value,
+);
+const currentShiftReadinessLabel = computed(() => {
+  const shift = currentStaffShift.value;
+  if (
+    !shift ||
+    !["active", "open"].includes(String(shift.status || "")) ||
+    shift.ended_at ||
+    shift.closed_at
+  ) {
+    return "Смена сейчас не открыта";
+  }
+  return `Текущая смена: ${shift.employee_name || shift.employee?.first_name || "сотрудник"}`;
+});
+type ShiftCalendarCell = {
+  key: string;
+  empty: boolean;
+  day: number;
+  label: string;
+  minutes: number;
+  count: number;
+  active: boolean;
+  corrected: boolean;
+};
+const shiftOverviewMetrics = computed<MetricItem[]>(() => {
+  const minutes = staffShiftHistory.value.reduce(
+    (sum, shift) => sum + shiftDurationMinutes(shift),
+    0,
+  );
+  return [
+    { label: "Смен", value: staffShiftHistory.value.length },
+    { label: "Отработано", value: formatMinutes(minutes) },
+    {
+      label: "Исправлено",
+      value: staffShiftHistory.value.filter(
+        (shift) => Boolean(shift.corrected_at || shift.correction_reason),
+      ).length,
+    },
+  ];
+});
+const visibleShiftHistory = computed(() =>
+  staffShiftHistory.value.slice(0, shiftHistoryLimit.value),
+);
+const shiftHistoryRemaining = computed(() =>
+  Math.max(0, staffShiftHistory.value.length - shiftHistoryLimit.value),
+);
+const shiftCalendarCells = computed<ShiftCalendarCell[]>(() => {
+  const match = /^(\d{4})-(\d{2})$/.exec(selectedMonth.value);
+  if (!match) return [];
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  const firstWeekday = (new Date(Date.UTC(year, month - 1, 1)).getUTCDay() + 6) % 7;
+  const byDate = new Map<string, Omit<ShiftCalendarCell, "key" | "empty" | "day" | "label">>();
+  for (const shift of staffShiftHistory.value) {
+    const date =
+      shift.business_date ||
+      getBusinessDateKey(shiftStart(shift));
+    if (!date?.startsWith(selectedMonth.value)) continue;
+    const existing = byDate.get(date) || {
+      minutes: 0,
+      count: 0,
+      active: false,
+      corrected: false,
+    };
+    existing.minutes += shiftDurationMinutes(shift);
+    existing.count += 1;
+    existing.active ||= shiftActive(shift);
+    existing.corrected ||=
+      Boolean(shift.corrected_at || shift.correction_reason);
+    byDate.set(date, existing);
+  }
+  const cells: ShiftCalendarCell[] = Array.from(
+    { length: firstWeekday },
+    (_, index) => ({
+      key: `empty-${index}`,
+      empty: true,
+      day: 0,
+      label: "",
+      minutes: 0,
+      count: 0,
+      active: false,
+      corrected: false,
+    }),
+  );
+  for (let day = 1; day <= daysInMonth; day += 1) {
+    const date = `${selectedMonth.value}-${String(day).padStart(2, "0")}`;
+    const summary = byDate.get(date) || {
+      minutes: 0,
+      count: 0,
+      active: false,
+      corrected: false,
+    };
+    cells.push({
+      key: date,
+      empty: false,
+      day,
+      label: formatDay(date),
+      ...summary,
+    });
+  }
+  return cells;
+});
 const notificationSettings = computed(
   () => (staffNotifications.value?.settings || []) as Array<Record<string, any>>,
 );
@@ -1600,7 +2469,7 @@ const notificationOutbox = computed(
 );
 const salaryContextRecord = computed(
   () =>
-    salaryRows.value.find(
+    staffSalaries.value.find(
       (salary) =>
         salary.employee_id === salaryForm.employee_id &&
         salary.month === selectedMonth.value,
@@ -1616,21 +2485,18 @@ const salaryContextAmount = computed(
 );
 const selectedEmployeeLabel = computed(() => {
   const employee = staffEmployees.value.find(
-    (item) => item.id === selectedEmployeeId.value,
+    (item) => item.id === marksEmployeeId.value,
   );
   return employee
     ? `${employee.first_name} ${employee.last_name}`.trim()
     : "Сотрудник не выбран";
 });
 const activityChartLabel = computed(() => {
-  if (!dailyActivity.value.length) return "Активность по дням: данных нет";
-  const details = dailyActivity.value
-    .map((day) => {
-      const count = Number(day.count || 0);
-      return `${formatDay(day.date)} — ${count} ${activityWord(count)}`;
-    })
+  if (!activityChartPoints.value.length) return "Динамика работы: данных нет";
+  const details = activityChartPoints.value
+    .map((point) => `${point.label} — ${activityMetricValueLabel(point.value)}`)
     .join("; ");
-  return `Активность по дням: ${details}`;
+  return `Динамика работы: ${details}`;
 });
 
 function currentMonth() {
@@ -1651,6 +2517,15 @@ function employeeActive(employee: Employee) {
 }
 function teamSummary(employee: Employee): StaffAnalytics {
   return teamAnalyticsByEmployee.value.get(employee.id) || { employee };
+}
+function employeeShiftOpen(employee: Employee) {
+  return Boolean(
+    teamSummary(employee).shifts?.some(
+      (shift) =>
+        ["active", "open"].includes(String(shift.status || "")) &&
+        !(shift.ended_at || shift.closed_at),
+    ),
+  );
 }
 function openEmployeeCard(employee: Employee) {
   selectedEmployeeId.value = employee.id;
@@ -1675,9 +2550,24 @@ function formatMonthLabel(value: string) {
     timeZone: BUSINESS_TIME_ZONE,
   }).format(date);
 }
+function formatMonthShort(value: string) {
+  const match = /^(\d{4})-(\d{2})$/.exec(value);
+  if (!match) return value;
+  return new Intl.DateTimeFormat("ru-RU", {
+    month: "short",
+    timeZone: BUSINESS_TIME_ZONE,
+  })
+    .format(new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, 1)))
+    .replace(".", "");
+}
 function formatMinutes(value: number) {
   const minutes = Math.max(0, Math.round(value));
   return `${Math.floor(minutes / 60)} ч ${minutes % 60} мин`;
+}
+function formatDecimal(value: number) {
+  return new Intl.NumberFormat("ru-RU", {
+    maximumFractionDigits: 1,
+  }).format(value);
 }
 function formatDateTime(value: string) {
   if (!value) return "—";
@@ -1687,25 +2577,66 @@ function formatDateTime(value: string) {
     : new Intl.DateTimeFormat("ru-RU", {
         day: "2-digit",
         month: "short",
-      year: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-      timeZone: BUSINESS_TIME_ZONE,
-    }).format(date);
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+        timeZone: BUSINESS_TIME_ZONE,
+      }).format(date);
 }
 function formatDay(value: string) {
   return new Intl.DateTimeFormat("ru-RU", {
     day: "numeric",
     month: "long",
     timeZone: BUSINESS_TIME_ZONE,
-  }).format(new Date(value));
+  }).format(new Date(`${value}T12:00:00Z`));
 }
-function dayNumber(value: string) {
-  return getBusinessDateParts(new Date(value)).day;
+function activityDateBounds(): [string, string] {
+  if (selectedPeriod.value === "day") {
+    return [selectedDay.value, selectedDay.value];
+  }
+  if (selectedPeriod.value === "month") {
+    const match = /^(\d{4})-(\d{2})$/.exec(selectedMonth.value);
+    if (!match) return ["", ""];
+    const year = Number(match[1]);
+    const month = Number(match[2]);
+    const end = new Date(Date.UTC(year, month, 0)).toISOString().slice(0, 10);
+    return [`${selectedMonth.value}-01`, end];
+  }
+  if (selectedPeriod.value === "year") {
+    return [`${selectedYear.value}-01-01`, `${selectedYear.value}-12-31`];
+  }
+  return [customPeriodFrom.value, customPeriodTo.value];
 }
-function activityHeight(count: number) {
-  const max = Math.max(1, ...dailyActivity.value.map((item) => Number(item.count || 0)));
-  return Math.max(8, Math.round((count / max) * 100));
+function activityValue(day: ActivityDay) {
+  if (activityMetric.value === "hours") {
+    return Number(day.worked_minutes || 0) / 60;
+  }
+  if (activityMetric.value === "issued") {
+    return Number(day.events?.order_issued || 0);
+  }
+  if (activityMetric.value === "tasks") {
+    return Number(day.events?.task_approved || 0);
+  }
+  return Number(day.count || 0);
+}
+function activityHeight(value: number) {
+  const max = Math.max(
+    1,
+    ...activityChartPoints.value.map((point) => Number(point.value || 0)),
+  );
+  return Math.max(4, Math.round((value / max) * 100));
+}
+function activityMetricShortValue(value: number) {
+  return activityMetric.value === "hours"
+    ? formatDecimal(value)
+    : String(Math.round(value));
+}
+function activityMetricValueLabel(value: number) {
+  if (activityMetric.value === "hours") return `${formatDecimal(value)} ч`;
+  if (activityMetric.value === "issued") return `${Math.round(value)} выдано`;
+  if (activityMetric.value === "tasks") return `${Math.round(value)} задач`;
+  const count = Math.round(value);
+  return `${count} ${activityWord(count)}`;
 }
 function activityWord(count: number) {
   const value = Math.abs(count) % 100;
@@ -1731,18 +2662,23 @@ function salaryEmployeeName(salary: StaffSalary) {
     })()
   );
 }
-function salaryStatusLabel(status?: string) {
-  const labels: Record<string, string> = {
-    draft: "Черновик",
-    approved: "Подтверждена",
-    paid: "Выплачена",
-    published: "Опубликована",
-  };
-  return labels[status || "published"] || status || "Опубликована";
+function salaryAmount(salary: StaffSalary) {
+  return Number(
+    salary.final_amount ??
+      salary.estimated_amount ??
+      salary.amount ??
+      (salary.amount_minor != null ? salary.amount_minor / 100 : 0),
+  );
+}
+function salaryUpdatedLabel(salary: StaffSalary) {
+  if (!salary.id) return "Сумма ещё не указана";
+  return salary.updated_at || salary.created_at
+    ? formatDateTime(salary.updated_at || salary.created_at || "")
+    : "Сохранено";
 }
 function historyVersionSummary(version: StaffHistoryVersion) {
   if (historyKind.value === "salary") {
-    return `${formatMoney(Number(version.amount_minor || 0) / 100)} · ${salaryStatusLabel(version.status)}`;
+    return `${formatMoney(Number(version.amount_minor || 0) / 100)} · сумма сохранена`;
   }
   const actions: Record<string, string> = {
     create: "Создана",
@@ -1758,6 +2694,19 @@ function notificationGroupLabel(group: string) {
     salary: "Зарплата",
   };
   return labels[group] || group;
+}
+function notificationRecipientCount(group: string) {
+  return notificationRecipients.value.filter(
+    (recipient) => String(recipient.event_group) === group,
+  ).length;
+}
+function recipientWord(count: number) {
+  const value = Math.abs(count) % 100;
+  const last = value % 10;
+  if (value > 10 && value < 20) return "получателей";
+  if (last === 1) return "получатель";
+  if (last >= 2 && last <= 4) return "получателя";
+  return "получателей";
 }
 function notificationStatusLabel(status: string) {
   const labels: Record<string, string> = {
@@ -1817,6 +2766,31 @@ function shiftStart(shift: StaffShift) {
 function shiftEnd(shift: StaffShift) {
   return shift.ended_at || shift.closed_at || null;
 }
+function shiftDurationMinutes(shift: StaffShift) {
+  const start = new Date(shiftStart(shift)).getTime();
+  const end = new Date(shiftEnd(shift) || Date.now()).getTime();
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) {
+    return Number(shift.worked_minutes || 0);
+  }
+  return Math.round((end - start) / 60_000);
+}
+function getBusinessDateKey(value: string) {
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return "";
+  const parts = getBusinessDateParts(date);
+  return `${parts.year}-${String(parts.month).padStart(2, "0")}-${String(parts.day).padStart(2, "0")}`;
+}
+function shiftHeatColor(minutes: number) {
+  if (!minutes) return "rgba(37, 99, 235, 0.025)";
+  const max = Math.max(
+    1,
+    ...shiftCalendarCells.value
+      .filter((cell) => !cell.empty)
+      .map((cell) => cell.minutes),
+  );
+  const alpha = 0.08 + (Math.min(minutes / max, 1) * 0.24);
+  return `rgba(37, 99, 235, ${alpha.toFixed(3)})`;
+}
 function shiftActive(shift: StaffShift) {
   return ["active", "open"].includes(shift.status) && !shiftEnd(shift);
 }
@@ -1833,6 +2807,11 @@ async function loadEmployees() {
     await crmStore.fetchStaffEmployees({ includeInactive: true });
     if (!selectedEmployeeId.value && staffEmployees.value.length) {
       selectedEmployeeId.value = staffEmployees.value[0].id;
+    }
+    if (!marksEmployeeId.value && staffEmployees.value.length) {
+      marksEmployeeId.value =
+        staffEmployees.value.find(employeeActive)?.id ||
+        staffEmployees.value[0].id;
     }
   } catch {
     // Store owns the visible error.
@@ -1884,7 +2863,10 @@ async function loadCard() {
   const employeeId = isStaffManager.value
     ? selectedEmployeeId.value
     : staffIdentity.value?.employee.id;
-  if (!employeeId) return;
+  if (!employeeId) {
+    staffAnalytics.value = null;
+    return;
+  }
   const period = analyticsPeriodParams();
   if (!period) return;
   const analytics = await crmStore.fetchStaffAnalytics({
@@ -1914,11 +2896,14 @@ async function loadSalaries() {
   }
 }
 async function loadMarks() {
-  if (!selectedEmployeeId.value) return;
+  if (!marksEmployeeId.value) {
+    staffMarks.value = [];
+    return;
+  }
   try {
     await crmStore.fetchStaffMarks({
       month: selectedMonth.value,
-      employeeId: selectedEmployeeId.value,
+      employeeId: marksEmployeeId.value,
     });
   } catch {
     // Store owns the visible error.
@@ -1928,7 +2913,7 @@ async function loadShifts() {
   try {
     await crmStore.fetchStaffShiftHistory({
       month: selectedMonth.value,
-      employeeId: selectedEmployeeId.value || undefined,
+      employeeId: shiftsEmployeeId.value || undefined,
     });
   } catch {
     // Store owns the visible error.
@@ -1937,6 +2922,7 @@ async function loadShifts() {
 async function loadNotifications() {
   try {
     await crmStore.fetchStaffNotifications();
+    notificationSettingError.value = "";
   } catch {
     // Store owns the visible error.
   }
@@ -1965,6 +2951,8 @@ async function syncStaffAccessWorkspace() {
   syncedStaffAccessKey = key;
   activeTab.value = "card";
   selectedEmployeeId.value = staffIdentity.value?.employee.id || "";
+  marksEmployeeId.value = staffIdentity.value?.employee.id || "";
+  shiftsEmployeeId.value = "";
   if (isStaffManager.value) await loadEmployees();
   if (staffAccessKey() !== key) return;
   await crmStore.fetchStaffSettings().catch(() => undefined);
@@ -2097,23 +3085,64 @@ async function recoverManager() {
   }
 }
 
+function requestConfirmation(action: ConfirmationAction) {
+  confirmationAction.value = action;
+  confirmationReason.value = "";
+  confirmationError.value = "";
+}
+function closeConfirmation() {
+  if (confirmationSaving.value) return;
+  confirmationAction.value = null;
+  confirmationReason.value = "";
+  confirmationError.value = "";
+}
+async function confirmRequestedAction() {
+  const action = confirmationAction.value;
+  if (
+    !action ||
+    confirmationSaving.value ||
+    (action.requireReason && !confirmationReason.value.trim())
+  ) return;
+  confirmationSaving.value = true;
+  confirmationError.value = "";
+  try {
+    await action.run(confirmationReason.value.trim());
+    confirmationAction.value = null;
+    confirmationReason.value = "";
+  } catch (error: any) {
+    confirmationError.value =
+      error?.message || "Не удалось выполнить действие";
+  } finally {
+    confirmationSaving.value = false;
+  }
+}
+
+async function updateTracking(next: boolean) {
+  await crmStore.updateStaffTracking(next);
+  if (!next && staffOrderShiftRestrictionEnabled.value) {
+    await crmStore.updateStaffOrderShiftRestriction(false);
+  }
+  pageMessageKind.value = "info";
+  pageMessage.value = next ? "Общий учёт включён" : "Общий учёт выключен";
+}
 async function toggleTracking() {
   if (staffSettingsLoading.value) return;
   const next = !staffTrackingEnabled.value;
-  if (
-    !next &&
-    !window.confirm(
-      "Выключить общий учёт сотрудников? Открытая смена закроется, запрет изменений заказов без смены отключится, а новые действия перестанут учитываться. История сохранится.",
-    )
-  ) return;
   pageMessage.value = "";
+  if (!next) {
+    requestConfirmation({
+      title: "Выключить общий учёт?",
+      description:
+        "Открытая смена закроется, ограничение заказов отключится. История сохранится.",
+      context: `${currentShiftReadinessLabel.value}\nНовые действия перестанут попадать в показатели сотрудников.`,
+      confirmLabel: "Выключить учёт",
+      variant: "danger",
+      run: async () => updateTracking(false),
+    });
+    return;
+  }
   try {
-    await crmStore.updateStaffTracking(next);
-    if (!next && staffOrderShiftRestrictionEnabled.value) {
-      await crmStore.updateStaffOrderShiftRestriction(false);
-    }
-    pageMessageKind.value = "info";
-    pageMessage.value = next ? "Общий учёт включён" : "Общий учёт выключен";
+    await updateTracking(true);
   } catch (error: any) {
     pageMessageKind.value = "error";
     pageMessage.value = error?.message || "Не удалось изменить настройку";
@@ -2122,21 +3151,31 @@ async function toggleTracking() {
 async function toggleOrderShiftRestriction() {
   if (staffSettingsLoading.value || !staffTrackingEnabled.value) return;
   const next = !staffOrderShiftRestrictionEnabled.value;
-  const confirmation = next
-    ? "Включить запрет? После этого любое изменение заказа потребует открытую смену."
-    : "Выключить запрет? После этого заказы снова можно будет изменять без открытой смены, и сотрудник для таких действий не будет определён.";
-  if (!window.confirm(confirmation)) return;
-  pageMessage.value = "";
-  try {
-    await crmStore.updateStaffOrderShiftRestriction(next);
-    pageMessageKind.value = "info";
-    pageMessage.value = next
-      ? "Ограничение заказов включено"
-      : "Ограничение заказов выключено";
-  } catch (error: any) {
+  if (next && !orderRestrictionReady.value) {
     pageMessageKind.value = "error";
-    pageMessage.value = error?.message || "Не удалось изменить ограничение";
+    pageMessage.value =
+      "Сначала задайте ПИН каждому действующему сотруднику";
+    return;
   }
+  pageMessage.value = "";
+  requestConfirmation({
+    title: next
+      ? "Включить обязательную смену?"
+      : "Выключить обязательную смену?",
+    description: next
+      ? "После подтверждения любое изменение заказа потребует открытую смену."
+      : "Заказы снова можно будет изменять без смены, и автор таких действий не определится.",
+    context: `${activeStaffCount.value} сотрудников · ПИНы ${pinReadyStaffCount.value} из ${activeStaffCount.value}\n${currentShiftReadinessLabel.value}`,
+    confirmLabel: next ? "Включить ограничение" : "Выключить ограничение",
+    variant: next ? "primary" : "danger",
+    run: async () => {
+      await crmStore.updateStaffOrderShiftRestriction(next);
+      pageMessageKind.value = "info";
+      pageMessage.value = next
+        ? "Ограничение заказов включено"
+        : "Ограничение заказов выключено";
+    },
+  });
 }
 
 function resetEmployeeForm() {
@@ -2231,22 +3270,26 @@ async function saveEmployee() {
 }
 async function toggleEmployeeActive(employee: Employee) {
   const activating = !employeeActive(employee);
-  if (activating) {
-    if (!window.confirm("Восстановить сотрудника?")) return;
-  }
-  const reason = activating
-    ? ""
-    : window.prompt("Укажите причину увольнения. История сотрудника сохранится.")?.trim();
-  if (!activating && !reason) return;
-  try {
-    if (activating) await crmStore.restoreStaffEmployee(employee.id);
-    else await crmStore.deactivateStaffEmployee(employee.id, reason!);
-    pageMessageKind.value = "info";
-    pageMessage.value = activating ? "Сотрудник восстановлен" : "Сотрудник деактивирован";
-  } catch (error: any) {
-    pageMessageKind.value = "error";
-    pageMessage.value = error?.message || "Не удалось изменить статус";
-  }
+  const employeeName = `${employee.first_name} ${employee.last_name}`.trim();
+  requestConfirmation({
+    title: activating ? "Восстановить сотрудника?" : "Уволить сотрудника?",
+    description: activating
+      ? "Сотрудник снова появится в рабочих списках."
+      : "Доступ и активные допуски закроются, вся история останется.",
+    context: `${employeeName}\n${employee.position || "Должность не указана"}`,
+    confirmLabel: activating ? "Восстановить" : "Уволить",
+    variant: activating ? "success" : "danger",
+    requireReason: !activating,
+    reasonLabel: "Причина увольнения",
+    run: async (reason) => {
+      if (activating) await crmStore.restoreStaffEmployee(employee.id);
+      else await crmStore.deactivateStaffEmployee(employee.id, reason);
+      pageMessageKind.value = "info";
+      pageMessage.value = activating
+        ? "Сотрудник восстановлен"
+        : "Сотрудник деактивирован";
+    },
+  });
 }
 function openPinReset(employee: Employee) {
   pinResetEmployee.value = employee;
@@ -2377,7 +3420,7 @@ function closeMarkEditor() {
   editingMark.value = null;
 }
 async function saveMark() {
-  if (!selectedEmployeeId.value || formSaving.value) return;
+  if (!marksEmployeeId.value || formSaving.value) return;
   formSaving.value = true;
   formError.value = "";
   try {
@@ -2393,7 +3436,7 @@ async function saveMark() {
         expected_version: editingMark.value.current_version,
       });
     } else {
-      await crmStore.createStaffMark({ employee_id: selectedEmployeeId.value, ...payload });
+      await crmStore.createStaffMark({ employee_id: marksEmployeeId.value, ...payload });
     }
     markEditorOpen.value = false;
     editingMark.value = null;
@@ -2468,13 +3511,13 @@ async function saveShiftCorrection() {
 async function toggleNotificationSetting(group: string, enabled: boolean) {
   if (notificationSaving.value) return;
   notificationSaving.value = true;
-  notificationFormError.value = "";
+  notificationSettingError.value = "";
   try {
     await crmStore.updateStaffNotificationSettings([
       { event_group: group, enabled },
     ]);
   } catch (error: any) {
-    notificationFormError.value =
+    notificationSettingError.value =
       error?.message || "Не удалось сохранить настройку";
     await loadNotifications();
   } finally {
@@ -2520,38 +3563,48 @@ async function addNotificationRecipient() {
 
 async function removeNotificationRecipient(recipient: Record<string, any>) {
   if (notificationSaving.value) return;
-  if (!window.confirm(`Удалить @${recipient.telegram_username} из получателей?`)) return;
-  notificationSaving.value = true;
-  notificationFormError.value = "";
-  try {
-    await crmStore.removeStaffNotificationRecipient(recipient.id, {
-      telegram_id: String(recipient.telegram_id),
-      telegram_username: String(recipient.telegram_username),
-    });
-  } catch (error: any) {
-    notificationFormError.value =
-      error?.message || "Не удалось удалить получателя";
-  } finally {
-    notificationSaving.value = false;
-  }
+  requestConfirmation({
+    title: "Удалить получателя?",
+    description: "Новые внутренние уведомления этой группы ему больше не придут.",
+    context: `@${recipient.telegram_username}\n${notificationGroupLabel(String(recipient.event_group))}`,
+    confirmLabel: "Удалить",
+    variant: "danger",
+    run: async () => {
+      notificationSaving.value = true;
+      notificationFormError.value = "";
+      try {
+        await crmStore.removeStaffNotificationRecipient(recipient.id, {
+          telegram_id: String(recipient.telegram_id),
+          telegram_username: String(recipient.telegram_username),
+        });
+      } finally {
+        notificationSaving.value = false;
+      }
+    },
+  });
 }
 
 async function resumeNotification(item: Record<string, any>) {
   if (notificationSaving.value) return;
-  const reason = window.prompt(
-    "Почему отправку можно повторить? Сначала убедитесь, что сообщение не дошло.",
-  )?.trim();
-  if (!reason) return;
-  notificationSaving.value = true;
-  notificationFormError.value = "";
-  try {
-    await crmStore.resumeStaffNotification(item.id, reason);
-  } catch (error: any) {
-    notificationFormError.value =
-      error?.message || "Не удалось разрешить повтор";
-  } finally {
-    notificationSaving.value = false;
-  }
+  requestConfirmation({
+    title: "Разрешить повторную отправку?",
+    description:
+      "Сначала убедитесь, что сообщение не дошло. Повтор может создать дубликат у получателя.",
+    context: `${notificationEventLabel(String(item.event_type || ""))}\n${notificationRecipientLabel(item)}`,
+    confirmLabel: "Разрешить повтор",
+    variant: "danger",
+    requireReason: true,
+    reasonLabel: "Почему повтор безопасен",
+    run: async (reason) => {
+      notificationSaving.value = true;
+      notificationFormError.value = "";
+      try {
+        await crmStore.resumeStaffNotification(item.id, reason);
+      } finally {
+        notificationSaving.value = false;
+      }
+    },
+  });
 }
 
 function handleShiftRequired(payload: { label: string; retry: () => Promise<unknown> }) {
@@ -2559,11 +3612,63 @@ function handleShiftRequired(payload: { label: string; retry: () => Promise<unkn
   void shiftBarRef.value?.requestShiftRequired(payload.label, payload.retry);
 }
 
-watch(activeTab, () => void loadCurrentView());
+function ensureEmployeeSelections() {
+  if (!isStaffManager.value) {
+    const ownId = staffIdentity.value?.employee.id || "";
+    selectedEmployeeId.value = ownId;
+    marksEmployeeId.value = ownId;
+    return;
+  }
+  if (
+    !staffEmployees.value.some(
+      (employee) => employee.id === selectedEmployeeId.value,
+    )
+  ) {
+    selectedEmployeeId.value =
+      staffEmployees.value.find(employeeActive)?.id ||
+      staffEmployees.value[0]?.id ||
+      "";
+  }
+  if (
+    !staffEmployees.value.some(
+      (employee) => employee.id === marksEmployeeId.value,
+    )
+  ) {
+    marksEmployeeId.value =
+      staffEmployees.value.find(employeeActive)?.id ||
+      staffEmployees.value[0]?.id ||
+      "";
+  }
+}
+
+watch(activeTab, () => {
+  ensureEmployeeSelections();
+  void loadCurrentView();
+});
+watch(
+  [
+    timelineFilter,
+    selectedEmployeeId,
+    selectedPeriod,
+    selectedMonth,
+    selectedDay,
+    selectedYear,
+    customPeriodFrom,
+    customPeriodTo,
+  ],
+  () => {
+    timelineLimit.value = timelinePageSize;
+  },
+);
+watch([shiftsEmployeeId, selectedMonth], () => {
+  shiftHistoryLimit.value = shiftHistoryPageSize;
+});
 watch(
   [
     selectedMonth,
     selectedEmployeeId,
+    marksEmployeeId,
+    shiftsEmployeeId,
     selectedPeriod,
     selectedDay,
     selectedYear,
@@ -2580,6 +3685,14 @@ watch(
     if (activeTab.value === "notifications") void loadNotifications();
   },
 );
+watch(cardEmployees, (employees) => {
+  if (
+    isStaffManager.value &&
+    !employees.some((employee) => employee.id === selectedEmployeeId.value)
+  ) {
+    selectedEmployeeId.value = employees[0]?.id || "";
+  }
+});
 watch(
   () => [recipientForm.username, recipientForm.event_group],
   () => {
@@ -2591,6 +3704,8 @@ watch(isStaffManager, (manager) => {
   if (!manager) {
     activeTab.value = "card";
     selectedEmployeeId.value = staffIdentity.value?.employee.id || "";
+    marksEmployeeId.value = staffIdentity.value?.employee.id || "";
+    shiftsEmployeeId.value = "";
   }
 });
 watch(
@@ -2608,6 +3723,8 @@ onMounted(async () => {
   await crmStore.fetchStaffSettings().catch(() => undefined);
   if (!hasStaffAccess.value) return;
   selectedEmployeeId.value = staffIdentity.value?.employee.id || "";
+  marksEmployeeId.value = staffIdentity.value?.employee.id || "";
+  shiftsEmployeeId.value = "";
   if (isStaffManager.value) await loadEmployees();
   if (isStaffManager.value && staffTrackingEnabled.value === false) {
     activeTab.value = "settings";

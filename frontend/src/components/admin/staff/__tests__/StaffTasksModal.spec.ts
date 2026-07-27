@@ -1,0 +1,105 @@
+import { flushPromises, mount } from "@vue/test-utils";
+import { createPinia, setActivePinia } from "pinia";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import StaffTasksModal from "@/components/admin/staff/StaffTasksModal.vue";
+import { useCrmStore, type StaffTask } from "@/stores/crm";
+
+const manager = {
+  id: "manager-1",
+  first_name: "Константин",
+  last_name: "Жмурков",
+  role: "manager" as const,
+  active: true,
+};
+
+const tasks: StaffTask[] = [
+  {
+    id: "free-1",
+    title: "Проверить витрину",
+    description: "Сверить остатки",
+    status: "open",
+    due_at: "2099-07-28T12:00:00.000Z",
+  },
+  {
+    id: "review-1",
+    title: "Пересчитать склад",
+    description: "Готово к проверке",
+    status: "submitted",
+    assignee_employee_id: "employee-1",
+    assignee_name: "Павел Сергеевич",
+    due_at: "2099-07-27T12:00:00.000Z",
+  },
+  {
+    id: "overdue-1",
+    title: "Старая задача",
+    description: "Просрочена",
+    status: "claimed",
+    assignee_employee_id: "employee-1",
+    assignee_name: "Павел Сергеевич",
+    due_at: "2020-01-01T12:00:00.000Z",
+  },
+];
+
+const modalStub = {
+  props: ["isOpen", "title", "description"],
+  template: `
+    <section v-if="isOpen">
+      <h2>{{ title }}</h2>
+      <p>{{ description }}</p>
+      <slot />
+    </section>
+  `,
+};
+
+describe("StaffTasksModal: рабочая очередь руководителя", () => {
+  beforeEach(() => {
+    setActivePinia(createPinia());
+  });
+
+  it("выделяет проверку и не предлагает взять задачу во время чужой смены", async () => {
+    const store = useCrmStore();
+    store.$patch({
+      staffToken: "manager-token",
+      staffIdentity: { role: "manager", employee: manager },
+      staffTasks: tasks,
+      currentStaffShift: {
+        id: "shift-1",
+        version: 1,
+        employee_id: "employee-1",
+        employee_name: "Павел Сергеевич",
+        status: "active",
+      },
+    });
+    vi.spyOn(store, "fetchStaffTasks").mockResolvedValue(tasks);
+
+    const wrapper = mount(StaffTasksModal, {
+      props: { open: false },
+      global: { stubs: { AdminModal: modalStub } },
+    });
+    await wrapper.setProps({ open: true });
+    await flushPromises();
+
+    expect(wrapper.text()).toContain("Задачи команды");
+    expect(wrapper.text()).toContain("На проверке");
+    expect(wrapper.text()).toContain("Пересчитать склад");
+    expect(wrapper.text()).not.toContain("Проверить витрину");
+
+    await wrapper
+      .findAll("button")
+      .find((button) => button.text().includes("В работе"))!
+      .trigger("click");
+    expect(wrapper.text()).toContain("Проверить витрину");
+    expect(wrapper.text()).toContain("Сейчас смена Павел Сергеевич");
+    expect(
+      wrapper.findAll("button").some((button) => button.text() === "Взять"),
+    ).toBe(false);
+
+    await wrapper
+      .findAll("button")
+      .find((button) => button.text().includes("Просрочены"))!
+      .trigger("click");
+    expect(wrapper.text()).toContain("Старая задача");
+    expect(wrapper.text()).toContain("Просрочена");
+    expect(wrapper.text()).not.toContain("Проверить витрину");
+  });
+});

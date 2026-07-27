@@ -119,6 +119,7 @@ export interface StaffAnalytics {
     count?: number;
     worked_minutes?: number;
     color?: string | null;
+    events?: Record<string, number>;
   }>;
 }
 
@@ -171,6 +172,8 @@ export interface StaffSalary {
   employee_name_snapshot?: string | null;
   status?: "draft" | "approved" | "paid" | string;
   note?: string | null;
+  created_at?: string;
+  updated_at?: string;
 }
 
 export interface StaffMark {
@@ -980,6 +983,8 @@ async function staffFetchAPI<T>(
       manager_access_required: "Действие доступно только руководителю",
       shift_required: "Сначала откройте смену",
       shift_conflict: "Смена уже открыта у другого сотрудника",
+      shift_owned_by_another_employee:
+        "Сейчас открыта смена другого сотрудника",
       shift_not_found: "Открытая смена не найдена",
       shift_open_outside_hours: "Смену можно открыть только в рабочее время",
       shift_close_reason_required: "Укажите причину закрытия смены",
@@ -995,6 +1000,8 @@ async function staffFetchAPI<T>(
       invalid_admin_password: "Неверный основной пароль",
       manager_already_bootstrapped: "Руководитель уже настроен",
       active_manager_required: "Сначала настройте активного руководителя",
+      staff_pins_required:
+        "Сначала задайте ПИН каждому действующему сотруднику",
     };
     const message = String(
       record.message ||
@@ -1233,12 +1240,21 @@ async function fetchAPI<T>(
     );
   }
 
-  // Обработка 401: реактивно сбрасываем auth-state — AdminView через
-  // <CashierLockScreen v-if="!isAuthenticated"> сам перерисуется на lock-screen.
-  // Никакого window.location.reload — это вызывало бесконечный цикл, когда
-  // незалогиненный пользователь открывал /admin (CashierLockScreen в onMounted
-  // звал защищённый /api/admin/pos/pending → 401 → reload → снова /admin → ...).
+  // Только `unauthorized` означает, что истёк основной вход CRM. Остальные 401
+  // могут быть ожидаемыми ошибками проверки ПИН или отдельного кода доступа:
+  // они должны остаться внутри формы и не выбрасывать пользователя из CRM.
   if (response.status === 401) {
+    const payload = await response
+      .json()
+      .catch(() => ({} as Record<string, unknown>));
+    const code = String(payload.error || payload.code || "unauthorized");
+    if (code !== "unauthorized") {
+      throw new StaffApiError(
+        String(payload.message || payload.error || "Не удалось подтвердить действие"),
+        { code, status: response.status },
+      );
+    }
+
     // Динамический импорт, чтобы не создавать циклическую зависимость stores.
     try {
       const { useAdminStore } = await import("./admin");

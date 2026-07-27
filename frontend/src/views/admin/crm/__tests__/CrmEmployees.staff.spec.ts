@@ -49,10 +49,20 @@ function mountEmployees() {
 describe("CrmEmployees: вход сотрудника", () => {
   beforeEach(() => {
     setActivePinia(createPinia());
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({}), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      ),
+    );
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
   });
 
   it("сам загружает личные показатели после появления допуска", async () => {
@@ -117,6 +127,9 @@ describe("CrmEmployees: вход сотрудника", () => {
     );
     expect(wrapper.text()).toContain("Павел Сергеевич");
     expect(wrapper.text().replace(/\s/g, " ")).toContain("1 450,5 BYN");
+    expect(
+      wrapper.get('[data-testid="staff-card-layout"]').classes(),
+    ).not.toContain("lg:grid-cols-[260px_minmax(0,1fr)]");
   });
 
   it("явно показывает, что ожидаемая зарплата ещё не указана, и даёт текстовое описание графика", async () => {
@@ -297,8 +310,6 @@ describe("CrmEmployees: вход сотрудника", () => {
       store,
       "updateStaffOrderShiftRestriction",
     );
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
-
     const wrapper = mountEmployees();
     await flushPromises();
     await wrapper.get("#staff-manager-section").setValue("settings");
@@ -308,26 +319,90 @@ describe("CrmEmployees: вход сотрудника", () => {
       .findAll("button")
       .find((button) => button.text() === "Выключить")!
       .trigger("click");
-    expect(confirm).toHaveBeenLastCalledWith(
-      expect.stringContaining("Открытая смена закроется"),
+    const trackingConfirmation = wrapper.get(
+      '[data-modal-title="Выключить общий учёт?"]',
     );
-    expect(confirm).toHaveBeenLastCalledWith(
-      expect.stringContaining(
-        "запрет изменений заказов без смены отключится",
-      ),
+    expect(trackingConfirmation.text()).toContain("Открытая смена закроется");
+    expect(trackingConfirmation.text()).toContain(
+      "ограничение заказов отключится",
     );
     expect(updateTracking).not.toHaveBeenCalled();
+    await trackingConfirmation
+      .findAll("button")
+      .find((button) => button.text() === "Отмена")!
+      .trigger("click");
 
     await wrapper
       .findAll("button")
       .find((button) => button.text() === "Выключить ограничение")!
       .trigger("click");
-    expect(confirm).toHaveBeenLastCalledWith(
-      expect.stringContaining(
-        "заказы снова можно будет изменять без открытой смены",
-      ),
+    const restrictionConfirmation = wrapper.get(
+      '[data-modal-title="Выключить обязательную смену?"]',
+    );
+    expect(restrictionConfirmation.text()).toContain(
+      "Заказы снова можно будет изменять без смены",
     );
     expect(updateRestriction).not.toHaveBeenCalled();
+  });
+
+  it("не теряет карточку после просмотра смен всей команды и показывает архив", async () => {
+    const formerEmployee = {
+      ...employee,
+      id: "employee-former",
+      first_name: "Анна",
+      last_name: "Бывшая",
+      active: false,
+    };
+    const store = useCrmStore();
+    store.$patch({
+      staffTrackingEnabled: true,
+      staffToken: "manager-token",
+      staffIdentity: { role: "manager", employee: manager },
+      staffEmployees: [manager, employee, formerEmployee],
+    });
+    vi.spyOn(store, "fetchStaffSettings").mockResolvedValue({
+      trackingEnabled: true,
+      orderShiftRestrictionEnabled: false,
+    });
+    vi.spyOn(store, "fetchStaffEmployees").mockResolvedValue([
+      manager,
+      employee,
+      formerEmployee,
+    ]);
+    vi.spyOn(store, "fetchStaffAnalytics").mockImplementation(
+      async ({ employeeId }) => {
+        const selected = [manager, employee, formerEmployee].find(
+          (item) => item.id === employeeId,
+        );
+        const analytics: StaffAnalytics = { employee: selected };
+        store.$patch({ staffAnalytics: analytics });
+        return analytics;
+      },
+    );
+    vi.spyOn(store, "fetchStaffMarks").mockResolvedValue([]);
+    vi.spyOn(store, "fetchStaffShiftHistory").mockResolvedValue([]);
+
+    const wrapper = mountEmployees();
+    await flushPromises();
+    const sectionSelect = wrapper.get("#staff-manager-section");
+    const cardEmployeeSelect = wrapper.get(
+      '[aria-label="Сотрудник в карточке"]',
+    );
+    expect(cardEmployeeSelect.text()).toContain("Анна Бывшая");
+    await cardEmployeeSelect.setValue(employee.id);
+    await flushPromises();
+
+    await sectionSelect.setValue("shifts");
+    await flushPromises();
+    await wrapper
+      .get('[aria-label="Сотрудник для истории смен"]')
+      .setValue("");
+    await flushPromises();
+    await sectionSelect.setValue("card");
+    await flushPromises();
+
+    expect(wrapper.text()).toContain("Павел Сергеевич");
+    expect(wrapper.text()).not.toContain("Сотрудник не выбран");
   });
 
   it("показывает руководителю сравнимые показатели всей команды за период", async () => {
@@ -392,5 +467,106 @@ describe("CrmEmployees: вход сотрудника", () => {
     expect(employeeRow!.text()).toContain("5 / 4");
     expect(employeeRow!.text().replace(/\s/g, " ")).toContain("640 BYN / 220 BYN");
     expect(employeeRow!.text()).toContain("6 / 1");
+  });
+
+  it("показывает длинную историю смен порциями", async () => {
+    const store = useCrmStore();
+    const shifts = Array.from({ length: 25 }, (_, index) => ({
+      id: `shift-${index}`,
+      employee_id: employee.id,
+      employee,
+      employee_name: "Павел Сергеевич",
+      business_date: `2026-07-${String(index + 1).padStart(2, "0")}`,
+      status: "closed",
+      started_at: `2026-07-${String(index + 1).padStart(2, "0")}T07:00:00.000Z`,
+      ended_at: `2026-07-${String(index + 1).padStart(2, "0")}T15:00:00.000Z`,
+      version: 1,
+    }));
+    store.$patch({
+      staffTrackingEnabled: true,
+      staffToken: "manager-token",
+      staffIdentity: { role: "manager", employee: manager },
+      staffEmployees: [manager, employee],
+      staffShiftHistory: shifts,
+    });
+    vi.spyOn(store, "fetchStaffSettings").mockResolvedValue({
+      trackingEnabled: true,
+      orderShiftRestrictionEnabled: false,
+    });
+    vi.spyOn(store, "fetchStaffEmployees").mockResolvedValue([manager, employee]);
+    vi.spyOn(store, "fetchStaffAnalytics").mockImplementation(async () => {
+      const analytics: StaffAnalytics = { employee: manager };
+      store.$patch({ staffAnalytics: analytics });
+      return analytics;
+    });
+    vi.spyOn(store, "fetchStaffMarks").mockResolvedValue([]);
+    vi.spyOn(store, "fetchStaffShiftHistory").mockResolvedValue(shifts);
+
+    const wrapper = mountEmployees();
+    await flushPromises();
+    await wrapper.get("#staff-manager-section").setValue("shifts");
+    await flushPromises();
+
+    expect(
+      wrapper.findAll('[data-testid="staff-shift-history-item"]'),
+    ).toHaveLength(20);
+    expect(
+      wrapper.get('[data-testid="staff-shift-history-more"]').text(),
+    ).toContain("Показать ещё 5");
+    await wrapper
+      .get('[data-testid="staff-shift-history-more"]')
+      .trigger("click");
+    expect(
+      wrapper.findAll('[data-testid="staff-shift-history-item"]'),
+    ).toHaveLength(25);
+  });
+
+  it("не растягивает журнал действий и раскрывает его порциями", async () => {
+    const store = useCrmStore();
+    const activities = Array.from({ length: 15 }, (_, index) => ({
+      id: `event-${index}`,
+      type: "order_issued",
+      title: `Заказ выдан ${index + 1}`,
+      description: `Тестовая операция ${index + 1}`,
+      occurred_at: `2026-07-${String(15 - index).padStart(2, "0")}T10:00:00.000Z`,
+    }));
+    const analytics = {
+      employee: manager,
+      activities,
+      daily_activity: [],
+    } as StaffAnalytics;
+    store.$patch({
+      staffTrackingEnabled: true,
+      staffToken: "manager-token",
+      staffIdentity: { role: "manager", employee: manager },
+      staffEmployees: [manager, employee],
+    });
+    vi.spyOn(store, "fetchStaffSettings").mockResolvedValue({
+      trackingEnabled: true,
+      orderShiftRestrictionEnabled: false,
+    });
+    vi.spyOn(store, "fetchStaffEmployees").mockResolvedValue([manager, employee]);
+    vi.spyOn(store, "fetchStaffAnalytics").mockImplementation(async () => {
+      store.$patch({ staffAnalytics: analytics });
+      return analytics;
+    });
+    vi.spyOn(store, "fetchStaffMarks").mockResolvedValue([]);
+
+    const wrapper = mountEmployees();
+    await flushPromises();
+
+    expect(wrapper.findAll('[data-testid="staff-timeline-item"]')).toHaveLength(
+      12,
+    );
+    expect(wrapper.get('[data-testid="staff-timeline-more"]').text()).toContain(
+      "Показать ещё 3",
+    );
+    await wrapper.get('[data-testid="staff-timeline-more"]').trigger("click");
+    expect(wrapper.findAll('[data-testid="staff-timeline-item"]')).toHaveLength(
+      15,
+    );
+
+    await wrapper.get('[aria-label="Тип действий"]').setValue("tasks");
+    expect(wrapper.text()).toContain("По выбранному фильтру записей нет");
   });
 });

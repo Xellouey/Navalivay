@@ -175,6 +175,25 @@ function activeManagerCount() {
   `).get()?.count || 0);
 }
 
+function activeEmployeePinReadiness() {
+  const row = db.prepare(`
+    SELECT
+      COUNT(*) AS active_count,
+      SUM(
+        CASE
+          WHEN pin_hash IS NOT NULL AND pin_fingerprint IS NOT NULL THEN 1
+          ELSE 0
+        END
+      ) AS ready_count
+    FROM employees
+    WHERE active = 1 AND deactivated_at IS NULL
+  `).get();
+  return {
+    activeCount: Number(row?.active_count || 0),
+    readyCount: Number(row?.ready_count || 0),
+  };
+}
+
 function protectLastManager(employee) {
   if (
     employee?.role === 'manager'
@@ -922,6 +941,15 @@ staffRouter.put(
     if (req.body.enabled && activeManagerCount() < 1) {
       throw new StaffServiceError('active_manager_required', 409);
     }
+    if (req.body.enabled) {
+      const readiness = activeEmployeePinReadiness();
+      if (
+        readiness.activeCount < 1
+        || readiness.readyCount !== readiness.activeCount
+      ) {
+        throw new StaffServiceError('staff_pins_required', 409, readiness);
+      }
+    }
     res.json({
       enabled: setStaffOrderShiftRestrictionEnabled(req.body.enabled),
     });
@@ -1147,6 +1175,7 @@ function buildEmployeeAnalytics(employee, selectedPeriod) {
     ORDER BY started_at ASC
   `).all(employee.id, end.toISOString(), nowTimestamp, start.toISOString());
   let workedMilliseconds = 0;
+  const dailyWorkedMilliseconds = new Map();
   for (const shift of shifts) {
     const shiftStart = Math.max(storedUtcMilliseconds(shift.started_at), startMs);
     const rawEnd = shift.ended_at
@@ -1154,7 +1183,15 @@ function buildEmployeeAnalytics(employee, selectedPeriod) {
       : Math.min(now, storedUtcMilliseconds(shift.planned_end_at));
     const shiftEnd = Math.min(rawEnd, endMs);
     if (Number.isFinite(shiftStart) && Number.isFinite(shiftEnd) && shiftEnd > shiftStart) {
-      workedMilliseconds += shiftEnd - shiftStart;
+      const duration = shiftEnd - shiftStart;
+      workedMilliseconds += duration;
+      const businessDate = String(shift.business_date || '').trim();
+      if (businessDate) {
+        dailyWorkedMilliseconds.set(
+          businessDate,
+          Number(dailyWorkedMilliseconds.get(businessDate) || 0) + duration,
+        );
+      }
     }
   }
   const eventCounts = db.prepare(`
@@ -1248,11 +1285,20 @@ function buildEmployeeAnalytics(employee, selectedPeriod) {
   metrics.order_assembled = Number(assembledOrders?.count || 0);
   metrics.order_issued = Number(issuedOrders?.count || 0);
   const dailyActivity = new Map();
+  for (const [businessDate, duration] of dailyWorkedMilliseconds) {
+    dailyActivity.set(businessDate, {
+      date: businessDate,
+      total: 0,
+      worked_minutes: Math.round(Number(duration || 0) / 60_000),
+      events: {},
+    });
+  }
   for (const row of dailyEventCounts) {
     if (!dailyActivity.has(row.business_date)) {
       dailyActivity.set(row.business_date, {
         date: row.business_date,
         total: 0,
+        worked_minutes: 0,
         events: {},
       });
     }

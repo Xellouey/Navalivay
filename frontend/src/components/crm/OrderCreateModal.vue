@@ -9,6 +9,7 @@
     @cancel="handleClose"
   >
     <div class="grid max-h-[calc(90vh-5.5rem)] grid-cols-1 gap-6 overflow-y-auto px-6 py-6 lg:grid-cols-[1.3fr_1fr]">
+      <StaffCurrentActorBadge class="lg:col-span-2" />
       <section class="space-y-6">
             <div class="grid grid-cols-1 gap-4 lg:grid-cols-2">
               <label class="flex flex-col gap-2">
@@ -274,7 +275,7 @@
                 v-model.trim="form.notes"
                 rows="4"
                 class="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
-                placeholder="Например, кто оформил заказ или детали оплаты"
+                placeholder="Например, детали оплаты или пожелания клиента"
               />
             </label>
 
@@ -368,6 +369,7 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useCrmStore, type CrmProductSummary, type Customer, type Order } from '@/stores/crm'
 import AdminModal from '@/components/AdminModal.vue'
+import StaffCurrentActorBadge from '@/components/admin/staff/StaffCurrentActorBadge.vue'
 import { formatBynCurrency as formatCurrency } from '@/utils/currency'
 import { calculateExpectedProfit } from '@/utils/orderProfit'
 

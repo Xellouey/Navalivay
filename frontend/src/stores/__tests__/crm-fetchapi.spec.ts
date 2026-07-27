@@ -12,7 +12,11 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
 import { setActivePinia, createPinia } from "pinia";
 import { useAdminStore } from "@/stores/admin";
-import { useCrmStore, UnauthorizedError } from "@/stores/crm";
+import {
+  StaffApiError,
+  UnauthorizedError,
+  useCrmStore,
+} from "@/stores/crm";
 
 describe("crm.fetchAPI — обработка 401", () => {
   // Сохраняем оригинальный дескриптор window.location, чтобы восстанавливать
@@ -144,6 +148,48 @@ describe("crm.fetchAPI — обработка 401", () => {
     // первый 401 переключает isAuthenticated → false, остальные пропускают вызов.
     // Строгое равенство ловит обе регрессии — и «вызвалось дважды», и «не вызвалось вообще».
     expect(logoutSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("неверный ПИН действия остаётся в форме и не снимает основной вход", async () => {
+    const adminStore = useAdminStore();
+    adminStore.isAuthenticated = true;
+    adminStore.token = "stub-token";
+    const logoutSpy = vi.spyOn(adminStore, "logout");
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        new Response(
+          JSON.stringify({ error: "invalid_staff_credentials" }),
+          {
+            status: 401,
+            headers: { "Content-Type": "application/json" },
+          },
+        ),
+      ),
+    );
+
+    const crmStore = useCrmStore();
+    const result = crmStore.createProcurement({
+      actor_employee_id: "employee-1",
+      actor_pin: "0000",
+      items: [
+        {
+          product_id: "product-1",
+          quantity: 1,
+          cost_per_unit: 10,
+        },
+      ],
+    });
+
+    await expect(result).rejects.toMatchObject<Partial<StaffApiError>>({
+      name: "StaffApiError",
+      code: "invalid_staff_credentials",
+      status: 401,
+    });
+    expect(logoutSpy).not.toHaveBeenCalled();
+    expect(adminStore.isAuthenticated).toBe(true);
+    expect(adminStore.token).toBe("stub-token");
   });
 
   it("успешный ответ не трогает auth-state", async () => {

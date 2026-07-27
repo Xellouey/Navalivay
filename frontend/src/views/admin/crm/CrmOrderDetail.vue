@@ -284,7 +284,7 @@
                   {{ option.label }}
                 </option>
               </select>
-              <span v-if="staffTrackingEnabled" class="text-xs font-normal leading-5 text-gray-500">
+              <span v-if="staffOrderShiftRestrictionEnabled" class="text-xs font-normal leading-5 text-gray-500">
                 Сборка и выдача выполняются с доски заказов: система отдельно запишет сборщика и выдавшего.
               </span>
             </label>
@@ -602,7 +602,10 @@ type FormItem = {
 }
 
 const crmStore = useCrmStore()
-const { currentOrder, staffTrackingEnabled } = storeToRefs(crmStore)
+const {
+  currentOrder,
+  staffOrderShiftRestrictionEnabled,
+} = storeToRefs(crmStore)
 
 const loading = ref(false)
 const editableStatus = ref<Order['status']>('new')
@@ -689,14 +692,14 @@ const allStatusOptions: Array<{ value: Order['status']; label: string }> = [
 const statusOptions = computed(() =>
   allStatusOptions
     .filter((option) =>
-      !staffTrackingEnabled.value ||
+      !staffOrderShiftRestrictionEnabled.value ||
       !['completed', 'delivered'].includes(option.value) ||
       option.value === currentOrder.value?.status,
     )
     .map((option) => ({
       ...option,
       disabled:
-        Boolean(staffTrackingEnabled.value) &&
+        Boolean(staffOrderShiftRestrictionEnabled.value) &&
         ['completed', 'delivered'].includes(option.value),
     })),
 )
