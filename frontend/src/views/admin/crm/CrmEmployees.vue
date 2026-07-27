@@ -287,11 +287,19 @@
               </section>
 
               <section
-                v-if="selectedEmployee?.responsibilities"
-                class="border-l-4 border-blue-500 bg-white px-5 py-4 text-sm leading-6 text-slate-700"
+                v-if="responsibilityItems(selectedEmployee?.responsibilities).length"
+                class="flex flex-col gap-2 border-t border-slate-200 pt-4 sm:flex-row sm:items-center sm:gap-3"
               >
-                <h3 class="font-semibold text-slate-950">Зона ответственности</h3>
-                <p class="mt-1 whitespace-pre-line">{{ responsibilityText(selectedEmployee.responsibilities) }}</p>
+                <h3 class="shrink-0 text-sm font-semibold text-slate-700">Ответственность</h3>
+                <ul class="m-0 flex min-w-0 list-none flex-wrap gap-2 p-0" aria-label="Зоны ответственности сотрудника">
+                  <li
+                    v-for="item in responsibilityItems(selectedEmployee?.responsibilities)"
+                    :key="item"
+                    class="max-w-full rounded-lg bg-slate-100 px-3 py-1.5 text-sm font-medium leading-5 text-slate-700"
+                  >
+                    {{ item }}
+                  </li>
+                </ul>
               </section>
 
               <section v-if="activityChartPoints.length" class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -2647,6 +2655,10 @@ function safeColor(color?: string | null) {
 }
 function responsibilityText(value?: string | string[] | null) {
   return Array.isArray(value) ? value.join("\n") : value || "";
+}
+function responsibilityItems(value?: string | string[] | null) {
+  const items = Array.isArray(value) ? value : String(value || "").split(/\r?\n/);
+  return [...new Set(items.map((item) => item.trim()).filter(Boolean))];
 }
 function employeeActive(employee: Employee) {
   return Boolean(Number(employee.active));

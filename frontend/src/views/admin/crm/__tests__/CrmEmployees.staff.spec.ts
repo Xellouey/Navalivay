@@ -11,6 +11,7 @@ const manager = {
   last_name: "Жмурков",
   position: "Руководитель",
   role: "manager" as const,
+  responsibilities: ["Команда", "Зарплаты", "Смены", "Команда"],
   active: true,
 };
 const employee = {
@@ -403,6 +404,13 @@ describe("CrmEmployees: вход сотрудника", () => {
 
     const wrapper = mountEmployees();
     await flushPromises();
+    expect(wrapper.text()).toContain("Ответственность");
+    expect(wrapper.text()).toContain("Команда");
+    expect(wrapper.text()).toContain("Зарплаты");
+    expect(wrapper.text()).toContain("Смены");
+    expect(
+      wrapper.findAll('[aria-label="Зоны ответственности сотрудника"] li'),
+    ).toHaveLength(3);
     const sectionSelect = wrapper.get("#staff-manager-section");
     const cardEmployeeSelect = wrapper.get(
       '[aria-label="Сотрудник в карточке"]',
