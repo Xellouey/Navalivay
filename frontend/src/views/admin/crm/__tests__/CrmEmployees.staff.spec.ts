@@ -523,6 +523,19 @@ describe("CrmEmployees: вход сотрудника", () => {
       managerWithoutPin,
     ]);
     const resetPin = vi.spyOn(store, "resetStaffEmployeePin");
+    const recoverPin = vi
+      .spyOn(store, "recoverStaffManager")
+      .mockImplementation(async () => {
+        const updated = { ...managerWithoutPin, pin_configured: true };
+        store.$patch({
+          staffEmployees: store.staffEmployees.map((item) =>
+            item.id === managerWithoutPin.id ? updated : item,
+          ),
+        });
+        return updated;
+      });
+    const lockAccess = vi.spyOn(store, "lockStaffAccess");
+    const accessStaff = vi.spyOn(store, "accessStaff");
 
     const wrapper = mountEmployees();
     await flushPromises();
@@ -538,7 +551,9 @@ describe("CrmEmployees: вход сотрудника", () => {
       .trigger("click");
     await nextTick();
 
-    const modal = wrapper.get('[data-modal-title="Доступ руководителя"]');
+    const modal = wrapper.get(
+      '[data-modal-title="Настроить ПИН руководителя"]',
+    );
     expect(modal.text()).toContain("Основной пароль CRM");
     expect(modal.text()).toContain("Проверить пароль");
     const checkPasswordButton = modal
@@ -561,12 +576,98 @@ describe("CrmEmployees: вход сотрудника", () => {
     expect(
       modal
         .findAll("button")
-        .find((button) => button.text() === "Сохранить новый ПИН")!
+        .find((button) => button.text() === "Сохранить ПИН")!
         .attributes("disabled"),
     ).toBeDefined();
     await pinInputs[1].setValue("1234");
     expect(modal.text()).not.toContain("ПИНы не совпадают");
+    await modal.get("form").trigger("submit");
+    await flushPromises();
+
+    expect(recoverPin).toHaveBeenCalledWith({
+      admin_password: "998811",
+      employee_id: managerWithoutPin.id,
+      new_pin: "1234",
+    });
+    expect(lockAccess).not.toHaveBeenCalled();
+    expect(accessStaff).not.toHaveBeenCalled();
+    expect(store.staffIdentity?.employee.id).toBe(manager.id);
+    expect(wrapper.get("#staff-manager-section").element).toHaveProperty(
+      "value",
+      "settings",
+    );
+    expect(wrapper.text()).toContain("ПИН руководителя настроен");
+    expect(
+      wrapper.find(
+        '[data-testid="staff-pin-missing-manager-without-pin"]',
+      ).exists(),
+    ).toBe(false);
     expect(resetPin).not.toHaveBeenCalled();
+  });
+
+  it("не подставляет другого руководителя, если выбранный уже недоступен", async () => {
+    const managerWithoutPin = {
+      ...manager,
+      id: "manager-without-pin",
+      first_name: "Мария",
+      last_name: "Орлова",
+      pin_configured: false,
+    };
+    const store = useCrmStore();
+    store.$patch({
+      staffTrackingEnabled: true,
+      staffToken: "manager-token",
+      staffIdentity: { role: "manager", employee: manager },
+      staffEmployees: [manager, managerWithoutPin],
+    });
+    vi.spyOn(store, "fetchStaffSettings").mockResolvedValue({
+      trackingEnabled: true,
+      orderShiftRestrictionEnabled: false,
+    });
+    vi.spyOn(store, "fetchStaffEmployees").mockResolvedValue([
+      manager,
+      managerWithoutPin,
+    ]);
+    vi.spyOn(store, "fetchStaffAnalytics").mockResolvedValue({
+      employee: manager,
+    } as StaffAnalytics);
+    vi.spyOn(store, "fetchStaffMarks").mockResolvedValue([]);
+    vi.spyOn(store, "fetchStaffRecoveryManagerCandidates").mockResolvedValue([
+      manager,
+    ]);
+    const recoverPin = vi.spyOn(store, "recoverStaffManager");
+
+    const wrapper = mountEmployees();
+    await flushPromises();
+    await wrapper.get("#staff-manager-section").setValue("settings");
+    await flushPromises();
+    const row = wrapper.get(
+      '[data-testid="staff-pin-missing-manager-without-pin"]',
+    );
+    await row
+      .findAll("button")
+      .find((button) => button.text() === "Настроить ПИН руководителя")!
+      .trigger("click");
+
+    const modal = wrapper.get(
+      '[data-modal-title="Настроить ПИН руководителя"]',
+    );
+    await modal.get('input[autocomplete="current-password"]').setValue("998811");
+    await modal
+      .findAll("button")
+      .find((button) => button.text() === "Проверить пароль")!
+      .trigger("click");
+    await flushPromises();
+
+    expect(modal.text()).toContain("Этот руководитель больше недоступен");
+    expect((modal.get("select").element as HTMLSelectElement).value).toBe("");
+    expect(
+      modal
+        .findAll("button")
+        .find((button) => button.text() === "Сохранить ПИН")!
+        .attributes("disabled"),
+    ).toBeDefined();
+    expect(recoverPin).not.toHaveBeenCalled();
   });
 
   it("не теряет карточку после просмотра смен всей команды и показывает архив", async () => {

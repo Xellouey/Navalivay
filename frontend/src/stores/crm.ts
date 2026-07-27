@@ -1964,6 +1964,8 @@ export const useCrmStore = defineStore("crm", () => {
   const staffEmployees = ref<Employee[]>([]);
   const staffEmployeesLoading = ref(false);
   const staffEmployeesError = ref("");
+  let staffEmployeesRequestVersion = 0;
+  let staffEmployeesPendingRequests = 0;
   const currentStaffShift = ref<StaffShift | null>(null);
   const staffShiftHistory = ref<StaffShift[]>([]);
   const staffShiftHistoryLoading = ref(false);
@@ -2267,7 +2269,12 @@ export const useCrmStore = defineStore("crm", () => {
       },
       { includeStaff: false },
     );
-    return response.employee;
+    const employee = response.employee;
+    const index = staffEmployees.value.findIndex(
+      (item) => item.id === employee.id,
+    );
+    if (index !== -1) staffEmployees.value[index] = employee;
+    return employee;
   }
 
   async function fetchStaffRecoveryManagerCandidates(adminPassword: string) {
@@ -2286,6 +2293,8 @@ export const useCrmStore = defineStore("crm", () => {
   }
 
   async function fetchStaffEmployees(options: { includeInactive?: boolean } = {}) {
+    const requestVersion = ++staffEmployeesRequestVersion;
+    staffEmployeesPendingRequests += 1;
     staffEmployeesLoading.value = true;
     staffEmployeesError.value = "";
     try {
@@ -2295,17 +2304,26 @@ export const useCrmStore = defineStore("crm", () => {
       const response = await staffFetchAPI<
         Employee[] | { employees?: Employee[]; items?: Employee[]; data?: Employee[] }
       >(`${API_BASE}/staff/employees${suffix}`);
-      staffEmployees.value = listFromPayload(
+      const employees = listFromPayload(
         response,
         !Array.isArray(response) ? response.employees : undefined,
       );
-      return staffEmployees.value;
+      if (requestVersion === staffEmployeesRequestVersion) {
+        staffEmployees.value = employees;
+      }
+      return employees;
     } catch (error: any) {
-      staffEmployeesError.value =
-        error?.message || "Не удалось загрузить сотрудников";
+      if (requestVersion === staffEmployeesRequestVersion) {
+        staffEmployeesError.value =
+          error?.message || "Не удалось загрузить сотрудников";
+      }
       throw error;
     } finally {
-      staffEmployeesLoading.value = false;
+      staffEmployeesPendingRequests = Math.max(
+        0,
+        staffEmployeesPendingRequests - 1,
+      );
+      staffEmployeesLoading.value = staffEmployeesPendingRequests > 0;
     }
   }
 

@@ -1138,6 +1138,14 @@
             </div>
           </div>
           <template v-else>
+            <div
+              v-if="staffEmployeesLoading"
+              data-testid="staff-employees-refreshing"
+              class="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800"
+              role="status"
+            >
+              Обновляем список сотрудников…
+            </div>
             <div class="grid gap-3 sm:grid-cols-3">
               <div class="rounded-xl border border-slate-200 bg-white px-4 py-3">
                 <div class="text-xs text-slate-500">Действующих сотрудников</div>
@@ -1417,7 +1425,7 @@
 
     <AdminModal
       :is-open="staffSetupOpen"
-      title="Доступ руководителя"
+      :title="staffSetupTargetEmployeeId ? 'Настроить ПИН руководителя' : 'Доступ руководителя'"
       description="Основной пароль нужен только для этой проверки и нигде не сохраняется."
       size="md"
       :show-actions="false"
@@ -1426,7 +1434,7 @@
       @close="closeStaffSetup"
       @cancel="closeStaffSetup"
     >
-      <div class="mb-5 flex gap-2 border-b border-slate-200 pb-3">
+      <div v-if="!staffSetupTargetEmployeeId" class="mb-5 flex gap-2 border-b border-slate-200 pb-3">
         <CrmButton
           variant="filter"
           :pressed="staffSetupMode === 'bootstrap'"
@@ -1492,7 +1500,7 @@
         <template v-else>
           <label class="block">
             <span class="mb-1 block text-sm font-medium text-slate-700">Руководитель</span>
-            <select v-model="staffSetupForm.employee_id" required class="min-h-[44px] w-full rounded-xl border border-slate-300 bg-white px-3">
+            <select v-model="staffSetupForm.employee_id" required :disabled="Boolean(staffSetupTargetEmployeeId)" class="min-h-[44px] w-full rounded-xl border border-slate-300 bg-white px-3 disabled:bg-slate-50">
               <option value="" disabled>Выберите руководителя</option>
               <option v-for="employee in recoveryCandidates" :key="employee.id" :value="employee.id">
                 {{ employee.first_name }} {{ employee.last_name }}
@@ -1500,7 +1508,9 @@
             </select>
           </label>
           <label class="block">
-            <span class="mb-1 block text-sm font-medium text-slate-700">Новый ПИН</span>
+            <span class="mb-1 block text-sm font-medium text-slate-700">
+              {{ staffSetupTargetEmployeeId ? "ПИН, 4 цифры" : "Новый ПИН" }}
+            </span>
             <input v-model="staffSetupForm.new_pin" type="password" inputmode="numeric" maxlength="4" pattern="[0-9]{4}" autocomplete="new-password" required class="min-h-[52px] w-full rounded-xl border border-slate-300 px-3 text-center text-xl tracking-[0.45em]" @input="sanitizeSetupPin" />
           </label>
           <label class="block">
@@ -1515,7 +1525,7 @@
         <div class="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
           <CrmButton type="button" variant="secondary" :disabled="staffSetupSaving" @click="closeStaffSetup">Отмена</CrmButton>
           <CrmButton v-if="recoveryCandidatesLoaded" type="submit" variant="primary" :loading="staffSetupSaving" :disabled="!staffSetupForm.employee_id || staffSetupForm.new_pin.length !== 4 || staffSetupForm.repeat_pin.length !== 4 || staffSetupForm.new_pin !== staffSetupForm.repeat_pin">
-            Сохранить новый ПИН
+            {{ staffSetupTargetEmployeeId ? "Сохранить ПИН" : "Сохранить новый ПИН" }}
           </CrmButton>
         </div>
       </form>
@@ -3473,6 +3483,12 @@ async function loadRecoveryCandidates() {
     const targetEmployee = recoveryCandidates.value.find(
       (employee) => employee.id === staffSetupTargetEmployeeId.value,
     );
+    if (staffSetupTargetEmployeeId.value && !targetEmployee) {
+      staffSetupForm.employee_id = "";
+      staffSetupError.value =
+        "Этот руководитель больше недоступен. Закройте окно и обновите список.";
+      return;
+    }
     staffSetupForm.employee_id =
       targetEmployee?.id || recoveryCandidates.value[0]?.id || "";
     if (!recoveryCandidates.value.length) {
@@ -3496,22 +3512,42 @@ async function recoverManager() {
   staffSetupSaving.value = true;
   staffSetupError.value = "";
   const pin = staffSetupForm.new_pin;
+  const targetEmployeeId = staffSetupTargetEmployeeId.value;
+  const targetEmployee = staffEmployees.value.find(
+    (employee) => employee.id === targetEmployeeId,
+  );
+  const openedFromSettings = Boolean(targetEmployeeId && hasStaffAccess.value);
+  const preserveCurrentAccess =
+    openedFromSettings &&
+    targetEmployeeId !== staffIdentity.value?.employee.id;
+  const wasConfigured = Boolean(targetEmployee?.pin_configured);
   try {
     await crmStore.recoverStaffManager({
       admin_password: staffSetupForm.admin_password,
       employee_id: staffSetupForm.employee_id,
       new_pin: pin,
     });
-    crmStore.lockStaffAccess();
-    await crmStore.accessStaff(pin);
     staffSetupOpen.value = false;
     resetStaffSetup();
-    await handleAccessSuccess();
+    if (preserveCurrentAccess) {
+      await loadEmployees();
+      activeTab.value = "settings";
+    } else {
+      crmStore.lockStaffAccess();
+      await crmStore.accessStaff(pin);
+      await handleAccessSuccess();
+    }
     pageMessageKind.value = "info";
-    pageMessage.value = "ПИН руководителя обновлён";
+    pageMessage.value =
+      openedFromSettings && !wasConfigured
+        ? "ПИН руководителя настроен"
+        : "ПИН руководителя обновлён";
   } catch (error: any) {
     staffSetupError.value =
-      error?.message || "Не удалось восстановить ПИН руководителя";
+      error?.message ||
+      (openedFromSettings
+        ? "Не удалось настроить ПИН руководителя"
+        : "Не удалось восстановить ПИН руководителя");
   } finally {
     staffSetupSaving.value = false;
   }

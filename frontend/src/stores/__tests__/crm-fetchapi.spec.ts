@@ -257,4 +257,64 @@ describe("crm.fetchAPI — обработка 401", () => {
       body: JSON.stringify({ capacity: 60 }),
     });
   });
+
+  it("не завершает обновление сотрудников раньше всех запросов и не применяет устаревший ответ", async () => {
+    let resolveFirst!: (response: Response) => void;
+    let resolveSecond!: (response: Response) => void;
+    const fetchMock = vi
+      .fn()
+      .mockImplementationOnce(
+        () =>
+          new Promise<Response>((resolve) => {
+            resolveFirst = resolve;
+          }),
+      )
+      .mockImplementationOnce(
+        () =>
+          new Promise<Response>((resolve) => {
+            resolveSecond = resolve;
+          }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const crmStore = useCrmStore();
+    const firstRequest = crmStore.fetchStaffEmployees();
+    const secondRequest = crmStore.fetchStaffEmployees();
+
+    resolveFirst(
+      new Response(
+        JSON.stringify([
+          {
+            id: "old",
+            first_name: "Старый",
+            role: "employee",
+            active: true,
+          },
+        ]),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+    await firstRequest;
+
+    expect(crmStore.staffEmployeesLoading).toBe(true);
+    expect(crmStore.staffEmployees).toEqual([]);
+
+    resolveSecond(
+      new Response(
+        JSON.stringify([
+          {
+            id: "new",
+            first_name: "Новый",
+            role: "employee",
+            active: true,
+          },
+        ]),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+    await secondRequest;
+
+    expect(crmStore.staffEmployeesLoading).toBe(false);
+    expect(crmStore.staffEmployees[0]?.id).toBe("new");
+  });
 });
