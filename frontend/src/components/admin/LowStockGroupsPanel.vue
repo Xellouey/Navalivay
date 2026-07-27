@@ -246,7 +246,7 @@ async function openFlavors(group: LowStockGroup) {
     if (requestId === flavorsRequestId) flavorItems.value = items;
   } catch (err) {
     if (requestId === flavorsRequestId) {
-      flavorsError.value = "Не удалось загрузить вкусы.";
+      flavorsError.value = "Не удалось загрузить остатки.";
       console.error("[LowStockGroupsPanel] flavors fetch failed:", err);
     }
   } finally {

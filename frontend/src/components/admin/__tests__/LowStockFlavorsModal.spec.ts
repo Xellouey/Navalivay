@@ -27,12 +27,27 @@ describe("LowStockFlavorsModal", () => {
     const wrapper = mountModal();
     const rows = Array.from(document.querySelectorAll("ol li"));
 
+    expect(document.querySelector('[role="dialog"]')?.textContent).toContain("Розничные остатки");
     expect(rows.map((row) => row.textContent?.replace(/\s+/g, " ").trim())).toEqual([
       "Нет в наличии0 шт",
       "Заканчивается2 шт",
       "Много12 шт",
     ]);
 
+    wrapper.unmount();
+  });
+
+  it("переносит длинное название цвета и не сжимает остаток", () => {
+    const wrapper = mountModal({
+      items: [{ id: "color", name: "VeryLongDeviceColorWithoutSpaces", stock: 1 }],
+    });
+    const row = document.querySelector("ol li");
+    const name = row?.querySelector("span:first-child");
+    const stock = row?.querySelector("span:last-child");
+
+    expect(name?.classList.contains("break-words")).toBe(true);
+    expect(name?.classList.contains("min-w-0")).toBe(true);
+    expect(stock?.classList.contains("flex-shrink-0")).toBe(true);
     wrapper.unmount();
   });
 
@@ -46,11 +61,11 @@ describe("LowStockFlavorsModal", () => {
   });
 
   it("показывает ошибку с повтором и пустое состояние", async () => {
-    const wrapper = mountModal({ items: [], errorText: "Не удалось загрузить вкусы." });
+    const wrapper = mountModal({ items: [], errorText: "Не удалось загрузить остатки." });
     const retryButton = Array.from(document.querySelectorAll("button"))
       .find((button) => button.textContent?.includes("Повторить"));
 
-    expect(document.querySelector('[role="alert"]')?.textContent).toContain("Не удалось загрузить вкусы.");
+    expect(document.querySelector('[role="alert"]')?.textContent).toContain("Не удалось загрузить остатки.");
     retryButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     expect(wrapper.emitted("retry")).toHaveLength(1);
 
@@ -61,7 +76,7 @@ describe("LowStockFlavorsModal", () => {
     );
 
     await wrapper.setProps({ loading: false });
-    expect(document.querySelector('[role="status"]')?.textContent).toContain("В этой линейке пока нет вкусов");
+    expect(document.querySelector('[role="status"]')?.textContent).toContain("В этой линейке пока нет позиций");
     wrapper.unmount();
   });
 
