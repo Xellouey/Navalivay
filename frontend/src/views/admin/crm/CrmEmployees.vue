@@ -1004,7 +1004,7 @@
                 <div
                   v-for="cell in shiftCalendarCells"
                   :key="cell.key"
-                  class="aspect-square rounded-lg border p-1.5 text-xs"
+                  class="h-16 min-w-0 rounded-lg border p-1 text-xs sm:p-1.5 md:h-20"
                   :class="cell.empty ? 'border-transparent' : 'border-slate-200'"
                   :style="cell.empty ? undefined : { backgroundColor: shiftHeatColor(cell.minutes) }"
                   :title="cell.empty
@@ -1013,10 +1013,10 @@
                 >
                   <template v-if="!cell.empty">
                     <div class="font-semibold text-slate-700">{{ cell.day }}</div>
-                    <div v-if="cell.minutes" class="mt-1 text-[10px] text-slate-600">
+                    <div v-if="cell.minutes" class="mt-0.5 whitespace-nowrap text-[9px] leading-3 text-slate-600 sm:mt-1 sm:text-[10px]">
                       {{ formatDecimal(cell.minutes / 60) }} ч
                     </div>
-                    <div class="mt-1 flex gap-1">
+                    <div class="mt-0.5 flex gap-1 sm:mt-1">
                       <span v-if="cell.active" class="h-1.5 w-1.5 rounded-full bg-emerald-500" />
                       <span v-if="cell.corrected" class="h-1.5 w-1.5 rounded-full bg-amber-500" />
                     </div>
