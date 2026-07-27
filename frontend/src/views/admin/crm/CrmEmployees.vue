@@ -309,10 +309,15 @@
                       <span v-if="activityChartPoints.length > 12">График можно листать.</span>
                     </p>
                   </div>
-                  <div class="flex flex-wrap gap-2" role="group" aria-label="Показатель графика">
+                  <div
+                    class="flex max-w-full flex-nowrap gap-2 overflow-x-auto pb-1 sm:ml-auto sm:shrink-0 sm:pb-0"
+                    role="group"
+                    aria-label="Показатель графика"
+                  >
                     <CrmButton
                       v-for="option in activityMetricOptions"
                       :key="option.value"
+                      class="shrink-0"
                       variant="filter"
                       size="sm"
                       :pressed="activityMetric === option.value"
