@@ -615,9 +615,20 @@
                       {{ employee.position || "Должность не указана" }} ·
                       {{ employee.role === "manager" ? "Руководитель" : "Сотрудник" }}
                     </p>
+                    <div
+                      class="mt-3 flex flex-wrap gap-2"
+                      :aria-label="`Положительные отметки: ${Number(teamSummary(employee).mark_counts?.positive || 0)}. Отрицательные отметки: ${Number(teamSummary(employee).mark_counts?.negative || 0)}.`"
+                    >
+                      <span class="rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700">
+                        Плюсы {{ Number(teamSummary(employee).mark_counts?.positive || 0) }}
+                      </span>
+                      <span class="rounded-full bg-rose-50 px-2.5 py-1 text-xs font-semibold text-rose-700">
+                        Минусы {{ Number(teamSummary(employee).mark_counts?.negative || 0) }}
+                      </span>
+                    </div>
                   </div>
                 </div>
-                <dl class="grid min-w-0 grid-cols-2 gap-2 sm:grid-cols-3 2xl:grid-cols-5">
+                <dl class="grid min-w-0 grid-cols-2 gap-2 xl:grid-cols-3">
                   <div class="rounded-xl bg-slate-50 px-3 py-2">
                     <dt class="text-[11px] text-slate-500">Отработано / смен</dt>
                     <dd class="mt-0.5 text-sm font-semibold text-slate-900">
@@ -657,13 +668,6 @@
                     <dd class="mt-0.5 text-sm font-semibold text-slate-900">
                       {{ Number(teamSummary(employee).transfers_created || 0) }} /
                       {{ Number(teamSummary(employee).transfers_completed || 0) }}
-                    </dd>
-                  </div>
-                  <div class="rounded-xl bg-slate-50 px-3 py-2">
-                    <dt class="text-[11px] text-slate-500">Плюсы / минусы</dt>
-                    <dd class="mt-0.5 text-sm font-semibold text-slate-900">
-                      {{ Number(teamSummary(employee).mark_counts?.positive || 0) }} /
-                      {{ Number(teamSummary(employee).mark_counts?.negative || 0) }}
                     </dd>
                   </div>
                 </dl>

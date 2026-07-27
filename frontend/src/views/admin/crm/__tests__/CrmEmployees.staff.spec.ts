@@ -488,7 +488,8 @@ describe("CrmEmployees: вход сотрудника", () => {
     expect(employeeRow!.text().replace(/\s/g, " ")).toContain("640 BYN / 220 BYN");
     expect(employeeRow!.text()).toContain("Поставки: создано / принято");
     expect(employeeRow!.text()).toContain("Перемещения: создано / принято");
-    expect(employeeRow!.text()).toContain("6 / 1");
+    expect(employeeRow!.text()).toContain("Плюсы 6");
+    expect(employeeRow!.text()).toContain("Минусы 1");
 
     const actionsButton = employeeRow!
       .findAll("button")
