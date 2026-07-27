@@ -382,7 +382,7 @@ describe("CrmEmployees: вход сотрудника", () => {
       ...employee,
       id: "employee-without-pin",
       first_name: "Алина",
-      last_name: "Морозова",
+      last_name: null,
       position: "Старший продавец",
       pin_configured: false,
     };
@@ -398,7 +398,7 @@ describe("CrmEmployees: вход сотрудника", () => {
       trackingEnabled: true,
       orderShiftRestrictionEnabled: false,
     });
-    vi.spyOn(store, "fetchStaffEmployees").mockResolvedValue([
+    const fetchEmployees = vi.spyOn(store, "fetchStaffEmployees").mockResolvedValue([
       manager,
       employee,
       employeeWithoutPin,
@@ -424,24 +424,32 @@ describe("CrmEmployees: вход сотрудника", () => {
 
     const wrapper = mountEmployees();
     await flushPromises();
+    const employeeLoadsBeforeSettings = fetchEmployees.mock.calls.length;
     await wrapper.get("#staff-manager-section").setValue("settings");
     await flushPromises();
+    expect(fetchEmployees.mock.calls.length).toBeGreaterThan(
+      employeeLoadsBeforeSettings,
+    );
 
     const panel = wrapper.get('[data-testid="staff-pin-setup-panel"]');
-    expect(panel.text()).toContain("Нужно настроить ПИН: 1");
-    expect(panel.text()).toContain("Алина Морозова");
+    expect(panel.text()).toContain("Сотрудники без ПИН: 1");
+    expect(panel.text()).toContain("Алина");
+    expect(panel.text()).not.toContain("null");
     expect(panel.text()).not.toContain("Павел Сергеевич");
     expect(wrapper.text().replace(/\s/g, " ")).toContain("2 из 3");
 
-    await panel
+    const setupPinButton = panel
       .findAll("button")
-      .find((button) => button.text() === "Настроить ПИН")!
-      .trigger("click");
+      .find((button) => button.text() === "Настроить ПИН")!;
+    store.$patch({ staffEmployeesLoading: true });
+    await nextTick();
+    expect(setupPinButton.attributes("disabled")).toBeDefined();
+    store.$patch({ staffEmployeesLoading: false });
+    await nextTick();
+    await setupPinButton.trigger("click");
     await nextTick();
 
-    const modal = wrapper.get(
-      '[data-modal-title="Настроить ПИН: Алина Морозова"]',
-    );
+    const modal = wrapper.get('[data-modal-title="Настроить ПИН: Алина"]');
     expect(modal.text()).toContain("ПИН не будет показан снова");
     const pinInputs = modal.findAll('input[type="password"]');
     expect(pinInputs).toHaveLength(2);
@@ -477,7 +485,7 @@ describe("CrmEmployees: вход сотрудника", () => {
       false,
     );
     expect(wrapper.text().replace(/\s/g, " ")).toContain("3 из 3");
-    expect(wrapper.text()).toContain("ПИН настроен: Алина Морозова");
+    expect(wrapper.text()).toContain("ПИН настроен: Алина");
   });
 
   it("не обходит основной пароль при настройке ПИНа руководителя", async () => {
@@ -510,6 +518,10 @@ describe("CrmEmployees: вход сотрудника", () => {
       return analytics;
     });
     vi.spyOn(store, "fetchStaffMarks").mockResolvedValue([]);
+    vi.spyOn(store, "fetchStaffRecoveryManagerCandidates").mockResolvedValue([
+      manager,
+      managerWithoutPin,
+    ]);
     const resetPin = vi.spyOn(store, "resetStaffEmployeePin");
 
     const wrapper = mountEmployees();
@@ -522,13 +534,38 @@ describe("CrmEmployees: вход сотрудника", () => {
     );
     await row
       .findAll("button")
-      .find((button) => button.text() === "Восстановить ПИН руководителя")!
+      .find((button) => button.text() === "Настроить ПИН руководителя")!
       .trigger("click");
     await nextTick();
 
     const modal = wrapper.get('[data-modal-title="Доступ руководителя"]');
     expect(modal.text()).toContain("Основной пароль CRM");
     expect(modal.text()).toContain("Проверить пароль");
+    const checkPasswordButton = modal
+      .findAll("button")
+      .find((button) => button.text() === "Проверить пароль")!;
+    expect(checkPasswordButton.attributes("disabled")).toBeDefined();
+    await modal.get('input[autocomplete="current-password"]').setValue("998811");
+    expect(checkPasswordButton.attributes("disabled")).toBeUndefined();
+    await checkPasswordButton.trigger("click");
+    await flushPromises();
+
+    expect((modal.get("select").element as HTMLSelectElement).value).toBe(
+      managerWithoutPin.id,
+    );
+    const pinInputs = modal.findAll('input[autocomplete="new-password"]');
+    expect(pinInputs).toHaveLength(2);
+    await pinInputs[0].setValue("1234");
+    await pinInputs[1].setValue("4321");
+    expect(modal.text()).toContain("ПИНы не совпадают");
+    expect(
+      modal
+        .findAll("button")
+        .find((button) => button.text() === "Сохранить новый ПИН")!
+        .attributes("disabled"),
+    ).toBeDefined();
+    await pinInputs[1].setValue("1234");
+    expect(modal.text()).not.toContain("ПИНы не совпадают");
     expect(resetPin).not.toHaveBeenCalled();
   });
 

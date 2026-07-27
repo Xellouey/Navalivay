@@ -1169,10 +1169,10 @@
             >
               <div class="border-b border-amber-200 bg-amber-50 px-5 py-4">
                 <h3 class="font-semibold text-amber-950">
-                  Нужно настроить ПИН: {{ staffWithoutPin.length }}
+                  Сотрудники без ПИН: {{ staffWithoutPin.length }}
                 </h3>
                 <p class="mt-1 text-sm text-amber-800">
-                  Без ПИНа сотрудник не сможет войти в карточку и открыть смену.
+                  Пока ПИН не настроен, сотрудник не сможет войти в карточку и открыть смену.
                 </p>
               </div>
               <div class="divide-y divide-slate-100">
@@ -1190,7 +1190,7 @@
                     />
                     <div class="min-w-0">
                       <div class="truncate font-semibold text-slate-950">
-                        {{ employee.first_name }} {{ employee.last_name }}
+                        {{ employeeDisplayName(employee) }}
                       </div>
                       <div class="truncate text-sm text-slate-500">
                         {{ employee.position || (employee.role === "manager" ? "Руководитель" : "Должность не указана") }}
@@ -1201,9 +1201,10 @@
                     variant="primary"
                     size="sm"
                     class="w-full sm:w-auto"
-                    @click="employee.role === 'manager' ? openStaffSetup('recovery') : openPinReset(employee)"
+                    :disabled="staffEmployeesLoading || formSaving"
+                    @click="employee.role === 'manager' ? openStaffSetup('recovery', employee.id) : openPinReset(employee)"
                   >
-                    {{ employee.role === "manager" ? "Восстановить ПИН руководителя" : "Настроить ПИН" }}
+                    {{ employee.role === "manager" ? "Настроить ПИН руководителя" : "Настроить ПИН" }}
                   </CrmButton>
                 </div>
               </div>
@@ -1484,7 +1485,7 @@
           <input v-model="staffSetupForm.admin_password" type="password" autocomplete="current-password" required class="min-h-[44px] w-full rounded-xl border border-slate-300 px-3" />
         </label>
         <div v-if="!recoveryCandidatesLoaded" class="flex justify-end">
-          <CrmButton type="button" variant="primary" :loading="staffSetupSaving" @click="loadRecoveryCandidates">
+          <CrmButton type="button" variant="primary" :loading="staffSetupSaving" :disabled="!staffSetupForm.admin_password" @click="loadRecoveryCandidates">
             Проверить пароль
           </CrmButton>
         </div>
@@ -1502,11 +1503,18 @@
             <span class="mb-1 block text-sm font-medium text-slate-700">Новый ПИН</span>
             <input v-model="staffSetupForm.new_pin" type="password" inputmode="numeric" maxlength="4" pattern="[0-9]{4}" autocomplete="new-password" required class="min-h-[52px] w-full rounded-xl border border-slate-300 px-3 text-center text-xl tracking-[0.45em]" @input="sanitizeSetupPin" />
           </label>
+          <label class="block">
+            <span class="mb-1 block text-sm font-medium text-slate-700">Повторите ПИН</span>
+            <input v-model="staffSetupForm.repeat_pin" type="password" inputmode="numeric" maxlength="4" pattern="[0-9]{4}" autocomplete="new-password" required class="min-h-[52px] w-full rounded-xl border border-slate-300 px-3 text-center text-xl tracking-[0.45em]" @input="sanitizeSetupRepeatedPin" />
+          </label>
+          <p v-if="staffSetupForm.repeat_pin.length === 4 && staffSetupForm.new_pin !== staffSetupForm.repeat_pin" class="text-sm text-red-700" role="alert">
+            ПИНы не совпадают
+          </p>
         </template>
         <p v-if="staffSetupError" class="text-sm text-red-700" role="alert">{{ staffSetupError }}</p>
         <div class="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
           <CrmButton type="button" variant="secondary" :disabled="staffSetupSaving" @click="closeStaffSetup">Отмена</CrmButton>
-          <CrmButton v-if="recoveryCandidatesLoaded" type="submit" variant="primary" :loading="staffSetupSaving" :disabled="!staffSetupForm.employee_id || staffSetupForm.new_pin.length !== 4">
+          <CrmButton v-if="recoveryCandidatesLoaded" type="submit" variant="primary" :loading="staffSetupSaving" :disabled="!staffSetupForm.employee_id || staffSetupForm.new_pin.length !== 4 || staffSetupForm.repeat_pin.length !== 4 || staffSetupForm.new_pin !== staffSetupForm.repeat_pin">
             Сохранить новый ПИН
           </CrmButton>
         </div>
@@ -1607,7 +1615,7 @@
     <AdminModal
       :is-open="pinResetOpen"
       :title="pinResetTitle"
-      description="После сохранения сотрудник сможет войти по новому ПИНу. ПИН не будет показан снова."
+      :description="pinResetDescription"
       size="sm"
       :show-actions="false"
       :persistent="formSaving"
@@ -1617,7 +1625,7 @@
     >
       <form class="space-y-4" @submit.prevent="savePinReset">
         <label class="block">
-          <span class="mb-1 block text-sm font-medium text-slate-700">Новый ПИН, 4 цифры</span>
+          <span class="mb-1 block text-sm font-medium text-slate-700">{{ pinResetFieldLabel }}</span>
           <input ref="newPinInput" v-model="newPin" type="password" inputmode="numeric" maxlength="4" pattern="[0-9]{4}" autocomplete="new-password" required class="min-h-[52px] w-full rounded-xl border border-slate-300 px-3 text-center text-xl tracking-[0.45em]" @input="sanitizeResetPin" />
         </label>
         <label class="block">
@@ -2079,6 +2087,7 @@ const staffSetupSaving = ref(false);
 const staffSetupError = ref("");
 const recoveryCandidates = ref<Employee[]>([]);
 const recoveryCandidatesLoaded = ref(false);
+const staffSetupTargetEmployeeId = ref("");
 const staffSetupForm = reactive({
   admin_password: "",
   first_name: "",
@@ -2086,6 +2095,7 @@ const staffSetupForm = reactive({
   position: "",
   employee_id: "",
   new_pin: "",
+  repeat_pin: "",
   enable_tracking: true,
 });
 
@@ -2108,9 +2118,17 @@ const repeatedPin = ref("");
 const newPinInput = ref<HTMLInputElement | null>(null);
 const pinResetTitle = computed(() => {
   if (!pinResetEmployee.value) return "Настроить ПИН";
-  const name = `${pinResetEmployee.value.first_name} ${pinResetEmployee.value.last_name}`.trim();
+  const name = employeeDisplayName(pinResetEmployee.value);
   return `${pinResetEmployee.value.pin_configured ? "Сбросить" : "Настроить"} ПИН: ${name}`;
 });
+const pinResetDescription = computed(() =>
+  pinResetEmployee.value?.pin_configured
+    ? "Старый ПИН перестанет работать. Новый ПИН не будет показан снова."
+    : "После сохранения сотрудник сможет войти в карточку. ПИН не будет показан снова.",
+);
+const pinResetFieldLabel = computed(() =>
+  pinResetEmployee.value?.pin_configured ? "Новый ПИН, 4 цифры" : "ПИН, 4 цифры",
+);
 const salaryEditorOpen = ref(false);
 const salaryForm = reactive({
   employee_id: "",
@@ -2763,6 +2781,9 @@ function currentBusinessDay() {
 function safeColor(color?: string | null) {
   return color && /^#[0-9a-f]{6}$/i.test(color) ? color : "#2563eb";
 }
+function employeeDisplayName(employee: Employee) {
+  return [employee.first_name, employee.last_name].filter(Boolean).join(" ").trim() || "Сотрудник";
+}
 function responsibilityText(value?: string | string[] | null) {
   return Array.isArray(value) ? value.join("\n") : value || "";
 }
@@ -3324,6 +3345,10 @@ async function loadNotifications() {
 async function loadCurrentView() {
   closeEmployeeActionMenu();
   pageMessage.value = "";
+  if (activeTab.value === "settings") {
+    await Promise.all([loadEmployees(), crmStore.fetchStaffSettings()]);
+    return;
+  }
   if (isStaffManager.value && !staffEmployees.value.length) await loadEmployees();
   if (activeTab.value === "card") await loadCard();
   if (activeTab.value === "team") {
@@ -3333,7 +3358,6 @@ async function loadCurrentView() {
   if (activeTab.value === "salaries") await loadSalaries();
   if (activeTab.value === "marks") await loadMarks();
   if (activeTab.value === "shifts") await loadShifts();
-  if (activeTab.value === "settings") await crmStore.fetchStaffSettings();
   if (activeTab.value === "notifications") await loadNotifications();
 }
 function staffAccessKey() {
@@ -3371,14 +3395,17 @@ function resetStaffSetup() {
     position: "",
     employee_id: "",
     new_pin: "",
+    repeat_pin: "",
     enable_tracking: true,
   });
+  staffSetupTargetEmployeeId.value = "";
   recoveryCandidates.value = [];
   recoveryCandidatesLoaded.value = false;
   staffSetupError.value = "";
 }
-function openStaffSetup(mode: "bootstrap" | "recovery") {
+function openStaffSetup(mode: "bootstrap" | "recovery", employeeId = "") {
   resetStaffSetup();
+  staffSetupTargetEmployeeId.value = employeeId;
   staffSetupMode.value = mode;
   staffSetupOpen.value = true;
 }
@@ -3394,6 +3421,11 @@ function selectStaffSetupMode(mode: "bootstrap" | "recovery") {
 }
 function sanitizeSetupPin(event: Event) {
   staffSetupForm.new_pin = (event.target as HTMLInputElement).value
+    .replace(/\D/g, "")
+    .slice(0, 4);
+}
+function sanitizeSetupRepeatedPin(event: Event) {
+  staffSetupForm.repeat_pin = (event.target as HTMLInputElement).value
     .replace(/\D/g, "")
     .slice(0, 4);
 }
@@ -3438,7 +3470,11 @@ async function loadRecoveryCandidates() {
         staffSetupForm.admin_password,
       );
     recoveryCandidatesLoaded.value = true;
-    staffSetupForm.employee_id = recoveryCandidates.value[0]?.id || "";
+    const targetEmployee = recoveryCandidates.value.find(
+      (employee) => employee.id === staffSetupTargetEmployeeId.value,
+    );
+    staffSetupForm.employee_id =
+      targetEmployee?.id || recoveryCandidates.value[0]?.id || "";
     if (!recoveryCandidates.value.length) {
       staffSetupError.value = "Активные руководители не найдены";
     }
@@ -3454,7 +3490,8 @@ async function recoverManager() {
     staffSetupSaving.value ||
     !staffSetupForm.admin_password ||
     !staffSetupForm.employee_id ||
-    !/^\d{4}$/.test(staffSetupForm.new_pin)
+    !/^\d{4}$/.test(staffSetupForm.new_pin) ||
+    staffSetupForm.new_pin !== staffSetupForm.repeat_pin
   ) return;
   staffSetupSaving.value = true;
   staffSetupError.value = "";
@@ -3710,6 +3747,7 @@ async function toggleEmployeeActive(employee: Employee) {
   });
 }
 async function openPinReset(employee: Employee) {
+  if (staffEmployeesLoading.value) return;
   pinResetEmployee.value = employee;
   newPin.value = "";
   repeatedPin.value = "";
@@ -3734,13 +3772,14 @@ function sanitizeRepeatedPin(event: Event) {
 async function savePinReset() {
   if (
     formSaving.value ||
+    staffEmployeesLoading.value ||
     !pinResetEmployee.value ||
     !/^\d{4}$/.test(newPin.value) ||
     newPin.value !== repeatedPin.value
   ) return;
   const employee = pinResetEmployee.value;
   const wasConfigured = Boolean(employee.pin_configured);
-  const employeeName = `${employee.first_name} ${employee.last_name}`.trim();
+  const employeeName = employeeDisplayName(employee);
   formSaving.value = true;
   formError.value = "";
   try {
