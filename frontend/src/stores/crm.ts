@@ -2857,11 +2857,14 @@ export const useCrmStore = defineStore("crm", () => {
     description?: string;
     priority?: string;
     due_at?: string | null;
+    employee_id?: string | null;
   }) {
     const body = {
       title: data.title,
       description: data.description,
       due_at: data.due_at,
+      // Пусто значит свободная задача, её сможет взять любой на смене.
+      ...(data.employee_id ? { employee_id: data.employee_id } : {}),
     };
     const pending = pendingMutationKey("staff.task.create", body);
     const response = await staffFetchAPI<StaffTask | { task: StaffTask }>(

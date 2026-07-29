@@ -2039,9 +2039,11 @@ staffRouter.post(
     requireFeatureEnabled();
     requireNotificationTables();
     const actor = req.staffAccess.rawEmployee;
-    if (req.body?.employee_id) {
-      throw new StaffServiceError('task_target_not_supported', 400);
-    }
+    // Задачу можно оставить свободной или сразу назначить сотруднику: тогда
+    // взять её сможет только он, остальная обвязка это уже умеет.
+    const targetEmployee = req.body?.employee_id
+      ? requireActiveEmployee(req.body.employee_id)
+      : null;
     const title = cleanText(req.body?.title, {
       required: true,
       max: 200,
@@ -2087,8 +2089,8 @@ staffRouter.post(
           taskId,
           title,
           description,
-          null,
-          null,
+          targetEmployee?.id || null,
+          targetEmployee ? employeeName(targetEmployee) : null,
           dueAt?.toISOString() || null,
           actor.id,
           employeeName(actor),

@@ -143,6 +143,23 @@
             {{ taskDueError }}
           </span>
         </label>
+        <label class="block">
+          <span class="mb-1 block text-sm font-medium text-slate-700">Кому поручить</span>
+          <select
+            v-model="taskForm.employee_id"
+            :disabled="Boolean(actionDialog)"
+            class="min-h-[44px] w-full rounded-xl border border-slate-300 bg-white px-3"
+          >
+            <option value="">Свободная, возьмёт любой на смене</option>
+            <option
+              v-for="employee in assignableEmployees"
+              :key="employee.id"
+              :value="employee.id"
+            >
+              {{ [employee.first_name, employee.last_name].filter(Boolean).join(" ") }}
+            </option>
+          </select>
+        </label>
         <label class="block sm:col-span-2">
           <span class="mb-1 block text-sm font-medium text-slate-700">
             Описание задачи <span aria-hidden="true">*</span>
@@ -423,6 +440,7 @@ const {
   staffIdentity,
   isStaffManager,
   currentStaffShift,
+  staffEmployees,
 } = storeToRefs(crmStore);
 type TaskFilter = "active" | "submitted" | "overdue" | "done";
 const filter = ref<TaskFilter>("active");
@@ -449,7 +467,13 @@ const taskForm = ref({
   title: "",
   description: "",
   due_at: "",
+  employee_id: "",
 });
+
+/** Кому можно поручить задачу: только действующие сотрудники. */
+const assignableEmployees = computed(() =>
+  staffEmployees.value.filter((employee) => Boolean(Number(employee.active))),
+);
 const taskDueError = computed(() => {
   if (!taskForm.value.due_at) return "";
   const dueAt = businessDateTimeInputToIso(taskForm.value.due_at);
@@ -804,11 +828,13 @@ async function createTask() {
       title: taskForm.value.title,
       description: taskForm.value.description || undefined,
       due_at: dueAt,
+      employee_id: taskForm.value.employee_id || null,
     });
     taskForm.value = {
       title: "",
       description: "",
       due_at: "",
+      employee_id: "",
     };
     createOpen.value = false;
     filter.value = "active";
@@ -973,6 +999,11 @@ watch(
     if (open) {
       taskSearch.value = "";
       assigneeFilter.value = "";
+      // Модалку открывают и вне раздела сотрудников, а список нужен для выбора,
+      // кому поручить задачу.
+      if (isStaffManager.value && !staffEmployees.value.length) {
+        void crmStore.fetchStaffEmployees().catch(() => undefined);
+      }
       void loadTasks().then(() => {
         filter.value =
           isStaffManager.value &&

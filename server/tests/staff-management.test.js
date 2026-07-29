@@ -1079,6 +1079,7 @@ try {
   );
   assertStatus(taskWithoutDueTimezone, 400, 'task deadline requires timezone');
   assert.equal(taskWithoutDueTimezone.data.error, 'invalid_task_due_at');
+  // Задачу можно поручить конкретному сотруднику, тогда она закрепляется за ним.
   const targetedTask = await requestJson('/api/admin/crm/staff/tasks', {
     method: 'POST',
     staffToken: managerToken,
@@ -1086,12 +1087,42 @@ try {
     body: {
       employee_id: employeeId,
       title: 'Адресная задача',
-      description: 'Задачи должны попадать в общий пул',
+      description: 'Поручена конкретному сотруднику',
       due_at: taskDueAt,
     },
   });
-  assertStatus(targetedTask, 400, 'tasks use common pool');
-  assert.equal(targetedTask.data.error, 'task_target_not_supported');
+  assertStatus(targetedTask, 201, 'task can be assigned to an employee');
+  assert.equal(targetedTask.data.task.target_employee_id, employeeId);
+  assert.ok(targetedTask.data.task.target_employee_name_snapshot);
+
+  // Уволенному поручить нельзя.
+  const targetedInactive = await requestJson('/api/admin/crm/staff/tasks', {
+    method: 'POST',
+    staffToken: managerToken,
+    idempotencyKey: 'task-create-targeted-inactive',
+    body: {
+      employee_id: 'legacy_without_pin',
+      title: 'Задача уволенному',
+      description: 'Так быть не должно',
+      due_at: taskDueAt,
+    },
+  });
+  assertStatus(targetedInactive, 409, 'inactive employee cannot be assigned');
+  assert.equal(targetedInactive.data.error, 'employee_inactive');
+
+  // Без исполнителя задача остаётся свободной.
+  const freeTask = await requestJson('/api/admin/crm/staff/tasks', {
+    method: 'POST',
+    staffToken: managerToken,
+    idempotencyKey: 'task-create-free',
+    body: {
+      title: 'Свободная задача',
+      description: 'Возьмёт любой на смене',
+      due_at: taskDueAt,
+    },
+  });
+  assertStatus(freeTask, 201, 'task without an employee stays free');
+  assert.equal(freeTask.data.task.target_employee_id, null);
 
   const taskCreate = await requestJson('/api/admin/crm/staff/tasks', {
     method: 'POST',

@@ -144,8 +144,8 @@ export const INTERNAL_NOTIFICATION_TEMPLATES = [
     eventType: 'task.created',
     group: 'tasks',
     title: 'Новая задача',
-    placeholders: ['номер', 'название', 'срок', 'сотрудник'],
-    text: 'Новая задача #{номер}\n{название}\nСрок: {срок}',
+    placeholders: ['номер', 'название', 'срок', 'кому', 'сотрудник'],
+    text: 'Новая задача #{номер}\n{название}\nСрок: {срок}\nКому: {кому}',
   },
   {
     eventType: 'task.submitted',
@@ -180,6 +180,11 @@ function notificationValues(payload) {
     'название': cleanLine(payload.title, 'Без названия'),
     'срок': formatMinskDateTime(payload.deadline),
     'период': cleanLine(payload.period_label ?? payload.period, 'текущий месяц'),
+    // Для задач: назначенный сотрудник либо явная пометка, что задача общая.
+    'кому': cleanLine(
+      payload.employee_name ?? payload.employeeName,
+      'свободная, возьмёт любой на смене',
+    ),
   };
 }
 
