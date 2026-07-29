@@ -170,10 +170,10 @@ describe("CrmEmployees: вход сотрудника", () => {
     expect(wrapper.text()).toContain("Не указана");
     expect(wrapper.text()).not.toContain("не означает факт выплаты");
     expect(wrapper.get('[role="img"]').attributes("aria-label")).toContain(
-      "1 июля — 1 действие",
+      "1 июля: 1 действие",
     );
     expect(wrapper.get('[role="img"]').attributes("aria-label")).toContain(
-      "2 июля — 3 действия",
+      "2 июля: 3 действия",
     );
   });
 

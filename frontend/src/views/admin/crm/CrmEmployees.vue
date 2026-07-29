@@ -3171,7 +3171,7 @@ function periodFileLabel() {
 const teamChartAriaLabel = computed(
   () =>
     `Сравнение команды: ${teamComparisonRows.value
-      .map((row) => `${row.name} — ${row.label}`)
+      .map((row) => `${row.name}: ${row.label}`)
       .join("; ")}`,
 );
 const activeStaffCount = computed(
@@ -3468,7 +3468,7 @@ const selectedEmployeeLabel = computed(() => {
 const activityChartLabel = computed(() => {
   if (!activityChartPoints.value.length) return "Динамика работы: данных нет";
   const details = activityChartPoints.value
-    .map((point) => `${point.label} — ${activityMetricValueLabel(point.value)}`)
+    .map((point) => `${point.label}: ${activityMetricValueLabel(point.value)}`)
     .join("; ");
   return `Динамика работы: ${details}`;
 });
@@ -3777,7 +3777,7 @@ const activityMetricHint = computed(() => {
   if (activityMetric.value === "marks_negative") {
     return "Отрицательные отметки, поставленные руководителем вручную.";
   }
-  return "Действие — это закупка (создана или оприходована), перемещение (создано, принято или отменено) и принятая задача. Сборка и выдача заказов сюда не входят, для них отдельные показатели. Наведите на столбик, чтобы увидеть разбивку за день.";
+  return "Показывает работу с документами: закупки, перемещения и принятые задачи. Каждая запись привязана к сотруднику по его ПИН и задним числом не меняется, поэтому по ней видно, кто и когда что оформил. Сборка и выдача заказов сюда не входят, для них соседние показатели. Наведите на столбик, чтобы увидеть разбивку за день.";
 });
 
 function activityMetricShortValue(value: number) {
