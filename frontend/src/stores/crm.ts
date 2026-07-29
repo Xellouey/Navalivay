@@ -1978,6 +1978,7 @@ export const useCrmStore = defineStore("crm", () => {
   const staffAnalytics = ref<StaffAnalytics | null>(null);
   const staffAnalyticsLoading = ref(false);
   const staffAnalyticsError = ref("");
+  const staffAnalyticsPrevious = ref<StaffAnalytics | null>(null);
   const staffTeamAnalytics = ref<StaffAnalytics[]>([]);
   const staffTeamAnalyticsLoading = ref(false);
   const staffTeamAnalyticsError = ref("");
@@ -1996,6 +1997,7 @@ export const useCrmStore = defineStore("crm", () => {
   let staffShiftFetchSequence = 0;
   let staffShiftMutationEpoch = 0;
   let staffAnalyticsRequestSequence = 0;
+  let staffAnalyticsPreviousRequestSequence = 0;
   let staffTeamAnalyticsRequestSequence = 0;
   let staffTasksRequestSequence = 0;
   let staffSalaryRequestSequence = 0;
@@ -2087,6 +2089,7 @@ export const useCrmStore = defineStore("crm", () => {
     staffShiftToken.value = "";
     persistStaffIdentity(null);
     staffAnalytics.value = null;
+    staffAnalyticsPrevious.value = null;
     staffTeamAnalytics.value = [];
     staffSalaries.value = [];
     staffMarks.value = [];
@@ -2741,6 +2744,49 @@ export const useCrmStore = defineStore("crm", () => {
       if (requestSequence === staffAnalyticsRequestSequence) {
         staffAnalyticsLoading.value = false;
       }
+    }
+  }
+
+  /**
+   * Показатели за предыдущий период. Нужны только для дельт рядом с метриками,
+   * поэтому ошибка тут не всплывает наверх: без сравнения раздел работает как раньше.
+   */
+  async function fetchStaffAnalyticsPrevious(params: {
+    period?: "day" | "month" | "year" | "custom";
+    month?: string;
+    date?: string;
+    year?: string | number;
+    from?: string;
+    to?: string;
+    employeeId?: string;
+  } = {}) {
+    const requestSequence = ++staffAnalyticsPreviousRequestSequence;
+    try {
+      const query = new URLSearchParams();
+      if (params.period) query.set("period", params.period);
+      if (params.month) query.set("month", params.month);
+      if (params.date) query.set("date", params.date);
+      if (params.year) query.set("year", String(params.year));
+      if (params.from) query.set("from", params.from);
+      if (params.to) query.set("to", params.to);
+      if (params.employeeId) query.set("employee_id", params.employeeId);
+      const suffix = query.toString() ? `?${query}` : "";
+      const response = await staffFetchAPI<
+        StaffAnalytics | { analytics: StaffAnalytics }
+      >(`${API_BASE}/staff/analytics${suffix}`);
+      const analytics = normalizeStaffAnalytics(
+        "analytics" in response ? response.analytics : response,
+      );
+      if (requestSequence !== staffAnalyticsPreviousRequestSequence) {
+        return staffAnalyticsPrevious.value;
+      }
+      staffAnalyticsPrevious.value = analytics;
+      return staffAnalyticsPrevious.value;
+    } catch {
+      if (requestSequence === staffAnalyticsPreviousRequestSequence) {
+        staffAnalyticsPrevious.value = null;
+      }
+      return null;
     }
   }
 
@@ -4915,6 +4961,7 @@ export const useCrmStore = defineStore("crm", () => {
     staffShiftLoading,
     staffShiftError,
     staffAnalytics,
+    staffAnalyticsPrevious,
     staffAnalyticsLoading,
     staffAnalyticsError,
     staffTeamAnalytics,
@@ -4954,6 +5001,7 @@ export const useCrmStore = defineStore("crm", () => {
     fetchStaffShiftHistory,
     correctStaffShift,
     fetchStaffAnalytics,
+    fetchStaffAnalyticsPrevious,
     fetchStaffTeamAnalytics,
     fetchStaffTasks,
     fetchStaffTaskHistory,

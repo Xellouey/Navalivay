@@ -39,6 +39,35 @@
       </section>
 
       <template v-else>
+        <section
+          v-if="staffAlerts.length"
+          class="space-y-1.5"
+          aria-label="Что требует внимания"
+        >
+          <div
+            v-for="alert in staffAlerts"
+            :key="alert.id"
+            class="flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-xl border px-3 py-2 text-sm"
+            :class="alert.tone === 'warn'
+              ? 'border-amber-200 bg-amber-50 text-amber-900'
+              : 'border-blue-200 bg-blue-50 text-blue-900'"
+            role="status"
+          >
+            <span class="min-w-0 flex-1">{{ alert.text }}</span>
+            <button
+              v-if="alert.actionLabel"
+              type="button"
+              class="shrink-0 rounded-lg px-2.5 py-1 text-sm font-semibold underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-1"
+              :class="alert.tone === 'warn'
+                ? 'text-amber-900 focus-visible:ring-amber-500'
+                : 'text-blue-800 focus-visible:ring-blue-500'"
+              @click="alert.run?.()"
+            >
+              {{ alert.actionLabel }}
+            </button>
+          </div>
+        </section>
+
         <div v-if="isStaffManager" class="sm:hidden">
           <label for="staff-manager-section" class="mb-1 block text-sm font-medium text-slate-700">
             Раздел
@@ -49,7 +78,7 @@
             class="min-h-[48px] w-full rounded-xl border border-slate-300 bg-white px-3 text-base text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
           >
             <option v-for="item in managerTabs" :key="item.id" :value="item.id">
-              {{ item.label }}
+              {{ item.label }}{{ tabBadges[item.id] ? ` (${tabBadges[item.id]})` : "" }}
             </option>
           </select>
         </div>
@@ -67,6 +96,13 @@
             @click="activeTab = item.id"
           >
             {{ item.label }}
+            <span
+              v-if="tabBadges[item.id]"
+              class="ml-1.5 inline-flex min-w-5 items-center justify-center rounded-full bg-amber-500 px-1.5 py-0.5 text-[11px] font-bold text-white"
+              :aria-label="`требует внимания: ${tabBadges[item.id]}`"
+            >
+              {{ tabBadges[item.id] }}
+            </span>
           </CrmButton>
         </nav>
 
@@ -259,31 +295,12 @@
               <CrmButton class="mt-4" variant="secondary" @click="loadCard">Повторить</CrmButton>
             </div>
             <template v-else-if="staffAnalytics">
-              <section class="grid grid-cols-2 gap-3 sm:grid-cols-4">
-                <article
-                  v-for="metric in headlineMetrics"
-                  :key="metric.label"
-                  class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
-                >
-                  <div class="text-xs font-medium text-slate-500">{{ metric.label }}</div>
-                  <div class="mt-2 text-xl font-bold text-slate-950">{{ metric.value }}</div>
-                </article>
-              </section>
-
-              <section class="grid gap-3 md:grid-cols-2">
-                <article
-                  v-for="group in metricGroups"
-                  :key="group.title"
-                  class="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
-                >
-                  <h3 class="text-sm font-semibold text-slate-950">{{ group.title }}</h3>
-                  <dl class="mt-3 grid grid-cols-2 gap-3">
-                    <div v-for="metric in group.metrics" :key="metric.label" class="min-w-0">
-                      <div class="text-xs font-medium text-slate-500">{{ metric.label }}</div>
-                      <div class="mt-1 truncate text-base font-bold text-slate-950">{{ metric.value }}</div>
-                    </div>
-                  </dl>
-                </article>
+              <section class="space-y-2">
+                <StaffMetricStrip :items="headlineMetrics" :columns="6" />
+                <StaffMetricStrip :items="secondaryMetrics" :columns="6" />
+                <p v-if="hasPreviousPeriod" class="text-xs text-slate-400">
+                  Проценты показывают изменение к предыдущему такому же периоду.
+                </p>
               </section>
 
               <section v-if="activityChartPoints.length" class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -331,6 +348,22 @@
                     <div v-else class="h-px w-full max-w-7 bg-slate-200" />
                     <span class="mt-1 text-[9px] text-slate-400">{{ point.shortLabel }}</span>
                   </div>
+                </div>
+              </section>
+
+              <section
+                class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"
+                data-testid="staff-shift-heatmap"
+              >
+                <div class="flex flex-wrap items-baseline justify-between gap-2">
+                  <h3 class="font-semibold text-slate-950">Когда работает</h3>
+                  <p class="text-xs text-slate-500">Часы смен по дням недели за выбранный период</p>
+                </div>
+                <div class="mt-4">
+                  <StaffShiftHeatmap
+                    :shifts="analyticsShifts"
+                    :color="safeColor(selectedEmployee?.color)"
+                  />
                 </div>
               </section>
 
@@ -460,6 +493,26 @@
               </select>
             </div>
             <div class="flex flex-wrap gap-2">
+              <div class="flex rounded-xl border border-slate-300 bg-white p-0.5" role="group" aria-label="Вид списка команды">
+                <button
+                  type="button"
+                  class="min-h-[40px] rounded-lg px-3 text-sm font-medium transition"
+                  :class="teamView === 'cards' ? 'bg-blue-50 text-blue-700' : 'text-slate-600 hover:bg-slate-50'"
+                  :aria-pressed="teamView === 'cards'"
+                  @click="teamView = 'cards'"
+                >
+                  Карточки
+                </button>
+                <button
+                  type="button"
+                  class="min-h-[40px] rounded-lg px-3 text-sm font-medium transition"
+                  :class="teamView === 'table' ? 'bg-blue-50 text-blue-700' : 'text-slate-600 hover:bg-slate-50'"
+                  :aria-pressed="teamView === 'table'"
+                  @click="teamView = 'table'"
+                >
+                  Таблица
+                </button>
+              </div>
               <CrmButton variant="secondary" @click="tasksManagerOpen = true">Задачи команды</CrmButton>
               <CrmButton variant="primary" @click="openEmployeeEditor()">Добавить сотрудника</CrmButton>
             </div>
@@ -572,8 +625,8 @@
                   <div class="truncate text-sm font-medium text-slate-700">{{ row.name }}</div>
                   <div class="h-3 overflow-hidden rounded-full bg-slate-100">
                     <div
-                      class="h-full rounded-full bg-blue-500 transition-all duration-300"
-                      :style="{ width: `${row.percent}%` }"
+                      class="h-full rounded-full transition-all duration-300"
+                      :style="{ width: `${row.percent}%`, backgroundColor: row.color }"
                     />
                   </div>
                   <div class="min-w-12 text-right text-sm font-bold text-slate-950">{{ row.label }}</div>
@@ -581,7 +634,120 @@
               </div>
             </section>
 
-            <div class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+            <section
+              v-if="teamView === 'table'"
+              class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm"
+              data-testid="staff-team-table"
+            >
+              <div class="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 px-4 py-2.5">
+                <p class="text-xs text-slate-500">
+                  Клик по заголовку колонки меняет сортировку
+                </p>
+                <CrmButton variant="secondary" size="sm" @click="exportTeamCsv">
+                  Выгрузить CSV
+                </CrmButton>
+              </div>
+              <div class="max-h-[70vh] overflow-auto">
+                <table class="w-full min-w-[860px] border-collapse text-sm">
+                  <thead class="sticky top-0 z-10 bg-slate-50 text-xs uppercase text-slate-500">
+                    <tr>
+                      <th
+                        scope="col"
+                        class="sticky left-0 z-20 bg-slate-50 px-3 py-2 text-left font-medium"
+                        :aria-sort="teamSortAria('name')"
+                      >
+                        <button
+                          type="button"
+                          class="min-h-[36px] font-medium uppercase hover:text-slate-900"
+                          @click="toggleTeamSort('name')"
+                        >
+                          Сотрудник {{ teamSortIndicator("name") }}
+                        </button>
+                      </th>
+                      <th
+                        v-for="column in teamColumns"
+                        :key="column.key"
+                        scope="col"
+                        class="whitespace-nowrap px-3 py-2 text-right font-medium"
+                        :aria-sort="teamSortAria(column.key)"
+                      >
+                        <button
+                          type="button"
+                          class="min-h-[36px] font-medium uppercase hover:text-slate-900"
+                          @click="toggleTeamSort(column.key)"
+                        >
+                          {{ column.label }} {{ teamSortIndicator(column.key) }}
+                        </button>
+                      </th>
+                      <th scope="col" class="px-3 py-2 text-right font-medium">Карточка</th>
+                    </tr>
+                  </thead>
+                  <tbody class="divide-y divide-slate-100">
+                    <tr
+                      v-for="row in teamTableRows"
+                      :key="row.employee.id"
+                      class="hover:bg-slate-50"
+                    >
+                      <th
+                        scope="row"
+                        class="sticky left-0 z-10 bg-white px-3 py-2 text-left font-normal"
+                      >
+                        <span class="flex min-w-0 items-center gap-2">
+                          <span
+                            class="h-2.5 w-2.5 shrink-0 rounded-full"
+                            :style="{ backgroundColor: safeColor(row.employee.color) }"
+                            aria-hidden="true"
+                          />
+                          <span class="min-w-0">
+                            <span class="block truncate font-semibold text-slate-900">
+                              {{ employeeDisplayName(row.employee) }}
+                            </span>
+                            <span class="block truncate text-xs text-slate-500">
+                              {{ row.employee.position || "Должность не указана" }}
+                              <template v-if="row.onShift"> · на смене</template>
+                              <template v-else-if="!employeeActive(row.employee)"> · уволен</template>
+                            </span>
+                          </span>
+                        </span>
+                      </th>
+                      <td
+                        v-for="cell in row.cells"
+                        :key="cell.key"
+                        class="whitespace-nowrap px-3 py-2 text-right tabular-nums text-slate-900"
+                      >
+                        {{ cell.text }}
+                      </td>
+                      <td class="whitespace-nowrap px-3 py-2 text-right">
+                        <button
+                          type="button"
+                          class="min-h-[36px] rounded-lg px-2 text-sm font-semibold text-blue-700 hover:bg-blue-50"
+                          @click="openEmployeeCard(row.employee)"
+                        >
+                          Открыть
+                        </button>
+                      </td>
+                    </tr>
+                  </tbody>
+                  <tfoot class="sticky bottom-0 bg-slate-50 font-semibold text-slate-900">
+                    <tr>
+                      <th scope="row" class="sticky left-0 z-10 bg-slate-50 px-3 py-2 text-left">
+                        Итого · {{ teamTableRows.length }}
+                      </th>
+                      <td
+                        v-for="total in teamTableTotals"
+                        :key="total.key"
+                        class="whitespace-nowrap px-3 py-2 text-right tabular-nums"
+                      >
+                        {{ total.text }}
+                      </td>
+                      <td />
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            </section>
+
+            <div v-else class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
             <div class="divide-y divide-slate-200">
               <article
                 v-for="employee in teamEmployees"
@@ -617,6 +783,13 @@
                       <span class="rounded-full bg-rose-50 px-2.5 py-1 text-xs font-semibold text-rose-700">
                         Минусы {{ Number(teamSummary(employee).mark_counts?.negative || 0) }}
                       </span>
+                    </div>
+                    <div class="mt-2 h-7 w-full max-w-[190px]">
+                      <StaffSparkline
+                        :values="teamSparkline(employee)"
+                        :color="safeColor(employee.color)"
+                        :label="`Динамика по ${teamSparklineLabel}: ${employeeDisplayName(employee)}`"
+                      />
                     </div>
                   </div>
                 </div>
@@ -1970,7 +2143,12 @@ import { LockClosedIcon } from "@heroicons/vue/24/outline";
 import AdminModal from "@/components/AdminModal.vue";
 import CrmButton from "@/components/admin/crm/CrmButton.vue";
 import StaffAccessModal from "@/components/admin/staff/StaffAccessModal.vue";
+import StaffMetricStrip, {
+  type StripMetric,
+} from "@/components/admin/staff/StaffMetricStrip.vue";
 import StaffShiftBar from "@/components/admin/staff/StaffShiftBar.vue";
+import StaffShiftHeatmap from "@/components/admin/staff/StaffShiftHeatmap.vue";
+import StaffSparkline from "@/components/admin/staff/StaffSparkline.vue";
 import StaffTasksModal from "@/components/admin/staff/StaffTasksModal.vue";
 import {
   useCrmStore,
@@ -1989,6 +2167,8 @@ import {
   formatBusinessDateTimeInput,
   getBusinessDateParts,
   getBusinessMonthValue,
+  shiftBusinessDate,
+  shiftBusinessMonth,
 } from "@/utils/businessTime";
 
 type ManagerTab =
@@ -2013,11 +2193,13 @@ const {
   staffEmployeesLoading,
   staffEmployeesError,
   staffAnalytics,
+  staffAnalyticsPrevious,
   staffAnalyticsLoading,
   staffAnalyticsError,
   staffTeamAnalytics,
   staffTeamAnalyticsLoading,
   staffTeamAnalyticsError,
+  staffTasks,
   staffSalaries,
   staffSalariesLoading,
   staffSalariesError,
@@ -2294,77 +2476,68 @@ const teamAnalyticsByEmployee = computed(
 const analyticsSummary = computed<Record<string, any>>(
   () => ((staffAnalytics.value as any)?.summary || staffAnalytics.value || {}),
 );
-type MetricItem = { label: string; value: string | number };
-const headlineMetrics = computed<MetricItem[]>(() => [
-  { label: "Отработано", value: formatMinutes(Number(analyticsSummary.value.worked_minutes || 0)) },
-  { label: "Смен", value: Number(analyticsSummary.value.shifts_count || 0) },
-  { label: "Задач", value: Number(analyticsSummary.value.tasks_completed || 0) },
-  { label: "Выдано", value: Number(analyticsSummary.value.orders_issued || 0) },
+const previousSummary = computed<Record<string, any>>(
+  () =>
+    ((staffAnalyticsPrevious.value as any)?.summary ||
+      staffAnalyticsPrevious.value ||
+      {}) as Record<string, any>,
+);
+const hasPreviousPeriod = computed(() => Boolean(staffAnalyticsPrevious.value));
+const analyticsShifts = computed<StaffShift[]>(
+  () => (staffAnalytics.value?.shifts || []) as StaffShift[],
+);
+
+function pickNumber(source: Record<string, any>, path: string) {
+  const value = path
+    .split(".")
+    .reduce<any>((current, key) => (current == null ? undefined : current[key]), source);
+  return Number(value || 0);
+}
+
+/** Метрика для компактной строки: значение за период плюс сравнение с прошлым. */
+function stripMetric(
+  label: string,
+  path: string,
+  options: {
+    format?: (value: number) => string;
+    lowerIsBetter?: boolean;
+    compare?: boolean;
+  } = {},
+): StripMetric {
+  const { format, lowerIsBetter, compare = true } = options;
+  const raw = pickNumber(analyticsSummary.value, path);
+  return {
+    label,
+    value: format ? format(raw) : raw,
+    raw,
+    previous:
+      compare && hasPreviousPeriod.value
+        ? pickNumber(previousSummary.value, path)
+        : undefined,
+    lowerIsBetter,
+  };
+}
+
+const headlineMetrics = computed<StripMetric[]>(() => [
+  stripMetric("Отработано", "worked_minutes", { format: formatMinutes }),
+  stripMetric("Смен", "shifts_count"),
+  stripMetric("Задач", "tasks_completed"),
+  stripMetric("Собрано", "orders_assembled"),
+  stripMetric("Выдано", "orders_issued"),
+  stripMetric("Выручка", "orders_amount", { format: formatMoney }),
 ]);
-const metricGroups = computed<Array<{
-  title: string;
-  metrics: MetricItem[];
-}>>(() => [
+const secondaryMetrics = computed<StripMetric[]>(() => [
+  stripMetric("Прибыль", "issued_profit", { format: formatMoney }),
+  stripMetric("Плюсы", "mark_counts.positive"),
+  stripMetric("Минусы", "mark_counts.negative", { lowerIsBetter: true }),
+  stripMetric("Поставки приняты", "procurements_completed"),
+  stripMetric("Перемещения приняты", "transfers_completed"),
   {
-    title: "Заказы",
-    metrics: [
-      { label: "Собрано", value: Number(analyticsSummary.value.orders_assembled || 0) },
-      { label: "Выдано", value: Number(analyticsSummary.value.orders_issued || 0) },
-      {
-        label: "Выручка",
-        value: formatMoney(Number(analyticsSummary.value.orders_amount || 0)),
-      },
-      {
-        label: "Прибыль",
-        value: formatMoney(Number(analyticsSummary.value.issued_profit || 0)),
-      },
-    ],
-  },
-  {
-    title: "Склад",
-    metrics: [
-      {
-        label: "Создано поставок",
-        value: Number(analyticsSummary.value.procurements_created || 0),
-      },
-      {
-        label: "Принято поставок",
-        value: Number(analyticsSummary.value.procurements_completed || 0),
-      },
-      {
-        label: "Создано перемещений",
-        value: Number(analyticsSummary.value.transfers_created || 0),
-      },
-      {
-        label: "Принято перемещений",
-        value: Number(analyticsSummary.value.transfers_completed || 0),
-      },
-    ],
-  },
-  {
-    title: "Отметки",
-    metrics: [
-      {
-        label: "Положительные",
-        value: Number(analyticsSummary.value.mark_counts?.positive || 0),
-      },
-      {
-        label: "Отрицательные",
-        value: Number(analyticsSummary.value.mark_counts?.negative || 0),
-      },
-    ],
-  },
-  {
-    title: "Ожидаемая зарплата",
-    metrics: [
-      {
-        label: "За месяц",
-        value:
-          analyticsSummary.value.estimated_salary == null
-            ? "Не указана"
-            : formatMoney(Number(analyticsSummary.value.estimated_salary)),
-      },
-    ],
+    label: "Ожидаемая зарплата",
+    value:
+      analyticsSummary.value.estimated_salary == null
+        ? "Не указана"
+        : formatMoney(Number(analyticsSummary.value.estimated_salary)),
   },
 ]);
 type ActivityDay = {
@@ -2538,7 +2711,7 @@ const salaryExpectedTotal = computed(() =>
     0,
   ),
 );
-const teamHeadlineMetrics = computed<MetricItem[]>(() => {
+const teamHeadlineMetrics = computed<StripMetric[]>(() => {
   const summaries = teamEmployees.value.map(teamSummary);
   return [
     {
@@ -2591,6 +2764,7 @@ const teamComparisonRows = computed(() => {
     return {
       id: employee.id,
       name: `${employee.first_name} ${employee.last_name}`.trim(),
+      color: safeColor(employee.color),
       value,
     };
   }).sort((left, right) => right.value - left.value);
@@ -2604,6 +2778,189 @@ const teamComparisonRows = computed(() => {
         : String(row.value),
   }));
 });
+/** Ряд для спарклайна в строке сотрудника, по тому же показателю, что и сравнение команды. */
+function teamSparkline(employee: Employee) {
+  const [start, end] = activityDateBounds();
+  if (!start || !end) return [];
+  const source = new Map(
+    (teamSummary(employee).daily_activity || []).map((day) => [
+      String(day.date || "").slice(0, 10),
+      day,
+    ]),
+  );
+  const values: number[] = [];
+  const cursor = new Date(`${start}T12:00:00Z`);
+  const limit = new Date(`${end}T12:00:00Z`);
+  while (cursor <= limit && values.length < 367) {
+    const day = source.get(cursor.toISOString().slice(0, 10));
+    if (teamChartMetric.value === "hours") {
+      values.push(Number(day?.worked_minutes || 0) / 60);
+    } else if (teamChartMetric.value === "issued") {
+      values.push(Number(day?.events?.order_issued || 0));
+    } else {
+      values.push(Number(day?.events?.task_approved || 0));
+    }
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+  }
+  return values;
+}
+const teamSparklineLabel = computed(() => {
+  if (teamChartMetric.value === "hours") return "часам работы";
+  if (teamChartMetric.value === "issued") return "выданным заказам";
+  return "завершённым задачам";
+});
+type TeamColumnKey =
+  | "hours"
+  | "shifts"
+  | "tasks"
+  | "assembled"
+  | "issued"
+  | "revenue"
+  | "profit"
+  | "positive"
+  | "negative";
+
+const teamColumns: Array<{
+  key: TeamColumnKey;
+  label: string;
+  value: (summary: StaffAnalytics) => number;
+  format: (value: number) => string;
+}> = [
+  {
+    key: "hours",
+    label: "Часы",
+    value: (summary) => Number(summary.worked_minutes || 0),
+    format: (value) => formatMinutes(value),
+  },
+  { key: "shifts", label: "Смен", value: (s) => Number(s.shifts_count || 0), format: String },
+  { key: "tasks", label: "Задач", value: (s) => Number(s.tasks_completed || 0), format: String },
+  { key: "assembled", label: "Собрано", value: (s) => Number(s.orders_assembled || 0), format: String },
+  { key: "issued", label: "Выдано", value: (s) => Number(s.orders_issued || 0), format: String },
+  {
+    key: "revenue",
+    label: "Выручка",
+    value: (s) => Number(s.orders_amount || 0),
+    format: (value) => formatMoney(value),
+  },
+  {
+    key: "profit",
+    label: "Прибыль",
+    value: (s) => Number(s.issued_profit || 0),
+    format: (value) => formatMoney(value),
+  },
+  { key: "positive", label: "Плюсы", value: (s) => Number(s.mark_counts?.positive || 0), format: String },
+  { key: "negative", label: "Минусы", value: (s) => Number(s.mark_counts?.negative || 0), format: String },
+];
+
+const teamView = ref<"cards" | "table">("cards");
+const teamTableSort = ref<{ key: TeamColumnKey | "name"; desc: boolean }>({
+  key: "hours",
+  desc: true,
+});
+
+const teamTableRows = computed(() => {
+  const rows = teamEmployees.value.map((employee) => {
+    const summary = teamSummary(employee);
+    return {
+      employee,
+      onShift: employeeShiftOpen(employee),
+      cells: teamColumns.map((column) => ({
+        key: column.key,
+        raw: column.value(summary),
+        text: column.format(column.value(summary)),
+      })),
+    };
+  });
+  const { key, desc } = teamTableSort.value;
+  return rows.sort((left, right) => {
+    if (key === "name") {
+      const compare = employeeDisplayName(left.employee).localeCompare(
+        employeeDisplayName(right.employee),
+        "ru",
+      );
+      return desc ? -compare : compare;
+    }
+    const leftValue = left.cells.find((cell) => cell.key === key)?.raw || 0;
+    const rightValue = right.cells.find((cell) => cell.key === key)?.raw || 0;
+    if (leftValue !== rightValue) return desc ? rightValue - leftValue : leftValue - rightValue;
+    return employeeDisplayName(left.employee).localeCompare(
+      employeeDisplayName(right.employee),
+      "ru",
+    );
+  });
+});
+
+const teamTableTotals = computed(() =>
+  teamColumns.map((column) => {
+    const total = teamTableRows.value.reduce(
+      (sum, row) => sum + (row.cells.find((cell) => cell.key === column.key)?.raw || 0),
+      0,
+    );
+    return { key: column.key, text: column.format(total) };
+  }),
+);
+
+function toggleTeamSort(key: TeamColumnKey | "name") {
+  if (teamTableSort.value.key === key) {
+    teamTableSort.value = { key, desc: !teamTableSort.value.desc };
+    return;
+  }
+  teamTableSort.value = { key, desc: key !== "name" };
+}
+
+function teamSortIndicator(key: TeamColumnKey | "name") {
+  if (teamTableSort.value.key !== key) return "";
+  return teamTableSort.value.desc ? "↓" : "↑";
+}
+
+function teamSortAria(key: TeamColumnKey | "name"): "ascending" | "descending" | "none" {
+  if (teamTableSort.value.key !== key) return "none";
+  return teamTableSort.value.desc ? "descending" : "ascending";
+}
+
+function exportTeamCsv() {
+  const header = ["Сотрудник", "Должность", "Статус", ...teamColumns.map((column) => column.label)];
+  const lines = teamTableRows.value.map((row) => [
+    employeeDisplayName(row.employee),
+    row.employee.position || "",
+    employeeActive(row.employee) ? "Работает" : "Уволен",
+    ...row.cells.map((cell) => String(cell.raw).replace(".", ",")),
+  ]);
+  const totals = [
+    "Итого",
+    "",
+    "",
+    ...teamColumns.map((column) =>
+      String(
+        teamTableRows.value.reduce(
+          (sum, row) => sum + (row.cells.find((cell) => cell.key === column.key)?.raw || 0),
+          0,
+        ),
+      ).replace(".", ","),
+    ),
+  ];
+  const csv = [header, ...lines, totals]
+    .map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(";"))
+    .join("\r\n");
+  // BOM, иначе Excel открывает кириллицу кракозябрами.
+  const blob = new Blob([`﻿${csv}`], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `komanda-${periodFileLabel()}.csv`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+function periodFileLabel() {
+  if (selectedPeriod.value === "day") return selectedDay.value;
+  if (selectedPeriod.value === "month") return selectedMonth.value;
+  if (selectedPeriod.value === "year") return selectedYear.value;
+  return `${customPeriodFrom.value}_${customPeriodTo.value}`;
+}
+
 const teamChartAriaLabel = computed(
   () =>
     `Сравнение команды: ${teamComparisonRows.value
@@ -2629,6 +2986,110 @@ const orderRestrictionReady = computed(
     activeStaffCount.value > 0 &&
     pinReadyStaffCount.value === activeStaffCount.value,
 );
+const LONG_SHIFT_HOURS = 10;
+
+const overdueTasks = computed(() => {
+  const now = Date.now();
+  return staffTasks.value.filter((task) => {
+    if (!["open", "claimed", "submitted"].includes(String(task.status || ""))) return false;
+    const due = task.due_at ? new Date(task.due_at).getTime() : Number.NaN;
+    return Number.isFinite(due) && due < now;
+  });
+});
+
+const longRunningShift = computed(() => {
+  const shift = currentStaffShift.value;
+  if (
+    !shift ||
+    !["active", "open"].includes(String(shift.status || "")) ||
+    shift.ended_at ||
+    shift.closed_at
+  ) {
+    return null;
+  }
+  const started = new Date(String(shift.started_at || shift.opened_at || "")).getTime();
+  if (!Number.isFinite(started)) return null;
+  const hours = (Date.now() - started) / 3_600_000;
+  if (hours < LONG_SHIFT_HOURS) return null;
+  return { shift, hours: Math.floor(hours) };
+});
+
+const salariesMissingCount = computed(() => {
+  if (!isStaffManager.value || !staffSalaries.value.length) return 0;
+  return staffSalaries.value.filter(
+    (salary) => salary.amount == null || Number(salary.amount) === 0,
+  ).length;
+});
+
+type StaffAlert = {
+  id: string;
+  text: string;
+  tone: "warn" | "info";
+  actionLabel?: string;
+  run?: () => void;
+};
+
+/**
+ * Подсказки собираются из уже загруженных данных: отдельных запросов ради них не делаем,
+ * поэтому строка про зарплаты появляется только когда вкладка зарплат уже открывалась.
+ */
+const staffAlerts = computed<StaffAlert[]>(() => {
+  const alerts: StaffAlert[] = [];
+  const long = longRunningShift.value;
+  if (long) {
+    const name =
+      long.shift.employee_name ||
+      [long.shift.employee?.first_name, long.shift.employee?.last_name]
+        .filter(Boolean)
+        .join(" ") ||
+      "Сотрудник";
+    alerts.push({
+      id: "long-shift",
+      tone: "warn",
+      text: `Смена идёт ${long.hours} ч подряд: ${name}. Проверьте, не забыли ли её закрыть.`,
+      actionLabel: isStaffManager.value ? "Открыть смены" : undefined,
+      run: isStaffManager.value ? () => { activeTab.value = "shifts"; } : undefined,
+    });
+  }
+  if (overdueTasks.value.length) {
+    alerts.push({
+      id: "overdue-tasks",
+      tone: "warn",
+      text: `Просрочены задачи: ${overdueTasks.value.length}. Срок прошёл, а работа не сдана.`,
+      actionLabel: "Показать задачи",
+      run: () => { tasksManagerOpen.value = true; },
+    });
+  }
+  if (isStaffManager.value && staffWithoutPin.value.length) {
+    alerts.push({
+      id: "missing-pin",
+      tone: "info",
+      text:
+        staffWithoutPin.value.length === 1
+          ? `У ${employeeDisplayName(staffWithoutPin.value[0])} нет ПИН, войти в карточку не получится.`
+          : `У ${staffWithoutPin.value.length} сотрудников нет ПИН, войти в карточку они не смогут.`,
+      actionLabel: "Открыть команду",
+      run: () => { activeTab.value = "team"; },
+    });
+  }
+  if (salariesMissingCount.value) {
+    alerts.push({
+      id: "missing-salaries",
+      tone: "info",
+      text: `Зарплата не проставлена: ${salariesMissingCount.value} чел. за ${formatMonthLabel(selectedMonth.value)}.`,
+      actionLabel: "Открыть зарплаты",
+      run: () => { activeTab.value = "salaries"; },
+    });
+  }
+  return alerts;
+});
+
+const tabBadges = computed<Partial<Record<ManagerTab, number>>>(() => ({
+  team: staffWithoutPin.value.length,
+  salaries: salariesMissingCount.value,
+  shifts: longRunningShift.value ? 1 : 0,
+}));
+
 const currentShiftReadinessLabel = computed(() => {
   const shift = currentStaffShift.value;
   if (
@@ -2651,7 +3112,7 @@ type ShiftCalendarCell = {
   active: boolean;
   corrected: boolean;
 };
-const shiftOverviewMetrics = computed<MetricItem[]>(() => {
+const shiftOverviewMetrics = computed<StripMetric[]>(() => {
   const minutes = staffShiftHistory.value.reduce(
     (sum, shift) => sum + shiftDurationMinutes(shift),
     0,
@@ -3267,6 +3728,59 @@ function analyticsPeriodParams() {
   };
 }
 
+/** Тот же по длине период, стоящий прямо перед выбранным. Для дельт рядом с метриками. */
+function previousPeriodParams() {
+  if (periodError.value) return null;
+  if (selectedPeriod.value === "day") {
+    const parts = parseDateInput(selectedDay.value);
+    if (!parts) return null;
+    return { period: "day" as const, date: formatDateInput(shiftBusinessDate(parts, -1)) };
+  }
+  if (selectedPeriod.value === "month") {
+    const match = /^(\d{4})-(\d{2})$/.exec(selectedMonth.value);
+    if (!match) return null;
+    const previous = shiftBusinessMonth(Number(match[1]), Number(match[2]), -1);
+    return {
+      period: "month" as const,
+      month: `${previous.year}-${String(previous.month).padStart(2, "0")}`,
+    };
+  }
+  if (selectedPeriod.value === "year") {
+    const year = Number(selectedYear.value);
+    if (!Number.isFinite(year) || year - 1 < 2000) return null;
+    return { period: "year" as const, year: String(year - 1) };
+  }
+  const from = parseDateInput(customPeriodFrom.value);
+  const to = parseDateInput(customPeriodTo.value);
+  if (!from || !to) return null;
+  const days =
+    Math.floor(
+      (Date.UTC(to.year, to.month - 1, to.day) -
+        Date.UTC(from.year, from.month - 1, from.day)) /
+        86_400_000,
+    ) + 1;
+  if (days < 1) return null;
+  return {
+    period: "custom" as const,
+    from: formatDateInput(shiftBusinessDate(from, -days)),
+    to: formatDateInput(shiftBusinessDate(from, -1)),
+  };
+}
+
+function parseDateInput(value: string) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value || "").trim());
+  if (!match) return null;
+  return { year: Number(match[1]), month: Number(match[2]), day: Number(match[3]) };
+}
+
+function formatDateInput(parts: { year: number; month: number; day: number }) {
+  return [
+    String(parts.year).padStart(4, "0"),
+    String(parts.month).padStart(2, "0"),
+    String(parts.day).padStart(2, "0"),
+  ].join("-");
+}
+
 async function loadCard() {
   const employeeId = isStaffManager.value
     ? selectedEmployeeId.value
@@ -3281,6 +3795,12 @@ async function loadCard() {
     ...period,
     employeeId,
   }).catch(() => null);
+  const previous = previousPeriodParams();
+  if (previous) {
+    void crmStore.fetchStaffAnalyticsPrevious({ ...previous, employeeId });
+  } else {
+    staffAnalyticsPrevious.value = null;
+  }
   if (!analytics) return;
   if (selectedPeriod.value === "month") {
     await crmStore.fetchStaffMarks({
