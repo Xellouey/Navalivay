@@ -80,7 +80,9 @@
       </button>
     </div>
 
-    <div v-else-if="view === 'details' && activeTransfer" class="space-y-4">
+    <!-- Тянемся во всю высоту тела модалки, но не выше: прокручивается только
+         список позиций, а не вся карточка целиком. -->
+    <div v-else-if="view === 'details' && activeTransfer" class="flex max-h-full min-h-0 flex-col gap-4">
       <button type="button" class="inline-flex w-fit items-center gap-2 rounded-lg px-1 py-1 text-sm font-semibold text-gray-600 transition hover:text-brand-dark focus:outline-none focus:ring-2 focus:ring-rose-200" @click="backToList">
         <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
@@ -108,11 +110,11 @@
         </div>
       </div>
 
-      <div class="overflow-hidden rounded-2xl border border-gray-200">
-        <div class="border-b border-gray-200 bg-white px-4 py-3 text-sm font-semibold text-gray-900">
+      <div class="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-gray-200">
+        <div class="flex-none border-b border-gray-200 bg-white px-4 py-3 text-sm font-semibold text-gray-900">
           {{ positionsLabel(activeTransfer.items?.length || 0) }} · {{ Number(activeTransfer.total_quantity || 0) }} шт
         </div>
-        <div class="transfer-scroll divide-y divide-gray-100 sm:max-h-[42vh] sm:overflow-y-auto">
+        <div class="transfer-scroll min-h-0 flex-1 divide-y divide-gray-100 overflow-y-auto">
           <div v-for="item in activeTransfer.items" :key="item.id" class="flex items-center justify-between gap-4 px-4 py-3 text-sm">
             <div class="flex min-w-0 items-center gap-3">
               <img
