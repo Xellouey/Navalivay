@@ -36,6 +36,8 @@ export type StripMetric = {
   previous?: number;
   /** Рост показателя это плохо (например, отрицательные отметки). */
   lowerIsBetter?: boolean;
+  /** Чем форматировать значение за прошлый период в подсказке. */
+  format?: (value: number) => string;
 };
 
 const props = withDefaults(
@@ -82,11 +84,12 @@ function deltaOf(item: StripMetric) {
   return {
     text: `${rounded > 0 ? "+" : ""}${rounded}%`,
     className: better ? "text-emerald-600" : "text-rose-600",
-    title: `За прошлый период: ${formatPrevious(previous)}`,
+    title: `За прошлый период: ${formatPrevious(item, previous)}`,
   };
 }
 
-function formatPrevious(value: number) {
+function formatPrevious(item: StripMetric, value: number) {
+  if (item.format) return item.format(value);
   return new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 1 }).format(value);
 }
 </script>

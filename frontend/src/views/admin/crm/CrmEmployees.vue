@@ -78,7 +78,7 @@
             class="min-h-[48px] w-full rounded-xl border border-slate-300 bg-white px-3 text-base text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
           >
             <option v-for="item in managerTabs" :key="item.id" :value="item.id">
-              {{ item.label }}{{ tabBadges[item.id] ? ` (${tabBadges[item.id]})` : "" }}
+              {{ item.label }}{{ tabBadges[item.id] ? ` · ${tabBadges[item.id]!.label}` : "" }}
             </option>
           </select>
         </div>
@@ -96,13 +96,21 @@
             @click="activeTab = item.id"
           >
             {{ item.label }}
-            <span
-              v-if="tabBadges[item.id]"
-              class="ml-1.5 inline-flex min-w-5 items-center justify-center rounded-full bg-amber-500 px-1.5 py-0.5 text-[11px] font-bold text-white"
-              :aria-label="`требует внимания: ${tabBadges[item.id]}`"
-            >
-              {{ tabBadges[item.id] }}
-            </span>
+            <template v-if="tabBadges[item.id]">
+              <span
+                v-if="'dot' in tabBadges[item.id]!"
+                class="ml-1.5 inline-block h-2 w-2 rounded-full bg-amber-500 align-middle"
+                :title="tabBadges[item.id]!.label"
+              />
+              <span
+                v-else
+                class="ml-1.5 inline-flex min-w-5 items-center justify-center rounded-full bg-amber-500 px-1.5 py-0.5 text-[11px] font-bold text-white"
+                :title="tabBadges[item.id]!.label"
+              >
+                {{ (tabBadges[item.id] as { count: number }).count }}
+              </span>
+              <span class="sr-only">{{ tabBadges[item.id]!.label }}</span>
+            </template>
           </CrmButton>
         </nav>
 
@@ -641,7 +649,7 @@
             >
               <div class="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 px-4 py-2.5">
                 <p class="text-xs text-slate-500">
-                  Клик по заголовку колонки меняет сортировку
+                  Нажмите на заголовок колонки, чтобы отсортировать
                 </p>
                 <CrmButton variant="secondary" size="sm" @click="exportTeamCsv">
                   Выгрузить CSV
@@ -2515,6 +2523,7 @@ function stripMetric(
         ? pickNumber(previousSummary.value, path)
         : undefined,
     lowerIsBetter,
+    format,
   };
 }
 
@@ -2778,31 +2787,50 @@ const teamComparisonRows = computed(() => {
         : String(row.value),
   }));
 });
-/** Ряд для спарклайна в строке сотрудника, по тому же показателю, что и сравнение команды. */
-function teamSparkline(employee: Employee) {
+/**
+ * Ряды для спарклайнов в строках команды, по тому же показателю, что и сравнение.
+ * Считаем один раз на всех: в шаблоне это вызывается внутри v-for, и обычная
+ * функция пересобирала бы Map из daily_activity на каждый ререндер списка.
+ */
+const teamSparklines = computed(() => {
+  const result = new Map<string, number[]>();
   const [start, end] = activityDateBounds();
-  if (!start || !end) return [];
-  const source = new Map(
-    (teamSummary(employee).daily_activity || []).map((day) => [
-      String(day.date || "").slice(0, 10),
-      day,
-    ]),
-  );
-  const values: number[] = [];
+  if (!start || !end) return result;
+  const dates: string[] = [];
   const cursor = new Date(`${start}T12:00:00Z`);
   const limit = new Date(`${end}T12:00:00Z`);
-  while (cursor <= limit && values.length < 367) {
-    const day = source.get(cursor.toISOString().slice(0, 10));
-    if (teamChartMetric.value === "hours") {
-      values.push(Number(day?.worked_minutes || 0) / 60);
-    } else if (teamChartMetric.value === "issued") {
-      values.push(Number(day?.events?.order_issued || 0));
-    } else {
-      values.push(Number(day?.events?.task_approved || 0));
-    }
+  while (cursor <= limit && dates.length < 367) {
+    dates.push(cursor.toISOString().slice(0, 10));
     cursor.setUTCDate(cursor.getUTCDate() + 1);
   }
-  return values;
+  for (const analytics of staffTeamAnalytics.value) {
+    const employeeId = analytics.employee?.id;
+    if (!employeeId) continue;
+    const source = new Map(
+      (analytics.daily_activity || []).map((day) => [
+        String(day.date || "").slice(0, 10),
+        day,
+      ]),
+    );
+    result.set(
+      employeeId,
+      dates.map((date) => {
+        const day = source.get(date);
+        if (teamChartMetric.value === "hours") {
+          return Number(day?.worked_minutes || 0) / 60;
+        }
+        if (teamChartMetric.value === "issued") {
+          return Number(day?.events?.order_issued || 0);
+        }
+        return Number(day?.events?.task_approved || 0);
+      }),
+    );
+  }
+  return result;
+});
+
+function teamSparkline(employee: Employee) {
+  return teamSparklines.value.get(employee.id) || [];
 }
 const teamSparklineLabel = computed(() => {
   if (teamChartMetric.value === "hours") return "часам работы";
@@ -2825,12 +2853,15 @@ const teamColumns: Array<{
   label: string;
   value: (summary: StaffAnalytics) => number;
   format: (value: number) => string;
+  /** Значение для CSV, если сырое число в других единицах, чем заголовок колонки. */
+  csv?: (value: number) => number;
 }> = [
   {
     key: "hours",
     label: "Часы",
     value: (summary) => Number(summary.worked_minutes || 0),
     format: (value) => formatMinutes(value),
+    csv: (value) => Math.round((value / 60) * 100) / 100,
   },
   { key: "shifts", label: "Смен", value: (s) => Number(s.shifts_count || 0), format: String },
   { key: "tasks", label: "Задач", value: (s) => Number(s.tasks_completed || 0), format: String },
@@ -2918,25 +2949,33 @@ function teamSortAria(key: TeamColumnKey | "name"): "ascending" | "descending" |
   return teamTableSort.value.desc ? "descending" : "ascending";
 }
 
+function csvNumber(column: (typeof teamColumns)[number], raw: number) {
+  const value = column.csv ? column.csv(raw) : raw;
+  return String(value).replace(".", ",");
+}
+
 function exportTeamCsv() {
   const header = ["Сотрудник", "Должность", "Статус", ...teamColumns.map((column) => column.label)];
   const lines = teamTableRows.value.map((row) => [
     employeeDisplayName(row.employee),
     row.employee.position || "",
     employeeActive(row.employee) ? "Работает" : "Уволен",
-    ...row.cells.map((cell) => String(cell.raw).replace(".", ",")),
+    ...teamColumns.map((column) =>
+      csvNumber(column, row.cells.find((cell) => cell.key === column.key)?.raw || 0),
+    ),
   ]);
   const totals = [
     "Итого",
     "",
     "",
     ...teamColumns.map((column) =>
-      String(
+      csvNumber(
+        column,
         teamTableRows.value.reduce(
           (sum, row) => sum + (row.cells.find((cell) => cell.key === column.key)?.raw || 0),
           0,
         ),
-      ).replace(".", ","),
+      ),
     ),
   ];
   const csv = [header, ...lines, totals]
@@ -3055,7 +3094,7 @@ const staffAlerts = computed<StaffAlert[]>(() => {
     alerts.push({
       id: "overdue-tasks",
       tone: "warn",
-      text: `Просрочены задачи: ${overdueTasks.value.length}. Срок прошёл, а работа не сдана.`,
+      text: `Просрочено задач: ${overdueTasks.value.length}.`,
       actionLabel: "Показать задачи",
       run: () => { tasksManagerOpen.value = true; },
     });
@@ -3076,7 +3115,7 @@ const staffAlerts = computed<StaffAlert[]>(() => {
     alerts.push({
       id: "missing-salaries",
       tone: "info",
-      text: `Зарплата не проставлена: ${salariesMissingCount.value} чел. за ${formatMonthLabel(selectedMonth.value)}.`,
+      text: `Зарплата не проставлена ${salariesMissingCount.value} ${pluralEmployees(salariesMissingCount.value)} за ${formatMonthLabel(selectedMonth.value)}.`,
       actionLabel: "Открыть зарплаты",
       run: () => { activeTab.value = "salaries"; },
     });
@@ -3084,11 +3123,42 @@ const staffAlerts = computed<StaffAlert[]>(() => {
   return alerts;
 });
 
-const tabBadges = computed<Partial<Record<ManagerTab, number>>>(() => ({
-  team: staffWithoutPin.value.length,
-  salaries: salariesMissingCount.value,
-  shifts: longRunningShift.value ? 1 : 0,
-}));
+function pluralEmployees(count: number) {
+  const tail = Math.abs(count) % 100;
+  const last = tail % 10;
+  if (tail > 10 && tail < 20) return "сотрудникам";
+  if (last === 1) return "сотруднику";
+  return "сотрудникам";
+}
+
+/**
+ * Значок на вкладке. Для смен это флаг «есть проблема», а не количество,
+ * поэтому цифру там не показываем: «1» читалась бы как «одна смена».
+ */
+type TabBadge = { dot: true; label: string } | { count: number; label: string };
+
+const tabBadges = computed<Partial<Record<ManagerTab, TabBadge>>>(() => {
+  const badges: Partial<Record<ManagerTab, TabBadge>> = {};
+  if (staffWithoutPin.value.length) {
+    badges.team = {
+      count: staffWithoutPin.value.length,
+      label: `Сотрудников без ПИН: ${staffWithoutPin.value.length}`,
+    };
+  }
+  if (salariesMissingCount.value) {
+    badges.salaries = {
+      count: salariesMissingCount.value,
+      label: `Зарплата не проставлена ${salariesMissingCount.value} ${pluralEmployees(salariesMissingCount.value)}`,
+    };
+  }
+  if (longRunningShift.value) {
+    badges.shifts = {
+      dot: true,
+      label: `Смена идёт ${longRunningShift.value.hours} ч подряд`,
+    };
+  }
+  return badges;
+});
 
 const currentShiftReadinessLabel = computed(() => {
   const shift = currentStaffShift.value;
