@@ -23,6 +23,8 @@ export interface Employee {
   color?: string | null;
   avatar_url?: string | null;
   pin_configured?: boolean;
+  telegram_id?: string | null;
+  telegram_username?: string | null;
 }
 
 export interface StaffIdentity {
@@ -2318,6 +2320,19 @@ export const useCrmStore = defineStore("crm", () => {
     );
     const employee = "employee" in response ? response.employee : response;
     staffEmployees.value = [employee, ...staffEmployees.value];
+    return employee;
+  }
+
+  /** Пустой юзернейм снимает привязку Telegram. */
+  async function linkStaffEmployeeTelegram(id: string, username: string) {
+    const response = await staffFetchAPI<{ employee: Employee }>(
+      `${API_BASE}/staff/employees/${encodeURIComponent(id)}/telegram`,
+      { method: "PUT", body: JSON.stringify({ username }) },
+    );
+    const employee = response.employee;
+    staffEmployees.value = staffEmployees.value.map((item) =>
+      item.id === employee.id ? employee : item,
+    );
     return employee;
   }
 
@@ -4986,6 +5001,7 @@ export const useCrmStore = defineStore("crm", () => {
     fetchStaffEmployees,
     createStaffEmployee,
     updateStaffEmployee,
+    linkStaffEmployeeTelegram,
     deactivateStaffEmployee,
     restoreStaffEmployee,
     resetStaffEmployeePin,

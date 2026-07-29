@@ -356,7 +356,12 @@
                     <div class="flex w-full max-w-7 min-h-0 flex-1 items-end">
                       <div
                         v-if="point.value > 0"
-                        class="w-full rounded-t bg-blue-500 transition-all duration-300 group-hover:bg-blue-700"
+                        class="w-full rounded-t transition-all duration-300"
+                        :class="activityMetric === 'marks_negative'
+                          ? 'bg-rose-500 group-hover:bg-rose-700'
+                          : activityMetric === 'marks_positive'
+                            ? 'bg-emerald-500 group-hover:bg-emerald-700'
+                            : 'bg-blue-500 group-hover:bg-blue-700'"
                         :style="{ height: `${activityHeight(point.value)}%` }"
                       />
                       <div v-else class="h-px w-full bg-slate-200" />
@@ -429,7 +434,16 @@
                     <div class="min-w-0 flex-1">
                       <div class="flex flex-wrap items-center gap-2">
                         <h4 class="font-medium text-slate-900">{{ item.title }}</h4>
-                        <span v-if="item.manual" class="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold uppercase text-slate-500">
+                        <span
+                          v-if="item.type === 'mark'"
+                          class="rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase"
+                          :class="item.kind === 'negative'
+                            ? 'bg-rose-100 text-rose-700'
+                            : 'bg-emerald-100 text-emerald-800'"
+                        >
+                          {{ item.kind === 'negative' ? 'минус' : 'плюс' }}
+                        </span>
+                        <span v-else-if="item.manual" class="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold uppercase text-slate-500">
                           вручную
                         </span>
                         <span v-if="item.voided" class="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-500">
@@ -1869,6 +1883,20 @@
           <span class="mb-1 block text-sm font-medium text-slate-700">Цвет метки</span>
           <input v-model="employeeForm.color" type="color" class="min-h-[44px] w-full rounded-xl border border-slate-300 bg-white p-1" />
         </label>
+        <label v-if="editingEmployee" class="block sm:col-span-2">
+          <span class="mb-1 block text-sm font-medium text-slate-700">Telegram сотрудника</span>
+          <input
+            v-model.trim="employeeForm.telegram_username"
+            placeholder="Юзернейм без собаки"
+            autocomplete="off"
+            class="min-h-[44px] w-full rounded-xl border border-slate-300 px-3"
+          />
+          <span class="mt-1 block text-xs text-slate-500">
+            {{ editingEmployee.telegram_id
+              ? "Привязан, личные уведомления по задачам приходят сюда."
+              : "Юзернейм ищем среди клиентов. Пусто значит без личных уведомлений." }}
+          </span>
+        </label>
         <label v-if="!editingEmployee" class="block">
           <span class="mb-1 block text-sm font-medium text-slate-700">ПИН</span>
           <input
@@ -2355,7 +2383,14 @@ const teamSort = ref<"shift" | "hours" | "issued" | "tasks" | "name">("shift");
 const activeEmployeeActionMenuId = ref<string | null>(null);
 const employeeActionMenuPosition = ref({ top: 0, left: 0 });
 const teamChartMetric = ref<"hours" | "issued" | "tasks">("hours");
-const activityMetric = ref<"actions" | "hours" | "issued" | "tasks">("actions");
+type ActivityMetric =
+  | "actions"
+  | "hours"
+  | "issued"
+  | "tasks"
+  | "marks_positive"
+  | "marks_negative";
+const activityMetric = ref<ActivityMetric>("actions");
 type TimelineFilter = "all" | "orders" | "warehouse" | "tasks" | "marks";
 const timelineFilter = ref<TimelineFilter>("all");
 const timelinePageSize = 12;
@@ -2397,6 +2432,7 @@ const employeeForm = reactive({
   avatar_url: "",
   role: "employee" as "employee" | "manager",
   pin: "",
+  telegram_username: "",
 });
 const pinResetOpen = ref(false);
 const pinResetEmployee = ref<Employee | null>(null);
@@ -2664,6 +2700,8 @@ type ActivityChartPoint = {
 };
 const activityMetricOptions = [
   { value: "actions" as const, label: "Действия" },
+  { value: "marks_positive" as const, label: "Плюсы" },
+  { value: "marks_negative" as const, label: "Минусы" },
   { value: "hours" as const, label: "Часы" },
   { value: "issued" as const, label: "Выдано" },
   { value: "tasks" as const, label: "Задачи" },
@@ -2688,6 +2726,21 @@ const dailyActivity = computed<ActivityDay[]>(
     date: String(day.date || "").slice(0, 10),
   })),
 );
+/** Отметки приходят отдельным списком, поэтому считаем их по деловым дням сами. */
+const dailyMarkCounts = computed(() => {
+  const byDate = new Map<string, { positive: number; negative: number }>();
+  for (const mark of (staffAnalytics.value?.marks || []) as Array<Record<string, any>>) {
+    if (mark.deleted_at || mark.voided || mark.voided_at) continue;
+    const date = String(mark.business_date || mark.happened_at || "").slice(0, 10);
+    if (!date) continue;
+    const bucket = byDate.get(date) || { positive: 0, negative: 0 };
+    if (String(mark.mark_type || mark.kind) === "negative") bucket.negative += 1;
+    else bucket.positive += 1;
+    byDate.set(date, bucket);
+  }
+  return byDate;
+});
+
 const filledDailyActivity = computed<ActivityDay[]>(() => {
   const [start, end] = activityDateBounds();
   if (!start || !end) return [];
@@ -3655,6 +3708,12 @@ function activityDateBounds(): [string, string] {
   return [customPeriodFrom.value, customPeriodTo.value];
 }
 function activityValue(day: ActivityDay) {
+  if (activityMetric.value === "marks_positive") {
+    return dailyMarkCounts.value.get(day.date)?.positive || 0;
+  }
+  if (activityMetric.value === "marks_negative") {
+    return dailyMarkCounts.value.get(day.date)?.negative || 0;
+  }
   if (activityMetric.value === "hours") {
     return Number(day.worked_minutes || 0) / 60;
   }
@@ -3682,6 +3741,12 @@ function activityMetricValueLabel(value: number) {
   if (activityMetric.value === "hours") return `${formatDecimal(value)} ч`;
   if (activityMetric.value === "issued") return `${Math.round(value)} выдано`;
   if (activityMetric.value === "tasks") return `${Math.round(value)} задач`;
+  if (activityMetric.value === "marks_positive") {
+    return `${Math.round(value)} плюсов`;
+  }
+  if (activityMetric.value === "marks_negative") {
+    return `${Math.round(value)} минусов`;
+  }
   const count = Math.round(value);
   return `${count} ${activityWord(count)}`;
 }
@@ -4378,6 +4443,7 @@ function resetEmployeeForm() {
     avatar_url: "",
     role: "employee",
     pin: "",
+    telegram_username: "",
   });
 }
 function openEmployeeEditor(employee?: Employee) {
@@ -4393,6 +4459,7 @@ function openEmployeeEditor(employee?: Employee) {
       avatar_url: employee.avatar_url || "",
       role: employee.role || "employee",
       pin: "",
+      telegram_username: employee.telegram_username || "",
     });
   } else resetEmployeeForm();
   employeeEditorOpen.value = true;
@@ -4442,6 +4509,14 @@ async function saveEmployee() {
     };
     if (editingEmployee.value) {
       await crmStore.updateStaffEmployee(editingEmployee.value.id, payload);
+      // Привязка живёт отдельным роутом: юзернейм надо найти среди клиентов.
+      const nextUsername = employeeForm.telegram_username.replace(/^@+/, "");
+      if (nextUsername !== (editingEmployee.value.telegram_username || "")) {
+        await crmStore.linkStaffEmployeeTelegram(
+          editingEmployee.value.id,
+          nextUsername,
+        );
+      }
     } else {
       await crmStore.createStaffEmployee({ ...payload, pin: employeeForm.pin });
     }
@@ -4451,7 +4526,17 @@ async function saveEmployee() {
     pageMessageKind.value = "info";
     pageMessage.value = "Данные сотрудника сохранены";
   } catch (error: any) {
-    formError.value = error?.message || "Не удалось сохранить сотрудника";
+    const code = String(error?.code || "");
+    formError.value =
+      code === "telegram_recipient_not_found"
+        ? "Такого юзернейма нет среди клиентов. Проверьте написание или попросите сотрудника написать боту."
+        : code === "telegram_already_linked"
+          ? "Этот Telegram уже привязан к другому сотруднику"
+          : code === "telegram_recipient_ambiguous"
+            ? "По этому юзернейму нашлось несколько клиентов. Разберитесь с дублями в базе."
+            : code === "invalid_username"
+              ? "Юзернейм состоит из латиницы, цифр и подчёркивания, от 5 до 32 символов"
+              : error?.message || "Не удалось сохранить сотрудника";
   } finally {
     formSaving.value = false;
   }
