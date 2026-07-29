@@ -845,6 +845,7 @@ export interface LowStockFlavor {
   id: string;
   name: string;
   stock: number;
+  warehouse_stock?: number;
 }
 
 /**

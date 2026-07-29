@@ -272,7 +272,11 @@ export function getGroupStockItems(groupId) {
          CASE
            WHEN COALESCE(p.has_variants, 0) = 1 THEN COALESCE(pv.stock, 0)
            ELSE COALESCE(p.stock, 0)
-         END AS stock
+         END AS stock,
+         CASE
+           WHEN COALESCE(p.has_variants, 0) = 1 THEN COALESCE(pv.warehouse_stock, 0)
+           ELSE COALESCE(p.warehouse_stock, 0)
+         END AS warehouse_stock
        FROM products p
        LEFT JOIN product_variants pv
          ON pv.product_id = p.id
@@ -285,6 +289,7 @@ export function getGroupStockItems(groupId) {
       id: item.id,
       name: item.name,
       stock: Number(item.stock) || 0,
+      warehouse_stock: Number(item.warehouse_stock) || 0,
     }));
 }
 

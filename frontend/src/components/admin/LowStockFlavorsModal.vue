@@ -29,11 +29,14 @@
         >
           <header class="flex items-start justify-between gap-3 border-b border-gray-100 px-5 py-4">
             <div class="min-w-0">
-              <p class="text-xs font-medium uppercase tracking-wide text-gray-500">Розничные остатки</p>
+              <p class="text-xs font-medium uppercase tracking-wide text-gray-500">Остатки по вкусам</p>
               <h3 :id="titleId" class="mt-0.5 break-words text-base font-semibold text-gray-900">
                 {{ groupName }}
               </h3>
-              <p class="mt-1 text-xs text-gray-500">От меньшего остатка к большему</p>
+              <p class="mt-1 text-xs text-gray-500">
+                От меньшего розничного остатка к большему. Склад показан рядом:
+                видно, что закупать, а что достаточно переместить.
+              </p>
             </div>
             <button
               ref="closeButtonRef"
@@ -85,15 +88,27 @@
                 class="flex items-center justify-between gap-4 py-2.5"
               >
                 <span class="min-w-0 break-words text-sm text-gray-800">{{ item.name }}</span>
-                <span
-                  class="flex-shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold tabular-nums"
-                  :class="item.stock === 0
-                    ? 'bg-red-100 text-red-700'
-                    : item.stock <= 3
-                      ? 'bg-amber-100 text-amber-700'
-                      : 'bg-emerald-50 text-emerald-700'"
-                >
-                  {{ item.stock }} шт
+                <span class="flex flex-shrink-0 items-center gap-1.5">
+                  <span
+                    class="rounded-full px-2.5 py-1 text-xs font-semibold tabular-nums"
+                    :class="item.stock === 0
+                      ? 'bg-red-100 text-red-700'
+                      : item.stock <= 3
+                        ? 'bg-amber-100 text-amber-700'
+                        : 'bg-emerald-50 text-emerald-700'"
+                    :title="`В рознице: ${item.stock} шт`"
+                  >
+                    {{ item.stock }} шт
+                  </span>
+                  <span
+                    class="rounded-full px-2.5 py-1 text-xs font-semibold tabular-nums"
+                    :class="Number(item.warehouse_stock || 0) > 0
+                      ? 'bg-blue-50 text-blue-700'
+                      : 'bg-gray-100 text-gray-500'"
+                    :title="`На складе: ${Number(item.warehouse_stock || 0)} шт`"
+                  >
+                    склад {{ Number(item.warehouse_stock || 0) }}
+                  </span>
                 </span>
               </li>
             </ol>

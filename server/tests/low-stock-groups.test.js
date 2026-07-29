@@ -124,12 +124,13 @@ function runTests() {
   console.log('\n=== Test 1a: варианты идут отдельно от меньшего остатка к большему ===');
   const flavors = getGroupStockItems('g2');
   assertEq(JSON.stringify(flavors), JSON.stringify([
-    { id: 'p_g2_d', name: 'Без цветов', stock: 0 },
-    { id: 'p_g2_b', name: 'Нет', stock: 0 },
-    { id: 'pv_g2_c_2', name: 'Нулевой', stock: 0 },
-    { id: 'pv_g2_c_3', name: 'Варианты', stock: 1 },
-    { id: 'pv_g2_c_1', name: 'Первый', stock: 2 },
-    { id: 'p_g2_a', name: 'Много', stock: 8 },
+    { id: 'p_g2_d', name: 'Без цветов', stock: 0, warehouse_stock: 0 },
+    { id: 'p_g2_b', name: 'Нет', stock: 0, warehouse_stock: 0 },
+    // Розница пустая, а на складе запас: ради этого случая склад и показываем.
+    { id: 'pv_g2_c_2', name: 'Нулевой', stock: 0, warehouse_stock: 50 },
+    { id: 'pv_g2_c_3', name: 'Варианты', stock: 1, warehouse_stock: 0 },
+    { id: 'pv_g2_c_1', name: 'Первый', stock: 2, warehouse_stock: 0 },
+    { id: 'p_g2_a', name: 'Много', stock: 8, warehouse_stock: 0 },
   ]), 'цвета и обычные товары возвращаются отдельными строками');
   assertEq(flavors.find((item) => item.id === 'pv_g2_c_2')?.stock, 0,
     'складской остаток варианта не попадает в розничный список');

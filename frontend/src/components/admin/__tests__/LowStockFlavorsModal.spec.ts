@@ -3,9 +3,10 @@ import { flushPromises, mount } from "@vue/test-utils";
 import LowStockFlavorsModal from "@/components/admin/LowStockFlavorsModal.vue";
 
 const items = [
-  { id: "zero", name: "Нет в наличии", stock: 0 },
-  { id: "few", name: "Заканчивается", stock: 2 },
-  { id: "many", name: "Много", stock: 12 },
+  // Ради этого случая и показываем склад: в рознице пусто, а запас есть.
+  { id: "zero", name: "Нет в наличии", stock: 0, warehouse_stock: 8 },
+  { id: "few", name: "Заканчивается", stock: 2, warehouse_stock: 0 },
+  { id: "many", name: "Много", stock: 12, warehouse_stock: 3 },
 ];
 
 function mountModal(overrides: Record<string, unknown> = {}) {
@@ -27,11 +28,11 @@ describe("LowStockFlavorsModal", () => {
     const wrapper = mountModal();
     const rows = Array.from(document.querySelectorAll("ol li"));
 
-    expect(document.querySelector('[role="dialog"]')?.textContent).toContain("Розничные остатки");
+    expect(document.querySelector('[role="dialog"]')?.textContent).toContain("Остатки по вкусам");
     expect(rows.map((row) => row.textContent?.replace(/\s+/g, " ").trim())).toEqual([
-      "Нет в наличии0 шт",
-      "Заканчивается2 шт",
-      "Много12 шт",
+      "Нет в наличии0 шт склад 8",
+      "Заканчивается2 шт склад 0",
+      "Много12 шт склад 3",
     ]);
 
     wrapper.unmount();
