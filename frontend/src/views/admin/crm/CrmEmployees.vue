@@ -343,7 +343,7 @@
                     v-for="point in activityChartPoints"
                     :key="point.key"
                     class="group flex h-full min-w-9 flex-1 flex-col items-center justify-end"
-                    :title="`${point.label}: ${activityMetricValueLabel(point.value)}`"
+                    :title="activityPointTitle(point)"
                   >
                     <span class="mb-1 shrink-0 text-[10px] font-semibold text-slate-600">
                       {{ activityMetricShortValue(point.value) }}
@@ -369,6 +369,7 @@
                     <span class="mt-1 shrink-0 text-[9px] text-slate-400">{{ point.shortLabel }}</span>
                   </div>
                 </div>
+                <p class="mt-3 text-xs text-slate-500">{{ activityMetricHint }}</p>
               </section>
 
               <section
@@ -2697,6 +2698,18 @@ type ActivityChartPoint = {
   label: string;
   shortLabel: string;
   value: number;
+  /** Разбивка по типам, чтобы было видно, из чего сложилось «действие». */
+  events?: Record<string, number>;
+};
+
+/** В журнал действий пишутся только эти события, отсюда и счёт. */
+const STAFF_EVENT_LABELS: Record<string, string> = {
+  procurement_created: "Создана закупка",
+  procurement_accepted: "Закупка оприходована",
+  transfer_created: "Создано перемещение",
+  transfer_accepted: "Перемещение принято",
+  transfer_cancelled: "Перемещение отменено",
+  task_approved: "Задача принята",
 };
 const activityMetricOptions = [
   { value: "actions" as const, label: "Действия" },
@@ -2772,6 +2785,7 @@ const activityChartPoints = computed<ActivityChartPoint[]>(() => {
       label: formatDay(day.date),
       shortLabel: String(Number(day.date.slice(8, 10))),
       value: activityValue(day),
+      events: day.events || {},
     }));
   }
   const buckets = new Map<string, number>();
@@ -3660,9 +3674,13 @@ function formatMonthShort(value: string) {
     .format(new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, 1)))
     .replace(".", "");
 }
+/**
+ * Показываем часы десятичной дробью, без минут: «8,5 ч» вместо «8 ч 30 мин».
+ * Короткая смена при этом не теряется, в отличие от округления до целых часов.
+ */
 function formatMinutes(value: number) {
   const minutes = Math.max(0, Math.round(value));
-  return `${Math.floor(minutes / 60)} ч ${minutes % 60} мин`;
+  return `${formatDecimal(minutes / 60)} ч`;
 }
 function formatDecimal(value: number) {
   return new Intl.NumberFormat("ru-RU", {
@@ -3732,6 +3750,36 @@ function activityHeight(value: number) {
   );
   return Math.max(4, Math.round((value / max) * 100));
 }
+/** Подсказка на столбике: из чего именно сложилось число за этот день. */
+function activityPointTitle(point: ActivityChartPoint) {
+  const base = `${point.label}: ${activityMetricValueLabel(point.value)}`;
+  if (activityMetric.value !== "actions") return base;
+  const breakdown = Object.entries(point.events || {})
+    .filter(([, count]) => Number(count) > 0)
+    .map(([type, count]) => `${STAFF_EVENT_LABELS[type] || type}: ${count}`)
+    .join("\n");
+  return breakdown ? `${base}\n${breakdown}` : base;
+}
+
+const activityMetricHint = computed(() => {
+  if (activityMetric.value === "hours") {
+    return "Часы считаются по закрытым и текущим сменам.";
+  }
+  if (activityMetric.value === "issued") {
+    return "Заказы, выданные этим сотрудником.";
+  }
+  if (activityMetric.value === "tasks") {
+    return "Задачи, которые руководитель принял.";
+  }
+  if (activityMetric.value === "marks_positive") {
+    return "Положительные отметки, поставленные руководителем вручную.";
+  }
+  if (activityMetric.value === "marks_negative") {
+    return "Отрицательные отметки, поставленные руководителем вручную.";
+  }
+  return "Действие — это закупка (создана или оприходована), перемещение (создано, принято или отменено) и принятая задача. Сборка и выдача заказов сюда не входят, для них отдельные показатели. Наведите на столбик, чтобы увидеть разбивку за день.";
+});
+
 function activityMetricShortValue(value: number) {
   return activityMetric.value === "hours"
     ? formatDecimal(value)

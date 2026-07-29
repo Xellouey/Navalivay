@@ -771,7 +771,7 @@ describe("CrmEmployees: вход сотрудника", () => {
       .findAll("article")
       .find((article) => article.text().includes("Павел Сергеевич"));
     expect(employeeRow).toBeTruthy();
-    expect(employeeRow!.text()).toContain("4 ч 0 мин · 3");
+    expect(employeeRow!.text()).toContain("4 ч · 3");
     expect(employeeRow!.text()).toContain("5 / 4");
     expect(employeeRow!.text().replace(/\s/g, " ")).toContain("640 BYN / 220 BYN");
     expect(employeeRow!.text()).toContain("Поставки: создано / принято");

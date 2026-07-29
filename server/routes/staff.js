@@ -1465,6 +1465,49 @@ function buildEmployeeAnalytics(employee, selectedPeriod) {
     day.total += count;
     day.events[row.event_type] = count;
   }
+
+  // Сборка и выдача заказов в журнал событий не пишутся, они живут в самих
+  // заказах. Без этого график по выданным всегда оставался пустым, хотя
+  // счётчик рядом показывал число.
+  const dailyOrders = db.prepare(`
+    SELECT business_date, event_type, COUNT(*) AS count FROM (
+      SELECT DATE(assembled_at, '+3 hours') AS business_date,
+             'order_assembled' AS event_type
+        FROM orders
+       WHERE assembled_by_employee_id = ?
+         AND JULIANDAY(assembled_at) >= JULIANDAY(?)
+         AND JULIANDAY(assembled_at) < JULIANDAY(?)
+      UNION ALL
+      SELECT DATE(issued_at, '+3 hours') AS business_date,
+             'order_issued' AS event_type
+        FROM orders
+       WHERE issued_by_employee_id = ?
+         AND JULIANDAY(issued_at) >= JULIANDAY(?)
+         AND JULIANDAY(issued_at) < JULIANDAY(?)
+    )
+    GROUP BY business_date, event_type
+  `).all(
+    employee.id,
+    start.toISOString(),
+    end.toISOString(),
+    employee.id,
+    start.toISOString(),
+    end.toISOString(),
+  );
+  for (const row of dailyOrders) {
+    if (!row.business_date) continue;
+    if (!dailyActivity.has(row.business_date)) {
+      dailyActivity.set(row.business_date, {
+        date: row.business_date,
+        total: 0,
+        worked_minutes: 0,
+        events: {},
+      });
+    }
+    const day = dailyActivity.get(row.business_date);
+    day.events[row.event_type] = Number(row.count || 0);
+  }
+
   return {
     period: {
       type: selectedPeriod.type,

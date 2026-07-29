@@ -153,7 +153,7 @@ describe("CrmEmployees: таблица команды", () => {
 
     expect(footer.text()).toContain("Итого · 2");
     // 60 + 240 минут
-    expect(footer.text()).toContain("5 ч 0 мин");
+    expect(footer.text()).toContain("5 ч");
     // 2 + 7 выданных заказов
     expect(footer.findAll("td")[4].text()).toBe("9");
   });
