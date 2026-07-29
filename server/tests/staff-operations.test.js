@@ -1377,9 +1377,18 @@ try {
   assert.equal(cancelResult.response.status, 200);
   assert.equal(cancelResult.data.cancelled_by_employee_id, "employee_b");
   assert.match(String(cancelResult.data.cancelled_by || ""), /Борис/);
+  // Событие создания остаётся: журнал неизменяемый. Рядом появляется отмена,
+  // иначе в карточке сотрудника отменённая заявка навсегда числилась созданной.
   assert.equal(
     eventCount("stock_transfer", cancelledTransfer.data.id),
-    eventsBeforeCancel,
+    eventsBeforeCancel + 1,
+  );
+  assert.equal(
+    db.prepare(`
+      SELECT COUNT(*) AS count FROM staff_events
+      WHERE entity_id = ? AND event_type = 'transfer_cancelled'
+    `).get(cancelledTransfer.data.id).count,
+    1,
   );
   const repeatedCancel = await requestJson(
     `/api/admin/inventory/transfers/${cancelledTransfer.data.id}/cancel`,

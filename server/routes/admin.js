@@ -1778,6 +1778,27 @@ adminRouter.post(
             .get(req.params.id);
           throw new Error(exists ? 'invalid_status' : 'not_found');
         }
+        // Событие создания удалить нельзя, журнал неизменяемый. Пишем отмену
+        // рядом, чтобы в карточке сотрудника было видно, чем всё закончилось.
+        if (staffActor) {
+          const transfer = db.prepare(`
+            SELECT transfer_number, source_location, destination_location
+            FROM stock_transfers WHERE id = ?
+          `).get(req.params.id);
+          recordSystemStaffEvent({
+            employeeId: staffActor.employeeId,
+            eventType: 'transfer_cancelled',
+            entityType: 'stock_transfer',
+            entityId: req.params.id,
+            idempotencyKey: `transfer:${req.params.id}:cancelled`,
+            sourceNumber: transfer?.transfer_number ?? null,
+            sourceType: 'transfer',
+            sourceName: transfer
+              ? `${inventoryLocationLabel(transfer.source_location)} → ${inventoryLocationLabel(transfer.destination_location)}`
+              : null,
+            payload: {},
+          });
+        }
       });
       tx.immediate();
       res.json(await getInventoryTransfer(req.params.id));

@@ -1402,6 +1402,27 @@ function buildEmployeeAnalytics(employee, selectedPeriod) {
   }
   metrics.order_assembled = Number(assembledOrders?.count || 0);
   metrics.order_issued = Number(issuedOrders?.count || 0);
+  // Перемещения считаем по самим документам, а не по журналу событий: журнал
+  // неизменяемый и про отмену не знает, поэтому отменённая заявка навсегда
+  // оставалась в счётчике «создано».
+  const transfersCreated = db.prepare(`
+    SELECT COUNT(*) AS count
+    FROM stock_transfers
+    WHERE created_by_employee_id = ?
+      AND status <> 'cancelled'
+      AND JULIANDAY(created_at) >= JULIANDAY(?)
+      AND JULIANDAY(created_at) < JULIANDAY(?)
+  `).get(employee.id, start.toISOString(), end.toISOString());
+  const transfersCompleted = db.prepare(`
+    SELECT COUNT(*) AS count
+    FROM stock_transfers
+    WHERE completed_by_employee_id = ?
+      AND status = 'completed'
+      AND JULIANDAY(completed_at) >= JULIANDAY(?)
+      AND JULIANDAY(completed_at) < JULIANDAY(?)
+  `).get(employee.id, start.toISOString(), end.toISOString());
+  metrics.transfer_created = Number(transfersCreated?.count || 0);
+  metrics.transfer_accepted = Number(transfersCompleted?.count || 0);
   const dailyActivity = new Map();
   for (const [businessDate, duration] of dailyWorkedMilliseconds) {
     dailyActivity.set(businessDate, {
