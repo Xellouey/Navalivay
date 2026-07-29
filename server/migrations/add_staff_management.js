@@ -55,6 +55,10 @@ export function migrateStaffManagement(database = db) {
     addColumn(database, 'employees', 'responsibilities', "TEXT NOT NULL DEFAULT '[]'");
     addColumn(database, 'employees', 'role', "TEXT NOT NULL DEFAULT 'employee'");
     addColumn(database, 'employees', 'deactivated_at', 'TEXT');
+    // Личные уведомления сотруднику: юзернейм вводит руководитель, telegram_id
+    // подставляется из карточки клиента с тем же юзернеймом.
+    addColumn(database, 'employees', 'telegram_id', 'TEXT');
+    addColumn(database, 'employees', 'telegram_username', 'TEXT');
     addColumn(database, 'employees', 'pin_hash', 'TEXT');
     addColumn(database, 'employees', 'pin_fingerprint', 'TEXT');
     addColumn(database, 'employees', 'pin_updated_at', 'TEXT');

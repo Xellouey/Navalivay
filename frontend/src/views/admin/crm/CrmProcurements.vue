@@ -255,8 +255,10 @@
       </form>
     </AdminModal>
 
+    <!-- Прячем на время подтверждения сотрудника: две модалки HeadlessUI рядом
+         перебивают друг другу ловушку фокуса и кнопка перестаёт нажиматься. -->
     <AdminModal
-      :isOpen="showCreateModal"
+      :isOpen="showCreateModal && !actorPromptOpen"
       :title="editingProcurementId ? 'Редактирование закупки' : 'Новая закупка'"
       description="Подберите товары, укажите закупочную цену и количество - себестоимость пересчитается автоматически."
       size="wide"

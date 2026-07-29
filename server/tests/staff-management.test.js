@@ -1200,6 +1200,43 @@ try {
   );
   assertStatus(claimWithoutShift, 409, 'claim requires active employee shift');
 
+  // Личную задачу сотрудник ведёт независимо от того, чья смена открыта и есть ли она вообще.
+  const personalTaskId = targetedTask.data.task.id;
+  const claimPersonalByOther = await requestJson(
+    `/api/admin/crm/staff/tasks/${personalTaskId}/claim`,
+    {
+      method: 'POST',
+      staffToken: managerToken,
+      idempotencyKey: 'task-claim-personal-by-other',
+      body: {},
+    },
+  );
+  assertStatus(claimPersonalByOther, 403, 'personal task is not claimable by others');
+  assert.equal(claimPersonalByOther.data.error, 'task_assigned_to_another_employee');
+
+  const claimPersonalWithoutShift = await requestJson(
+    `/api/admin/crm/staff/tasks/${personalTaskId}/claim`,
+    {
+      method: 'POST',
+      staffToken: employeeToken,
+      idempotencyKey: 'task-claim-personal-no-shift',
+      body: {},
+    },
+  );
+  assertStatus(claimPersonalWithoutShift, 200, 'personal task is claimable without a shift');
+  assert.equal(claimPersonalWithoutShift.data.task.assignee_employee_id, employeeId);
+
+  const submitPersonalWithoutShift = await requestJson(
+    `/api/admin/crm/staff/tasks/${personalTaskId}/submit`,
+    {
+      method: 'POST',
+      staffToken: employeeToken,
+      idempotencyKey: 'task-submit-personal-no-shift',
+      body: { result_note: 'Сделано' },
+    },
+  );
+  assertStatus(submitPersonalWithoutShift, 200, 'personal task is submittable without a shift');
+
   const routeShiftId = 'staff_shift_route_task';
   const routeShiftStart = new Date(Date.now() - 60 * 60_000);
   const routeShiftEnd = new Date(Date.now() + 2 * 60 * 60_000);

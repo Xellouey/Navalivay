@@ -20,6 +20,7 @@ import {
   listStaffShiftCandidates,
   openStaffShift,
   recordSystemStaffEvent,
+  prepareActiveShiftProof,
   recheckActiveShiftProof,
   revokeStaffSessions,
   runStaffIdempotentOperation,
@@ -33,6 +34,7 @@ import {
   getTimeZoneDateParts,
 } from '../utils/business-time.js';
 import {
+  enqueueInternalNotification,
   enqueueInternalNotificationForGroup,
   listInternalNotificationTemplates,
   normalizeTelegramId,
@@ -138,6 +140,8 @@ function publicEmployee(row) {
     avatar_url: row.avatar_url || null,
     color: row.color || null,
     role: row.role === 'manager' ? 'manager' : 'employee',
+    telegram_id: row.telegram_id || null,
+    telegram_username: row.telegram_username || null,
     active: Number(row.active || 0) === 1,
     deactivated_at: row.deactivated_at || null,
     pin_configured: Boolean(row.pin_hash && row.pin_fingerprint),
@@ -162,6 +166,19 @@ function requireActiveEmployee(employeeId) {
     throw new StaffServiceError('employee_inactive', 409);
   }
   return employee;
+}
+
+/**
+ * Личную задачу сотрудник ведёт независимо от того, чья смена сейчас открыта:
+ * она поручена именно ему. Свободную задачу по-прежнему берут только на своей
+ * смене, иначе часы работы перестанут сходиться с действиями.
+ */
+function requireOwnShiftUnlessPersonal(task, actor, proof) {
+  if (task.target_employee_id === actor.id) return;
+  const checkedShift = recheckActiveShiftProof(proof || prepareActiveShiftProof());
+  if (checkedShift.employeeId !== actor.id) {
+    throw new StaffServiceError('shift_owned_by_another_employee', 403);
+  }
 }
 
 function activeManagerCount() {
@@ -504,22 +521,47 @@ function requireNotificationTables() {
   }
 }
 
+/**
+ * Если задача поручена сотруднику с привязанным Telegram, шлём ему лично,
+ * а не всей группе: остальным чужая личная задача не нужна.
+ */
+function personalTaskRecipient(task) {
+  const employeeId = task.assignee_employee_id || task.target_employee_id;
+  if (!employeeId) return null;
+  const employee = db.prepare(`
+    SELECT telegram_id, telegram_username FROM employees WHERE id = ?
+  `).get(employeeId);
+  return employee?.telegram_id ? employee : null;
+}
+
 function enqueueTaskNotification({ task, eventType, uniqueSuffix }) {
   requireNotificationTables();
+  const payload = {
+    document_number: task.id,
+    title: task.title,
+    deadline: task.due_at || null,
+    employee_id: task.assignee_employee_id || task.target_employee_id || null,
+    employee_name:
+      task.assignee_employee_name_snapshot
+      || task.target_employee_name_snapshot
+      || null,
+  };
+  const uniqueKey = `staff-task:${task.id}:${uniqueSuffix}`;
+  const personal = personalTaskRecipient(task);
+  if (personal) {
+    return enqueueInternalNotification(db, {
+      uniqueKey: `${uniqueKey}:personal`,
+      eventType,
+      recipientTelegramId: personal.telegram_id,
+      recipientUsername: personal.telegram_username || null,
+      payload,
+    });
+  }
   return enqueueInternalNotificationForGroup(db, {
     eventGroup: 'tasks',
-    uniqueKey: `staff-task:${task.id}:${uniqueSuffix}`,
+    uniqueKey,
     eventType,
-    payload: {
-      document_number: task.id,
-      title: task.title,
-      deadline: task.due_at || null,
-      employee_id: task.assignee_employee_id || task.target_employee_id || null,
-      employee_name:
-        task.assignee_employee_name_snapshot
-        || task.target_employee_name_snapshot
-        || null,
-    },
+    payload,
   });
 }
 
@@ -1147,6 +1189,44 @@ staffRouter.post(
       }
       throw error;
     }
+    res.json({ employee: publicEmployee(requireEmployee(employee.id)) });
+  }),
+);
+
+/**
+ * Привязка Telegram к сотруднику. Юзернейм ищем среди клиентов: там уже есть
+ * подтверждённый telegram_id, отдельного подтверждения не требуется.
+ * Пустой юзернейм снимает привязку.
+ */
+staffRouter.put(
+  `${BASE}/employees/:id/telegram`,
+  managerAccess,
+  asyncRoute((req, res) => {
+    const employee = requireEmployee(req.params.id);
+    const raw = String(req.body?.username ?? '').trim();
+    const timestamp = nowIso();
+    if (!raw) {
+      db.prepare(`
+        UPDATE employees
+        SET telegram_id = NULL, telegram_username = NULL, updated_at = ?
+        WHERE id = ?
+      `).run(timestamp, employee.id);
+      res.json({ employee: publicEmployee(requireEmployee(employee.id)) });
+      return;
+    }
+    const customer = exactCustomerByUsername(raw);
+    const username = String(customer.telegram_username || raw).replace(/^@+/, '');
+    const taken = db.prepare(`
+      SELECT id FROM employees WHERE telegram_id = ? AND id <> ?
+    `).get(String(customer.telegram_id), employee.id);
+    if (taken) {
+      throw new StaffServiceError('telegram_already_linked', 409);
+    }
+    db.prepare(`
+      UPDATE employees
+      SET telegram_id = ?, telegram_username = ?, updated_at = ?
+      WHERE id = ?
+    `).run(String(customer.telegram_id), username, timestamp, employee.id);
     res.json({ employee: publicEmployee(requireEmployee(employee.id)) });
   }),
 );
@@ -2124,7 +2204,7 @@ staffRouter.post(
 staffRouter.post(
   `${BASE}/tasks/:id/claim`,
   staffAccess,
-  shiftRequired,
+  // Смену проверяем внутри: личную задачу ведут и без открытой смены.
   asyncRoute((req, res) => {
     requireFeatureEnabled();
     const actor = req.staffAccess.rawEmployee;
@@ -2133,13 +2213,14 @@ staffRouter.post(
       taskId: req.params.id,
       actor,
       execute: ({ key, task }) => {
-        const checkedShift = recheckActiveShiftProof(req.staffShiftProof);
-        if (checkedShift.employeeId !== actor.id) {
-          throw new StaffServiceError('shift_owned_by_another_employee', 403);
-        }
         if (task.status !== 'open') {
           throw new StaffServiceError('task_claim_conflict', 409);
         }
+        // Сначала про адресность: она понятнее для чужой задачи, чем «нет смены».
+        if (task.target_employee_id && task.target_employee_id !== actor.id) {
+          throw new StaffServiceError('task_assigned_to_another_employee', 403);
+        }
+        requireOwnShiftUnlessPersonal(task, actor, req.staffShiftProof);
         const timestamp = nowIso();
         const updated = db.prepare(`
           UPDATE staff_tasks
@@ -2175,7 +2256,7 @@ staffRouter.post(
 staffRouter.post(
   `${BASE}/tasks/:id/submit`,
   staffAccess,
-  shiftRequired,
+  // Смену проверяем внутри: личную задачу ведут и без открытой смены.
   asyncRoute((req, res) => {
     requireFeatureEnabled();
     requireNotificationTables();
@@ -2186,10 +2267,7 @@ staffRouter.post(
       taskId: req.params.id,
       actor,
       execute: ({ key, task }) => {
-        const checkedShift = recheckActiveShiftProof(req.staffShiftProof);
-        if (checkedShift.employeeId !== actor.id) {
-          throw new StaffServiceError('shift_owned_by_another_employee', 403);
-        }
+        requireOwnShiftUnlessPersonal(task, actor, req.staffShiftProof);
         if (
           !['claimed', 'submitted'].includes(task.status)
           || task.assignee_employee_id !== actor.id
