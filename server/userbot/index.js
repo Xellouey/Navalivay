@@ -169,6 +169,35 @@ const DIALOG_PREFETCH_LIMIT =
 // retry на entity-miss + setInterval) могли бы удвоить-утроить трафик
 // через прокси и приблизить FloodWait. Возвращаем shared Promise.
 let prefetchInFlight = null;
+
+// Негативный кэш ненайденных получателей.
+//
+// Прогрев диалогов стоит дорого: 3000+ диалогов и почти гарантированный
+// FloodWait от Telegram. Если клиента там уже искали и не нашли, повторный
+// прогрев ради него ничего не изменит — access_hash появится только когда
+// клиент сам напишет, а этот момент мы ловим через rememberEntity и сразу
+// снимаем отметку. Держим в памяти: после рестарта проверим заново.
+const ENTITY_MISS_TTL_MS = 24 * 60 * 60 * 1000;
+const entityMissUntil = new Map();
+
+function isKnownEntityMiss(chatId) {
+  const until = entityMissUntil.get(String(chatId));
+  if (!until) return false;
+  if (until <= Date.now()) {
+    entityMissUntil.delete(String(chatId));
+    return false;
+  }
+  return true;
+}
+
+function markEntityMiss(chatId) {
+  entityMissUntil.set(String(chatId), Date.now() + ENTITY_MISS_TTL_MS);
+}
+
+function clearEntityMiss(chatId) {
+  entityMissUntil.delete(String(chatId));
+}
+
 async function prefetchDialogs(reason = 'startup') {
   // Не прогреваем когда:
   //  - идёт shutdown (избегаем лога после httpServer.close и гонки с disconnect)
@@ -523,6 +552,8 @@ function rememberEntity(user, source, topMessage) {
   if (!user || user.accessHash === null || user.accessHash === undefined) return;
   const tgId = String(user.id);
   if (!/^[1-9]\d{0,18}$/.test(tgId)) return;
+  // Клиент объявился: снимаем отметку, чтобы отправка сразу заработала.
+  clearEntityMiss(tgId);
   const accessHash = String(user.accessHash);
   if (!accessHash || accessHash === '0') return;
   // topMessage — id последнего сообщения в диалоге (из dialog.message).
@@ -768,10 +799,14 @@ async function getKnownRecipientPeer(chatId) {
       accessHash: BigInt(stored.access_hash),
     });
   }
+  if (isKnownEntityMiss(chatId)) return null;
   await prefetchDialogs(`quick-reply-entity-miss-${chatId}`);
   try {
-    return await client.getInputEntity(BigInt(chatId));
+    const peer = await client.getInputEntity(BigInt(chatId));
+    clearEntityMiss(chatId);
+    return peer;
   } catch {
+    markEntityMiss(chatId);
     return null;
   }
 }
@@ -1011,17 +1046,21 @@ app.post('/send-message', checkSecret, async (req, res) => {
 
       // Попытка 3: прогрев диалогов и retry. Помогает если клиент был в
       // кэше GramJS, но вытеснен LRU.
-      if (!result) {
+      // Клиента уже искали прогревом и не нашли: повторный прогрев ничего не
+      // изменит, а FloodWait от него тормозит отправку всем остальным.
+      if (!result && !isKnownEntityMiss(chatId)) {
         logEvent('send', { outcome: 'attempt', attempt: 3, chat_id: chatId, order_id: req.body?.order_id || null });
         await prefetchDialogs(`entity-miss-${chatId}`);
         try {
           result = await client.sendMessage(BigInt(chatId), { message: text });
           viaAttempt = 3; // после prefetchDialogs — entity найден
+          clearEntityMiss(chatId);
         } catch (retryErr) {
           const retryMsg = retryErr?.errorMessage || retryErr?.message || String(retryErr);
           if (!ENTITY_NOT_FOUND_RX.test(retryMsg)) throw retryErr;
           // entity всё ещё не найден — диалога с клиентом нет в Telegram менеджера.
           // Не пишем — защита от холодных рассылок.
+          markEntityMiss(chatId);
         }
       }
     }

@@ -32,7 +32,7 @@ export function describeAutoNotifyReason(reason, error) {
     case 'client_inactive_over_24h':
       return 'Клиент молчит больше 24 часов. Telegram запрещает писать первым, подождите ответа.';
     case 'entity_not_found_no_dialog':
-      return 'Клиент не найден в Telegram. Возможно username изменён или аккаунт удалён. Напишите клиенту первыми вручную — если диалог появится, следующие уведомления уйдут автоматически.';
+      return 'Чат с клиентом пустой. Telegram не даёт написать первым: пока клиент сам не напишет, уведомления не уйдут.';
     default:
       return error || reason || null;
   }
