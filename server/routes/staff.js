@@ -1423,6 +1423,25 @@ function buildEmployeeAnalytics(employee, selectedPeriod) {
   `).get(employee.id, start.toISOString(), end.toISOString());
   metrics.transfer_created = Number(transfersCreated?.count || 0);
   metrics.transfer_accepted = Number(transfersCompleted?.count || 0);
+  // Закупки по той же причине: удалённая закупка исчезает из таблицы, а в
+  // журнале событие о её создании остаётся навсегда.
+  const procurementsCreated = db.prepare(`
+    SELECT COUNT(*) AS count
+    FROM procurements
+    WHERE created_by_employee_id = ?
+      AND JULIANDAY(created_at) >= JULIANDAY(?)
+      AND JULIANDAY(created_at) < JULIANDAY(?)
+  `).get(employee.id, start.toISOString(), end.toISOString());
+  const procurementsAccepted = db.prepare(`
+    SELECT COUNT(*) AS count
+    FROM procurements
+    WHERE accepted_by_employee_id = ?
+      AND status = 'completed'
+      AND JULIANDAY(completed_at) >= JULIANDAY(?)
+      AND JULIANDAY(completed_at) < JULIANDAY(?)
+  `).get(employee.id, start.toISOString(), end.toISOString());
+  metrics.procurement_created = Number(procurementsCreated?.count || 0);
+  metrics.procurement_accepted = Number(procurementsAccepted?.count || 0);
   const dailyActivity = new Map();
   for (const [businessDate, duration] of dailyWorkedMilliseconds) {
     dailyActivity.set(businessDate, {

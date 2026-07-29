@@ -721,6 +721,19 @@ try {
     1,
   );
   assert.equal(outboxCount("procurement.created"), 1);
+
+  // Счётчик в карточке считается по документам, а не по журналу: журнал
+  // неизменяемый и про удаление закупки ничего не знает.
+  const countProcurements = (employeeId) => db.prepare(`
+    SELECT COUNT(*) AS count FROM procurements WHERE created_by_employee_id = ?
+  `).get(employeeId).count;
+  assert.equal(countProcurements("employee_a"), 1);
+  assert.equal(
+    eventCount("procurement", procurementId, "procurement_created"),
+    1,
+    "событие создания остаётся в журнале навсегда",
+  );
+
   const procurementDraftEdit = await requestJson(
     `/api/admin/crm/procurements/${procurementId}`,
     {
@@ -863,7 +876,11 @@ try {
     undefined,
   );
   assert.deepEqual(productStock(), stockBeforeProcurement);
+  // Журнал помнит и создание, и оприходование: он неизменяемый.
   assert.equal(eventCount("procurement", procurementId), 2);
+  // А счётчик в карточке считается по документам, поэтому удалённая закупка
+  // из него уходит и работа не приписывается сотруднику задним числом.
+  assert.equal(countProcurements("employee_a"), 0);
 
   console.log(
     "staff operations: deleted variant cannot corrupt procurement stock",
