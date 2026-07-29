@@ -22,6 +22,9 @@
           {{ deltaOf(item)!.text }}
         </span>
       </div>
+      <div v-if="item.hint" class="truncate text-[11px] text-slate-400" :title="item.hint">
+        {{ item.hint }}
+      </div>
     </article>
   </section>
 </template>
@@ -38,6 +41,8 @@ export type StripMetric = {
   lowerIsBetter?: boolean;
   /** Чем форматировать значение за прошлый период в подсказке. */
   format?: (value: number) => string;
+  /** Уточнение под значением, например из чего оно сложилось. */
+  hint?: string;
 };
 
 const props = withDefaults(

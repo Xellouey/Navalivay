@@ -177,6 +177,60 @@ describe("CrmEmployees: вход сотрудника", () => {
     );
   });
 
+  it("на графике плюсы совпадают с числом в плитке", async () => {
+    const store = useCrmStore();
+    store.$patch({
+      staffTrackingEnabled: true,
+      staffToken: "employee-token",
+      staffIdentity: { role: "employee", employee },
+    });
+    vi.spyOn(store, "fetchStaffSettings").mockResolvedValue({
+      trackingEnabled: true,
+    });
+    // Плюсы: 5 автоматических (документы и задачи) и 2 ручных.
+    const analytics: StaffAnalytics = {
+      employee,
+      mark_counts: {
+        positive: 7,
+        negative: 1,
+        manual_positive: 2,
+        manual_negative: 1,
+        system_positive: 5,
+      },
+      daily_activity: [
+        {
+          date: "2026-07-01T00:00:00.000Z",
+          marks: { positive: 3, negative: 0, manual_positive: 1, system_positive: 2 },
+        },
+        {
+          date: "2026-07-02T00:00:00.000Z",
+          marks: { positive: 4, negative: 1, manual_positive: 1, system_positive: 3 },
+        },
+      ],
+    };
+    vi.spyOn(store, "fetchStaffAnalytics").mockImplementation(async () => {
+      store.$patch({ staffAnalytics: analytics });
+      return analytics;
+    });
+    vi.spyOn(store, "fetchStaffMarks").mockResolvedValue([]);
+
+    const wrapper = mountEmployees();
+    await flushPromises();
+
+    // Плитка: одно число с расшифровкой.
+    expect(wrapper.text()).toContain("из них вручную 2");
+
+    await wrapper
+      .findAll("button")
+      .find((button) => button.text() === "Плюсы")!
+      .trigger("click");
+    await flushPromises();
+
+    const label = wrapper.get('[role="img"]').attributes("aria-label") || "";
+    expect(label).toContain("1 июля: 3 плюса");
+    expect(label).toContain("2 июля: 4 плюса");
+  });
+
   it("показывает руководителю цель и текущие значения в денежных, ручных и сменных формах", async () => {
     const store = useCrmStore();
     const salary = {

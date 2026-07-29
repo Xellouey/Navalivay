@@ -158,6 +158,25 @@ describe("CrmEmployees: таблица команды", () => {
     expect(footer.findAll("td")[4].text()).toBe("9");
   });
 
+  it("показывает работу с документами отдельными колонками", async () => {
+    const wrapper = await openTeamTable();
+    const table = wrapper.get('[data-testid="staff-team-table"]');
+    const headers = table.findAll("thead th").map((cell) => cell.text());
+
+    for (const label of [
+      "Закупки создал",
+      "Закупки принял",
+      "Перемещения создал",
+      "Перемещения принял",
+      "Плюсы вручную",
+    ]) {
+      expect(headers.some((header) => header.startsWith(label)), label).toBe(true);
+    }
+
+    // Новые колонки не должны сдвинуть «Выдано»: на неё завязана проверка итога.
+    expect(headers[5]).toContain("Выдано");
+  });
+
   it("оставляет карточки видом по умолчанию", async () => {
     const store = useCrmStore();
     store.$patch({

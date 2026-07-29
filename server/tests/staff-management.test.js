@@ -1594,6 +1594,37 @@ try {
   assert.equal(Number(januaryAnalytics.data.tasks.submitted || 0), 0);
   assert.equal(januaryAnalytics.data.metrics.tasks_completed, 1);
 
+  // Плюсы это ручные отметки плюс подтверждённые документы и задачи.
+  const januaryMarks = januaryAnalytics.data.mark_counts;
+  // Страховка от вырождения: если бы всё было нулями, проверки ниже ничего не значили.
+  assert.ok(januaryMarks.system_positive > 0, 'в периоде есть автоматические плюсы');
+  assert.ok(januaryMarks.manual_negative > 0, 'в периоде есть ручной минус');
+  assert.equal(
+    januaryMarks.positive,
+    januaryMarks.manual_positive + januaryMarks.system_positive,
+    'плюсы складываются из ручных и автоматических',
+  );
+  assert.equal(januaryMarks.negative, januaryMarks.manual_negative);
+  assert.equal(
+    januaryMarks.system_positive,
+    Number(januaryAnalytics.data.metrics.procurement_created || 0)
+      + Number(januaryAnalytics.data.metrics.procurement_accepted || 0)
+      + Number(januaryAnalytics.data.metrics.transfer_created || 0)
+      + Number(januaryAnalytics.data.metrics.transfer_accepted || 0)
+      + Number(januaryAnalytics.data.metrics.task_approved || 0),
+    'автоматические плюсы считаются по документам и принятым задачам',
+  );
+
+  // Главная проверка: сумма столбиков графика обязана совпадать с плиткой.
+  // Итог и дневные бакеты считаются разными запросами, и на стыке суток по
+  // Минску они легко разъезжаются.
+  const sumDaily = (field) => (januaryAnalytics.data.daily_activity || [])
+    .reduce((sum, day) => sum + Number(day.marks?.[field] || 0), 0);
+  assert.equal(sumDaily('positive'), januaryMarks.positive, 'плюсы по дням сходятся с итогом');
+  assert.equal(sumDaily('negative'), januaryMarks.negative, 'минусы по дням сходятся с итогом');
+  assert.equal(sumDaily('manual_positive'), januaryMarks.manual_positive);
+  assert.equal(sumDaily('system_positive'), januaryMarks.system_positive);
+
   const newYearDayAnalytics = await requestJson(
     '/api/admin/crm/staff/analytics?period=day&date=2026-01-01',
     { staffToken: employeeToken },

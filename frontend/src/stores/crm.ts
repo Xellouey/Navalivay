@@ -1,6 +1,7 @@
 import { defineStore } from "pinia";
 import { ref, computed, shallowRef } from "vue";
 import { isKanbanBoardOrder } from "@/utils/crm-kanban-board";
+import { STAFF_EVENT_LABELS } from "@/utils/staffEvents";
 
 const API_BASE = "/api/admin/crm";
 let inMemoryStaffToken = "";
@@ -112,7 +113,13 @@ export interface StaffAnalytics {
   metrics?: Record<string, number>;
   shifts?: StaffShift[];
   marks?: StaffMark[];
-  mark_counts?: { positive?: number; negative?: number };
+  mark_counts?: {
+    positive?: number;
+    negative?: number;
+    manual_positive?: number;
+    manual_negative?: number;
+    system_positive?: number;
+  };
   tasks?: Record<string, number>;
   expected_salary?: Record<string, any> | null;
   activities?: StaffActivity[];
@@ -122,6 +129,14 @@ export interface StaffAnalytics {
     worked_minutes?: number;
     color?: string | null;
     events?: Record<string, number>;
+    /** Плюсы и минусы за день, отдельно от журнала действий. */
+    marks?: {
+      manual_positive?: number;
+      manual_negative?: number;
+      system_positive?: number;
+      positive?: number;
+      negative?: number;
+    };
   }>;
 }
 
@@ -1190,16 +1205,6 @@ function normalizeStaffMark(mark: StaffMark): StaffMark {
     current_version: Number(mark.current_version || 1),
   };
 }
-
-const STAFF_EVENT_LABELS: Record<string, string> = {
-  order_assembled: "Заказ собран",
-  order_issued: "Заказ выдан",
-  procurement_created: "Поставка создана",
-  procurement_accepted: "Поставка принята",
-  transfer_created: "Перемещение создано",
-  transfer_accepted: "Перемещение принято",
-  task_approved: "Задача выполнена",
-};
 
 function normalizeStaffAnalytics(
   analytics: StaffAnalytics & {

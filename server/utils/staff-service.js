@@ -1185,6 +1185,11 @@ export function createStaffService(database, {
     const dateParts = getTimeZoneDateParts(date, 'Europe/Minsk');
     const eventId = id('staff_event');
     const payloadJson = safeJson(payload);
+    // Полярность ниже историческая и при чтении не используется: у всех событий
+    // записано 'positive', включая отмену перемещения. Строки неизменяемы,
+    // переписать нельзя, поэтому смысл события выводится из его типа
+    // (POSITIVE_METRIC_KEYS в routes/staff.js). Не пишите
+    // WHERE polarity = 'positive', это даст неверный ответ.
     const inserted = database.prepare(`
       INSERT INTO staff_events (
         id, employee_id, employee_name_snapshot, event_type, polarity, points,

@@ -1278,6 +1278,20 @@ function storedUtcMilliseconds(value) {
   return new Date(normalized).getTime();
 }
 
+/**
+ * Что считается автоматическим плюсом. Полярность в staff_events верить нельзя:
+ * там у всех событий жёстко записано 'positive', а строки неизменяемы и
+ * переписать их нельзя. Поэтому смысл выводим из типа, а сами числа берём из
+ * документов, чтобы отменённое или удалённое не оставалось плюсом навсегда.
+ */
+const POSITIVE_METRIC_KEYS = [
+  'procurement_created',
+  'procurement_accepted',
+  'transfer_created',
+  'transfer_accepted',
+  'task_approved',
+];
+
 function buildEmployeeAnalytics(employee, selectedPeriod) {
   const { rangeStart: start, rangeEnd: end } = selectedPeriod;
   const startMs = start.getTime();
@@ -1508,6 +1522,104 @@ function buildEmployeeAnalytics(employee, selectedPeriod) {
     day.events[row.event_type] = Number(row.count || 0);
   }
 
+  // Плюсы по дням. Условия обязаны совпадать с теми, по которым выше считались
+  // итоги, иначе сумма столбиков графика разойдётся с числом в плитке.
+  const dailyPositives = db.prepare(`
+    SELECT business_date, COUNT(*) AS count FROM (
+      SELECT DATE(created_at, '+3 hours') AS business_date
+        FROM procurements
+       WHERE created_by_employee_id = ?
+         AND JULIANDAY(created_at) >= JULIANDAY(?)
+         AND JULIANDAY(created_at) < JULIANDAY(?)
+      UNION ALL
+      SELECT DATE(completed_at, '+3 hours') AS business_date
+        FROM procurements
+       WHERE accepted_by_employee_id = ?
+         AND status = 'completed'
+         AND JULIANDAY(completed_at) >= JULIANDAY(?)
+         AND JULIANDAY(completed_at) < JULIANDAY(?)
+      UNION ALL
+      SELECT DATE(created_at, '+3 hours') AS business_date
+        FROM stock_transfers
+       WHERE created_by_employee_id = ?
+         AND status <> 'cancelled'
+         AND JULIANDAY(created_at) >= JULIANDAY(?)
+         AND JULIANDAY(created_at) < JULIANDAY(?)
+      UNION ALL
+      SELECT DATE(completed_at, '+3 hours') AS business_date
+        FROM stock_transfers
+       WHERE completed_by_employee_id = ?
+         AND status = 'completed'
+         AND JULIANDAY(completed_at) >= JULIANDAY(?)
+         AND JULIANDAY(completed_at) < JULIANDAY(?)
+      UNION ALL
+      SELECT business_date
+        FROM staff_events
+       WHERE employee_id = ?
+         AND event_type = 'task_approved'
+         AND JULIANDAY(happened_at) >= JULIANDAY(?)
+         AND JULIANDAY(happened_at) < JULIANDAY(?)
+    )
+    GROUP BY business_date
+  `).all(
+    ...[
+      employee.id, employee.id, employee.id, employee.id, employee.id,
+    ].flatMap((id) => [id, start.toISOString(), end.toISOString()]),
+  );
+
+  function dayBucket(businessDate) {
+    if (!dailyActivity.has(businessDate)) {
+      dailyActivity.set(businessDate, {
+        date: businessDate,
+        total: 0,
+        worked_minutes: 0,
+        events: {},
+      });
+    }
+    const day = dailyActivity.get(businessDate);
+    if (!day.marks) {
+      day.marks = {
+        manual_positive: 0,
+        manual_negative: 0,
+        system_positive: 0,
+        positive: 0,
+        negative: 0,
+      };
+    }
+    return day;
+  }
+
+  for (const row of dailyPositives) {
+    if (!row.business_date) continue;
+    const day = dayBucket(row.business_date);
+    day.marks.system_positive += Number(row.count || 0);
+  }
+  for (const mark of marks) {
+    if (!mark.business_date) continue;
+    const day = dayBucket(mark.business_date);
+    if (mark.mark_type === 'negative') day.marks.manual_negative += 1;
+    else day.marks.manual_positive += 1;
+  }
+  for (const day of dailyActivity.values()) {
+    if (!day.marks) continue;
+    day.marks.positive = day.marks.manual_positive + day.marks.system_positive;
+    day.marks.negative = day.marks.manual_negative;
+  }
+
+  const manualPositive = marks.filter((row) => row.mark_type === 'positive').length;
+  const manualNegative = marks.filter((row) => row.mark_type === 'negative').length;
+  const systemPositive = POSITIVE_METRIC_KEYS.reduce(
+    (sum, key) => sum + Number(metrics[key] || 0),
+    0,
+  );
+  const markCounts = {
+    positive: manualPositive + systemPositive,
+    negative: manualNegative,
+    manual_positive: manualPositive,
+    manual_negative: manualNegative,
+    system_positive: systemPositive,
+  };
+
   return {
     period: {
       type: selectedPeriod.type,
@@ -1540,19 +1652,7 @@ function buildEmployeeAnalytics(employee, selectedPeriod) {
       ...row,
       voided: Boolean(row.deleted_at),
     })),
-    mark_counts: {
-      positive:
-        marks.filter((row) => row.mark_type === 'positive').length
-        + eventCounts
-          .filter((row) => row.polarity === 'positive')
-          .reduce((sum, row) => sum + Number(row.count || 0), 0),
-      negative: marks.filter((row) => row.mark_type === 'negative').length,
-      manual_positive: marks.filter((row) => row.mark_type === 'positive').length,
-      manual_negative: marks.filter((row) => row.mark_type === 'negative').length,
-      system_positive: eventCounts
-        .filter((row) => row.polarity === 'positive')
-        .reduce((sum, row) => sum + Number(row.count || 0), 0),
-    },
+    mark_counts: markCounts,
     assembled_orders: Number(assembledOrders?.count || 0),
     issued_orders: Number(issuedOrders?.count || 0),
     issued_revenue: Number(issuedOrders?.revenue || 0),

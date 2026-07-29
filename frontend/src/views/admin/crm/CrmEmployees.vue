@@ -678,7 +678,7 @@
                 </CrmButton>
               </div>
               <div class="max-h-[70vh] overflow-auto">
-                <table class="w-full min-w-[860px] border-collapse text-sm">
+                <table class="w-full min-w-[1240px] border-collapse text-sm">
                   <thead class="sticky top-0 z-10 bg-slate-50 text-xs uppercase text-slate-500">
                     <tr>
                       <th
@@ -805,10 +805,11 @@
                     </p>
                     <div
                       class="mt-3 flex flex-wrap gap-2"
-                      :aria-label="`Положительные отметки: ${Number(teamSummary(employee).mark_counts?.positive || 0)}. Отрицательные отметки: ${Number(teamSummary(employee).mark_counts?.negative || 0)}.`"
+                      :aria-label="`Плюсы: ${Number(teamSummary(employee).mark_counts?.positive || 0)}, из них вручную ${Number(teamSummary(employee).mark_counts?.manual_positive || 0)}. Минусы: ${Number(teamSummary(employee).mark_counts?.negative || 0)}.`"
                     >
                       <span class="rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700">
                         Плюсы {{ Number(teamSummary(employee).mark_counts?.positive || 0) }}
+                        · вручную {{ Number(teamSummary(employee).mark_counts?.manual_positive || 0) }}
                       </span>
                       <span class="rounded-full bg-rose-50 px-2.5 py-1 text-xs font-semibold text-rose-700">
                         Минусы {{ Number(teamSummary(employee).mark_counts?.negative || 0) }}
@@ -2296,6 +2297,7 @@ import {
 } from "@/stores/crm";
 import { useAdminStore } from "@/stores/admin";
 import { formatBynCurrency } from "@/utils/currency";
+import { STAFF_EVENT_LABELS } from "@/utils/staffEvents";
 import {
   BUSINESS_TIME_ZONE,
   businessDateTimeInputToIso,
@@ -2675,7 +2677,10 @@ const headlineMetrics = computed<StripMetric[]>(() => [
 ]);
 const secondaryMetrics = computed<StripMetric[]>(() => [
   stripMetric("Прибыль", "issued_profit", { format: formatMoney }),
-  stripMetric("Плюсы", "mark_counts.positive"),
+  {
+    ...stripMetric("Плюсы", "mark_counts.positive"),
+    hint: `из них вручную ${pickNumber(analyticsSummary.value, "mark_counts.manual_positive")}`,
+  },
   stripMetric("Минусы", "mark_counts.negative", { lowerIsBetter: true }),
   stripMetric("Поставки приняты", "procurements_completed"),
   stripMetric("Перемещения приняты", "transfers_completed"),
@@ -2692,6 +2697,14 @@ type ActivityDay = {
   count?: number;
   worked_minutes?: number;
   events?: Record<string, number>;
+  /** Плюсы и минусы за день считает сервер, чтобы график сходился с плиткой. */
+  marks?: {
+    manual_positive?: number;
+    manual_negative?: number;
+    system_positive?: number;
+    positive?: number;
+    negative?: number;
+  };
 };
 type ActivityChartPoint = {
   key: string;
@@ -2700,17 +2713,9 @@ type ActivityChartPoint = {
   value: number;
   /** Разбивка по типам, чтобы было видно, из чего сложилось «действие». */
   events?: Record<string, number>;
+  marks?: ActivityDay["marks"];
 };
 
-/** В журнал действий пишутся только эти события, отсюда и счёт. */
-const STAFF_EVENT_LABELS: Record<string, string> = {
-  procurement_created: "Создана закупка",
-  procurement_accepted: "Закупка оприходована",
-  transfer_created: "Создано перемещение",
-  transfer_accepted: "Перемещение принято",
-  transfer_cancelled: "Перемещение отменено",
-  task_approved: "Задача принята",
-};
 const activityMetricOptions = [
   { value: "actions" as const, label: "Действия" },
   { value: "marks_positive" as const, label: "Плюсы" },
@@ -2739,21 +2744,6 @@ const dailyActivity = computed<ActivityDay[]>(
     date: String(day.date || "").slice(0, 10),
   })),
 );
-/** Отметки приходят отдельным списком, поэтому считаем их по деловым дням сами. */
-const dailyMarkCounts = computed(() => {
-  const byDate = new Map<string, { positive: number; negative: number }>();
-  for (const mark of (staffAnalytics.value?.marks || []) as Array<Record<string, any>>) {
-    if (mark.deleted_at || mark.voided || mark.voided_at) continue;
-    const date = String(mark.business_date || mark.happened_at || "").slice(0, 10);
-    if (!date) continue;
-    const bucket = byDate.get(date) || { positive: 0, negative: 0 };
-    if (String(mark.mark_type || mark.kind) === "negative") bucket.negative += 1;
-    else bucket.positive += 1;
-    byDate.set(date, bucket);
-  }
-  return byDate;
-});
-
 const filledDailyActivity = computed<ActivityDay[]>(() => {
   const [start, end] = activityDateBounds();
   if (!start || !end) return [];
@@ -2786,6 +2776,7 @@ const activityChartPoints = computed<ActivityChartPoint[]>(() => {
       shortLabel: String(Number(day.date.slice(8, 10))),
       value: activityValue(day),
       events: day.events || {},
+      marks: day.marks,
     }));
   }
   const buckets = new Map<string, number>();
@@ -3014,7 +3005,12 @@ type TeamColumnKey =
   | "revenue"
   | "profit"
   | "positive"
-  | "negative";
+  | "negative"
+  | "procurementsCreated"
+  | "procurementsAccepted"
+  | "transfersCreated"
+  | "transfersAccepted"
+  | "positiveManual";
 
 const teamColumns: Array<{
   key: TeamColumnKey;
@@ -3047,7 +3043,37 @@ const teamColumns: Array<{
     value: (s) => Number(s.issued_profit || 0),
     format: (value) => formatMoney(value),
   },
+  {
+    key: "procurementsCreated",
+    label: "Закупки создал",
+    value: (s) => Number(s.procurements_created || 0),
+    format: String,
+  },
+  {
+    key: "procurementsAccepted",
+    label: "Закупки принял",
+    value: (s) => Number(s.procurements_completed || 0),
+    format: String,
+  },
+  {
+    key: "transfersCreated",
+    label: "Перемещения создал",
+    value: (s) => Number(s.transfers_created || 0),
+    format: String,
+  },
+  {
+    key: "transfersAccepted",
+    label: "Перемещения принял",
+    value: (s) => Number(s.transfers_completed || 0),
+    format: String,
+  },
   { key: "positive", label: "Плюсы", value: (s) => Number(s.mark_counts?.positive || 0), format: String },
+  {
+    key: "positiveManual",
+    label: "Плюсы вручную",
+    value: (s) => Number(s.mark_counts?.manual_positive || 0),
+    format: String,
+  },
   { key: "negative", label: "Минусы", value: (s) => Number(s.mark_counts?.negative || 0), format: String },
 ];
 
@@ -3727,10 +3753,10 @@ function activityDateBounds(): [string, string] {
 }
 function activityValue(day: ActivityDay) {
   if (activityMetric.value === "marks_positive") {
-    return dailyMarkCounts.value.get(day.date)?.positive || 0;
+    return Number(day.marks?.positive || 0);
   }
   if (activityMetric.value === "marks_negative") {
-    return dailyMarkCounts.value.get(day.date)?.negative || 0;
+    return Number(day.marks?.negative || 0);
   }
   if (activityMetric.value === "hours") {
     return Number(day.worked_minutes || 0) / 60;
@@ -3753,6 +3779,13 @@ function activityHeight(value: number) {
 /** Подсказка на столбике: из чего именно сложилось число за этот день. */
 function activityPointTitle(point: ActivityChartPoint) {
   const base = `${point.label}: ${activityMetricValueLabel(point.value)}`;
+  if (activityMetric.value === "marks_positive") {
+    const manual = Number(point.marks?.manual_positive || 0);
+    const auto = Number(point.marks?.system_positive || 0);
+    return `${base}
+Вручную: ${manual}
+Автоматически: ${auto}`;
+  }
   if (activityMetric.value !== "actions") return base;
   const breakdown = Object.entries(point.events || {})
     .filter(([, count]) => Number(count) > 0)
@@ -3772,10 +3805,10 @@ const activityMetricHint = computed(() => {
     return "Задачи, которые руководитель принял.";
   }
   if (activityMetric.value === "marks_positive") {
-    return "Положительные отметки, поставленные руководителем вручную.";
+    return "Плюсы это отметки руководителя вручную плюс подтверждённая работа: созданные и принятые закупки, перемещения и принятые задачи. Отменённое перемещение в счёт не идёт. Наведите на столбик, чтобы увидеть, сколько было вручную, а сколько автоматически.";
   }
   if (activityMetric.value === "marks_negative") {
-    return "Отрицательные отметки, поставленные руководителем вручную.";
+    return "Минусы ставит только руководитель вручную, автоматических минусов нет.";
   }
   return "Показывает работу с документами: закупки, перемещения и принятые задачи. Каждая запись привязана к сотруднику по его ПИН и задним числом не меняется, поэтому по ней видно, кто и когда что оформил. Сборка и выдача заказов сюда не входят, для них соседние показатели. Наведите на столбик, чтобы увидеть разбивку за день.";
 });
@@ -3790,13 +3823,23 @@ function activityMetricValueLabel(value: number) {
   if (activityMetric.value === "issued") return `${Math.round(value)} выдано`;
   if (activityMetric.value === "tasks") return `${Math.round(value)} задач`;
   if (activityMetric.value === "marks_positive") {
-    return `${Math.round(value)} плюсов`;
+    const count = Math.round(value);
+    return `${count} ${pluralRu(count, "плюс", "плюса", "плюсов")}`;
   }
   if (activityMetric.value === "marks_negative") {
-    return `${Math.round(value)} минусов`;
+    const count = Math.round(value);
+    return `${count} ${pluralRu(count, "минус", "минуса", "минусов")}`;
   }
   const count = Math.round(value);
   return `${count} ${activityWord(count)}`;
+}
+function pluralRu(count: number, one: string, few: string, many: string) {
+  const tail = Math.abs(count) % 100;
+  if (tail > 10 && tail < 20) return many;
+  const last = tail % 10;
+  if (last === 1) return one;
+  if (last >= 2 && last <= 4) return few;
+  return many;
 }
 function activityWord(count: number) {
   const value = Math.abs(count) % 100;
