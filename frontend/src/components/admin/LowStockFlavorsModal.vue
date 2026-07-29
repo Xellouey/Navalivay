@@ -29,7 +29,7 @@
         >
           <header class="flex items-start justify-between gap-3 border-b border-gray-100 px-5 py-4">
             <div class="min-w-0">
-              <p class="text-xs font-medium uppercase tracking-wide text-gray-500">Остатки вкусов</p>
+              <p class="text-xs font-medium uppercase tracking-wide text-gray-500">Розничные остатки</p>
               <h3 :id="titleId" class="mt-0.5 break-words text-base font-semibold text-gray-900">
                 {{ groupName }}
               </h3>
@@ -55,7 +55,7 @@
               role="status"
               aria-live="polite"
             >
-              Загружаем вкусы…
+              Загружаем остатки…
             </div>
             <div
               v-else-if="errorText"
@@ -76,7 +76,7 @@
               class="py-10 text-center text-sm text-gray-500"
               role="status"
             >
-              В этой линейке пока нет вкусов
+              В этой линейке пока нет позиций
             </div>
             <ol v-else class="divide-y divide-gray-100">
               <li
@@ -84,7 +84,7 @@
                 :key="item.id"
                 class="flex items-center justify-between gap-4 py-2.5"
               >
-                <span class="min-w-0 text-sm text-gray-800">{{ item.name }}</span>
+                <span class="min-w-0 break-words text-sm text-gray-800">{{ item.name }}</span>
                 <span
                   class="flex-shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold tabular-nums"
                   :class="item.stock === 0
