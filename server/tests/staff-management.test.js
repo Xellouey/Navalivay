@@ -236,18 +236,17 @@ try {
   });
   assertStatus(enableTracking, 200, 'enable tracking');
   assert.equal(enableTracking.data.enabled, true);
-  assert.equal(enableTracking.data.order_shift_restriction_enabled, false);
   assert.equal(
     enableTracking.response.headers.get('cache-control'),
     'no-store, max-age=0',
   );
 
-  const orderRestrictionBefore = await requestJson(
+  // Отдельной ручки ограничения больше нет: смена обязательна, пока учёт включён.
+  const removedRestrictionRoute = await requestJson(
     '/api/admin/crm/staff/settings/order-shift-restriction',
     { staffToken: managerToken },
   );
-  assertStatus(orderRestrictionBefore, 200, 'read order restriction setting');
-  assert.equal(orderRestrictionBefore.data.enabled, false);
+  assertStatus(removedRestrictionRoute, 404, 'order restriction route is gone');
 
   db.prepare(`
     INSERT INTO employees (
@@ -261,8 +260,15 @@ try {
     'Сотрудник',
     'Продавец',
   );
-  const blockedOrderRestriction = await requestJson(
-    '/api/admin/crm/staff/settings/order-shift-restriction',
+  // Учёт делает смену обязательной, поэтому включать его без ПИН у всех нельзя:
+  // иначе магазин остался бы в режиме чтения.
+  await requestJson('/api/admin/crm/staff/settings/tracking', {
+    method: 'PUT',
+    staffToken: managerToken,
+    body: { enabled: false },
+  });
+  const blockedTracking = await requestJson(
+    '/api/admin/crm/staff/settings/tracking',
     {
       method: 'PUT',
       staffToken: managerToken,
@@ -270,27 +276,27 @@ try {
     },
   );
   assertStatus(
-    blockedOrderRestriction,
+    blockedTracking,
     409,
-    'order restriction waits until every active employee has a pin',
+    'tracking waits until every active employee has a pin',
   );
-  assert.equal(blockedOrderRestriction.data.error, 'staff_pins_required');
+  assert.equal(blockedTracking.data.error, 'staff_pins_required');
   db.prepare(`
     UPDATE employees
     SET active = 0, deactivated_at = DATETIME('now')
     WHERE id = 'legacy_without_pin'
   `).run();
 
-  const enableOrderRestriction = await requestJson(
-    '/api/admin/crm/staff/settings/order-shift-restriction',
+  const enableTrackingAgain = await requestJson(
+    '/api/admin/crm/staff/settings/tracking',
     {
       method: 'PUT',
       staffToken: managerToken,
       body: { enabled: true },
     },
   );
-  assertStatus(enableOrderRestriction, 200, 'enable order restriction separately');
-  assert.equal(enableOrderRestriction.data.enabled, true);
+  assertStatus(enableTrackingAgain, 200, 'tracking turns on once pins are ready');
+  assert.equal(enableTrackingAgain.data.enabled, true);
 
   const blockedLegacyRestore = await requestJson(
     '/api/admin/crm/staff/employees/legacy_without_pin/restore',
@@ -303,7 +309,7 @@ try {
   assertStatus(
     blockedLegacyRestore,
     409,
-    'order restriction blocks restore without pin',
+    'restore without a pin is blocked while tracking is on',
   );
   assert.equal(blockedLegacyRestore.data.error, 'staff_pins_required');
 
@@ -973,10 +979,6 @@ try {
   );
   assertStatus(disableTrackingForTaskGuard, 200, 'disable tracking for task guard');
   assert.equal(disableTrackingForTaskGuard.data.enabled, false);
-  assert.equal(
-    disableTrackingForTaskGuard.data.order_shift_restriction_enabled,
-    false,
-  );
   const tasksWhileDisabled = await requestJson('/api/admin/crm/staff/tasks', {
     staffToken: managerToken,
   });

@@ -208,7 +208,6 @@ describe("CrmEmployees: вход сотрудника", () => {
     };
     store.$patch({
       staffTrackingEnabled: true,
-      staffOrderShiftRestrictionEnabled: true,
       staffToken: "manager-token",
       staffIdentity: { role: "manager", employee: manager },
       staffEmployees: [manager, employee],
@@ -317,18 +316,16 @@ describe("CrmEmployees: вход сотрудника", () => {
     expect(shiftModal.text()).toContain("Сохранить время");
   });
 
-  it("полностью объясняет последствия отключения учёта и отдельно подтверждает снятие ограничения", async () => {
+  it("объясняет, что выключение учёта снимает обязательную смену", async () => {
     const store = useCrmStore();
     store.$patch({
       staffTrackingEnabled: true,
-      staffOrderShiftRestrictionEnabled: true,
       staffToken: "manager-token",
       staffIdentity: { role: "manager", employee: manager },
       staffEmployees: [manager],
     });
     vi.spyOn(store, "fetchStaffSettings").mockResolvedValue({
       trackingEnabled: true,
-      orderShiftRestrictionEnabled: true,
     });
     vi.spyOn(store, "fetchStaffEmployees").mockResolvedValue([manager]);
     vi.spyOn(store, "fetchStaffAnalytics").mockImplementation(async () => {
@@ -338,14 +335,14 @@ describe("CrmEmployees: вход сотрудника", () => {
     });
     vi.spyOn(store, "fetchStaffMarks").mockResolvedValue([]);
     const updateTracking = vi.spyOn(store, "updateStaffTracking");
-    const updateRestriction = vi.spyOn(
-      store,
-      "updateStaffOrderShiftRestriction",
-    );
     const wrapper = mountEmployees();
     await flushPromises();
     await wrapper.get("#staff-manager-section").setValue("settings");
     await flushPromises();
+
+    // Отдельного выключателя обязательной смены в разделе больше нет.
+    expect(wrapper.text()).not.toContain("Включить ограничение");
+    expect(wrapper.text()).not.toContain("Выключить ограничение");
 
     await wrapper
       .findAll("button")
@@ -356,25 +353,9 @@ describe("CrmEmployees: вход сотрудника", () => {
     );
     expect(trackingConfirmation.text()).toContain("Открытая смена закроется");
     expect(trackingConfirmation.text()).toContain(
-      "ограничение заказов отключится",
+      "заказы снова можно будет менять без смены",
     );
     expect(updateTracking).not.toHaveBeenCalled();
-    await trackingConfirmation
-      .findAll("button")
-      .find((button) => button.text() === "Отмена")!
-      .trigger("click");
-
-    await wrapper
-      .findAll("button")
-      .find((button) => button.text() === "Выключить ограничение")!
-      .trigger("click");
-    const restrictionConfirmation = wrapper.get(
-      '[data-modal-title="Выключить обязательную смену?"]',
-    );
-    expect(restrictionConfirmation.text()).toContain(
-      "Заказы снова можно будет изменять без смены",
-    );
-    expect(updateRestriction).not.toHaveBeenCalled();
   });
 
   it("показывает сотрудников без ПИНа и позволяет сразу настроить доступ", async () => {
@@ -389,7 +370,6 @@ describe("CrmEmployees: вход сотрудника", () => {
     const store = useCrmStore();
     store.$patch({
       staffTrackingEnabled: true,
-      staffOrderShiftRestrictionEnabled: false,
       staffToken: "manager-token",
       staffIdentity: { role: "manager", employee: manager },
       staffEmployees: [manager, employee, employeeWithoutPin],
@@ -499,7 +479,6 @@ describe("CrmEmployees: вход сотрудника", () => {
     const store = useCrmStore();
     store.$patch({
       staffTrackingEnabled: true,
-      staffOrderShiftRestrictionEnabled: false,
       staffToken: "manager-token",
       staffIdentity: { role: "manager", employee: manager },
       staffEmployees: [manager, managerWithoutPin],
@@ -738,7 +717,6 @@ describe("CrmEmployees: вход сотрудника", () => {
     const store = useCrmStore();
     store.$patch({
       staffTrackingEnabled: true,
-      staffOrderShiftRestrictionEnabled: true,
       staffToken: "manager-token",
       staffIdentity: { role: "manager", employee: manager },
       staffEmployees: [manager, employee],
@@ -843,7 +821,6 @@ describe("CrmEmployees: вход сотрудника", () => {
     const store = useCrmStore();
     store.$patch({
       staffTrackingEnabled: true,
-      staffOrderShiftRestrictionEnabled: true,
       staffToken: "manager-token",
       staffIdentity: { role: "manager", employee: manager },
       staffEmployees: [manager, formerEmployee],

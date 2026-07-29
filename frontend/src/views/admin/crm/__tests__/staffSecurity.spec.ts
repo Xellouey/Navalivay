@@ -448,28 +448,16 @@ describe("безопасность учёта сотрудников", () => {
     expect(store.isStaffManager).toBe(true);
   });
 
-  it("разделяет общий учёт и ограничение заказов", async () => {
+  it("держит обязательную смену на одном выключателе учёта", async () => {
     const fetchMock = vi
       .fn()
-      .mockResolvedValueOnce(
-        jsonResponse({
-          enabled: true,
-          order_shift_restriction_enabled: false,
-        }),
-      )
       .mockResolvedValueOnce(jsonResponse({ enabled: true }))
-      .mockResolvedValueOnce(
-        jsonResponse({
-          enabled: false,
-          order_shift_restriction_enabled: false,
-        }),
-      );
+      .mockResolvedValueOnce(jsonResponse({ enabled: false }));
     vi.stubGlobal("fetch", fetchMock);
 
     const store = useCrmStore();
     await store.fetchStaffSettings();
     expect(store.staffTrackingEnabled).toBe(true);
-    expect(store.staffOrderShiftRestrictionEnabled).toBe(false);
 
     store.$patch({
       staffToken: "manager-token",
@@ -485,23 +473,18 @@ describe("безопасность учёта сотрудников", () => {
         },
       },
     });
-    await store.updateStaffOrderShiftRestriction(true);
-    expect(store.staffOrderShiftRestrictionEnabled).toBe(true);
     await store.updateStaffTracking(false);
     expect(store.staffTrackingEnabled).toBe(false);
-    expect(store.staffOrderShiftRestrictionEnabled).toBe(false);
 
+    // Отдельной настройки ограничения заказов больше нет, к ней никто не ходит.
+    expect(store).not.toHaveProperty("updateStaffOrderShiftRestriction");
+    for (const call of fetchMock.mock.calls) {
+      expect(String(call[0])).not.toContain("order-shift-restriction");
+    }
     expect(fetchMock.mock.calls[0][0]).toBe(
       "/api/admin/crm/staff/settings/tracking",
     );
     expect(fetchMock.mock.calls[1][0]).toBe(
-      "/api/admin/crm/staff/settings/order-shift-restriction",
-    );
-    expect(fetchMock.mock.calls[1][1]).toMatchObject({
-      method: "PUT",
-      body: JSON.stringify({ enabled: true }),
-    });
-    expect(fetchMock.mock.calls[2][0]).toBe(
       "/api/admin/crm/staff/settings/tracking",
     );
   });
@@ -850,7 +833,6 @@ describe("безопасность учёта сотрудников", () => {
       .mockResolvedValueOnce(
         jsonResponse({
           enabled: false,
-          order_shift_restriction_enabled: false,
         }),
       );
     vi.stubGlobal("fetch", fetchMock);
@@ -911,7 +893,6 @@ describe("безопасность учёта сотрудников", () => {
       .mockResolvedValueOnce(
         jsonResponse({
           enabled: false,
-          order_shift_restriction_enabled: false,
         }),
       );
     vi.stubGlobal("fetch", fetchMock);

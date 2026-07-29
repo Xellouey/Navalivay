@@ -221,10 +221,21 @@ export interface StaffNotification {
   task_id?: string | null;
 }
 
+export interface StaffNotificationTemplate {
+  event_type: string;
+  event_group: string;
+  title: string;
+  placeholders: string[];
+  default_text: string;
+  text: string;
+  customized: boolean;
+}
+
 export interface StaffNotificationsPayload {
   settings?: Array<Record<string, unknown>>;
   recipients?: Array<Record<string, unknown>>;
   outbox?: Array<Record<string, unknown>>;
+  templates?: StaffNotificationTemplate[];
 }
 
 export interface Customer {
@@ -1958,7 +1969,6 @@ export const useCrmStore = defineStore("crm", () => {
   const staffAccessLoading = ref(false);
   const staffAccessError = ref("");
   const staffTrackingEnabled = ref<boolean | null>(null);
-  const staffOrderShiftRestrictionEnabled = ref<boolean | null>(null);
   const staffSettingsLoading = ref(false);
   const staffSettingsError = ref("");
   const staffEmployees = ref<Employee[]>([]);
@@ -2158,24 +2168,14 @@ export const useCrmStore = defineStore("crm", () => {
     staffSettingsLoading.value = true;
     staffSettingsError.value = "";
     try {
-      const response = await staffFetchAPI<{
-        enabled: boolean;
-        order_shift_restriction_enabled?: boolean;
-      }>(
+      const response = await staffFetchAPI<{ enabled: boolean }>(
         `${API_BASE}/staff/settings/tracking`,
         {},
         { includeStaff: false },
       );
       staffTrackingEnabled.value = Boolean(response.enabled);
-      staffOrderShiftRestrictionEnabled.value = Boolean(
-        response.order_shift_restriction_enabled,
-      );
       if (!staffTrackingEnabled.value) clearInactiveStaffShift();
-      return {
-        trackingEnabled: staffTrackingEnabled.value,
-        orderShiftRestrictionEnabled:
-          staffOrderShiftRestrictionEnabled.value,
-      };
+      return { trackingEnabled: staffTrackingEnabled.value };
     } catch (error: any) {
       staffSettingsError.value =
         error?.message || "Не удалось загрузить настройки учёта";
@@ -2189,10 +2189,7 @@ export const useCrmStore = defineStore("crm", () => {
     staffSettingsLoading.value = true;
     staffSettingsError.value = "";
     try {
-      const response = await staffFetchAPI<{
-        enabled: boolean;
-        order_shift_restriction_enabled?: boolean;
-      }>(
+      const response = await staffFetchAPI<{ enabled: boolean }>(
         `${API_BASE}/staff/settings/tracking`,
         {
           method: "PUT",
@@ -2200,36 +2197,11 @@ export const useCrmStore = defineStore("crm", () => {
         },
       );
       staffTrackingEnabled.value = Boolean(response.enabled);
-      staffOrderShiftRestrictionEnabled.value = Boolean(
-        response.order_shift_restriction_enabled,
-      );
       if (!staffTrackingEnabled.value) clearInactiveStaffShift();
       return staffTrackingEnabled.value;
     } catch (error: any) {
       staffSettingsError.value =
         error?.message || "Не удалось изменить учёт сотрудников";
-      throw error;
-    } finally {
-      staffSettingsLoading.value = false;
-    }
-  }
-
-  async function updateStaffOrderShiftRestriction(enabled: boolean) {
-    staffSettingsLoading.value = true;
-    staffSettingsError.value = "";
-    try {
-      const response = await staffFetchAPI<{ enabled: boolean }>(
-        `${API_BASE}/staff/settings/order-shift-restriction`,
-        {
-          method: "PUT",
-          body: JSON.stringify({ enabled }),
-        },
-      );
-      staffOrderShiftRestrictionEnabled.value = Boolean(response.enabled);
-      return staffOrderShiftRestrictionEnabled.value;
-    } catch (error: any) {
-      staffSettingsError.value =
-        error?.message || "Не удалось изменить ограничение заказов";
       throw error;
     } finally {
       staffSettingsLoading.value = false;
@@ -3191,6 +3163,28 @@ export const useCrmStore = defineStore("crm", () => {
       settings: response.settings || [],
     };
     return response.settings || [];
+  }
+
+  async function saveStaffNotificationTemplate(eventType: string, text: string) {
+    const response = await staffFetchAPI<{
+      templates?: StaffNotificationTemplate[];
+    }>(
+      `${API_BASE}/staff/notifications/templates/${encodeURIComponent(eventType)}`,
+      { method: "PUT", body: JSON.stringify({ text }) },
+    );
+    staffNotifications.value = {
+      ...(staffNotifications.value || {}),
+      templates: response.templates || [],
+    };
+    return response.templates || [];
+  }
+
+  async function previewStaffNotificationTemplate(text: string) {
+    const response = await staffFetchAPI<{ preview: string }>(
+      `${API_BASE}/staff/notifications/templates/preview`,
+      { method: "POST", body: JSON.stringify({ text }) },
+    );
+    return response.preview;
   }
 
   async function resolveStaffNotificationRecipient(username: string) {
@@ -4945,7 +4939,6 @@ export const useCrmStore = defineStore("crm", () => {
     staffAccessLoading,
     staffAccessError,
     staffTrackingEnabled,
-    staffOrderShiftRestrictionEnabled,
     staffSettingsLoading,
     staffSettingsError,
     staffEmployees,
@@ -4984,7 +4977,6 @@ export const useCrmStore = defineStore("crm", () => {
     lockStaffAccess,
     fetchStaffSettings,
     updateStaffTracking,
-    updateStaffOrderShiftRestriction,
     bootstrapStaffManager,
     fetchStaffRecoveryManagerCandidates,
     recoverStaffManager,
@@ -5016,6 +5008,8 @@ export const useCrmStore = defineStore("crm", () => {
     fetchStaffMarkHistory,
     fetchStaffNotifications,
     updateStaffNotificationSettings,
+    saveStaffNotificationTemplate,
+    previewStaffNotificationTemplate,
     resolveStaffNotificationRecipient,
     addStaffNotificationRecipient,
     removeStaffNotificationRecipient,

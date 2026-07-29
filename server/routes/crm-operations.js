@@ -51,7 +51,6 @@ import {
   createShiftRequiredMiddleware,
   createStaffActorMiddleware,
   getStaffOperationReplay,
-  isStaffOrderShiftRestrictionEnabled,
   isStaffTrackingEnabled,
   recheckActiveShiftProof,
   recheckStaffActorProof,
@@ -65,9 +64,7 @@ import {
 } from "../utils/internal-notifications.js";
 
 export const crmOperationsRouter = express.Router();
-const requireOrderShift = createShiftRequiredMiddleware({
-  orderRestriction: true,
-});
+const requireOrderShift = createShiftRequiredMiddleware();
 const requireDocumentActor = createStaffActorMiddleware();
 
 function stableValue(value) {
@@ -111,15 +108,6 @@ function unwrapStaffOperation(result) {
 
 function recheckOrderShift(req) {
   if (!isStaffTrackingEnabled()) return null;
-  if (!isStaffOrderShiftRestrictionEnabled()) {
-    if (!req.staffShiftProof) return null;
-    try {
-      return recheckActiveShiftProof(req.staffShiftProof);
-    } catch (error) {
-      if (error?.code === "shift_required") return null;
-      throw error;
-    }
-  }
   return recheckActiveShiftProof(req.staffShiftProof);
 }
 
@@ -1388,8 +1376,9 @@ crmOperationsRouter.patch(
           }
         }
 
+        // Выдача идёт только через свой эндпоинт, иначе её некому записать.
         if (
-          isStaffOrderShiftRestrictionEnabled()
+          isStaffTrackingEnabled()
           && ["completed", "delivered"].includes(desiredStatus)
           && desiredStatus !== statusAtTxStart
         ) {

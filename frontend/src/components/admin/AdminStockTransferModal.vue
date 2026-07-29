@@ -211,7 +211,12 @@
             В {{ locationLabel(sourceLocation).toLowerCase() }} подходящих товаров нет
           </div>
           <ul v-else class="divide-y divide-gray-100">
-            <li v-for="item in results" :key="item.id" class="grid grid-cols-1 gap-3 px-4 py-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+            <li
+              v-for="item in results"
+              :key="item.id"
+              class="grid grid-cols-1 gap-3 px-4 py-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"
+              :class="{ 'opacity-60': item.available_stock <= 0 }"
+            >
               <div class="flex min-w-0 items-center gap-3">
                 <img v-if="item.image" :src="item.image" :alt="item.title" class="h-10 w-10 flex-shrink-0 rounded-lg object-cover" />
                 <div v-else data-test="transfer-search-image-placeholder" class="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg bg-gray-100" aria-hidden="true">
@@ -223,7 +228,18 @@
                   <div class="truncate text-sm font-medium text-gray-900">{{ item.title }}</div>
                   <div v-if="item.group_name" class="truncate text-xs font-semibold text-brand-dark">{{ item.group_name }}</div>
                   <div v-if="item.category_name" class="truncate text-xs text-gray-500">{{ item.category_name }}</div>
-                  <div class="truncate text-xs text-gray-500">Доступно: {{ item.available_stock }} шт</div>
+                  <div class="truncate text-xs text-gray-500">
+                    <span :class="sourceLocation === 'retail' ? 'font-semibold text-gray-900' : ''">
+                      Розница: {{ Number(item.retail_stock ?? 0) }}
+                    </span>
+                    ·
+                    <span :class="sourceLocation === 'warehouse' ? 'font-semibold text-gray-900' : ''">
+                      Склад: {{ Number(item.warehouse_stock ?? 0) }}
+                    </span>
+                  </div>
+                  <div v-if="item.available_stock <= 0" class="truncate text-xs text-amber-700">
+                    В {{ locationLabel(sourceLocation).toLowerCase() }} нет, переместить можно только обратно
+                  </div>
                 </div>
               </div>
               <div class="flex flex-shrink-0 items-center gap-1 justify-self-end rounded-xl bg-gray-100 p-1">
@@ -380,6 +396,8 @@ interface InventoryItem {
   is_variant?: boolean
   image?: string | null
   available_stock: number
+  retail_stock?: number
+  warehouse_stock?: number
 }
 
 interface SelectedItem {

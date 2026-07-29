@@ -1285,21 +1285,27 @@ adminRouter.get('/api/admin/inventory/items', authMiddleware, async (req, res) =
   try {
     const location = req.query.location === 'warehouse' ? 'warehouse' : 'retail';
     const search = typeof req.query.search === 'string' ? req.query.search.trim() : '';
+    // Ищем без привязки к точке: позиция без остатка в источнике, но с запасом
+    // в другой точке, тоже нужна в списке — сразу видно, что перемещение
+    // требуется в обратную сторону.
     const items = await searchProductsForCrm({
       search,
-      location,
       limit: Math.min(Math.max(Number(req.query.limit || 100), 1), 200),
     });
 
-    res.json(items.map((item) => ({
-      ...item,
-      category_name: item.category_name || null,
-      retail_stock: Number(item.stock || 0),
-      warehouse_stock: Number(item.warehouse_stock || 0),
-      available_stock: location === 'warehouse'
-        ? Number(item.warehouse_stock || 0)
-        : Number(item.stock || 0),
-    })));
+    res.json(items
+      .map((item) => {
+        const retailStock = Number(item.stock || 0);
+        const warehouseStock = Number(item.warehouse_stock || 0);
+        return {
+          ...item,
+          category_name: item.category_name || null,
+          retail_stock: retailStock,
+          warehouse_stock: warehouseStock,
+          available_stock: location === 'warehouse' ? warehouseStock : retailStock,
+        };
+      })
+      .filter((item) => item.retail_stock > 0 || item.warehouse_stock > 0));
   } catch (error) {
     console.error('[admin] Inventory items error:', error);
     res.status(500).json({ error: 'failed', message: error.message });

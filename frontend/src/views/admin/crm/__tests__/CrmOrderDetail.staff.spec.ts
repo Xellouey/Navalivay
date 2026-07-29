@@ -39,22 +39,16 @@ function makeOrder(overrides: Partial<Order> = {}): Order {
   } as Order;
 }
 
-function setupOrder(
-  order: Order,
-  tracking = true,
-  restriction = tracking,
-) {
+function setupOrder(order: Order, tracking = true) {
   const store = useCrmStore();
   store.$patch({
     currentOrder: order,
     staffTrackingEnabled: tracking,
-    staffOrderShiftRestrictionEnabled: restriction,
   });
   vi.spyOn(store, "fetchOrder").mockResolvedValue(order);
   vi.spyOn(store, "fetchOrderHistory").mockResolvedValue([]);
   vi.spyOn(store, "fetchStaffSettings").mockResolvedValue({
     trackingEnabled: tracking,
-    orderShiftRestrictionEnabled: restriction,
   });
   const requestShiftRequired = vi.fn().mockResolvedValue(undefined);
   const StaffShiftBarStub = defineComponent({
@@ -115,7 +109,7 @@ describe("CrmOrderDetail: обязательная смена", () => {
   });
 
   it("не предлагает обходную выдачу через поле статуса", async () => {
-    const tracked = setupOrder(makeOrder(), true, true);
+    const tracked = setupOrder(makeOrder(), true);
     await flushPromises();
     const trackedOptions = tracked.wrapper
       .findAll("option")
@@ -126,22 +120,10 @@ describe("CrmOrderDetail: обязательная смена", () => {
       "Сборка и выдача выполняются с доски заказов",
     );
 
+    // Учёт выключен: магазин работает по-старому, обходных состояний нет.
     tracked.wrapper.unmount();
     setActivePinia(createPinia());
-    const staged = setupOrder(makeOrder(), true, false);
-    await flushPromises();
-    const stagedOptions = staged.wrapper
-      .findAll("option")
-      .map((option) => option.text());
-    expect(stagedOptions).toContain("Завершён");
-    expect(stagedOptions).toContain("Выдан");
-    expect(staged.wrapper.text()).not.toContain(
-      "Сборка и выдача выполняются с доски заказов",
-    );
-
-    staged.wrapper.unmount();
-    setActivePinia(createPinia());
-    const legacy = setupOrder(makeOrder(), false, false);
+    const legacy = setupOrder(makeOrder(), false);
     await flushPromises();
     const legacyOptions = legacy.wrapper
       .findAll("option")

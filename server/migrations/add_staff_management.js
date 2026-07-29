@@ -409,10 +409,6 @@ export function migrateStaffManagement(database = db) {
         INSERT OR IGNORE INTO settings (key, value)
         VALUES ('staff_tracking_enabled', 'false')
       `).run();
-      database.prepare(`
-        INSERT OR IGNORE INTO settings (key, value)
-        VALUES ('staff_order_shift_restriction_enabled', 'false')
-      `).run();
     }
   });
 

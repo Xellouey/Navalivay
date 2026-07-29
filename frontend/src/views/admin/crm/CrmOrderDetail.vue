@@ -78,6 +78,14 @@
         </div>
       </div>
 
+      <p
+        v-if="saveBlockReason"
+        class="text-sm text-gray-500"
+        role="status"
+      >
+        {{ saveBlockReason }}
+      </p>
+
       <StaffShiftBar ref="shiftBarRef" />
 
       <!-- Error/Success banners at the top -->
@@ -284,7 +292,7 @@
                   {{ option.label }}
                 </option>
               </select>
-              <span v-if="staffOrderShiftRestrictionEnabled" class="text-xs font-normal leading-5 text-gray-500">
+              <span v-if="staffTrackingEnabled" class="text-xs font-normal leading-5 text-gray-500">
                 Сборка и выдача выполняются с доски заказов: система отдельно запишет сборщика и выдавшего.
               </span>
             </label>
@@ -603,7 +611,7 @@ type FormItem = {
 const crmStore = useCrmStore()
 const {
   currentOrder,
-  staffOrderShiftRestrictionEnabled,
+  staffTrackingEnabled,
 } = storeToRefs(crmStore)
 
 const loading = ref(false)
@@ -691,14 +699,14 @@ const allStatusOptions: Array<{ value: Order['status']; label: string }> = [
 const statusOptions = computed(() =>
   allStatusOptions
     .filter((option) =>
-      !staffOrderShiftRestrictionEnabled.value ||
+      !staffTrackingEnabled.value ||
       !['completed', 'delivered'].includes(option.value) ||
       option.value === currentOrder.value?.status,
     )
     .map((option) => ({
       ...option,
       disabled:
-        Boolean(staffOrderShiftRestrictionEnabled.value) &&
+        Boolean(staffTrackingEnabled.value) &&
         ['completed', 'delivered'].includes(option.value),
     })),
 )
@@ -738,53 +746,63 @@ const itemsCost = computed(() => {
 const finalAmount = computed(() => applyDiscounts(itemsDiscountedSubtotal.value, form.discountAmount, form.discountPercent))
 const expectedProfit = computed(() => calculateExpectedProfit(finalAmount.value, itemsCost.value))
 
+function originalItemFor(formItem: FormItem) {
+  return (currentOrder.value?.items || []).find((item) => {
+    const itemKey = item.variant_id
+      ? `${item.product_id}:${item.variant_id}`
+      : item.product_id
+    return itemKey === formItem.productId
+  })
+}
+
+function itemChanged(formItem: FormItem) {
+  const originalItem = originalItemFor(formItem)
+  if (!originalItem) return true
+  return (
+    formItem.quantity !== Number(originalItem.quantity || 0) ||
+    formItem.price !== Number(originalItem.price_per_unit || 0) ||
+    formItem.manualDiscount !== Number(originalItem.manual_discount_amount || 0)
+  )
+}
+
+const changedItems = computed(() => form.items.filter(itemChanged))
+
 const hasChanges = computed(() => {
   if (!currentOrder.value) return false
-  
-  // Проверяем изменение статуса
+
   if (editableStatus.value !== currentOrder.value.status) return true
-  
-  // Проверяем изменение адреса доставки
   if (form.deliveryAddress !== (currentOrder.value.delivery_address || '')) return true
-  
-  // Проверяем изменение комментария
   if (form.notes !== (currentOrder.value.notes || '')) return true
-  
-  // Проверяем изменение скидок
   if (form.discountAmount !== Number(currentOrder.value.discount_amount || 0)) return true
   if (form.discountPercent !== Number(currentOrder.value.discount_percent || 0)) return true
-  
-  // Проверяем изменения в позициях
-  const originalItems = currentOrder.value.items || []
-  if (form.items.length !== originalItems.length) return true
-  
-  // Проверяем каждую позицию
-  for (let i = 0; i < form.items.length; i++) {
-    const formItem = form.items[i]
-    const originalItem = originalItems.find((item) => {
-      const itemKey = item.variant_id
-        ? `${item.product_id}:${item.variant_id}`
-        : item.product_id
-      return itemKey === formItem.productId
-    })
-    if (!originalItem) return true
-    
-    if (formItem.quantity !== Number(originalItem.quantity || 0)) return true
-    if (formItem.price !== Number(originalItem.price_per_unit || 0)) return true
-    if (formItem.manualDiscount !== Number(originalItem.manual_discount_amount || 0)) return true
+
+  if (form.items.length !== (currentOrder.value.items || []).length) return true
+  return changedItems.value.length > 0
+})
+
+/**
+ * Проверяем только те позиции, которые правил менеджер. Старые заказы могут
+ * содержать строку, где скидка больше суммы строки: раньше такая строка
+ * навсегда гасила кнопку сохранения, и в заказе нельзя было поправить даже
+ * комментарий.
+ */
+const invalidChangedItems = computed(() =>
+  changedItems.value.filter((item) => !isItemValid(item)),
+)
+
+const saveBlockReason = computed(() => {
+  if (isSaving.value) return ''
+  if (!hasChanges.value) return 'Изменений нет'
+  if (invalidChangedItems.value.length > 0) {
+    return 'Проверьте изменённые позиции: количество, цена и скидка не сходятся'
   }
-  
-  return false
+  return ''
 })
 
 const canSave = computed(() => {
   if (isSaving.value) return false
   if (!hasChanges.value) return false
-  
-  // Если есть товары, проверяем их валидность
-  if (form.items.length > 0 && !form.items.every(isItemValid)) return false
-  
-  return true
+  return invalidChangedItems.value.length === 0
 })
 
 const canReactivate = computed(() => currentOrder.value?.status === 'cancelled')
@@ -826,7 +844,9 @@ watch(productSearch, (value) => {
 })
 
 watch(currentOrder, (order) => {
-  if (order) {
+  // Пока в форме есть несохранённые правки, не перетираем их обновлением
+  // заказа: иначе набранный комментарий пропадал на очередном обновлении.
+  if (order && !hasChanges.value) {
     initializeForm(order)
   }
 })

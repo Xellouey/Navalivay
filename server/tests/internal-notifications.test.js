@@ -6,7 +6,9 @@ import {
   buildInternalNotificationText,
   enqueueInternalNotification,
   enqueueInternalNotificationForGroup,
+  listInternalNotificationTemplates,
   resumeUnknownInternalNotification,
+  saveInternalNotificationTemplate,
 } from '../utils/internal-notifications.js';
 import {
   deliverInternalNotification,
@@ -523,6 +525,73 @@ try {
   });
   assert.equal(nextReminder.enqueued, 1);
   assert.equal(count('salary_reminders'), 2);
+
+  console.log('internal notifications: editable templates');
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS message_templates (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      content TEXT NOT NULL,
+      type TEXT NOT NULL DEFAULT 'order_contact',
+      active INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL DEFAULT (DATETIME('now')),
+      updated_at TEXT NOT NULL DEFAULT (DATETIME('now'))
+    )
+  `);
+
+  // Без правок отдаются заготовки и ничего не помечено как изменённое.
+  const defaults = listInternalNotificationTemplates(db);
+  assert.equal(defaults.length, 7);
+  assert.equal(defaults.every((item) => item.customized === false), true);
+
+  // Оба написания одного события ведут к одному шаблону.
+  saveInternalNotificationTemplate(db, 'task_created', 'Задача {номер}: {название}. До {срок}.');
+  assert.match(
+    buildInternalNotificationText('task.created', {
+      document_number: 7,
+      title: 'Пересчитать витрину',
+      deadline: '2026-07-24T07:00:00.000Z',
+    }, 'Задача {номер}: {название}. До {срок}.'),
+    /^Задача 7: Пересчитать витрину\. До 24\.07\.2026 10:00\.$/,
+  );
+
+  // Правка одного события не трогает остальные.
+  const afterEdit = listInternalNotificationTemplates(db);
+  assert.equal(afterEdit.filter((item) => item.customized).length, 1);
+  assert.equal(
+    afterEdit.find((item) => item.event_type === 'task.created').customized,
+    true,
+  );
+
+  // Правленый текст доезжает до очереди.
+  const templated = enqueueInternalNotification(db, {
+    uniqueKey: 'task:7:created',
+    eventType: 'task_created',
+    recipientTelegramId: '77',
+    payload: { document_number: 7, title: 'Пересчитать витрину', deadline: '2026-07-24T07:00:00.000Z' },
+  });
+  assert.match(JSON.parse(templated.notification.payload_json).text, /^Задача 7: Пересчитать витрину/);
+
+  // Пустой текст возвращает заготовку.
+  const restored = saveInternalNotificationTemplate(db, 'task.created', '   ');
+  assert.equal(restored.customized, false);
+  assert.match(restored.text, /^Новая задача #\{номер\}/);
+  assert.equal(
+    listInternalNotificationTemplates(db).every((item) => item.customized === false),
+    true,
+  );
+
+  // Опечатка в подстановке остаётся видимой, а не превращается в пустоту.
+  assert.match(
+    buildInternalNotificationText('task.created', { document_number: 9 }, 'Задача {номерр}'),
+    /\{номерр\}/,
+  );
+
+  // Неизвестное событие по-прежнему не пропускается молча.
+  assert.throws(
+    () => buildInternalNotificationText('нет_такого_события', {}),
+    /notification_text_required/,
+  );
 
   console.log('internal-notifications.test.js: ok');
 } finally {

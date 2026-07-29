@@ -100,19 +100,14 @@ const employeeB = await addEmployee({
 try {
   console.log('staff service: feature flag defaults off');
   assert.equal(service.isTrackingEnabled(), false);
-  assert.equal(service.isOrderShiftRestrictionEnabled(), false);
-  assert.throws(
-    () => service.setOrderShiftRestrictionEnabled(true),
-    (error) => error.code === 'staff_tracking_disabled',
-  );
   service.setTrackingEnabled(true);
   assert.equal(service.isTrackingEnabled(), true);
-  assert.equal(service.isOrderShiftRestrictionEnabled(), false);
-  service.setOrderShiftRestrictionEnabled(true);
-  assert.equal(service.isOrderShiftRestrictionEnabled(), true);
   service.setTrackingEnabled(false);
-  assert.equal(service.isOrderShiftRestrictionEnabled(), false);
+  assert.equal(service.isTrackingEnabled(), false);
   service.setTrackingEnabled(true);
+  // Отдельного выключателя обязательной смены больше нет: его роль играет учёт.
+  assert.equal(service.isOrderShiftRestrictionEnabled, undefined);
+  assert.equal(service.setOrderShiftRestrictionEnabled, undefined);
 
   console.log('staff service: four-digit and unique PIN');
   await assert.rejects(

@@ -27,7 +27,6 @@ migrateInternalNotifications(db);
 
 const {
   createStaffPinCredentials,
-  setStaffOrderShiftRestrictionEnabled,
   setStaffTrackingEnabled,
 } = await import(
   "../utils/staff-service.js"
@@ -335,27 +334,8 @@ try {
   assert.equal(legacyProcurement.response.status, 200);
   assert.equal(eventCount("procurement", legacyProcurement.data.id), 0);
 
-  console.log("staff operations: order restriction has a separate rollout flag");
-  setStaffTrackingEnabled(true);
-  const stagedOrder = await requestJson("/api/admin/crm/orders", {
-    method: "POST",
-    headers: { "Idempotency-Key": "order-before-shift-restriction" },
-    body: orderBody(),
-  });
-  assert.equal(stagedOrder.response.status, 200);
-  assert.equal(stagedOrder.data.employee_id, null);
-  const stagedLegacyCompletion = await requestJson(
-    `/api/admin/crm/orders/${stagedOrder.data.id}`,
-    {
-      method: "PATCH",
-      body: { status: "completed" },
-    },
-  );
-  assert.equal(stagedLegacyCompletion.response.status, 200);
-  assert.equal(stagedLegacyCompletion.data.status, "completed");
-
   console.log("staff operations: every order mutation requires a shift");
-  setStaffOrderShiftRestrictionEnabled(true);
+  setStaffTrackingEnabled(true);
   const ordersBeforeGate = db
     .prepare(
       `

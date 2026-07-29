@@ -238,18 +238,6 @@ export function createStaffService(database, {
     );
   }
 
-  function isOrderShiftRestrictionEnabled() {
-    if (!isTrackingEnabled()) return false;
-    const row = database
-      .prepare(
-        "SELECT value FROM settings WHERE key = 'staff_order_shift_restriction_enabled'",
-      )
-      .get();
-    return ['1', 'true', 'yes', 'on'].includes(
-      String(row?.value || '').trim().toLowerCase(),
-    );
-  }
-
   function setTrackingEnabled(enabled) {
     const changedAt = currentNow();
     const changedAtIso = nowIso(changedAt);
@@ -311,26 +299,7 @@ export function createStaffService(database, {
             );
           }
         }
-        database.prepare(`
-          INSERT INTO settings (key, value)
-          VALUES ('staff_order_shift_restriction_enabled', 'false')
-          ON CONFLICT(key) DO UPDATE SET value = 'false'
-        `).run();
       }
-    }).immediate();
-    return Boolean(enabled);
-  }
-
-  function setOrderShiftRestrictionEnabled(enabled) {
-    database.transaction(() => {
-      if (enabled && !isTrackingEnabled()) {
-        throw new StaffServiceError('staff_tracking_disabled', 409);
-      }
-      database.prepare(`
-        INSERT INTO settings (key, value)
-        VALUES ('staff_order_shift_restriction_enabled', ?)
-        ON CONFLICT(key) DO UPDATE SET value = excluded.value
-      `).run(enabled ? 'true' : 'false');
     }).immediate();
     return Boolean(enabled);
   }
@@ -1351,9 +1320,7 @@ export function createStaffService(database, {
 
   return {
     isTrackingEnabled,
-    isOrderShiftRestrictionEnabled,
     setTrackingEnabled,
-    setOrderShiftRestrictionEnabled,
     createPinCredentials,
     verifyPin,
     accessByPin,
@@ -1387,14 +1354,6 @@ export function isStaffTrackingEnabled() {
 
 export function setStaffTrackingEnabled(enabled) {
   return staffService.setTrackingEnabled(enabled);
-}
-
-export function isStaffOrderShiftRestrictionEnabled() {
-  return staffService.isOrderShiftRestrictionEnabled();
-}
-
-export function setStaffOrderShiftRestrictionEnabled(enabled) {
-  return staffService.setOrderShiftRestrictionEnabled(enabled);
 }
 
 export function createStaffPinCredentials(pin) {
@@ -1510,24 +1469,15 @@ export function createStaffActorMiddleware({
   };
 }
 
-export function createShiftRequiredMiddleware({
-  orderRestriction = false,
-} = {}) {
+/**
+ * Пока учёт сотрудников включён, любое изменение требует открытой смены.
+ * Отдельного выключателя нет: без смены остаётся только чтение.
+ */
+export function createShiftRequiredMiddleware() {
   return (req, res, next) => {
     if (!staffService.isTrackingEnabled()) return next();
     try {
       staffService.expireShifts();
-      if (
-        orderRestriction
-        && !staffService.isOrderShiftRestrictionEnabled()
-      ) {
-        const optionalShift = staffService.getActiveShift();
-        if (optionalShift) {
-          req.staffShiftProof = staffService.prepareShiftProof();
-          req.staffShift = optionalShift;
-        }
-        return next();
-      }
       req.staffShiftProof = staffService.prepareShiftProof();
       req.staffShift = staffService.getActiveShift();
       next();

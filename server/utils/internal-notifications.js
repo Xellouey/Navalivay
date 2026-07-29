@@ -85,77 +85,128 @@ function employeeName(payload) {
   );
 }
 
+/** Одно событие приходит под двумя написаниями, приводим к одному ключу. */
+const EVENT_TYPE_ALIASES = new Map([
+  ['procurement.created', 'procurement.created'],
+  ['procurement_created', 'procurement.created'],
+  ['procurement.accepted', 'procurement.accepted'],
+  ['procurement_received', 'procurement.accepted'],
+  ['transfer.created', 'transfer.created'],
+  ['transfer_created', 'transfer.created'],
+  ['transfer.accepted', 'transfer.accepted'],
+  ['transfer_completed', 'transfer.accepted'],
+  ['task.created', 'task.created'],
+  ['task_created', 'task.created'],
+  ['task.submitted', 'task.submitted'],
+  ['task_review_requested', 'task.submitted'],
+  ['salary.reminder', 'salary.reminder'],
+  ['salary_assignment_reminder', 'salary.reminder'],
+]);
+
+export function canonicalNotificationEventType(eventType) {
+  return EVENT_TYPE_ALIASES.get(String(eventType || '').trim()) || null;
+}
+
+/**
+ * Заготовки текстов. Руководитель может переписать любую из них в разделе
+ * «Сотрудники и зарплаты», подстановки при этом те же самые.
+ */
+export const INTERNAL_NOTIFICATION_TEMPLATES = [
+  {
+    eventType: 'procurement.created',
+    group: 'documents',
+    title: 'Создана закупка',
+    placeholders: ['номер', 'сотрудник'],
+    text: 'Создан документ закупки #{номер}\nСотрудник: {сотрудник}',
+  },
+  {
+    eventType: 'procurement.accepted',
+    group: 'documents',
+    title: 'Закупка принята',
+    placeholders: ['номер', 'сотрудник'],
+    text: 'Принята закупка #{номер}\nСотрудник: {сотрудник}',
+  },
+  {
+    eventType: 'transfer.created',
+    group: 'documents',
+    title: 'Создано перемещение',
+    placeholders: ['номер', 'откуда', 'куда', 'сотрудник'],
+    text: 'Создана заявка на перемещение #{номер}\nОткуда: {откуда}\nКуда: {куда}\nСотрудник: {сотрудник}',
+  },
+  {
+    eventType: 'transfer.accepted',
+    group: 'documents',
+    title: 'Перемещение принято',
+    placeholders: ['номер', 'куда', 'сотрудник'],
+    text: 'Перемещение #{номер} принято\nКуда: {куда}\nСотрудник: {сотрудник}',
+  },
+  {
+    eventType: 'task.created',
+    group: 'tasks',
+    title: 'Новая задача',
+    placeholders: ['номер', 'название', 'срок', 'сотрудник'],
+    text: 'Новая задача #{номер}\n{название}\nСрок: {срок}',
+  },
+  {
+    eventType: 'task.submitted',
+    group: 'tasks',
+    title: 'Задача на проверке',
+    placeholders: ['номер', 'название', 'сотрудник'],
+    text: 'Задача #{номер} отправлена на проверку\n{название}\nСотрудник: {сотрудник}',
+  },
+  {
+    eventType: 'salary.reminder',
+    group: 'salary',
+    title: 'Напоминание про зарплаты',
+    placeholders: ['период'],
+    text: 'Напоминание: внесите ожидаемые зарплаты за {период}.',
+  },
+];
+
+const DEFAULT_TEMPLATE_BY_TYPE = new Map(
+  INTERNAL_NOTIFICATION_TEMPLATES.map((item) => [item.eventType, item]),
+);
+
+export function defaultInternalNotificationText(eventType) {
+  return DEFAULT_TEMPLATE_BY_TYPE.get(canonicalNotificationEventType(eventType))?.text || null;
+}
+
+function notificationValues(payload) {
+  return {
+    'номер': documentNumber(payload),
+    'сотрудник': employeeName(payload),
+    'откуда': cleanLine(payload.from_location ?? payload.fromLocation ?? payload.from, 'не указано'),
+    'куда': cleanLine(payload.to_location ?? payload.toLocation ?? payload.to, 'не указано'),
+    'название': cleanLine(payload.title, 'Без названия'),
+    'срок': formatMinskDateTime(payload.deadline),
+    'период': cleanLine(payload.period_label ?? payload.period, 'текущий месяц'),
+  };
+}
+
+/** Неизвестная подстановка остаётся текстом как есть, чтобы опечатка была заметна. */
+export function renderNotificationTemplate(template, payload = {}) {
+  const values = notificationValues(payload);
+  return String(template).replace(
+    /\{([a-zA-Zа-яА-ЯёЁ_]+)\}/g,
+    (match, name) => (name in values ? values[name] : match),
+  );
+}
+
 /**
  * Текст всегда строится и сохраняется при постановке в очередь. Это снимок
- * события: последующее переименование сотрудника или документа его не меняет.
+ * события: последующее переименование сотрудника, документа или самого
+ * шаблона его не меняет.
  */
-export function buildInternalNotificationText(eventType, payload = {}) {
+export function buildInternalNotificationText(eventType, payload = {}, template = null) {
   if (payload?.text !== undefined && payload?.text !== null) {
     return normalizeRequiredText(payload.text, 'notification_text_required', TELEGRAM_TEXT_LIMIT);
   }
 
-  const type = String(eventType || '').trim();
-  const number = documentNumber(payload);
-  const employee = employeeName(payload);
-  const from = cleanLine(
-    payload.from_location ?? payload.fromLocation ?? payload.from,
-    'не указано',
-  );
-  const to = cleanLine(
-    payload.to_location ?? payload.toLocation ?? payload.to,
-    'не указано',
-  );
+  const source = template || defaultInternalNotificationText(eventType);
+  if (!source) throw new TypeError('notification_text_required');
 
-  let text;
-  switch (type) {
-    case 'procurement.created':
-    case 'procurement_created':
-      text = `Создан документ закупки #${number}\nСотрудник: ${employee}`;
-      break;
-    case 'procurement.accepted':
-    case 'procurement_received':
-      text = `Принята закупка #${number}\nСотрудник: ${employee}`;
-      break;
-    case 'transfer.created':
-    case 'transfer_created':
-      text = [
-        `Создана заявка на перемещение #${number}`,
-        `Откуда: ${from}`,
-        `Куда: ${to}`,
-        `Сотрудник: ${employee}`,
-      ].join('\n');
-      break;
-    case 'transfer.accepted':
-    case 'transfer_completed':
-      text = [
-        `Перемещение #${number} принято`,
-        `Куда: ${to}`,
-        `Сотрудник: ${employee}`,
-      ].join('\n');
-      break;
-    case 'task.created':
-    case 'task_created': {
-      const title = cleanLine(payload.title, 'Без названия');
-      const deadline = formatMinskDateTime(payload.deadline);
-      text = `Новая задача #${number}\n${title}\nСрок: ${deadline}`;
-      break;
-    }
-    case 'task.submitted':
-    case 'task_review_requested': {
-      const title = cleanLine(payload.title, 'Без названия');
-      text = `Задача #${number} отправлена на проверку\n${title}\nСотрудник: ${employee}`;
-      break;
-    }
-    case 'salary.reminder':
-    case 'salary_assignment_reminder': {
-      const period = cleanLine(payload.period_label ?? payload.period, 'текущий месяц');
-      text = `Напоминание: внесите ожидаемые зарплаты за ${period}.`;
-      break;
-    }
-    default:
-      throw new TypeError('notification_text_required');
-  }
-
+  const text = renderNotificationTemplate(source, payload);
+  if (!text.trim()) throw new TypeError('notification_text_required');
   if (text.length > TELEGRAM_TEXT_LIMIT) {
     throw new TypeError('notification_text_required_too_long');
   }
@@ -203,6 +254,83 @@ function sameQueuedMessage(existing, expected) {
  * выполняется в `db.transaction(...)`, документ, событие и outbox фиксируются
  * или откатываются вместе.
  */
+const TEMPLATE_TYPE = 'internal_notification';
+
+/** Правленый руководителем текст, если он есть. Иначе работает заготовка. */
+export function getInternalNotificationTemplate(database, eventType) {
+  const canonical = canonicalNotificationEventType(eventType);
+  if (!canonical) return null;
+  try {
+    const row = requireDatabase(database).prepare(`
+      SELECT content FROM message_templates
+      WHERE type = ? AND name = ? AND active = 1
+      LIMIT 1
+    `).get(TEMPLATE_TYPE, canonical);
+    return row?.content ? String(row.content) : null;
+  } catch {
+    // Таблицы может не быть в старой базе: тогда просто остаётся заготовка.
+    return null;
+  }
+}
+
+export function listInternalNotificationTemplates(database) {
+  const saved = new Map();
+  try {
+    for (const row of requireDatabase(database).prepare(`
+      SELECT name, content, active FROM message_templates WHERE type = ?
+    `).all(TEMPLATE_TYPE)) {
+      saved.set(String(row.name), row);
+    }
+  } catch {
+    // Старая база без таблицы шаблонов, отдаём одни заготовки.
+  }
+  return INTERNAL_NOTIFICATION_TEMPLATES.map((item) => {
+    const row = saved.get(item.eventType);
+    const custom = row && Number(row.active) === 1 ? String(row.content) : null;
+    return {
+      event_type: item.eventType,
+      event_group: item.group,
+      title: item.title,
+      placeholders: item.placeholders,
+      default_text: item.text,
+      text: custom || item.text,
+      customized: Boolean(custom && custom !== item.text),
+    };
+  });
+}
+
+export function saveInternalNotificationTemplate(database, eventType, content) {
+  const canonical = canonicalNotificationEventType(eventType);
+  if (!canonical) throw new TypeError('notification_event_type_required');
+  const db = requireDatabase(database);
+  const fallback = defaultInternalNotificationText(canonical);
+  const normalized = String(content ?? '').trim();
+  // Пустой текст и текст, совпавший с заготовкой, значат «вернуть как было».
+  if (!normalized || normalized === fallback) {
+    db.prepare('DELETE FROM message_templates WHERE type = ? AND name = ?')
+      .run(TEMPLATE_TYPE, canonical);
+    return { event_type: canonical, text: fallback, customized: false };
+  }
+  if (normalized.length > TELEGRAM_TEXT_LIMIT) {
+    throw new TypeError('notification_text_required_too_long');
+  }
+  const existing = db.prepare('SELECT id FROM message_templates WHERE type = ? AND name = ?')
+    .get(TEMPLATE_TYPE, canonical);
+  if (existing) {
+    db.prepare(`
+      UPDATE message_templates
+      SET content = ?, active = 1, updated_at = DATETIME('now')
+      WHERE id = ?
+    `).run(normalized, existing.id);
+  } else {
+    db.prepare(`
+      INSERT INTO message_templates (id, name, content, type, active)
+      VALUES (?, ?, ?, ?, 1)
+    `).run(`intnotif_${canonical.replace(/\W/g, '_')}`, canonical, normalized, TEMPLATE_TYPE);
+  }
+  return { event_type: canonical, text: normalized, customized: true };
+}
+
 export function enqueueInternalNotification(database, {
   uniqueKey,
   eventType,
@@ -227,7 +355,11 @@ export function enqueueInternalNotification(database, {
   const sourcePayload = parsePayload(payload);
   const normalizedPayload = {
     ...sourcePayload,
-    text: buildInternalNotificationText(normalizedEventType, sourcePayload),
+    text: buildInternalNotificationText(
+      normalizedEventType,
+      sourcePayload,
+      getInternalNotificationTemplate(db, normalizedEventType),
+    ),
   };
   const payloadJson = stableJson(normalizedPayload);
   if (Buffer.byteLength(payloadJson, 'utf8') > PAYLOAD_JSON_LIMIT) {

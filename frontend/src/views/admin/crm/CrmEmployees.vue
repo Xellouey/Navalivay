@@ -345,16 +345,23 @@
                     class="group flex h-full min-w-9 flex-1 flex-col items-center justify-end"
                     :title="`${point.label}: ${activityMetricValueLabel(point.value)}`"
                   >
-                    <span class="mb-1 text-[10px] font-semibold text-slate-600">
+                    <span class="mb-1 shrink-0 text-[10px] font-semibold text-slate-600">
                       {{ activityMetricShortValue(point.value) }}
                     </span>
-                    <div
-                      v-if="point.value > 0"
-                      class="w-full max-w-7 rounded-t bg-blue-500 transition-all duration-300 group-hover:bg-blue-700"
-                      :style="{ height: `${activityHeight(point.value)}%` }"
-                    />
-                    <div v-else class="h-px w-full max-w-7 bg-slate-200" />
-                    <span class="mt-1 text-[9px] text-slate-400">{{ point.shortLabel }}</span>
+                    <!--
+                      Столбик меряется от этой дорожки, а не от всей колонки:
+                      иначе подписи сверху и снизу не влезали в h-36, flex сжимал
+                      столбики, и высокие сжимались сильнее низких.
+                    -->
+                    <div class="flex w-full max-w-7 min-h-0 flex-1 items-end">
+                      <div
+                        v-if="point.value > 0"
+                        class="w-full rounded-t bg-blue-500 transition-all duration-300 group-hover:bg-blue-700"
+                        :style="{ height: `${activityHeight(point.value)}%` }"
+                      />
+                      <div v-else class="h-px w-full bg-slate-200" />
+                    </div>
+                    <span class="mt-1 shrink-0 text-[9px] text-slate-400">{{ point.shortLabel }}</span>
                   </div>
                 </div>
               </section>
@@ -1318,11 +1325,11 @@
               </div>
               <div
                 class="rounded-xl border px-4 py-3"
-                :class="orderRestrictionReady
+                :class="allStaffPinsReady
                   ? 'border-emerald-200 bg-emerald-50'
                   : 'border-amber-200 bg-amber-50'"
               >
-                <div class="text-xs" :class="orderRestrictionReady ? 'text-emerald-700' : 'text-amber-700'">
+                <div class="text-xs" :class="allStaffPinsReady ? 'text-emerald-700' : 'text-amber-700'">
                   ПИНы настроены
                 </div>
                 <div class="mt-1 font-bold text-slate-950">
@@ -1395,7 +1402,10 @@
             <div class="flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <h3 class="font-semibold text-slate-950">Общий учёт сотрудников</h3>
-                <p class="mt-1 text-sm text-slate-500">Включает смены, действия, задачи, отметки и аналитику.</p>
+                <p class="mt-1 text-sm text-slate-500">
+                  Смены, действия, задачи, отметки и аналитика. Пока учёт включён,
+                  без открытой смены заказы можно только смотреть.
+                </p>
               </div>
               <CrmButton
                 :variant="staffTrackingEnabled ? 'secondary' : 'primary'"
@@ -1403,22 +1413,6 @@
                 @click="toggleTracking"
               >
                 {{ staffTrackingEnabled ? "Выключить" : "Включить" }}
-              </CrmButton>
-            </div>
-            <div class="flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <h3 class="font-semibold text-slate-950">Запрет изменений заказов без смены</h3>
-                <p class="mt-1 text-sm text-slate-500">
-                  Просмотр останется доступен. Создание, сборка, выдача и любое другое изменение потребуют открытую смену.
-                </p>
-              </div>
-              <CrmButton
-                :variant="staffOrderShiftRestrictionEnabled ? 'danger' : 'primary'"
-                :loading="staffSettingsLoading"
-                :disabled="!staffTrackingEnabled || (!staffOrderShiftRestrictionEnabled && !orderRestrictionReady)"
-                @click="toggleOrderShiftRestriction"
-              >
-                {{ staffOrderShiftRestrictionEnabled ? "Выключить ограничение" : "Включить ограничение" }}
               </CrmButton>
             </div>
           </div>
@@ -1486,6 +1480,111 @@
             >
               {{ notificationSettingError }}
             </p>
+
+            <section
+              class="rounded-2xl border border-slate-200 bg-white shadow-sm"
+              data-testid="staff-notification-templates"
+            >
+              <div class="flex flex-wrap items-baseline justify-between gap-2 border-b border-slate-200 px-5 py-3">
+                <h3 class="font-semibold text-slate-950">Тексты сообщений</h3>
+                <p class="text-xs text-slate-500">
+                  Что именно уходит в Telegram по каждому событию
+                </p>
+              </div>
+              <div class="divide-y divide-slate-200">
+                <article
+                  v-for="template in notificationTemplates"
+                  :key="template.event_type"
+                  class="px-5 py-4"
+                >
+                  <div class="flex flex-wrap items-center justify-between gap-2">
+                    <h4 class="flex flex-wrap items-center gap-2 font-medium text-slate-900">
+                      {{ template.title }}
+                      <span
+                        v-if="template.customized"
+                        class="rounded-full bg-blue-50 px-2 py-0.5 text-[11px] font-semibold text-blue-700"
+                      >
+                        изменён
+                      </span>
+                      <span
+                        v-if="!notificationGroupEnabled(template.event_group)"
+                        class="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-500"
+                      >
+                        группа выключена
+                      </span>
+                    </h4>
+                  </div>
+
+                  <label class="sr-only" :for="`template-${template.event_type}`">
+                    Текст уведомления: {{ template.title }}
+                  </label>
+                  <textarea
+                    :id="`template-${template.event_type}`"
+                    v-model="templateDrafts[template.event_type]"
+                    rows="3"
+                    class="mt-2 w-full rounded-xl border border-slate-300 px-3 py-2 font-mono text-sm leading-6 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
+                    :disabled="templateSaving === template.event_type"
+                  />
+
+                  <div class="mt-2 flex flex-wrap items-center gap-1.5 text-xs text-slate-500">
+                    <span>Подстановки:</span>
+                    <button
+                      v-for="placeholder in template.placeholders"
+                      :key="placeholder"
+                      type="button"
+                      class="rounded-lg bg-slate-100 px-2 py-1 font-mono text-[11px] text-slate-700 hover:bg-slate-200"
+                      :title="`Добавить ${placeholderLabel(placeholder)} в текст`"
+                      @click="appendPlaceholder(template.event_type, placeholder)"
+                    >
+                      {{ placeholderLabel(placeholder) }}
+                    </button>
+                  </div>
+
+                  <p
+                    v-if="templatePreviews[template.event_type]"
+                    class="mt-2 whitespace-pre-line rounded-xl bg-slate-50 px-3 py-2 text-sm text-slate-700"
+                  >
+                    {{ templatePreviews[template.event_type] }}
+                  </p>
+                  <p
+                    v-if="templateErrors[template.event_type]"
+                    class="mt-2 text-sm text-red-700"
+                    role="alert"
+                  >
+                    {{ templateErrors[template.event_type] }}
+                  </p>
+
+                  <div class="mt-3 flex flex-wrap gap-2">
+                    <CrmButton
+                      variant="primary"
+                      size="sm"
+                      :loading="templateSaving === template.event_type"
+                      :disabled="!templateChanged(template)"
+                      @click="saveTemplate(template)"
+                    >
+                      Сохранить
+                    </CrmButton>
+                    <CrmButton
+                      variant="secondary"
+                      size="sm"
+                      :disabled="templateSaving === template.event_type"
+                      @click="previewTemplate(template)"
+                    >
+                      Показать пример
+                    </CrmButton>
+                    <CrmButton
+                      v-if="template.customized || templateChanged(template)"
+                      variant="ghost"
+                      size="sm"
+                      :disabled="templateSaving === template.event_type"
+                      @click="resetTemplate(template)"
+                    >
+                      Вернуть исходный
+                    </CrmButton>
+                  </div>
+                </article>
+              </div>
+            </section>
 
             <div class="grid gap-5 lg:grid-cols-[minmax(0,380px)_minmax(0,1fr)]">
               <form class="space-y-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm" @submit.prevent="resolvedRecipient ? addNotificationRecipient() : resolveNotificationRecipient()">
@@ -1875,61 +1974,59 @@
     <AdminModal
       :is-open="markEditorOpen"
       :title="editingMark ? 'Изменить отметку' : 'Добавить отметку'"
-      size="sm"
+      size="md"
       :show-actions="false"
       :persistent="formSaving"
       :is-loading="formSaving"
       @close="closeMarkEditor"
       @cancel="closeMarkEditor"
     >
-      <form class="space-y-4" @submit.prevent="saveMark">
-        <section class="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm" aria-label="Текущая отметка">
-          <div class="flex items-center gap-3 bg-slate-50 px-4 py-3">
-            <span class="flex size-9 shrink-0 items-center justify-center rounded-full bg-blue-100 text-sm font-bold text-blue-700">
+      <!-- Поля в две колонки: в один столбец форма не помещалась и модалку приходилось листать. -->
+      <form class="space-y-3" @submit.prevent="saveMark">
+        <section
+          class="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5"
+          aria-label="Текущая отметка"
+        >
+          <span class="flex min-w-0 items-center gap-2.5">
+            <span class="flex size-8 shrink-0 items-center justify-center rounded-full bg-blue-100 text-sm font-bold text-blue-700">
               {{ selectedEmployeeLabel.charAt(0).toUpperCase() }}
             </span>
-            <div class="min-w-0">
-              <p class="text-xs font-medium text-slate-500">Сотрудник</p>
-              <p class="truncate font-semibold text-slate-950">{{ selectedEmployeeLabel }}</p>
-            </div>
-          </div>
-          <div v-if="editingMark" class="border-t border-slate-200 px-4 py-4">
-            <div class="flex flex-wrap items-center justify-between gap-2">
-              <p class="text-xs font-medium uppercase tracking-wide text-slate-500">Текущая отметка</p>
-              <span
-                class="rounded-full px-2.5 py-1 text-xs font-semibold"
-                :class="
-                  editingMark.kind === 'positive'
-                    ? 'bg-emerald-100 text-emerald-800'
-                    : 'bg-rose-100 text-rose-800'
-                "
-              >
-                {{ markKindLabel(editingMark.kind) }}
-              </span>
-            </div>
-            <p class="mt-2 text-base font-semibold leading-snug text-slate-950">
-              {{ editingMark.title }}
-            </p>
-          </div>
+            <span class="truncate font-semibold text-slate-950">{{ selectedEmployeeLabel }}</span>
+          </span>
+          <span v-if="editingMark" class="flex min-w-0 items-center gap-2">
+            <span
+              class="shrink-0 rounded-full px-2.5 py-0.5 text-xs font-semibold"
+              :class="
+                editingMark.kind === 'positive'
+                  ? 'bg-emerald-100 text-emerald-800'
+                  : 'bg-rose-100 text-rose-800'
+              "
+            >
+              {{ markKindLabel(editingMark.kind) }}
+            </span>
+            <span class="truncate text-sm text-slate-600">{{ editingMark.title }}</span>
+          </span>
         </section>
-        <label class="block">
-          <span class="mb-1 block text-sm font-medium text-slate-700">Тип</span>
-          <select v-model="markForm.kind" class="min-h-[44px] w-full rounded-xl border border-slate-300 bg-white px-3">
-            <option value="positive">Положительная</option>
-            <option value="negative">Отрицательная</option>
-          </select>
-        </label>
+        <div class="grid gap-3 sm:grid-cols-2">
+          <label class="block">
+            <span class="mb-1 block text-sm font-medium text-slate-700">Тип</span>
+            <select v-model="markForm.kind" class="min-h-[44px] w-full rounded-xl border border-slate-300 bg-white px-3">
+              <option value="positive">Положительная</option>
+              <option value="negative">Отрицательная</option>
+            </select>
+          </label>
+          <label class="block">
+            <span class="mb-1 block text-sm font-medium text-slate-700">Дата</span>
+            <input v-model="markForm.occurred_at" type="datetime-local" required class="min-h-[44px] w-full rounded-xl border border-slate-300 px-3" />
+          </label>
+        </div>
         <label class="block">
           <span class="mb-1 block text-sm font-medium text-slate-700">Короткое название</span>
           <input v-model.trim="markForm.title" required class="min-h-[44px] w-full rounded-xl border border-slate-300 px-3" />
         </label>
         <label class="block">
           <span class="mb-1 block text-sm font-medium text-slate-700">Пояснение</span>
-          <textarea v-model.trim="markForm.description" rows="4" required class="w-full rounded-xl border border-slate-300 px-3 py-2" />
-        </label>
-        <label class="block">
-          <span class="mb-1 block text-sm font-medium text-slate-700">Дата</span>
-          <input v-model="markForm.occurred_at" type="datetime-local" required class="min-h-[44px] w-full rounded-xl border border-slate-300 px-3" />
+          <textarea v-model.trim="markForm.description" rows="3" required class="w-full rounded-xl border border-slate-300 px-3 py-2" />
         </label>
         <p v-if="formError" class="text-sm text-red-700" role="alert">{{ formError }}</p>
         <div class="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
@@ -2164,6 +2261,7 @@ import {
   type StaffAnalytics,
   type StaffHistoryVersion,
   type StaffMark,
+  type StaffNotificationTemplate,
   type StaffSalary,
   type StaffShift,
 } from "@/stores/crm";
@@ -2222,7 +2320,6 @@ const {
   staffNotificationsLoading,
   staffNotificationsError,
   staffTrackingEnabled,
-  staffOrderShiftRestrictionEnabled,
   staffSettingsLoading,
   staffSettingsError,
 } = storeToRefs(crmStore);
@@ -2364,6 +2461,10 @@ const shiftCorrectionOpen = ref(false);
 const editingShift = ref<StaffShift | null>(null);
 const shiftCorrectionForm = reactive({ started_at: "", ended_at: "", reason: "" });
 const notificationSaving = ref(false);
+const templateDrafts = reactive<Record<string, string>>({});
+const templatePreviews = reactive<Record<string, string>>({});
+const templateErrors = reactive<Record<string, string>>({});
+const templateSaving = ref("");
 const notificationFormError = ref("");
 const notificationSettingError = ref("");
 const recipientForm = reactive({ event_group: "documents", username: "" });
@@ -3020,7 +3121,7 @@ const staffWithoutPin = computed(() =>
     (employee) => employeeActive(employee) && !employee.pin_configured,
   ),
 );
-const orderRestrictionReady = computed(
+const allStaffPinsReady = computed(
   () =>
     activeStaffCount.value > 0 &&
     pinReadyStaffCount.value === activeStaffCount.value,
@@ -3269,6 +3370,9 @@ const notificationRecipients = computed(
 );
 const notificationOutbox = computed(
   () => (staffNotifications.value?.outbox || []) as Array<Record<string, any>>,
+);
+const notificationTemplates = computed(
+  () => staffNotifications.value?.templates || [],
 );
 const salaryContextRecord = computed(
   () =>
@@ -3643,6 +3747,69 @@ function notificationRecipientCount(group: string) {
     (recipient) => String(recipient.event_group) === group,
   ).length;
 }
+function notificationGroupEnabled(group: string) {
+  return Boolean(
+    notificationSettings.value.find(
+      (setting) => String(setting.event_group) === group,
+    )?.enabled,
+  );
+}
+function templateChanged(template: StaffNotificationTemplate) {
+  return (templateDrafts[template.event_type] ?? template.text) !== template.text;
+}
+function placeholderLabel(placeholder: string) {
+  return `{${placeholder}}`;
+}
+function appendPlaceholder(eventType: string, placeholder: string) {
+  templateDrafts[eventType] =
+    `${templateDrafts[eventType] ?? ""}${placeholderLabel(placeholder)}`;
+}
+async function saveTemplate(template: StaffNotificationTemplate) {
+  templateSaving.value = template.event_type;
+  templateErrors[template.event_type] = "";
+  try {
+    await crmStore.saveStaffNotificationTemplate(
+      template.event_type,
+      templateDrafts[template.event_type] ?? "",
+    );
+    syncTemplateDrafts();
+    templatePreviews[template.event_type] = "";
+  } catch (error: any) {
+    templateErrors[template.event_type] =
+      error?.code === "notification_text_too_long"
+        ? "Текст длиннее, чем принимает Telegram. Сократите."
+        : error?.message || "Не удалось сохранить текст";
+  } finally {
+    templateSaving.value = "";
+  }
+}
+async function previewTemplate(template: StaffNotificationTemplate) {
+  templateErrors[template.event_type] = "";
+  try {
+    templatePreviews[template.event_type] =
+      await crmStore.previewStaffNotificationTemplate(
+        templateDrafts[template.event_type] ?? template.text,
+      );
+  } catch (error: any) {
+    templateErrors[template.event_type] = error?.message || "Не удалось показать пример";
+  }
+}
+function resetTemplate(template: StaffNotificationTemplate) {
+  templateDrafts[template.event_type] = template.default_text;
+  templatePreviews[template.event_type] = "";
+  templateErrors[template.event_type] = "";
+}
+/** Черновики держим отдельно от сохранённого, чтобы не терять правку при перезагрузке списка. */
+function syncTemplateDrafts() {
+  for (const template of notificationTemplates.value) {
+    if (
+      templateDrafts[template.event_type] === undefined ||
+      !templateChanged(template)
+    ) {
+      templateDrafts[template.event_type] = template.text;
+    }
+  }
+}
 function recipientWord(count: number) {
   const value = Math.abs(count) % 100;
   const last = value % 10;
@@ -3920,6 +4087,7 @@ async function loadShifts() {
 async function loadNotifications() {
   try {
     await crmStore.fetchStaffNotifications();
+    syncTemplateDrafts();
     notificationSettingError.value = "";
   } catch {
     // Store owns the visible error.
@@ -4186,7 +4354,7 @@ async function toggleTracking() {
     requestConfirmation({
       title: "Выключить общий учёт?",
       description:
-        "Открытая смена закроется, ограничение заказов отключится. История сохранится.",
+        "Открытая смена закроется, заказы снова можно будет менять без смены. История сохранится.",
       context: `${currentShiftReadinessLabel.value}\nНовые действия перестанут попадать в показатели сотрудников.`,
       confirmLabel: "Выключить учёт",
       variant: "danger",
@@ -4201,36 +4369,6 @@ async function toggleTracking() {
     pageMessage.value = error?.message || "Не удалось изменить настройку";
   }
 }
-async function toggleOrderShiftRestriction() {
-  if (staffSettingsLoading.value || !staffTrackingEnabled.value) return;
-  const next = !staffOrderShiftRestrictionEnabled.value;
-  if (next && !orderRestrictionReady.value) {
-    pageMessageKind.value = "error";
-    pageMessage.value =
-      "Сначала задайте ПИН каждому действующему сотруднику";
-    return;
-  }
-  pageMessage.value = "";
-  requestConfirmation({
-    title: next
-      ? "Включить обязательную смену?"
-      : "Выключить обязательную смену?",
-    description: next
-      ? "После подтверждения любое изменение заказа потребует открытую смену."
-      : "Заказы снова можно будет изменять без смены, и автор таких действий не определится.",
-    context: `${activeStaffCount.value} сотрудников · ПИНы ${pinReadyStaffCount.value} из ${activeStaffCount.value}\n${currentShiftReadinessLabel.value}`,
-    confirmLabel: next ? "Включить ограничение" : "Выключить ограничение",
-    variant: next ? "primary" : "danger",
-    run: async () => {
-      await crmStore.updateStaffOrderShiftRestriction(next);
-      pageMessageKind.value = "info";
-      pageMessage.value = next
-        ? "Ограничение заказов включено"
-        : "Ограничение заказов выключено";
-    },
-  });
-}
-
 function resetEmployeeForm() {
   Object.assign(employeeForm, {
     first_name: "",

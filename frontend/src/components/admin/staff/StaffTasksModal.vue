@@ -11,44 +11,23 @@
     @cancel="requestClose"
   >
     <div class="space-y-4">
-      <div class="space-y-3">
-        <div class="grid grid-cols-2 gap-2 sm:flex" role="group" aria-label="Фильтр задач">
-          <CrmButton
-            v-for="option in filters"
-            :key="option.value"
-            variant="filter"
-            size="sm"
-            :pressed="filter === option.value"
-            :disabled="Boolean(actionDialog)"
-            @click="filter = option.value"
-          >
-            {{ option.label }}
-            <span class="ml-1 rounded-full bg-white/80 px-1.5 py-0.5 text-[11px]">
-              {{ filterCount(option.value) }}
-            </span>
-          </CrmButton>
-        </div>
-        <div class="flex flex-wrap justify-end gap-2">
-          <CrmButton
-            v-if="isStaffManager"
-            variant="primary"
-            size="sm"
-            :disabled="Boolean(actionDialog)"
-            @click="createOpen = !createOpen"
-          >
-            Новая задача
-          </CrmButton>
-          <CrmButton
-            variant="secondary"
-            size="sm"
-            refresh-icon
-            :loading="staffTasksLoading"
-            :disabled="Boolean(actionDialog)"
-            @click="loadTasks"
-          >
-            Обновить
-          </CrmButton>
-        </div>
+      <div class="grid grid-cols-2 gap-2 sm:grid-cols-4" role="group" aria-label="Фильтр задач">
+        <CrmButton
+          v-for="option in filters"
+          :key="option.value"
+          class="whitespace-nowrap"
+          variant="filter"
+          size="sm"
+          block
+          :pressed="filter === option.value"
+          :disabled="Boolean(actionDialog)"
+          @click="filter = option.value"
+        >
+          {{ option.label }}
+          <span class="ml-1 rounded-full bg-white/80 px-1.5 py-0.5 text-[11px]">
+            {{ filterCount(option.value) }}
+          </span>
+        </CrmButton>
       </div>
 
       <div v-if="isStaffManager" class="grid grid-cols-2 gap-2 sm:grid-cols-4">
@@ -67,17 +46,20 @@
         </div>
       </div>
 
-      <div v-if="isStaffManager" class="grid gap-2 sm:grid-cols-[minmax(0,1fr)_220px]">
+      <!-- Поиск, отбор и действия одной панелью: раньше кнопки висели отдельной строкой. -->
+      <div class="flex flex-wrap items-center gap-2">
         <input
+          v-if="isStaffManager"
           v-model.trim="taskSearch"
           type="search"
           placeholder="Найти задачу"
-          class="min-h-[44px] w-full rounded-xl border border-slate-300 bg-white px-3 text-sm"
+          class="min-h-[44px] w-full min-w-40 flex-1 rounded-xl border border-slate-300 bg-white px-3 text-sm sm:w-auto"
           aria-label="Поиск задач"
         />
         <select
+          v-if="isStaffManager"
           v-model="assigneeFilter"
-          class="min-h-[44px] w-full rounded-xl border border-slate-300 bg-white px-3 text-sm"
+          class="min-h-[44px] w-full rounded-xl border border-slate-300 bg-white px-3 text-sm sm:w-52"
           aria-label="Исполнитель задачи"
         >
           <option value="">Все исполнители</option>
@@ -90,6 +72,27 @@
             {{ assignee.name }}
           </option>
         </select>
+        <div class="flex w-full gap-2 sm:ml-auto sm:w-auto">
+          <CrmButton
+            v-if="isStaffManager"
+            class="flex-1 sm:flex-none"
+            variant="primary"
+            :disabled="Boolean(actionDialog)"
+            @click="createOpen = !createOpen"
+          >
+            Новая задача
+          </CrmButton>
+          <CrmButton
+            class="flex-1 sm:flex-none"
+            variant="secondary"
+            refresh-icon
+            :loading="staffTasksLoading"
+            :disabled="Boolean(actionDialog)"
+            @click="loadTasks"
+          >
+            Обновить
+          </CrmButton>
+        </div>
       </div>
 
       <p

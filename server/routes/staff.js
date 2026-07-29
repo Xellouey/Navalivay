@@ -16,7 +16,6 @@ import {
   createStaffPinCredentials,
   expireStaffShifts,
   getActiveShiftForEmployee,
-  isStaffOrderShiftRestrictionEnabled,
   isStaffTrackingEnabled,
   listStaffShiftCandidates,
   openStaffShift,
@@ -25,7 +24,6 @@ import {
   revokeStaffSessions,
   runStaffIdempotentOperation,
   sendStaffServiceError,
-  setStaffOrderShiftRestrictionEnabled,
   setStaffTrackingEnabled,
   StaffServiceError,
 } from '../utils/staff-service.js';
@@ -36,8 +34,11 @@ import {
 } from '../utils/business-time.js';
 import {
   enqueueInternalNotificationForGroup,
+  listInternalNotificationTemplates,
   normalizeTelegramId,
+  renderNotificationTemplate,
   resumeUnknownInternalNotification,
+  saveInternalNotificationTemplate,
 } from '../utils/internal-notifications.js';
 
 const BASE = '/api/admin/crm/staff';
@@ -915,13 +916,14 @@ staffRouter.post(`${BASE}/recovery-manager`, adminReauthLimiter, asyncRoute(asyn
 }));
 
 staffRouter.get(`${BASE}/settings/tracking`, asyncRoute((_req, res) => {
-  res.json({
-    enabled: isStaffTrackingEnabled(),
-    order_shift_restriction_enabled:
-      isStaffOrderShiftRestrictionEnabled(),
-  });
+  res.json({ enabled: isStaffTrackingEnabled() });
 }));
 
+/**
+ * Включённый учёт сам по себе делает открытую смену обязательной для любых
+ * изменений, поэтому проверки готовности стоят здесь: без активного
+ * руководителя и ПИН у всех магазин остался бы в режиме чтения.
+ */
 staffRouter.put(
   `${BASE}/settings/tracking`,
   managerAccess,
@@ -929,34 +931,10 @@ staffRouter.put(
     if (typeof req.body?.enabled !== 'boolean') {
       throw new StaffServiceError('enabled_boolean_required', 400);
     }
-    const enabled = setStaffTrackingEnabled(req.body.enabled);
-    res.json({
-      enabled,
-      order_shift_restriction_enabled:
-        isStaffOrderShiftRestrictionEnabled(),
-    });
-  }),
-);
-
-staffRouter.get(
-  `${BASE}/settings/order-shift-restriction`,
-  managerAccess,
-  asyncRoute((_req, res) => {
-    res.json({ enabled: isStaffOrderShiftRestrictionEnabled() });
-  }),
-);
-
-staffRouter.put(
-  `${BASE}/settings/order-shift-restriction`,
-  managerAccess,
-  asyncRoute((req, res) => {
-    if (typeof req.body?.enabled !== 'boolean') {
-      throw new StaffServiceError('enabled_boolean_required', 400);
-    }
-    if (req.body.enabled && activeManagerCount() < 1) {
-      throw new StaffServiceError('active_manager_required', 409);
-    }
     if (req.body.enabled) {
+      if (activeManagerCount() < 1) {
+        throw new StaffServiceError('active_manager_required', 409);
+      }
       const readiness = activeEmployeePinReadiness();
       if (
         readiness.activeCount < 1
@@ -965,9 +943,7 @@ staffRouter.put(
         throw new StaffServiceError('staff_pins_required', 409, readiness);
       }
     }
-    res.json({
-      enabled: setStaffOrderShiftRestrictionEnabled(req.body.enabled),
-    });
+    res.json({ enabled: setStaffTrackingEnabled(req.body.enabled) });
   }),
 );
 
@@ -1129,11 +1105,7 @@ staffRouter.post(
     const credentials = hasNewPin
       ? await createStaffPinCredentials(req.body?.new_pin)
       : null;
-    if (
-      isStaffOrderShiftRestrictionEnabled()
-      && !pinConfigured
-      && !credentials
-    ) {
+    if (isStaffTrackingEnabled() && !pinConfigured && !credentials) {
       throw new StaffServiceError('staff_pins_required', 409);
     }
     if (credentials && employee.role === 'manager') {
@@ -2433,11 +2405,49 @@ staffRouter.get(
     res.json({
       settings: settings.map((row) => ({ ...row, enabled: Boolean(row.enabled) })),
       recipients: recipients.map((row) => ({ ...row, active: Boolean(row.active) })),
+      templates: listInternalNotificationTemplates(db),
       outbox: outbox.map((row) => ({
         ...row,
         payload: parseJson(row.payload_json, {}),
         result: parseJson(row.result_json, null),
       })),
+    });
+  }),
+);
+
+staffRouter.put(
+  `${BASE}/notifications/templates/:eventType`,
+  managerAccess,
+  asyncRoute((req, res) => {
+    let saved;
+    try {
+      saved = saveInternalNotificationTemplate(db, req.params.eventType, req.body?.text);
+    } catch (error) {
+      const code = error?.message === 'notification_text_required_too_long'
+        ? 'notification_text_too_long'
+        : 'invalid_notification_template';
+      throw new StaffServiceError(code, 400);
+    }
+    res.json({ template: saved, templates: listInternalNotificationTemplates(db) });
+  }),
+);
+
+/** Предпросмотр на выдуманных данных: показать, как текст выглядит целиком. */
+staffRouter.post(
+  `${BASE}/notifications/templates/preview`,
+  managerAccess,
+  asyncRoute((req, res) => {
+    const text = cleanText(req.body?.text, { required: true, max: 4096, code: 'invalid_notification_template' });
+    res.json({
+      preview: renderNotificationTemplate(text, {
+        document_number: 1042,
+        employee_name: 'Павел Сергеевич',
+        from_location: 'Склад',
+        to_location: 'Витрина',
+        title: 'Проверить остатки на витрине',
+        deadline: new Date(Date.now() + 86_400_000).toISOString(),
+        period_label: 'июль 2026',
+      }),
     });
   }),
 );

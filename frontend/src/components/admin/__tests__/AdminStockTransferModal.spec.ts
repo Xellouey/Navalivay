@@ -286,4 +286,38 @@ describe('AdminStockTransferModal', () => {
       }),
     )
   })
+
+  it('показывает остаток и в рознице, и на складе, выделяя точку отправления', async () => {
+    const store = useAdminStore()
+    vi.spyOn(store, 'fetchInventoryTransfers').mockResolvedValue({
+      transfers: [],
+      pagination: { page: 1, totalPages: 1 },
+    })
+    vi.spyOn(store, 'fetchInventoryItems').mockResolvedValue([{
+      id: 'product_1',
+      title: 'Aegis Nano 0.6',
+      category_name: 'Расходники',
+      group_name: 'Картриджи для AEGIS NANO',
+      image: null,
+      retail_stock: 2,
+      warehouse_stock: 7,
+      available_stock: 7,
+    }] as any)
+
+    const wrapper = mountModal()
+    await wrapper.setProps({ isOpen: true })
+    await flushPromises()
+    await wrapper.get('button').trigger('click')
+    await flushPromises()
+
+    const row = wrapper.findAll('li').find((node) => node.text().includes('Aegis Nano 0.6'))!
+    expect(row.text()).toContain('Розница: 2')
+    expect(row.text()).toContain('Склад: 7')
+
+    // Отправляем со склада, значит выделен склад, а не розница.
+    const warehouse = row.findAll('span').find((node) => node.text().startsWith('Склад:'))!
+    const retail = row.findAll('span').find((node) => node.text().startsWith('Розница:'))!
+    expect(warehouse.classes()).toContain('font-semibold')
+    expect(retail.classes()).not.toContain('font-semibold')
+  })
 })
