@@ -1,4 +1,5 @@
 import { db } from './db.js';
+import { roundMoney } from './utils/money.js';
 
 const WHOLESALE_CODE_HEADER = 'x-wholesale-code';
 const WHOLESALE_SECRET_HEADER = 'x-wholesale-secret';
@@ -414,7 +415,7 @@ export function getGroupAverageCostStats(groupId) {
     averageCostAuto:
       row?.average_cost_auto === null || row?.average_cost_auto === undefined
         ? null
-        : Number(row.average_cost_auto),
+        : roundMoney(row.average_cost_auto),
     directProductCount: Number(row?.direct_product_count ?? 0),
     productsWithCostCount: Number(row?.products_with_cost_count ?? 0),
   };
@@ -469,7 +470,7 @@ export function getBulkGroupAverageCostStats(groupIds) {
         averageCostAuto:
           row.average_cost_auto === null || row.average_cost_auto === undefined
             ? null
-            : Number(row.average_cost_auto),
+            : roundMoney(row.average_cost_auto),
         directProductCount: Number(row.direct_product_count ?? 0),
         productsWithCostCount: Number(row.products_with_cost_count ?? 0),
       });

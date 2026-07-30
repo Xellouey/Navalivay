@@ -1259,6 +1259,7 @@ import { storeToRefs } from 'pinia'
 import { ChevronUpIcon, ChevronDownIcon, PencilSquareIcon, TrashIcon, PlusIcon, ArrowTrendingUpIcon, CurrencyDollarIcon, ChartBarIcon, BoltIcon, TruckIcon, ClipboardDocumentCheckIcon, SparklesIcon, LockOpenIcon, Cog6ToothIcon, PhotoIcon } from '@heroicons/vue/24/outline'
 import { useAdminStore, type Category, type CategoryGroup, type Product } from '@/stores/admin'
 import { useCrmStore } from '@/stores/crm'
+import { formatChartValueCompact } from '@/utils/chartValue'
 import AdminBannersList from '@/components/admin/AdminBannersList.vue'
 import AdminCategoriesList from '@/components/admin/AdminCategoriesList.vue'
 import AdminModal from '@/components/AdminModal.vue'
@@ -2282,16 +2283,6 @@ watch(chartData, (newData) => {
 function formatChartValue(value: number): string {
   if (selectedMetric.value === 'orders') return value.toString()
   return formatCurrency(value)
-}
-
-// Компактное форматирование для меток над столбиками
-function formatChartValueCompact(value: number): string {
-  if (selectedMetric.value === 'orders') {
-    return value.toString()
-  }
-  
-  // Для денег - точное значение без округления
-  return value.toString()
 }
 
 function getBarHeightPx(value: number): number {

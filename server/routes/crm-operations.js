@@ -62,6 +62,7 @@ import {
 import {
   enqueueInternalNotificationForGroup,
 } from "../utils/internal-notifications.js";
+import { roundMoney } from "../utils/money.js";
 
 export const crmOperationsRouter = express.Router();
 const requireOrderShift = createShiftRequiredMiddleware();
@@ -311,7 +312,7 @@ function calculateAverageCost(productId, newQuantity, newCostPerUnit) {
   const totalCost = currentStock * currentCost + newQuantity * newCostPerUnit;
   const totalQuantity = currentStock + newQuantity;
 
-  return totalCost / totalQuantity;
+  return roundMoney(totalCost / totalQuantity);
 }
 
 function applyDiscounts(totalAmount, discountAmount, discountPercent) {
@@ -1099,7 +1100,7 @@ crmOperationsRouter.post(
         discount_amount,
         discount_percent,
       );
-      const profit = finalAmount - totalCost;
+      const profit = roundMoney(finalAmount - totalCost);
 
       // Создаем заказ в транзакции
       const tx = db.transaction(() => {
@@ -1742,7 +1743,7 @@ crmOperationsRouter.patch(
             updatedDiscountAmount,
             updatedDiscountPercent,
           );
-          const profit = finalAmount - totalCost;
+          const profit = roundMoney(finalAmount - totalCost);
 
           db.prepare(
             `
@@ -1781,7 +1782,7 @@ crmOperationsRouter.patch(
             updatedDiscountAmount,
             updatedDiscountPercent,
           );
-          const profit = finalAmount - totalCost;
+          const profit = roundMoney(finalAmount - totalCost);
 
           db.prepare(
             `
@@ -3086,9 +3087,10 @@ crmOperationsRouter.delete(
             let previousCost = 0;
             if (previousStock > 0) {
               const currentCost = Number(product.cost_price || 0);
-              previousCost =
+              previousCost = roundMoney(
                 (currentCost * currentTotalStock - quantity * costPerUnit) /
-                previousStock;
+                  previousStock,
+              );
               if (previousCost < 0) {
                 previousCost = 0;
               }
