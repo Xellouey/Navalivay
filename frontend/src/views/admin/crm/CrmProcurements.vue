@@ -861,7 +861,7 @@
 
         <div class="grid gap-4 md:grid-cols-2">
           <label class="flex flex-col gap-2 text-sm font-medium text-gray-700">
-            Розничная цена, ₽
+            Розничная цена, BYN
             <input
               v-model.number="quickProduct.priceRub"
               type="number"
@@ -871,7 +871,7 @@
             />
           </label>
           <label class="flex flex-col gap-2 text-sm font-medium text-gray-700">
-            Себестоимость, ₽
+            Себестоимость, BYN
             <input
               v-model.number="quickProduct.costPrice"
               type="number"
@@ -2334,7 +2334,7 @@ function formatCurrency(value?: number | null) {
   if (value === null || value === undefined) return "—";
   return new Intl.NumberFormat("ru-RU", {
     style: "currency",
-    currency: "RUB",
+    currency: "BYN",
     minimumFractionDigits: value % 1 === 0 ? 0 : 2,
     maximumFractionDigits: 2,
   }).format(value);

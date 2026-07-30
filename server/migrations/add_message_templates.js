@@ -41,7 +41,7 @@ export function migrateMessageTemplates() {
 Состав заказа:
 [items]
 
-К оплате: [total]₽
+К оплате: [total] BYN
 
 Адрес доставки: [address]
 Телефон: [phone]

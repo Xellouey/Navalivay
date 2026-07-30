@@ -349,7 +349,7 @@ function handleProductLeave() {
 
 // Format price
 function formatPrice(price: number): string {
-  return `${price.toLocaleString('ru-RU')} ₽`
+  return `${price.toLocaleString('ru-RU')} BYN`
 }
 
 // Lifecycle

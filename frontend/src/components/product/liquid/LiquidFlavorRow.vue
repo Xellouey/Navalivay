@@ -25,7 +25,7 @@
       <span v-else class="liquid-product-strength placeholder">—</span>
     </div>
     <div class="liquid-product-col liquid-product-price-col">
-      <span class="liquid-product-price">{{ formattedPrice }} ₽</span>
+      <span class="liquid-product-price">{{ formattedPrice }} BYN</span>
     </div>
     <div class="liquid-product-col liquid-product-stock-col">
       <span class="liquid-product-stock" :class="stockClass">

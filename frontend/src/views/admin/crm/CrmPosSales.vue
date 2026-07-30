@@ -407,7 +407,7 @@ function formatCurrency(value: number | null): string {
   return value.toLocaleString('ru-RU', {
     minimumFractionDigits: 0,
     maximumFractionDigits: 2
-  }) + ' ₽'
+  }) + ' BYN'
 }
 
 function formatDateTime(dateStr: string): string {

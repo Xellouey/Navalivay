@@ -109,7 +109,7 @@
 
     <!-- Price - МОБИЛЬНО АДАПТИВНОЕ -->
     <div class="w-full" v-if="!form.hasVariants">
-      <label class="block text-sm font-medium text-gray-700 mb-2">Цена, ₽ (целое число)</label>
+      <label class="block text-sm font-medium text-gray-700 mb-2">Цена, BYN (целое число)</label>
       <input
         v-model.number="form.priceRub"
         type="number"
@@ -141,7 +141,7 @@
         />
       </div>
       <div>
-        <label class="block text-sm font-medium text-gray-700 mb-2">Себестоимость, ₽</label>
+        <label class="block text-sm font-medium text-gray-700 mb-2">Себестоимость, BYN</label>
         <input
           v-model.number="form.costPrice"
           type="number"

@@ -145,7 +145,7 @@ const managerLinkWithMessage = computed(() => {
 
 
 function formatPrice(price: number): string {
-  return `${price.toLocaleString('ru-RU')} ₽`
+  return `${price.toLocaleString('ru-RU')} BYN`
 }
 
 function onOrderClick() {

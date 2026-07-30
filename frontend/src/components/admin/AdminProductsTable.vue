@@ -2127,7 +2127,7 @@ function formatRub(value?: number) {
   const numeric = Number(value ?? 0)
   return new Intl.NumberFormat('ru-RU', {
     style: 'currency',
-    currency: 'RUB',
+    currency: 'BYN',
     minimumFractionDigits: 0,
     maximumFractionDigits: 2
   }).format(Number.isFinite(numeric) ? numeric : 0)

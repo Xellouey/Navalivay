@@ -126,7 +126,7 @@
                 >
                   <div class="flex-1 min-w-0">
                     <p class="text-sm font-medium text-gray-900 truncate">{{ sale.product_name }}</p>
-                    <p class="text-xs text-gray-500">{{ formatPrice(sale.price) }} ₽</p>
+                    <p class="text-xs text-gray-500">{{ formatPrice(sale.price) }} BYN</p>
                     <!-- Привязанный клиент чека (если был выбран при откладывании) -->
                     <p
                       v-if="sale.customer_id"
@@ -194,7 +194,7 @@
             <p class="text-sm text-gray-600 mb-4">
               <span class="font-medium">{{ selectedPendingSale.product_name }}</span>
               <br />
-              Цена: {{ formatPrice(selectedPendingSale.price) }} ₽
+              Цена: {{ formatPrice(selectedPendingSale.price) }} BYN
             </p>
             <div class="mb-4">
               <label class="block text-sm font-medium text-gray-700 mb-1">Комментарий</label>

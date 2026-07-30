@@ -285,7 +285,11 @@ if (!BOT_TOKEN) {
 
   bot.on('text', async (ctx) => {
     const text = ctx.message?.text ?? '';
-    const match = text.match(/Хочу купить:\s*(.+)\nЦена:\s*([\d\s\u00A0]+)\s*₽?\nСсылка:\s*(\S+)/i);
+    // Валюта опциональна и допускает оба написания: сайт шлёт BYN, но в чатах
+    // могут висеть старые сообщения с рублём, их тоже принимаем.
+    const match = text.match(
+      /Хочу купить:\s*(.+)\nЦена:\s*([\d\s ]+)\s*(?:BYN|₽|руб\.?)?\nСсылка:\s*(\S+)/i,
+    );
     if (!match) {
       return;
     }
@@ -345,7 +349,7 @@ if (!BOT_TOKEN) {
       const formattedPrice = new Intl.NumberFormat('ru-RU').format(finalPrice);
       const webAppUrl = getStoreWebAppUrl();
       await ctx.reply(
-        `Заказ №${result.pickupCellNumber} принят!\nТовар: ${title.trim()}\nСтоимость: ${formattedPrice} ₽\nМенеджер свяжется с вами для подтверждения.`,
+        `Заказ №${result.pickupCellNumber} принят!\nТовар: ${title.trim()}\nСтоимость: ${formattedPrice} BYN\nМенеджер свяжется с вами для подтверждения.`,
         Markup.inlineKeyboard([
           [Markup.button.webApp('🛍 Открыть каталог', webAppUrl)] 
         ])

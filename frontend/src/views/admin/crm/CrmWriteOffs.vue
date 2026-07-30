@@ -756,7 +756,7 @@ function formatCurrency(value?: number | null) {
   if (value === null || value === undefined) return '—'
   return new Intl.NumberFormat('ru-RU', {
     style: 'currency',
-    currency: 'RUB',
+    currency: 'BYN',
     minimumFractionDigits: value % 1 === 0 ? 0 : 2,
     maximumFractionDigits: 2
   }).format(value)

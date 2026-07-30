@@ -2048,7 +2048,7 @@ crmRouter.post('/api/admin/crm/orders/:orderId/generate-message', authMiddleware
     
     // Получить позиции заказа
     const items = db.prepare('SELECT * FROM order_items WHERE order_id = ?').all(orderId);
-    const itemsText = items.map(item => `• ${item.product_title} × ${item.quantity} — ${item.total_price}₽`).join('\n');
+    const itemsText = items.map(item => `• ${item.product_title} × ${item.quantity} — ${item.total_price} BYN`).join('\n');
     
     // Заменить переменные в шаблоне
     let message = template.content;

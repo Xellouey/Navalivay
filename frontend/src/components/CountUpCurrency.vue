@@ -19,7 +19,7 @@ const formattedValue = computed(() => {
   }
   return new Intl.NumberFormat('ru-RU', {
     style: 'currency',
-    currency: 'RUB',
+    currency: 'BYN',
     minimumFractionDigits: 0,
     maximumFractionDigits: 0
   }).format(displayValue.value)
