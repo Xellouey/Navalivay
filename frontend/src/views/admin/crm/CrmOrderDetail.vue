@@ -334,7 +334,7 @@
               <input
                 v-model="productSearch"
                 type="search"
-                placeholder="Название, артикул или группа"
+                placeholder="Название, артикул или линейка"
                 class="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
               />
               <p v-if="showSearchHint" class="mt-1 text-xs text-gray-500">Для поиска введите минимум 2 символа.</p>

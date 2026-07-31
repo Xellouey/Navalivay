@@ -111,6 +111,7 @@
         <p v-if="activeTransfer.comment" class="mt-2 text-sm text-gray-600">{{ activeTransfer.comment }}</p>
         <div class="mt-2 space-y-1 text-xs text-gray-500">
           <div>Создал: {{ activeTransfer.created_by || 'администратор' }} · {{ formatDate(activeTransfer.created_at) }}</div>
+          <div v-if="activeTransfer.updated_at">Изменил: {{ activeTransfer.updated_by || 'администратор' }} · {{ formatDate(activeTransfer.updated_at) }}</div>
           <div v-if="activeTransfer.completed_at">Оприходовал: {{ activeTransfer.completed_by || 'администратор' }} · {{ formatDate(activeTransfer.completed_at) }}</div>
           <div v-if="activeTransfer.cancelled_at">Отменил: {{ activeTransfer.cancelled_by || 'администратор' }} · {{ formatDate(activeTransfer.cancelled_at) }}</div>
         </div>
@@ -163,7 +164,7 @@
         <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
         </svg>
-        Все перемещения
+        {{ editingTransferId ? `Назад к перемещению №${editingTransferNumber}` : 'Все перемещения' }}
       </button>
 
       <div class="grid gap-3 sm:grid-cols-[1fr,auto,1fr] sm:items-end">
@@ -174,6 +175,7 @@
           </div>
         </div>
         <button
+          v-if="!editingTransferId"
           type="button"
           class="rounded-xl border border-gray-300 bg-white px-4 py-3 text-sm font-semibold text-gray-700 transition hover:border-rose-300 hover:text-brand-dark"
           :disabled="submitting"
@@ -181,6 +183,7 @@
         >
           Поменять
         </button>
+        <div v-else class="text-center text-xs text-gray-500 sm:pb-3">Направление задано при создании</div>
         <div>
           <div class="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">Куда</div>
           <div class="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-base font-semibold text-brand-dark">
@@ -203,7 +206,7 @@
       <section class="space-y-3">
         <div>
           <h4 class="text-base font-semibold text-gray-900">Поиск товаров</h4>
-          <p class="text-sm text-gray-500">Показываются только позиции с остатком в точке отправления.</p>
+          <p class="text-sm text-gray-500">Видно остаток и в рознице, и на складе. Добавить можно то, что есть {{ locationIn(sourceLocation) }}.</p>
         </div>
         <input
           v-model="search"
@@ -212,11 +215,60 @@
           class="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm focus:border-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-100"
           placeholder="Название товара, вкус или линейка"
         />
-        <div class="max-h-64 overflow-y-auto rounded-xl border border-gray-200">
+        <div
+          v-if="sourceGroups.length"
+          class="flex gap-2 overflow-x-auto pb-1"
+          role="group"
+          aria-label="Фильтр по линейкам"
+        >
+          <button
+            type="button"
+            data-test="transfer-group-chip"
+            class="flex-shrink-0 rounded-full border px-3 py-1.5 text-xs font-semibold transition"
+            :class="selectedGroupId
+              ? 'border-gray-300 bg-white text-gray-700 hover:border-gray-400'
+              : 'border-brand-dark bg-brand-dark text-white'"
+            :aria-pressed="!selectedGroupId"
+            :disabled="submitting"
+            @click="toggleGroup('')"
+          >
+            Все линейки
+          </button>
+          <button
+            v-for="group in sourceGroups"
+            :key="group.id"
+            type="button"
+            data-test="transfer-group-chip"
+            class="flex-shrink-0 rounded-full border px-3 py-1.5 text-xs font-semibold transition"
+            :class="selectedGroupId === group.id
+              ? 'border-brand-dark bg-brand-dark text-white'
+              : 'border-gray-300 bg-white text-gray-700 hover:border-gray-400'"
+            :aria-pressed="selectedGroupId === group.id"
+            :disabled="submitting"
+            @click="toggleGroup(group.id)"
+          >
+            {{ group.name }}
+          </button>
+        </div>
+        <!-- Список тянется за нижний край: три позиции в окне заявки мало,
+             а фиксированная высота заставляла листать прокрутку в прокрутке. -->
+        <div
+          data-test="transfer-search-list"
+          class="transfer-scroll min-h-[160px] max-h-[70vh] resize-y overflow-x-hidden overflow-y-auto overscroll-contain rounded-xl border border-gray-200"
+          style="height: 320px; scrollbar-gutter: stable;"
+        >
           <div v-if="loading" class="py-8 text-center text-sm text-gray-500">Загрузка…</div>
           <div v-else-if="loadErrorMessage" class="py-8 text-center text-sm text-red-600">{{ loadErrorMessage }}</div>
           <div v-else-if="!results.length" class="py-8 text-center text-sm text-gray-500">
-            В {{ locationLabel(sourceLocation).toLowerCase() }} подходящих товаров нет
+            <template v-if="search.trim()">
+              Ничего не найдено. Проверьте запрос{{ selectedGroupId ? ' или нажмите «Все линейки»' : '' }}.
+            </template>
+            <template v-else-if="selectedGroupId">
+              В этой линейке нет остатков. Нажмите «Все линейки», чтобы увидеть остальные.
+            </template>
+            <template v-else>
+              Нет товаров с остатком ни в рознице, ни на складе.
+            </template>
           </div>
           <ul v-else class="divide-y divide-gray-100">
             <li
@@ -245,8 +297,8 @@
                       Склад: {{ Number(item.warehouse_stock ?? 0) }}
                     </span>
                   </div>
-                  <div v-if="item.available_stock <= 0" class="truncate text-xs text-amber-700">
-                    В {{ locationLabel(sourceLocation).toLowerCase() }} нет, переместить можно только обратно
+                  <div v-if="item.available_stock <= 0" class="text-xs text-amber-700">
+                    Нет {{ locationIn(sourceLocation) }}, перемещать нечего
                   </div>
                 </div>
               </div>
@@ -262,7 +314,10 @@
 
       <section class="overflow-hidden rounded-xl border border-gray-200">
         <div class="border-b border-gray-200 bg-gray-50 px-4 py-3 text-sm font-semibold text-gray-900">
-          К перемещению: {{ selectedItems.length }} поз. · {{ totalQuantity }} шт
+          К перемещению: {{ positionsLabel(selectedItems.length) }} · {{ totalQuantity }} шт
+        </div>
+        <div v-if="editNotice.length" class="space-y-1 border-b border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          <p v-for="notice in editNotice" :key="notice">{{ notice }}</p>
         </div>
         <div v-if="!selectedItems.length" class="px-4 py-8 text-center text-sm text-gray-500">Добавьте товары из списка выше</div>
         <div v-else class="overflow-x-auto">
@@ -271,7 +326,7 @@
               <tr><th class="w-[280px] px-4 py-3">Товар</th><th class="w-[90px] px-4 py-3">Доступно</th><th class="w-[120px] px-4 py-3">Количество</th><th class="w-[70px] px-4 py-3"></th></tr>
             </thead>
             <tbody class="divide-y divide-gray-100">
-              <tr v-for="item in selectedItems" :key="item.key">
+              <tr v-for="item in selectedItems" :key="item.key" :class="item.available <= 0 ? 'bg-amber-50' : ''">
                 <td class="px-4 py-3">
                   <div class="flex min-w-0 items-center gap-3">
                     <img v-if="item.image" :src="item.image" :alt="item.title" class="h-10 w-10 flex-shrink-0 rounded-lg object-cover ring-1 ring-gray-200" loading="lazy" />
@@ -287,7 +342,7 @@
                     </div>
                   </div>
                 </td>
-                <td class="px-4 py-3 text-gray-600">{{ item.available }} шт</td>
+                <td class="px-4 py-3" :class="item.available <= 0 ? 'font-semibold text-amber-800' : 'text-gray-600'">{{ item.available }} шт</td>
                 <td class="px-4 py-3">
                   <input v-model.number="item.quantity" type="number" min="1" :max="item.available" :disabled="submitting" class="w-24 rounded-lg border border-gray-300 px-2 py-1.5 focus:border-rose-400 focus:outline-none" @change="clampQuantity(item)" />
                 </td>
@@ -303,9 +358,9 @@
       <p v-if="errorMessage" class="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{{ errorMessage }}</p>
 
       <div class="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
-        <button type="button" class="rounded-xl border border-gray-300 px-5 py-2.5 text-sm font-semibold text-gray-700 hover:bg-gray-50" :disabled="submitting" @click="backToList">Отмена</button>
-        <button type="button" class="min-h-[44px] rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-40" :disabled="!selectedItems.length || submitting" @click="requestCreateTransfer">
-          {{ submitting ? 'Сохраняем…' : `Создать заявку на ${totalQuantity} шт` }}
+        <button type="button" class="rounded-xl border border-gray-300 px-5 py-2.5 text-sm font-semibold text-gray-700 hover:bg-gray-50" :disabled="submitting" @click="discardDraft">{{ editingTransferId ? 'Не сохранять' : 'Отмена' }}</button>
+        <button type="button" class="min-h-[44px] rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-40" :disabled="!selectedItems.length || hasEmptyItems || submitting" @click="requestCreateTransfer">
+          {{ submitting ? 'Сохраняем…' : editingTransferId ? 'Сохранить изменения' : `Создать заявку на ${totalQuantity} шт` }}
         </button>
       </div>
     </div>
@@ -314,11 +369,19 @@
       <div class="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
         <button
           type="button"
-          class="rounded-xl border border-red-200 px-5 py-2.5 text-sm font-semibold text-red-600 transition hover:bg-red-50"
+          class="rounded-xl border border-red-200 px-5 py-2.5 text-sm font-semibold text-red-600 transition hover:bg-red-50 sm:mr-auto"
           :disabled="actionSubmitting"
           @click="requestCancelTransfer"
         >
           Отменить заявку
+        </button>
+        <button
+          type="button"
+          class="rounded-xl border border-gray-300 px-5 py-2.5 text-sm font-semibold text-gray-700 transition hover:bg-gray-50"
+          :disabled="actionSubmitting"
+          @click="openEdit"
+        >
+          Изменить заявку
         </button>
         <button
           type="button"
@@ -437,14 +500,20 @@ interface StockTransfer {
   cancelled_by_employee_id?: string | null
   total_quantity: number
   item_count: number
+  updated_at?: string | null
+  updated_by?: string | null
   items?: Array<{
     id: string
+    product_id: string
+    variant_id?: string | null
     product_title: string
     variant_name?: string | null
     category_name?: string | null
     group_name?: string | null
     product_image?: string | null
     quantity: number
+    retail_stock?: number
+    warehouse_stock?: number
   }>
 }
 
@@ -477,6 +546,13 @@ const sourceLocation = ref<Location>('retail')
 const destinationLocation = computed<Location>(() => sourceLocation.value === 'retail' ? 'warehouse' : 'retail')
 const comment = ref('')
 const search = ref('')
+const selectedGroupId = ref('')
+const sourceGroups = ref<Array<{ id: string; name: string }>>([])
+const editingTransferId = ref('')
+const editingTransferNumber = ref(0)
+const originalQuantities = ref(new Map<string, number>())
+const editBaseline = ref('')
+const editBaselineUpdatedAt = ref<string | null>(null)
 const results = ref<InventoryItem[]>([])
 const selectedItems = ref<SelectedItem[]>([])
 const loading = ref(false)
@@ -487,12 +563,13 @@ const loadErrorMessage = ref('')
 const actorPromptOpen = ref(false)
 const actorPromptError = ref('')
 const actorPromptErrorCode = ref('')
-const actorPromptAction = ref<'create' | 'complete' | 'cancel' | null>(null)
+const actorPromptAction = ref<'create' | 'edit' | 'complete' | 'cancel' | null>(null)
 const cancelConfirmOpen = ref(false)
 const actorActionLoading = computed(() => submitting.value || actionSubmitting.value)
 const actorPromptTitle = computed(() => {
   if (actorPromptAction.value === 'complete') return 'Оприходовать перемещение'
   if (actorPromptAction.value === 'cancel') return 'Отменить перемещение'
+  if (actorPromptAction.value === 'edit') return 'Сохранить изменения'
   return 'Создать заявку на перемещение'
 })
 const actorPromptDescription = computed(() => {
@@ -502,11 +579,15 @@ const actorPromptDescription = computed(() => {
   if (actorPromptAction.value === 'cancel') {
     return 'Подтвердите сотрудника. Заявка останется в истории без изменения остатков.'
   }
+  if (actorPromptAction.value === 'edit') {
+    return 'Подтвердите сотрудника. Правки не потеряются при ошибке.'
+  }
   return 'Подтвердите сотрудника. Состав заявки сохранится при ошибке.'
 })
 const actorPromptActionLabel = computed(() => {
   if (actorPromptAction.value === 'complete') return 'Оприходовать перемещение'
   if (actorPromptAction.value === 'cancel') return 'Отменить перемещение'
+  if (actorPromptAction.value === 'edit') return 'Сохранить изменения'
   return 'Создать заявку на перемещение'
 })
 const actorPromptContext = computed(() => {
@@ -520,9 +601,11 @@ const actorPromptContext = computed(() => {
       `${positionsLabel(Number(activeTransfer.value.item_count || 0))} · ${Number(activeTransfer.value.total_quantity || 0)} шт`,
     ].join('\n')
   }
-  if (actorPromptAction.value === 'create') {
+  if (actorPromptAction.value === 'create' || actorPromptAction.value === 'edit') {
     return [
-      'Новая заявка на перемещение',
+      actorPromptAction.value === 'edit'
+        ? `Перемещение №${editingTransferNumber.value}`
+        : 'Новая заявка на перемещение',
       `${locationLabel(sourceLocation.value)} → ${locationLabel(destinationLocation.value)}`,
       `${positionsLabel(selectedItems.value.length)} · ${totalQuantity.value} шт`,
     ].join('\n')
@@ -531,21 +614,65 @@ const actorPromptContext = computed(() => {
 })
 const transferCompletionKeys = new Map<string, string>()
 let searchTimer: ReturnType<typeof setTimeout> | null = null
+let groupsRequestId = 0
 let requestId = 0
 let detailsRequestId = 0
 let transfersRequestId = 0
 
 const totalQuantity = computed(() => selectedItems.value.reduce((sum, item) => sum + item.quantity, 0))
-const hasUnsavedDraft = computed(() => selectedItems.value.length > 0 || Boolean(comment.value.trim()))
-const modalTitle = computed(() => activeTransfer.value ? `Перемещение №${activeTransfer.value.transfer_number}` : view.value === 'create' ? 'Новая заявка' : 'Перемещения товаров')
-const modalDescription = computed(() => view.value === 'list'
-  ? 'Создайте заявку, а после фактического перемещения оприходуйте её.'
-  : view.value === 'create'
-    ? 'Остатки не изменятся, пока заявка не будет оприходована.'
-    : 'Проверьте состав и статус заявки.')
+/** Позиция без остатка в точке отправления: сервер такую заявку не примет. */
+const hasEmptyItems = computed(() => selectedItems.value.some((item) => item.available <= 0))
+/**
+ * Пока заявка лежала черновиком, остаток мог уйти. Пересчитываем на каждое
+ * изменение состава: иначе подсказка держалась бы на экране после того, как
+ * человек уже всё поправил.
+ */
+const editNotice = computed<string[]>(() => {
+  if (!editingTransferId.value) return []
+  const gone = selectedItems.value.filter((item) => item.available <= 0)
+  const reduced = selectedItems.value.filter((item) => {
+    const original = originalQuantities.value.get(item.key)
+    return item.available > 0 && original !== undefined && item.quantity < original
+  })
+  const parts: string[] = []
+  if (gone.length) {
+    const removeHint = gone.length === 1 ? 'Удалите её' : 'Удалите их'
+    parts.push(`${positionsLabel(gone.length)}: остатка ${locationIn(sourceLocation.value)} больше нет. ${removeHint}, чтобы сохранить заявку.`)
+  }
+  if (reduced.length) {
+    parts.push(`${positionsLabel(reduced.length)}: остаток стал меньше, количество в заявке уменьшили.`)
+  }
+  return parts
+})
+/** Слепок формы: сравниваем с исходным, чтобы не спрашивать зря. */
+function draftSignature() {
+  return JSON.stringify({
+    comment: comment.value.trim(),
+    items: selectedItems.value.map((item) => [item.key, item.quantity]),
+  })
+}
+const hasUnsavedDraft = computed(() => {
+  if (editingTransferId.value) return draftSignature() !== editBaseline.value
+  return selectedItems.value.length > 0 || Boolean(comment.value.trim())
+})
+const modalTitle = computed(() => {
+  if (activeTransfer.value) return `Перемещение №${activeTransfer.value.transfer_number}`
+  if (editingTransferId.value) return `Правка перемещения №${editingTransferNumber.value}`
+  return view.value === 'create' ? 'Новая заявка' : 'Перемещения товаров'
+})
+const modalDescription = computed(() => {
+  if (view.value === 'list') return 'Создайте заявку, а после фактического перемещения оприходуйте её.'
+  if (view.value !== 'create') return 'Проверьте состав и статус заявки.'
+  return 'Остатки не изменятся, пока заявку не оприходуют.'
+})
 
 function locationLabel(location: Location) {
   return location === 'warehouse' ? 'Склад' : 'Розница'
+}
+
+/** Название точки в предложном падеже: «Склад» в текст не подставить. */
+function locationIn(location: Location) {
+  return location === 'warehouse' ? 'на складе' : 'в рознице'
 }
 
 function statusLabel(status: TransferStatus) {
@@ -658,6 +785,9 @@ async function openDetails(id: string) {
     if (currentRequest !== detailsRequestId) return
     console.error('[inventory] Failed to load transfer', error)
     detailError.value = 'Не удалось открыть перемещение. Попробуйте ещё раз.'
+    // Сообщение об ошибке живёт в списке, поэтому уводим туда: иначе человек,
+    // вышедший из правки, остался бы на пустой форме без объяснений.
+    view.value = 'list'
   } finally {
     if (currentRequest === detailsRequestId) openingTransferId.value = ''
   }
@@ -668,7 +798,12 @@ async function loadItems() {
   loading.value = true
   loadErrorMessage.value = ''
   try {
-    const data = await adminStore.fetchInventoryItems({ location: sourceLocation.value, search: search.value.trim() || undefined, limit: 100 })
+    const data = await adminStore.fetchInventoryItems({
+      location: sourceLocation.value,
+      search: search.value.trim() || undefined,
+      groupId: selectedGroupId.value || undefined,
+      limit: 100,
+    })
     if (currentRequest !== requestId) return
     results.value = Array.isArray(data) ? data : []
   } catch (error) {
@@ -681,12 +816,47 @@ async function loadItems() {
   }
 }
 
+/**
+ * Линейки для быстрого фильтра. Лента только для отгрузки со склада: там
+ * позиций с остатком немного и они листаются, а в рознице линеек больше двух
+ * сотен, лентой такое не пролистать, для неё остаётся поиск строкой.
+ *
+ * Ошибка загрузки не должна ломать форму, поэтому просто прячем ленту.
+ */
+async function loadGroups() {
+  const currentRequest = ++groupsRequestId
+  const location = sourceLocation.value
+  if (location !== 'warehouse') {
+    sourceGroups.value = []
+    return
+  }
+  try {
+    const groups = await adminStore.fetchInventoryGroups()
+    if (currentRequest !== groupsRequestId) return
+    sourceGroups.value = Array.isArray(groups) ? groups.map(({ id, name }) => ({ id, name })) : []
+  } catch (error) {
+    if (currentRequest !== groupsRequestId) return
+    console.error('[inventory] Failed to load groups', error)
+    sourceGroups.value = []
+  }
+}
+
+function toggleGroup(groupId: string) {
+  const next = selectedGroupId.value === groupId ? '' : groupId
+  if (next === selectedGroupId.value) return
+  selectedGroupId.value = next
+  void loadItems()
+}
+
 function addItem(item: InventoryItem) {
   const existing = selectedItem(item)
   const available = Math.max(0, Number(item.available_stock || 0))
   if (available <= 0) return
   if (existing) {
-    existing.quantity = Math.min(existing.quantity + 1, existing.available)
+    // Товар могли довезти, пока форма открыта. Без обновления остатка позиция,
+    // добавленная с нулём, так и осталась бы нулевой.
+    existing.available = available
+    existing.quantity = Math.min(existing.quantity + 1, available)
     return
   }
   selectedItems.value.push({
@@ -711,6 +881,7 @@ function decreaseResultItem(item: InventoryItem) {
 
 function removeItem(key: string) {
   selectedItems.value = selectedItems.value.filter((item) => item.key !== key)
+  originalQuantities.value.delete(key)
 }
 
 function clampQuantity(item: SelectedItem) {
@@ -725,6 +896,14 @@ function resetForm() {
   sourceLocation.value = props.initialSource || 'retail'
   comment.value = ''
   search.value = ''
+  selectedGroupId.value = ''
+  sourceGroups.value = []
+  groupsRequestId += 1
+  editingTransferId.value = ''
+  editingTransferNumber.value = 0
+  originalQuantities.value = new Map()
+  editBaseline.value = ''
+  editBaselineUpdatedAt.value = null
   results.value = []
   selectedItems.value = []
   errorMessage.value = ''
@@ -749,11 +928,78 @@ function openCreate() {
   resetForm()
   view.value = 'create'
   void loadItems()
+  void loadGroups()
+}
+
+/**
+ * Возврат в черновик. Заявку заводят заранее, а собирают товар потом, поэтому
+ * забытую позицию дописывают сюда же, вместо второй заявки на то же
+ * перемещение.
+ */
+function openEdit() {
+  const transfer = activeTransfer.value
+  if (!transfer || transfer.status !== 'draft') return
+  resetForm()
+  editingTransferId.value = transfer.id
+  editingTransferNumber.value = transfer.transfer_number
+  sourceLocation.value = transfer.source_location
+  comment.value = transfer.comment || ''
+  selectedItems.value = (transfer.items || []).map((item) => ({
+    key: `${item.product_id}:${item.variant_id || ''}`,
+    productId: String(item.product_id),
+    variantId: item.variant_id ? String(item.variant_id) : null,
+    title: item.variant_name ? `${item.product_title} (${item.variant_name})` : item.product_title,
+    categoryName: item.category_name || null,
+    groupName: item.group_name || null,
+    image: item.product_image || null,
+    available: Number(
+      transfer.source_location === 'warehouse' ? item.warehouse_stock ?? 0 : item.retail_stock ?? 0,
+    ),
+    quantity: Number(item.quantity || 0),
+  }))
+  originalQuantities.value = new Map(selectedItems.value.map((item) => [item.key, item.quantity]))
+  selectedItems.value.forEach(clampQuantity)
+  // Снимок состава: по нему отличаем «ничего не трогал» от настоящих правок.
+  editBaseline.value = draftSignature()
+  editBaselineUpdatedAt.value = transfer.updated_at ?? null
+  activeTransfer.value = null
+  view.value = 'create'
+  void loadItems()
+  void loadGroups()
+}
+
+function closeConfirmText() {
+  return editingTransferId.value
+    ? 'Выйти без сохранения? Правки пропадут, заявка останется как была.'
+    : 'Закрыть окно? Заявка не сохранится.'
+}
+
+/**
+ * Кнопка отказа. В правке она называется «Не сохранять» и сама по себе ответ,
+ * переспрашивать нечего. В новой заявке состав набирали руками, поэтому там
+ * подтверждение остаётся.
+ */
+function discardDraft() {
+  leaveDraft(Boolean(editingTransferId.value))
 }
 
 function backToList() {
+  leaveDraft(false)
+}
+
+function leaveDraft(confirmed: boolean) {
   if (submitting.value || actionSubmitting.value) return
-  if (view.value === 'create' && hasUnsavedDraft.value && !confirm('Закрыть заявку? Данные заявки не сохранятся.')) return
+  if (!confirmed && view.value === 'create' && hasUnsavedDraft.value && !confirm(closeConfirmText())) return
+  // Из правки возвращаемся в ту заявку, откуда пришли: список тут потерял бы
+  // человека, который просто передумал редактировать.
+  const returnTo = editingTransferId.value
+  if (returnTo) {
+    resetForm()
+    actionMessage.value = ''
+    errorMessage.value = ''
+    void openDetails(returnTo)
+    return
+  }
   detailsRequestId += 1
   openingTransferId.value = ''
   activeTransfer.value = null
@@ -767,15 +1013,17 @@ function backToList() {
 }
 
 function swapDirection() {
-  if (selectedItems.value.length && !confirm('Поменять направление? Выбранные товары будут удалены.')) return
+  if (selectedItems.value.length && !confirm('Поменять направление? Список товаров очистится.')) return
   sourceLocation.value = destinationLocation.value
   selectedItems.value = []
+  selectedGroupId.value = ''
   void loadItems()
+  void loadGroups()
 }
 
 function closeModal() {
   if (submitting.value || actionSubmitting.value) return
-  if (view.value === 'create' && hasUnsavedDraft.value && !confirm('Закрыть заявку? Данные заявки не сохранятся.')) return
+  if (view.value === 'create' && hasUnsavedDraft.value && !confirm(closeConfirmText())) return
   detailsRequestId += 1
   openingTransferId.value = ''
   invalidateTransferLoads()
@@ -801,7 +1049,7 @@ async function requestCreateTransfer() {
     await submitTransfer()
     return
   }
-  actorPromptAction.value = 'create'
+  actorPromptAction.value = editingTransferId.value ? 'edit' : 'create'
   actorPromptError.value = ''
   actorPromptErrorCode.value = ''
   actorPromptOpen.value = true
@@ -835,6 +1083,8 @@ async function requestCancelTransfer() {
 
 function closeActorPrompt() {
   if (actorActionLoading.value) return
+  // Иначе объяснение, почему не сохранилось, исчезает вместе с окном.
+  if (actorPromptError.value) errorMessage.value = actorPromptError.value
   actorPromptOpen.value = false
   actorPromptError.value = ''
   actorPromptErrorCode.value = ''
@@ -843,7 +1093,7 @@ function closeActorPrompt() {
 
 async function confirmActorAction(actor: { employeeId: string; pin: string }) {
   if (actorActionLoading.value) return
-  if (actorPromptAction.value === 'create') {
+  if (actorPromptAction.value === 'create' || actorPromptAction.value === 'edit') {
     await submitTransfer(actor)
     return
   }
@@ -863,20 +1113,28 @@ async function submitTransfer(actor?: { employeeId: string; pin: string }) {
   errorMessage.value = ''
   actorPromptError.value = ''
   actorPromptErrorCode.value = ''
+  const editedId = editingTransferId.value
   try {
-    const transfer = await adminStore.createInventoryTransfer({
-      idempotency_key: transferCreateKey.value,
-      source_location: sourceLocation.value,
-      destination_location: destinationLocation.value,
-      comment: comment.value.trim() || undefined,
-      ...(actor
-        ? {
-            actor_employee_id: actor.employeeId,
-            actor_pin: actor.pin,
-          }
-        : {}),
-      items: selectedItems.value.map((item) => ({ product_id: item.productId, variant_id: item.variantId, quantity: item.quantity })),
-    })
+    const expectedUpdatedAt = editBaselineUpdatedAt.value
+    const actorFields = actor
+      ? { actor_employee_id: actor.employeeId, actor_pin: actor.pin }
+      : {}
+    const items = selectedItems.value.map((item) => ({ product_id: item.productId, variant_id: item.variantId, quantity: item.quantity }))
+    const transfer = editedId
+      ? await adminStore.updateInventoryTransfer(editedId, {
+          comment: comment.value.trim() || undefined,
+          expected_updated_at: expectedUpdatedAt,
+          ...actorFields,
+          items,
+        })
+      : await adminStore.createInventoryTransfer({
+          idempotency_key: transferCreateKey.value,
+          source_location: sourceLocation.value,
+          destination_location: destinationLocation.value,
+          comment: comment.value.trim() || undefined,
+          ...actorFields,
+          items,
+        })
     emit('saved', { number: transfer.transfer_number })
     resetForm()
     activeTransfer.value = transfer
@@ -886,17 +1144,55 @@ async function submitTransfer(actor?: { employeeId: string; pin: string }) {
     void loadTransfers()
   } catch (error: any) {
     actorPromptErrorCode.value = String(error?.code || error?.data?.error || '')
-    const code = String(error?.data?.error || '')
-    actorPromptError.value = error?.outcomeUnknown
-      ? 'Ответ сервера не получен. Обновите список перемещений перед повтором, чтобы не создать дубль.'
-      : code.startsWith('insufficient_stock:')
-      ? 'Остаток изменился. Обновите список и проверьте количество.'
-      : error?.status === 409
-        ? 'Данные уже изменились. Обновите остатки и проверьте заявку.'
-        : error?.data?.message || error?.message || 'Не удалось сохранить заявку. Состав не потерян.'
+    const message = saveErrorText(error)
+    // Когда учёт сотрудников выключен, окна с PIN нет, и текст в нём никто не
+    // увидит. Тогда показываем ошибку прямо в форме.
+    if (actorPromptOpen.value) actorPromptError.value = message
+    else errorMessage.value = message
   } finally {
     submitting.value = false
   }
+}
+
+/** Ответ сервера человеческим языком: коды ошибок наружу не показываем. */
+function saveErrorText(error: any) {
+  const code = String(error?.data?.error || '')
+  if (error?.outcomeUnknown) {
+    return editingTransferId.value
+      ? 'Ответ сервера не получен. Откройте заявку заново и проверьте состав.'
+      : 'Ответ сервера не получен. Обновите список перемещений перед повтором, чтобы не создать дубль.'
+  }
+  if (code.startsWith('insufficient_stock:')) {
+    return 'Остаток изменился. Обновите список и проверьте количество.'
+  }
+  if (code === 'invalid_status') {
+    return 'Заявку уже оприходовали или отменили. Обновите список перемещений.'
+  }
+  if (code === 'items_required') {
+    return 'В заявке не осталось ни одной позиции. Добавьте товар или отмените заявку.'
+  }
+  if (code === 'invalid_item') {
+    return 'Количество должно быть больше нуля.'
+  }
+  if (code === 'duplicate_item') {
+    return 'Один и тот же товар добавлен дважды. Оставьте одну строку.'
+  }
+  if (code === 'staff_auth_locked') {
+    return 'Слишком много попыток. Подождите и попробуйте ещё раз. Заявка не сохранена.'
+  }
+  if (code === 'invalid_staff_credentials' || code.startsWith('staff_')) {
+    return 'Сотрудник или ПИН не подошли. Заявка не сохранена.'
+  }
+  if (code === 'stale_transfer') {
+    return 'Заявку успел изменить кто-то ещё. Откройте её заново, чтобы не затереть чужие правки.'
+  }
+  if (['not_found', 'product_not_found', 'variant_not_found', 'variant_required', 'variant_not_allowed'].includes(code)) {
+    return 'Заявка или товар из неё уже удалены. Обновите список перемещений.'
+  }
+  if (error?.status === 409) {
+    return 'Данные уже изменились. Обновите остатки и проверьте заявку.'
+  }
+  return 'Не удалось сохранить заявку. Состав не потерян.'
 }
 
 async function completeTransfer(actor?: { employeeId: string; pin: string }) {
@@ -930,13 +1226,19 @@ async function completeTransfer(actor?: { employeeId: string; pin: string }) {
   } catch (error: any) {
     actorPromptErrorCode.value = String(error?.code || error?.data?.error || '')
     const code = String(error?.data?.error || '')
-    actorPromptError.value = error?.outcomeUnknown
+    const message = error?.outcomeUnknown
       ? 'Ответ сервера не получен. Обновите перемещение перед повтором: оно могло быть оприходовано.'
       : code.startsWith('insufficient_stock:')
-      ? 'В точке отправления уже не хватает товара. Проверьте остатки.'
+      ? `Не хватает товара ${locationIn(activeTransfer.value?.source_location ?? sourceLocation.value)}. Проверьте остатки.`
+      : code === 'staff_auth_locked'
+      ? 'Слишком много попыток. Подождите и попробуйте ещё раз. Перемещение не оприходовано.'
+      : code === 'invalid_staff_credentials' || code.startsWith('staff_')
+      ? 'Сотрудник или ПИН не подошли. Перемещение не оприходовано.'
       : error?.status === 409
         ? 'Перемещение уже изменено другим пользователем. Обновите данные.'
-        : error?.data?.message || error?.message || 'Не удалось оприходовать перемещение'
+        : 'Не удалось оприходовать перемещение. Попробуйте ещё раз.'
+    if (actorPromptOpen.value) actorPromptError.value = message
+    else errorMessage.value = message
   } finally {
     actionSubmitting.value = false
   }
@@ -969,12 +1271,22 @@ async function cancelTransfer(actor?: { employeeId: string; pin: string }) {
   } catch (error: any) {
     console.error('[inventory] Failed to cancel transfer', error)
     actorPromptErrorCode.value = String(error?.code || error?.data?.error || '')
+    const code = String(error?.data?.error || '')
     const message =
-      error?.status === 409
+      code === 'staff_auth_locked'
+        ? 'Слишком много попыток. Подождите и попробуйте ещё раз. Заявка не отменена.'
+        : code === 'invalid_staff_credentials' || code.startsWith('staff_')
+        ? 'Сотрудник или ПИН не подошли. Заявка не отменена.'
+        : error?.status === 409
         ? 'Перемещение уже изменено другим пользователем. Обновите данные.'
-        : error?.data?.message || error?.message || 'Не удалось отменить заявку'
+        : 'Не удалось отменить заявку. Попробуйте ещё раз.'
     if (actorPromptOpen.value) actorPromptError.value = message
-    else errorMessage.value = message
+    else {
+      errorMessage.value = message
+      // Окно подтверждения перекрывает карточку, поэтому закрываем его: иначе
+      // человек не увидит, почему отмена не прошла.
+      cancelConfirmOpen.value = false
+    }
   } finally {
     actionSubmitting.value = false
   }

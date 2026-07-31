@@ -89,7 +89,7 @@
           type="button"
           @click="emit('close')"
         >
-          Отмена
+          Назад
         </CrmButton>
         <CrmButton
           variant="primary"

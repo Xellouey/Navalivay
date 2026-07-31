@@ -1323,21 +1323,7 @@ adminRouter.get('/api/admin/products', authMiddleware, (req, res) => {
     return product;
   })
 
-  const availableGroups = location === 'warehouse'
-    ? db.prepare(`
-        SELECT DISTINCT g.id, g.name, g.categoryId
-        FROM category_groups g
-        JOIN products p ON p.groupId = g.id
-        WHERE (
-          (COALESCE(p.has_variants, 0) = 0 AND COALESCE(p.warehouse_stock, 0) > 0)
-          OR (COALESCE(p.has_variants, 0) = 1 AND EXISTS (
-            SELECT 1 FROM product_variants v
-            WHERE v.product_id = p.id AND COALESCE(v.warehouse_stock, 0) > 0
-          ))
-        )
-        ORDER BY g.name COLLATE NOCASE
-      `).all()
-    : db.prepare('SELECT id, name, categoryId FROM category_groups ORDER BY name COLLATE NOCASE').all();
+  const availableGroups = listGroupsWithStock(location);
 
   res.json({
     products,
@@ -1346,15 +1332,55 @@ adminRouter.get('/api/admin/products', authMiddleware, (req, res) => {
   })
 })
 
+/**
+ * Линейки, которые реально есть в точке. Для склада это ответ на вопрос «что
+ * сейчас можно отгрузить», для розницы отдаём весь справочник: там остаток
+ * меняется каждый час, и пустой список сбивал бы с толку.
+ */
+function listGroupsWithStock(location) {
+  if (location !== 'warehouse') {
+    return db.prepare('SELECT id, name, categoryId FROM category_groups ORDER BY name COLLATE NOCASE').all();
+  }
+  return db.prepare(`
+    SELECT DISTINCT g.id, g.name, g.categoryId
+    FROM category_groups g
+    JOIN products p ON p.groupId = g.id
+    WHERE (
+      (COALESCE(p.has_variants, 0) = 0 AND COALESCE(p.warehouse_stock, 0) > 0)
+      OR (COALESCE(p.has_variants, 0) = 1 AND EXISTS (
+        SELECT 1 FROM product_variants v
+        WHERE v.product_id = p.id AND COALESCE(v.warehouse_stock, 0) > 0
+      ))
+    )
+    ORDER BY g.name COLLATE NOCASE
+  `).all();
+}
+
+/**
+ * Линейки для быстрого фильтра в заявке на перемещение: только те, что лежат на
+ * складе. В рознице линеек больше двух сотен, лентой их не пролистать, поэтому
+ * там фильтра нет и список не запрашивается.
+ */
+adminRouter.get('/api/admin/inventory/groups', authMiddleware, (_req, res) => {
+  try {
+    res.json(listGroupsWithStock('warehouse'));
+  } catch (error) {
+    console.error('[admin] Inventory groups error:', error);
+    res.status(500).json({ error: 'failed', message: error.message });
+  }
+});
+
 adminRouter.get('/api/admin/inventory/items', authMiddleware, async (req, res) => {
   try {
     const location = req.query.location === 'warehouse' ? 'warehouse' : 'retail';
     const search = typeof req.query.search === 'string' ? req.query.search.trim() : '';
+    const groupId = typeof req.query.group_id === 'string' ? req.query.group_id.trim() : '';
     // Ищем без привязки к точке: позиция без остатка в источнике, но с запасом
     // в другой точке, тоже нужна в списке — сразу видно, что перемещение
     // требуется в обратную сторону.
     const items = await searchProductsForCrm({
       search,
+      groupId: groupId || undefined,
       limit: Math.min(Math.max(Number(req.query.limit || 100), 1), 200),
     });
 
@@ -1400,6 +1426,10 @@ async function getInventoryTransfer(id) {
            COALESCE(sti.category_name, c.name) AS category_name,
            COALESCE(sti.group_name, cg.name) AS group_name,
            sti.image_url AS snapshot_image,
+           -- Текущие остатки нужны форме правки черновика: в самой позиции
+           -- лежит только количество, а поле ввода ограничивается доступным.
+           CASE WHEN sti.variant_id IS NULL THEN COALESCE(p.stock, 0) ELSE COALESCE(pv.stock, 0) END AS retail_stock,
+           CASE WHEN sti.variant_id IS NULL THEN COALESCE(p.warehouse_stock, 0) ELSE COALESCE(pv.warehouse_stock, 0) END AS warehouse_stock,
            COALESCE(
              (SELECT url FROM product_images WHERE productId = sti.product_id AND variant_id = sti.variant_id ORDER BY position LIMIT 1),
              (SELECT url FROM product_images WHERE productId = sti.product_id AND variant_id IS NULL ORDER BY position LIMIT 1)
@@ -1408,6 +1438,7 @@ async function getInventoryTransfer(id) {
            c.cover_image AS category_image
     FROM stock_transfer_items sti
     LEFT JOIN products p ON p.id = sti.product_id
+    LEFT JOIN product_variants pv ON pv.id = sti.variant_id
     LEFT JOIN categories c ON c.id = p.categoryId
     LEFT JOIN category_groups cg ON cg.id = p.groupId
     WHERE sti.transfer_id = ?
@@ -1431,6 +1462,95 @@ async function getInventoryTransfer(id) {
     return { ...details, product_image: productImage };
   }));
   return transfer;
+}
+
+/**
+ * Позиции заявки на перемещение. Одна и та же проверка нужна и при создании
+ * заявки, и при правке черновика, поэтому живёт отдельно: разъехавшиеся
+ * проверки означали бы, что через правку можно записать то, что не пропускает
+ * создание.
+ */
+function insertTransferItems({ transferId, sourceLocation, items }) {
+  const sourceColumn = sourceLocation === 'warehouse' ? 'warehouse_stock' : 'stock';
+  const insertItem = db.prepare(`
+    INSERT INTO stock_transfer_items (
+      id, transfer_id, product_id, variant_id, product_title, variant_name,
+      category_name, group_name, image_url, quantity
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+
+  const seenItems = new Set();
+  for (const rawItem of items) {
+    const productId = String(rawItem?.product_id || '').trim();
+    const variantId = rawItem?.variant_id ? String(rawItem.variant_id) : null;
+    const quantity = Number(rawItem?.quantity);
+    if (!productId || !Number.isInteger(quantity) || quantity <= 0) {
+      throw new Error('invalid_item');
+    }
+
+    const product = db.prepare(`
+      SELECT p.id,
+             p.title,
+             p.has_variants,
+             p.groupId,
+             c.name AS category_name,
+             c.cover_image AS category_image,
+             cg.name AS group_name,
+             cg.cover_image AS group_image
+      FROM products p
+      LEFT JOIN categories c ON c.id = p.categoryId
+      LEFT JOIN category_groups cg ON cg.id = p.groupId
+      WHERE p.id = ?
+    `).get(productId);
+    if (!product) throw new Error('product_not_found');
+
+    const table = variantId ? 'product_variants' : 'products';
+    const rowId = variantId || productId;
+    if (seenItems.has(rowId)) throw new Error('duplicate_item');
+    seenItems.add(rowId);
+    let variantName = null;
+    if (variantId) {
+      const variant = db.prepare('SELECT id, product_id, name FROM product_variants WHERE id = ?').get(variantId);
+      if (!variant || variant.product_id !== productId) throw new Error('variant_not_found');
+      if (Number(product.has_variants || 0) !== 1) {
+        throw new Error('variant_not_allowed');
+      }
+      variantName = variant.name || null;
+    } else if (Number(product.has_variants || 0) === 1) {
+      throw new Error('variant_required');
+    }
+
+    const productImage = db.prepare(`
+      SELECT url
+      FROM product_images
+      WHERE productId = ?
+        AND (variant_id = ? OR variant_id IS NULL)
+      ORDER BY CASE
+                 WHEN variant_id = ? THEN 0
+                 WHEN variant_id IS NULL THEN 1
+               END,
+               position ASC
+      LIMIT 1
+    `).get(productId, variantId, variantId)?.url || null;
+
+    const stockRow = db.prepare(`SELECT ${sourceColumn} AS available FROM ${table} WHERE id = ?`).get(rowId);
+    if (Number(stockRow?.available || 0) < quantity) {
+      throw new Error(`insufficient_stock:${rowId}`);
+    }
+
+    insertItem.run(
+      `move_item_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      transferId,
+      productId,
+      variantId,
+      product.title || productId,
+      variantName,
+      product.category_name || null,
+      product.group_name || null,
+      productImage || product.group_image || product.category_image || null,
+      quantity,
+    );
+  }
 }
 
 function inventoryActor(req) {
@@ -1491,7 +1611,6 @@ adminRouter.post(
     }
 
     let transferId = `move_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-    const sourceColumn = source === 'warehouse' ? 'warehouse_stock' : 'stock';
     let nextNumber = 0;
     const trackingEnabled = isStaffTrackingEnabled();
     const idempotencyKey = trackingEnabled
@@ -1521,85 +1640,8 @@ adminRouter.post(
         staffActor?.employeeId || null,
       );
 
-      const insertItem = db.prepare(`
-        INSERT INTO stock_transfer_items (
-          id, transfer_id, product_id, variant_id, product_title, variant_name,
-          category_name, group_name, image_url, quantity
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `);
+      insertTransferItems({ transferId, sourceLocation: source, items });
 
-      const seenItems = new Set();
-      for (const rawItem of items) {
-        const productId = String(rawItem?.product_id || '').trim();
-        const variantId = rawItem?.variant_id ? String(rawItem.variant_id) : null;
-        const quantity = Number(rawItem?.quantity);
-        if (!productId || !Number.isInteger(quantity) || quantity <= 0) {
-          throw new Error('invalid_item');
-        }
-
-        const product = db.prepare(`
-          SELECT p.id,
-                 p.title,
-                 p.has_variants,
-                 p.groupId,
-                 c.name AS category_name,
-                 c.cover_image AS category_image,
-                 cg.name AS group_name,
-                 cg.cover_image AS group_image
-          FROM products p
-          LEFT JOIN categories c ON c.id = p.categoryId
-          LEFT JOIN category_groups cg ON cg.id = p.groupId
-          WHERE p.id = ?
-        `).get(productId);
-        if (!product) throw new Error('product_not_found');
-
-        const table = variantId ? 'product_variants' : 'products';
-        const rowId = variantId || productId;
-        if (seenItems.has(rowId)) throw new Error('duplicate_item');
-        seenItems.add(rowId);
-        let variantName = null;
-        if (variantId) {
-          const variant = db.prepare('SELECT id, product_id, name FROM product_variants WHERE id = ?').get(variantId);
-          if (!variant || variant.product_id !== productId) throw new Error('variant_not_found');
-          if (Number(product.has_variants || 0) !== 1) {
-            throw new Error('variant_not_allowed');
-          }
-          variantName = variant.name || null;
-        } else if (Number(product.has_variants || 0) === 1) {
-          throw new Error('variant_required');
-        }
-
-        const productImage = db.prepare(`
-          SELECT url
-          FROM product_images
-          WHERE productId = ?
-            AND (variant_id = ? OR variant_id IS NULL)
-          ORDER BY CASE
-                     WHEN variant_id = ? THEN 0
-                     WHEN variant_id IS NULL THEN 1
-                   END,
-                   position ASC
-          LIMIT 1
-        `).get(productId, variantId, variantId)?.url || null;
-
-        const stockRow = db.prepare(`SELECT ${sourceColumn} AS available FROM ${table} WHERE id = ?`).get(rowId);
-        if (Number(stockRow?.available || 0) < quantity) {
-          throw new Error(`insufficient_stock:${rowId}`);
-        }
-
-        insertItem.run(
-          `move_item_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-          transferId,
-          productId,
-          variantId,
-          product.title || productId,
-          variantName,
-          product.category_name || null,
-          product.group_name || null,
-          productImage || product.group_image || product.category_image || null,
-          quantity,
-        );
-      }
       if (staffActor) {
         const eventKey = `transfer:${transferId}:created`;
         recordSystemStaffEvent({
@@ -1674,6 +1716,97 @@ adminRouter.post(
     }
     res.status(500).json({ error: 'failed', message: error.message });
   }
+  },
+);
+
+/**
+ * Правка черновика.
+ *
+ * Заявку заводят заранее, а собирают товар потом, поэтому забытую позицию
+ * должно быть можно дописать, не заводя вторую заявку на то же перемещение.
+ * Меняются только состав и комментарий: направление остаётся тем, что выбрали
+ * при создании, иначе проверка остатков считала бы не ту точку.
+ */
+adminRouter.put(
+  '/api/admin/inventory/transfers/:id',
+  authMiddleware,
+  requireInventoryActor,
+  async (req, res) => {
+    try {
+      const { comment, items, expected_updated_at: expectedUpdatedAt } = req.body || {};
+      const transferId = String(req.params.id);
+
+      // Без ключа идемпотентности, в отличие от создания: правка передаёт
+      // состав целиком и защищена условием `status = 'draft'`, поэтому повтор
+      // безопасен сам по себе. С ключом было бы хуже: второе сохранение с
+      // исправленной цифрой попало бы в конфликт ключа и не прошло.
+      const tx = db.transaction(() => {
+      const staffActor = recheckInventoryActor(req);
+      const transfer = db.prepare('SELECT * FROM stock_transfers WHERE id = ?').get(transferId);
+      if (!transfer) throw new StaffServiceError('not_found', 404);
+      if (transfer.status !== 'draft') throw new StaffServiceError('invalid_status', 409);
+      if (!Array.isArray(items) || items.length === 0) {
+        throw new StaffServiceError('items_required', 400);
+      }
+      // Заявку мог править кто-то ещё, пока эта форма была открыта. Молча
+      // затирать чужую правку нельзя: состав заменяется целиком.
+      if (
+        expectedUpdatedAt !== undefined
+        && String(expectedUpdatedAt ?? '') !== String(transfer.updated_at ?? '')
+      ) {
+        throw new StaffServiceError('stale_transfer', 409);
+      }
+
+      db.prepare('DELETE FROM stock_transfer_items WHERE transfer_id = ?').run(transferId);
+      insertTransferItems({
+        transferId,
+        sourceLocation: transfer.source_location,
+        items,
+      });
+
+      const updated = db.prepare(`
+        UPDATE stock_transfers
+        SET comment = ?,
+            updated_by = ?,
+            updated_by_employee_id = ?,
+            updated_at = DATETIME('now')
+        WHERE id = ? AND status = 'draft'
+      `).run(
+        String(comment || '').trim() || null,
+        staffActor?.employeeName || inventoryActor(req),
+        staffActor?.employeeId || null,
+        transferId,
+      );
+      // Заявку могли оприходовать, пока её правили. Тогда откатываемся:
+      // менять состав проведённого документа нельзя.
+      if (updated.changes !== 1) {
+        throw new StaffServiceError('invalid_status', 409);
+      }
+      });
+
+      tx.immediate();
+      res.json(await getInventoryTransfer(transferId));
+    } catch (error) {
+      if (isStaffServiceError(error)) {
+        return sendStaffServiceError(res, error);
+      }
+      const clientError = String(error.message || '');
+      if (
+        [
+          'invalid_item',
+          'duplicate_item',
+          'product_not_found',
+          'variant_not_found',
+          'variant_required',
+          'variant_not_allowed',
+        ].includes(clientError)
+        || clientError.startsWith('insufficient_stock:')
+      ) {
+        return res.status(400).json({ error: clientError });
+      }
+      console.error('[admin] Update inventory transfer error:', error);
+      res.status(500).json({ error: 'failed', message: error.message });
+    }
   },
 );
 

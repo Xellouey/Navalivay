@@ -84,12 +84,49 @@ describe("AdminProductsTable search regressions", () => {
     expect(wrapper.text()).not.toContain("Выбрать все");
   });
 
+  it("фильтрует по линейке чипом и снимает фильтр повторным кликом", async () => {
+    const wrapper = mountTable({
+      location: "warehouse",
+      availableGroups: [
+        { id: "group-podonki", name: "PODONKI PODGON", categoryId: "cat-hookah" },
+        { id: "group-isterika", name: "PODONKI ISTERIKA", categoryId: "cat-hookah" },
+      ],
+    });
+
+    const chips = wrapper.findAll('[data-test="product-group-chip"]');
+    // Первый чип сбрасывает фильтр, дальше сами линейки.
+    expect(chips).toHaveLength(3);
+    expect(chips[0].text()).toBe("Все линейки");
+
+    await chips[1].trigger("click");
+    expect(wrapper.emitted("filters")).toEqual([
+      [{ search: "", category: "", group: "group-isterika" }],
+    ]);
+
+    await chips[1].trigger("click");
+    expect(wrapper.emitted("filters")).toHaveLength(2);
+    expect(wrapper.emitted("filters")![1]).toEqual([
+      { search: "", category: "", group: "" },
+    ]);
+  });
+
+  it("не показывает ленту линеек в рознице, там их сотни", () => {
+    const wrapper = mountTable({
+      location: "retail",
+      availableGroups: [
+        { id: "group-podonki", name: "PODONKI PODGON", categoryId: "cat-hookah" },
+      ],
+    });
+
+    expect(wrapper.findAll('[data-test="product-group-chip"]')).toHaveLength(0);
+  });
+
   it("emits warehouse location switch", async () => {
     const wrapper = mountTable();
-    const warehouseButton = wrapper.findAll("button").find((button) => button.text() === "Склад");
+    const warehouseButton = wrapper.find('[data-test="location-warehouse"]');
 
-    expect(warehouseButton).toBeTruthy();
-    await warehouseButton!.trigger("click");
+    expect(warehouseButton.exists()).toBe(true);
+    await warehouseButton.trigger("click");
     expect(wrapper.emitted("changeLocation")).toEqual([["warehouse"]]);
   });
 });

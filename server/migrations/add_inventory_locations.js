@@ -66,6 +66,10 @@ export function migrateInventoryLocations() {
     ['completed_at', 'TEXT'],
     ['cancelled_by', 'TEXT'],
     ['cancelled_at', 'TEXT'],
+    // Черновик можно править до оприходования, поэтому храним, кто и когда это
+    // сделал: иначе в карточке видно только автора первой версии.
+    ['updated_by', 'TEXT'],
+    ['updated_at', 'TEXT'],
   ];
   for (const [column, definition] of transferColumns) {
     if (!hasColumn('stock_transfers', column)) {

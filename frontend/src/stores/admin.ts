@@ -1386,6 +1386,7 @@ async function createCategory(category: { name: string; hideEmpty?: boolean; cov
   async function fetchInventoryItems(options: {
     location: 'retail' | 'warehouse'
     search?: string
+    groupId?: string
     limit?: number
   }) {
     const params = new URLSearchParams({
@@ -1393,6 +1394,7 @@ async function createCategory(category: { name: string; hideEmpty?: boolean; cov
       limit: String(options.limit ?? 100),
     })
     if (options.search) params.set('search', options.search)
+    if (options.groupId) params.set('group_id', options.groupId)
     return await $fetch<any[]>(`/api/admin/inventory/items?${params}`, {
       headers: getAuthHeaders(),
     })
@@ -1408,6 +1410,14 @@ async function createCategory(category: { name: string; hideEmpty?: boolean; cov
       headers: getAuthHeaders(),
     })
     return response.products.map(normalizeProductData)
+  }
+
+  /** Линейки, которые лежат на складе: быстрый фильтр в заявке на перемещение. */
+  async function fetchInventoryGroups() {
+    return await $fetch<Array<{ id: string; name: string; categoryId: string }>>(
+      '/api/admin/inventory/groups',
+      { headers: getAuthHeaders() },
+    )
   }
 
   async function createInventoryTransfer(data: {
@@ -1434,6 +1444,31 @@ async function createCategory(category: { name: string; hideEmpty?: boolean; cov
     )
     pendingAdminMutationKeys.delete(pending.signature)
     return result
+  }
+
+  /**
+   * Правка черновика. Направления в сигнатуре нет намеренно: сервер берёт его
+   * из самой заявки, и случайно развернуть перемещение отсюда нельзя.
+   *
+   * Ключ идемпотентности не шлём: правка передаёт состав целиком, повтор
+   * применяет то же состояние, а сервер этот заголовок не читает.
+   */
+  async function updateInventoryTransfer(
+    id: string,
+    data: {
+      comment?: string
+      /** Время последней правки заявки: защищает от затирания чужих изменений. */
+      expected_updated_at?: string | null
+      actor_employee_id?: string
+      actor_pin?: string
+      items: Array<{ product_id: string; variant_id?: string | null; quantity: number }>
+    },
+  ) {
+    return await $fetch<any>(`/api/admin/inventory/transfers/${id}`, {
+      method: 'PUT',
+      headers: getAuthHeaders(),
+      body: data,
+    })
   }
 
   async function fetchInventoryTransfers(options: { page?: number; limit?: number } = {}) {
@@ -1991,6 +2026,8 @@ async function createCategory(category: { name: string; hideEmpty?: boolean; cov
     fetchProductOptions,
     fetchInventoryItems,
     createInventoryTransfer,
+    updateInventoryTransfer,
+    fetchInventoryGroups,
     fetchInventoryTransfers,
     fetchInventoryTransfer,
     completeInventoryTransfer,

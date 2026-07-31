@@ -377,6 +377,235 @@ try {
   );
   assert.ok(Math.abs(db.prepare('SELECT cost_price FROM products WHERE id = ?').get('product_variant').cost_price - 30) < 0.000001);
 
+  // Правка черновика: заявку заводят заранее, а собирают товар потом, поэтому
+  // забытую позицию дописывают в ту же заявку.
+  console.log('inventory: черновик перемещения редактируется до оприходования');
+  const editableDraft = await requestJson('/api/admin/inventory/transfers', {
+    method: 'POST',
+    body: JSON.stringify({
+      source_location: 'retail',
+      destination_location: 'warehouse',
+      comment: 'Первый вариант',
+      items: [{ product_id: 'product_regular', quantity: 1 }],
+    }),
+  });
+  assert.equal(editableDraft.response.status, 200);
+  const editableDraftId = editableDraft.data.id;
+  const draftCreatedAt = editableDraft.data.created_at;
+
+  const editedDraft = await requestJson(`/api/admin/inventory/transfers/${editableDraftId}`, {
+    method: 'PUT',
+    body: JSON.stringify({
+      comment: 'Дописали вкус',
+      items: [
+        { product_id: 'product_regular', quantity: 2 },
+        { product_id: 'product_variant', variant_id: 'variant_black', quantity: 1 },
+      ],
+    }),
+  });
+  assert.equal(editedDraft.response.status, 200);
+  assert.equal(editedDraft.data.status, 'draft');
+  assert.equal(editedDraft.data.comment, 'Дописали вкус');
+  assert.equal(editedDraft.data.items.length, 2);
+  assert.equal(Number(editedDraft.data.total_quantity), 3);
+  assert.equal(
+    db.prepare('SELECT COUNT(*) AS count FROM stock_transfer_items WHERE transfer_id = ?').get(editableDraftId).count,
+    2,
+    'старые позиции не остаются рядом с новыми',
+  );
+  // Снапшоты названий пишутся заново, как при создании.
+  const editedRegular = editedDraft.data.items.find((item) => item.product_id === 'product_regular');
+  assert.ok(editedRegular.group_name);
+  assert.ok(editedRegular.category_name);
+
+  // Автор заявки и её номер остаются прежними: плюс сотрудника считается по
+  // документу, и правка не должна переносить его на другого человека.
+  const editedRow = db.prepare('SELECT * FROM stock_transfers WHERE id = ?').get(editableDraftId);
+  assert.equal(editedRow.created_by, 'inventory-test');
+  assert.equal(editedRow.created_at, draftCreatedAt);
+  assert.equal(editedRow.transfer_number, editableDraft.data.transfer_number);
+  assert.equal(editedRow.updated_by, 'inventory-test');
+  assert.ok(editedRow.updated_at, 'время правки записано');
+
+  // Остатки не двигаются до оприходования.
+  assert.deepEqual(regularStock(), { stock: 6, warehouse_stock: 4 });
+
+  // Направление берётся из заявки, а не из тела запроса.
+  const spoofedDirection = await requestJson(`/api/admin/inventory/transfers/${editableDraftId}`, {
+    method: 'PUT',
+    body: JSON.stringify({
+      source_location: 'warehouse',
+      destination_location: 'retail',
+      items: [{ product_id: 'product_regular', quantity: 1 }],
+    }),
+  });
+  assert.equal(spoofedDirection.response.status, 200);
+  assert.equal(spoofedDirection.data.source_location, 'retail');
+  assert.equal(spoofedDirection.data.destination_location, 'warehouse');
+
+  // Пустой состав и нехватка остатка отклоняются, черновик остаётся прежним.
+  const emptyEdit = await requestJson(`/api/admin/inventory/transfers/${editableDraftId}`, {
+    method: 'PUT',
+    body: JSON.stringify({ items: [] }),
+  });
+  assert.equal(emptyEdit.response.status, 400);
+  assert.equal(emptyEdit.data.error, 'items_required');
+
+  const tooMuchEdit = await requestJson(`/api/admin/inventory/transfers/${editableDraftId}`, {
+    method: 'PUT',
+    body: JSON.stringify({ items: [{ product_id: 'product_regular', quantity: 999 }] }),
+  });
+  assert.equal(tooMuchEdit.response.status, 400);
+  assert.ok(String(tooMuchEdit.data.error).startsWith('insufficient_stock:'));
+  assert.equal(
+    db.prepare('SELECT COUNT(*) AS count FROM stock_transfer_items WHERE transfer_id = ?').get(editableDraftId).count,
+    1,
+    'после отказа состав остаётся тем, что был',
+  );
+
+  const missingEdit = await requestJson('/api/admin/inventory/transfers/move_missing', {
+    method: 'PUT',
+    body: JSON.stringify({ items: [{ product_id: 'product_regular', quantity: 1 }] }),
+  });
+  assert.equal(missingEdit.response.status, 404);
+
+  // Свежий черновик ещё не правили, поэтому клиент присылает null против NULL
+  // в базе. Это самый частый путь, и он должен проходить.
+  const untouchedDraft = await requestJson('/api/admin/inventory/transfers', {
+    method: 'POST',
+    body: JSON.stringify({
+      source_location: 'retail',
+      destination_location: 'warehouse',
+      items: [{ product_id: 'product_regular', quantity: 1 }],
+    }),
+  });
+  assert.equal(
+    db.prepare('SELECT updated_at FROM stock_transfers WHERE id = ?').get(untouchedDraft.data.id).updated_at,
+    null,
+  );
+  const firstEdit = await requestJson(`/api/admin/inventory/transfers/${untouchedDraft.data.id}`, {
+    method: 'PUT',
+    body: JSON.stringify({
+      expected_updated_at: null,
+      items: [{ product_id: 'product_regular', quantity: 2 }],
+    }),
+  });
+  assert.equal(firstEdit.response.status, 200);
+  await requestJson(`/api/admin/inventory/transfers/${untouchedDraft.data.id}/cancel`, { method: 'POST' });
+
+  // Правка поверх чужой правки не проходит: состав заменяется целиком, и
+  // молча затирать чужие изменения нельзя.
+  const staleEdit = await requestJson(`/api/admin/inventory/transfers/${editableDraftId}`, {
+    method: 'PUT',
+    body: JSON.stringify({
+      expected_updated_at: '2020-01-01 00:00:00',
+      items: [{ product_id: 'product_regular', quantity: 1 }],
+    }),
+  });
+  assert.equal(staleEdit.response.status, 409);
+  assert.equal(staleEdit.data.error, 'stale_transfer');
+
+  const freshUpdatedAt = db
+    .prepare('SELECT updated_at FROM stock_transfers WHERE id = ?')
+    .get(editableDraftId).updated_at;
+  const freshEdit = await requestJson(`/api/admin/inventory/transfers/${editableDraftId}`, {
+    method: 'PUT',
+    body: JSON.stringify({
+      expected_updated_at: freshUpdatedAt,
+      items: [{ product_id: 'product_regular', quantity: 1 }],
+    }),
+  });
+  assert.equal(freshEdit.response.status, 200);
+
+  // Отменённую заявку править тоже нельзя.
+  const cancelledDraft = await requestJson('/api/admin/inventory/transfers', {
+    method: 'POST',
+    body: JSON.stringify({
+      source_location: 'retail',
+      destination_location: 'warehouse',
+      items: [{ product_id: 'product_regular', quantity: 1 }],
+    }),
+  });
+  await requestJson(`/api/admin/inventory/transfers/${cancelledDraft.data.id}/cancel`, { method: 'POST' });
+  const editCancelled = await requestJson(`/api/admin/inventory/transfers/${cancelledDraft.data.id}`, {
+    method: 'PUT',
+    body: JSON.stringify({ items: [{ product_id: 'product_regular', quantity: 1 }] }),
+  });
+  assert.equal(editCancelled.response.status, 409);
+  assert.equal(editCancelled.data.error, 'invalid_status');
+
+  // Карточка отдаёт текущий остаток: форме правки он нужен, чтобы ограничить ввод.
+  const draftWithStock = await requestJson(`/api/admin/inventory/transfers/${editableDraftId}`);
+  const stockItem = draftWithStock.data.items.find((item) => item.product_id === 'product_regular');
+  assert.equal(Number(stockItem.retail_stock), 6);
+  assert.equal(Number(stockItem.warehouse_stock), 4);
+
+  // У позиции с вариантом остаток берётся у варианта, а не у товара-родителя:
+  // иначе форма правки предложила бы количество, которого нет.
+  const variantDraft = await requestJson('/api/admin/inventory/transfers', {
+    method: 'POST',
+    body: JSON.stringify({
+      source_location: 'retail',
+      destination_location: 'warehouse',
+      items: [{ product_id: 'product_variant', variant_id: 'variant_black', quantity: 1 }],
+    }),
+  });
+  const variantStockRow = db
+    .prepare('SELECT stock, warehouse_stock FROM product_variants WHERE id = ?')
+    .get('variant_black');
+  const parentStockRow = db
+    .prepare('SELECT stock, warehouse_stock FROM products WHERE id = ?')
+    .get('product_variant');
+  const variantItem = variantDraft.data.items.find((item) => item.variant_id === 'variant_black');
+  assert.equal(Number(variantItem.retail_stock), Number(variantStockRow.stock));
+  assert.equal(Number(variantItem.warehouse_stock), Number(variantStockRow.warehouse_stock));
+  assert.notEqual(Number(parentStockRow.warehouse_stock), Number(variantStockRow.warehouse_stock));
+  await requestJson(`/api/admin/inventory/transfers/${variantDraft.data.id}/cancel`, { method: 'POST' });
+
+  // Проведённую заявку править нельзя.
+  const completeEdited = await requestJson(`/api/admin/inventory/transfers/${editableDraftId}/complete`, {
+    method: 'POST',
+  });
+  assert.equal(completeEdited.response.status, 200);
+  const editCompleted = await requestJson(`/api/admin/inventory/transfers/${editableDraftId}`, {
+    method: 'PUT',
+    body: JSON.stringify({ items: [{ product_id: 'product_regular', quantity: 1 }] }),
+  });
+  assert.equal(editCompleted.response.status, 409);
+  assert.equal(editCompleted.data.error, 'invalid_status');
+
+  // Фильтр по линейке в поиске товаров заявки.
+  console.log('inventory: линейки для быстрого фильтра и поиск по линейке');
+  const inventoryGroups = await requestJson('/api/admin/inventory/groups?location=retail');
+  assert.equal(inventoryGroups.response.status, 200);
+  assert.ok(Array.isArray(inventoryGroups.data));
+  assert.ok(
+    inventoryGroups.data.every((group) => group.id && group.name),
+    'линейки приходят с идентификатором и названием',
+  );
+  // Список зависит от точки: линейка без остатка в рознице туда не попадает.
+  const retailOnlyGroups = inventoryGroups.data.map((group) => group.id);
+  db.prepare('UPDATE products SET stock = 0 WHERE id = ?').run('product_regular');
+  const groupsAfterZero = await requestJson('/api/admin/inventory/groups?location=retail');
+  assert.ok(
+    groupsAfterZero.data.length <= retailOnlyGroups.length,
+    'без остатка линеек становится не больше',
+  );
+  db.prepare('UPDATE products SET stock = 6 WHERE id = ?').run('product_regular');
+
+  const itemsByGroup = await requestJson(`/api/admin/inventory/items?location=warehouse&group_id=${regularDisplay.group_id}`);
+  assert.equal(itemsByGroup.response.status, 200);
+  assert.ok(itemsByGroup.data.length > 0, 'по линейке что-то находится');
+  assert.ok(
+    itemsByGroup.data.every((item) => item.groupId === regularDisplay.group_id),
+    'в выдаче только выбранная линейка',
+  );
+  const itemsWithoutGroup = await requestJson('/api/admin/inventory/items?location=warehouse');
+  assert.ok(
+    itemsWithoutGroup.data.length >= itemsByGroup.data.length,
+    'без фильтра выдача не сужается',
+  );
+
   console.log('inventory-locations tests passed');
 } finally {
   await new Promise((resolve) => server.close(resolve));

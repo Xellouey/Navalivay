@@ -1349,6 +1349,71 @@ try {
   assert.equal(outboxCount(), outboxBeforeFailedTransfer);
   db.exec("DROP TRIGGER fail_transfer_accepted_outbox");
 
+  console.log("staff operations: правка черновика требует подтверждения сотрудника");
+  const editableDraft = await requestJson("/api/admin/inventory/transfers", {
+    method: "POST",
+    headers: { "Idempotency-Key": "staff-transfer-edit-1" },
+    body: transferBody({ comment: "До правки" }),
+  });
+  assert.equal(editableDraft.response.status, 200);
+  const editableDraftId = editableDraft.data.id;
+  const eventsBeforeEdit = eventCount("stock_transfer", editableDraftId);
+  const outboxBeforeEdit = outboxCount();
+
+  const editWithoutActor = await requestJson(
+    `/api/admin/inventory/transfers/${editableDraftId}`,
+    {
+      method: "PUT",
+      body: { items: [{ product_id: "staff_product", quantity: 1 }] },
+    },
+  );
+  assert.equal(editWithoutActor.response.status, 400);
+
+  const editWithWrongPin = await requestJson(
+    `/api/admin/inventory/transfers/${editableDraftId}`,
+    {
+      method: "PUT",
+      body: {
+        actor_employee_id: "employee_b",
+        actor_pin: "9999",
+        items: [{ product_id: "staff_product", quantity: 1 }],
+      },
+    },
+  );
+  assert.equal(editWithWrongPin.response.status, 401);
+  assert.equal(editWithWrongPin.data.error, "invalid_staff_credentials");
+  assert.equal(
+    db
+      .prepare("SELECT SUM(quantity) AS total FROM stock_transfer_items WHERE transfer_id = ?")
+      .get(editableDraftId).total,
+    2,
+    "состав не меняется без подтверждения",
+  );
+
+  const editWithActor = await requestJson(
+    `/api/admin/inventory/transfers/${editableDraftId}`,
+    {
+      method: "PUT",
+      body: {
+        actor_employee_id: "employee_b",
+        actor_pin: "2222",
+        comment: "После правки",
+        items: [{ product_id: "staff_product", quantity: 1 }],
+      },
+    },
+  );
+  assert.equal(editWithActor.response.status, 200);
+  const editedRow = db
+    .prepare("SELECT * FROM stock_transfers WHERE id = ?")
+    .get(editableDraftId);
+  assert.equal(editedRow.updated_by_employee_id, "employee_b");
+  // Плюс за документ остаётся у того, кто завёл заявку.
+  assert.equal(editedRow.created_by_employee_id, "employee_a");
+  assert.equal(editedRow.comment, "После правки");
+  // Правка не документ: ни события, ни уведомления она не порождает.
+  assert.equal(eventCount("stock_transfer", editableDraftId), eventsBeforeEdit);
+  assert.equal(outboxCount(), outboxBeforeEdit);
+
   console.log("staff operations: cancelling a draft adds no positive event");
   const cancelledTransfer = await requestJson(
     "/api/admin/inventory/transfers",

@@ -25,6 +25,7 @@
           v-for="option in locationOptions"
           :key="option.value"
           type="button"
+          :data-test="`location-${option.value}`"
           :aria-pressed="location === option.value"
           :class="[
             'rounded-xl px-5 py-3 text-sm font-semibold transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-rose-300/70 focus:ring-offset-1',
@@ -144,6 +145,44 @@
             </button>
           </div>
         </div>
+      </div>
+
+      <!-- Быстрый доступ к линейкам: тот же фильтр, что в выпадающем списке,
+           но без разворачивания и поиска. Только для склада: там линейки уже
+           отобраны по остатку, а в рознице их сотни и лентой это не листается,
+           для неё остаётся выпадающий список с поиском. -->
+      <div
+        v-if="location === 'warehouse' && groupChipOptions.length"
+        class="hidden gap-2 overflow-x-auto pb-1 sm:flex"
+        role="group"
+        aria-label="Фильтр по линейкам"
+      >
+        <button
+          type="button"
+          data-test="product-group-chip"
+          class="flex-shrink-0 rounded-full border px-3 py-1.5 text-xs font-semibold transition"
+          :class="group
+            ? 'border-white/60 bg-white/85 text-gray-700 hover:border-rose-200'
+            : 'border-rose-300 bg-rose-500 text-white'"
+          :aria-pressed="!group"
+          @click="selectGroupChip('')"
+        >
+          Все линейки
+        </button>
+        <button
+          v-for="option in groupChipOptions"
+          :key="option.id"
+          type="button"
+          data-test="product-group-chip"
+          class="flex-shrink-0 rounded-full border px-3 py-1.5 text-xs font-semibold transition"
+          :class="group === option.id
+            ? 'border-rose-300 bg-rose-500 text-white'
+            : 'border-white/60 bg-white/85 text-gray-700 hover:border-rose-200'"
+          :aria-pressed="group === option.id"
+          @click="selectGroupChip(option.id)"
+        >
+          {{ option.name }}
+        </button>
       </div>
 
       <div class="flex flex-wrap items-center justify-between gap-3 text-xs font-semibold uppercase tracking-[0.25em] text-gray-400">
@@ -308,7 +347,7 @@
                   :class="sortButtonClass('group')"
                   @click="toggleSort('group')"
                 >
-                  <span>Группа</span>
+                  <span>Линейка</span>
                   <span class="text-[10px] leading-none" :class="sortIndicatorClass('group')">{{ sortIndicator('group') }}</span>
                 </button>
               </th>
@@ -322,7 +361,7 @@
                   :class="sortButtonClass('strength')"
                   @click="toggleSort('strength')"
                 >
-                  <span>Креп</span>
+                  <span>Крепость</span>
                   <span class="text-[10px] leading-none" :class="sortIndicatorClass('strength')">{{ sortIndicator('strength') }}</span>
                 </button>
               </th>
@@ -424,11 +463,11 @@
             <td class="px-4 py-4 text-gray-700" :style="columnStyle(2)">{{ categoryName(p.categoryId) }}</td>
             <td class="px-4 py-4 text-gray-700" :style="columnStyle(3)">
               <span v-if="p.groupName">{{ p.groupName }}</span>
-              <span v-else class="text-gray-400">—</span>
+              <span v-else class="text-gray-400">Без линейки</span>
             </td>
             <td class="px-4 py-4 text-gray-700" :style="columnStyle(4)">
-              <span v-if="p.strength && p.strength.trim().length" class="font-medium text-gray-900">{{ p.strength }}</span>
-              <span v-else class="text-gray-400">—</span>
+              <span v-if="p.strength && p.strength.trim().length && p.strength !== '0'" class="font-medium text-gray-900">{{ p.strength }}</span>
+              <span v-else class="text-gray-400">Без крепости</span>
             </td>
             <td class="px-4 py-4 text-right text-gray-700 min-w-[100px]" :style="columnStyle(5)">
               <div class="flex items-center justify-center">
@@ -529,9 +568,9 @@
                   </div>
                 </div>
               </td>
-              <td class="px-4 py-3 text-gray-500 text-sm" :style="columnStyle(2)">—</td>
-              <td class="px-4 py-3 text-gray-500 text-sm" :style="columnStyle(3)">—</td>
-              <td class="px-4 py-3 text-gray-500 text-sm" :style="columnStyle(4)">—</td>
+              <td class="px-4 py-3 text-gray-500 text-sm" :style="columnStyle(2)"></td>
+              <td class="px-4 py-3 text-gray-500 text-sm" :style="columnStyle(3)"></td>
+              <td class="px-4 py-3 text-gray-500 text-sm" :style="columnStyle(4)"></td>
               <td class="px-4 py-3 text-right text-gray-700 min-w-[100px]" :style="columnStyle(5)">
                 <div class="flex items-center justify-center">
                   <span v-if="profitUnlocked" class="text-sm">{{ formatRub(p.costPrice) }}</span>
@@ -640,7 +679,7 @@
                       Линейка: <span class="font-semibold">{{ p.groupName }}</span>
                     </p>
                     <p v-if="p.strength && p.strength.trim() && p.strength !== '0'" class="text-xs text-gray-600 leading-snug">
-                      Креп: <span class="font-semibold text-gray-900">{{ p.strength }}</span>
+                      Крепость: <span class="font-semibold text-gray-900">{{ p.strength }}</span>
                     </p>
                     <p class="text-base text-gray-900 mt-0.5 flex items-center gap-1.5">
                       <span v-if="!p.hasVariants">{{ formatRub(p.priceRub) }}</span>
@@ -745,7 +784,7 @@
                       Линейка: <span class="font-medium">{{ p.groupName }}</span>
                     </p>
                     <p v-if="p.strength && p.strength.trim() && p.strength !== '0'" class="text-sm text-gray-600">
-                      Креп: <span class="font-medium text-gray-900">{{ p.strength }}</span>
+                      Крепость: <span class="font-medium text-gray-900">{{ p.strength }}</span>
                     </p>
                     <div class="flex flex-wrap gap-4 text-sm">
                       <span class="text-gray-600">
@@ -1395,6 +1434,25 @@ const groupFilterOptions = computed(() => {
   })).sort((a, b) => a.name.localeCompare(b.name))
 })
 
+/**
+ * Линейки для ленты чипов. Если остаток у выбранной линейки обнулился, она
+ * выпадает из списка склада, поэтому дописываем её первой: иначе активный
+ * фильтр остался бы без чипа и снять его было бы нечем.
+ */
+const groupChipOptions = computed(() => {
+  const options = groupFilterOptions.value
+  if (!group.value || options.some((option) => option.id === group.value)) return options
+  const selected = selectedGroupFallback.value
+  return selected ? [selected, ...options] : options
+})
+
+/** Выбранная линейка, которой уже нет в списке точки. */
+const selectedGroupFallback = computed(() => {
+  if (!group.value) return null
+  const found = (adminStore.categoryGroups || []).find((item) => item.id === group.value)
+  return found ? { id: found.id, name: found.name, categoryId: found.categoryId } : null
+})
+
 const modalGroupOptions = computed(() => {
   if (!groupModalCategoryId.value) return []
   return (adminStore.categoryGroups || [])
@@ -1411,7 +1469,9 @@ const filteredGroupOptions = computed(() => {
 const selectedGroupName = computed(() => {
   if (!group.value) return 'Все линейки'
   const found = groupFilterOptions.value.find(g => g.id === group.value)
-  return found?.name || 'Все линейки'
+  // Линейка могла остаться без остатка и выпасть из списка, но фильтр по ней
+  // ещё работает, поэтому имя показываем всё равно.
+  return found?.name || selectedGroupFallback.value?.name || 'Все линейки'
 })
 
 const groupDropdownStyle = computed(() => ({
@@ -1667,6 +1727,16 @@ function onSearchInput() {
   }, 300)
 }
 
+/** Повторный клик по выбранной линейке снимает фильтр. */
+function selectGroupChip(groupId: string) {
+  const next = group.value === groupId ? '' : groupId
+  // Клик по уже активному чипу не должен перезапрашивать список и сбрасывать
+  // человека на первую страницу.
+  if (next === group.value) return
+  group.value = next
+  onFiltersChanged()
+}
+
 function onCategoryFilterChange() {
   if (searchDebounceTimer !== null) {
     clearTimeout(searchDebounceTimer)
@@ -1760,7 +1830,7 @@ function productStockLabel(product: Product) {
   if (!stocks.length) return '0'
   const min = Math.min(...stocks)
   const max = Math.max(...stocks)
-  return min === max ? String(min) : `${min}–${max}`
+  return min === max ? String(min) : `${min}-${max}`
 }
 
 function displayStockLabel(product: Product) {

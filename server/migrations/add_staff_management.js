@@ -380,6 +380,12 @@ export function migrateStaffManagement(database = db) {
       'cancelled_by_employee_id',
       'TEXT REFERENCES employees(id) ON DELETE SET NULL',
     );
+    addColumn(
+      database,
+      'stock_transfers',
+      'updated_by_employee_id',
+      'TEXT REFERENCES employees(id) ON DELETE SET NULL',
+    );
 
     if (tableExists(database, 'orders')) {
       database.exec(`

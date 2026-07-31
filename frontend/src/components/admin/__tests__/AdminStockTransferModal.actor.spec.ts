@@ -28,6 +28,7 @@ describe("AdminStockTransferModal: подтверждение сотрудник
       transfers: [],
       pagination: { page: 1, totalPages: 1 },
     } as any);
+    vi.spyOn(adminStore, "fetchInventoryGroups").mockResolvedValue([] as never);
     vi.spyOn(adminStore, "fetchInventoryItems").mockResolvedValue([
       {
         id: "product_1",

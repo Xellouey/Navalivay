@@ -72,7 +72,7 @@
                     id="product-search"
                     v-model="productSearch"
                     type="text"
-                    placeholder="Название, артикул или группа"
+                    placeholder="Название, артикул или линейка"
                     class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
                   />
                   <span

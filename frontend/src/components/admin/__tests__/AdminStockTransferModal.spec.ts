@@ -63,6 +63,7 @@ describe('AdminStockTransferModal', () => {
       transfers: [],
       pagination: { page: 1, totalPages: 1 },
     })
+    vi.spyOn(store, 'fetchInventoryGroups').mockResolvedValue([] as never)
     vi.spyOn(store, 'fetchInventoryItems').mockResolvedValue([{
       id: 'product_1',
       title: 'Манго',
@@ -250,6 +251,7 @@ describe('AdminStockTransferModal', () => {
       transfers: [],
       pagination: { page: 1, totalPages: 1 },
     })
+    vi.spyOn(store, 'fetchInventoryGroups').mockResolvedValue([] as never)
     vi.spyOn(store, 'fetchInventoryItems').mockResolvedValue([{
       id: 'product_1',
       title: 'Манго',
@@ -293,6 +295,7 @@ describe('AdminStockTransferModal', () => {
       transfers: [],
       pagination: { page: 1, totalPages: 1 },
     })
+    vi.spyOn(store, 'fetchInventoryGroups').mockResolvedValue([] as never)
     vi.spyOn(store, 'fetchInventoryItems').mockResolvedValue([{
       id: 'product_1',
       title: 'Aegis Nano 0.6',
