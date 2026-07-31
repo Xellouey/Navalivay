@@ -1392,11 +1392,26 @@ export const useCrmStore = defineStore("crm", () => {
       ? localStorage.getItem("crm_profit_unlocked")
       : null;
   const profitUnlocked = ref(savedProfitState === "true");
+  /**
+   * Пропуск в «Обзор» живёт только в памяти, а замок считаем закрытым, пока
+   * сервер не ответил обратное: неизвестное состояние не должно открывать
+   * раздел само по себе.
+   */
+  const dashboardToken = ref("");
+  const dashboardLocked = ref(true);
   const verifyingProfitAccess = ref(false);
   const isProfitUnlocked = computed(() => profitUnlocked.value);
 
   function lockProfitAccess() {
     profitUnlocked.value = false;
+    // Пропуск в «Обзор» уходит вместе с ключом: иначе после блокировки хватило
+    // бы обычного ключа, чтобы снова увидеть сводку.
+    dashboardToken.value = "";
+    dashboardLocked.value = true;
+    // Загруженную сводку тоже забываем, иначе после повторного входа она
+    // отрисуется из памяти, хотя доступ уже отобран.
+    dashboardStats.value = null;
+    dashboardTimeseries.value = [];
     if (typeof localStorage !== "undefined") {
       localStorage.removeItem("crm_profit_unlocked");
     }
@@ -4884,9 +4899,6 @@ export const useCrmStore = defineStore("crm", () => {
    * туда пускает только пароль владельца, в остальное время работает и обычный.
    * Пропуск держим в памяти, чтобы он не пережил перезагрузку вкладки.
    */
-  const dashboardToken = ref("");
-  const dashboardLocked = ref(false);
-
   function dashboardHeaders(): Record<string, string> {
     return dashboardToken.value
       ? { "X-Dashboard-Token": dashboardToken.value }
@@ -4908,7 +4920,6 @@ export const useCrmStore = defineStore("crm", () => {
     );
     if (result.ok && result.token) {
       dashboardToken.value = result.token;
-      dashboardLocked.value = false;
       // Сервер уже подтвердил право на финансовые цифры, второй раз спрашивать
       // тот же пароль незачем.
       profitUnlocked.value = true;

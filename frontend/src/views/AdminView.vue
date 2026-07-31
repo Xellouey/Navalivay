@@ -1621,10 +1621,12 @@ async function loadInitialAdminData() {
       { key: 'categoryGroups', loader: () => adminStore.fetchCategoryGroups() },
       { key: 'products', loader: () => adminStore.fetchProducts({ page: 1, limit: 10 }) }
     )
-    loaders.push({
-      key: 'dashboard',
-      loader: () => crmStore.fetchDashboard(overviewPeriod.value, overviewOffset.value, currentDashboardOptions())
-    })
+    if (dashboardReady.value) {
+      loaders.push({
+        key: 'dashboard',
+        loader: () => crmStore.fetchDashboard(overviewPeriod.value, overviewOffset.value, currentDashboardOptions())
+      })
+    }
   }
 
   const success = await runDataLoaders(loaders)
@@ -2105,6 +2107,9 @@ function closeProfitModal() {
 async function loadDataAfterProfitUnlock() {
   const tab = activeTab.value
   if (tab === 'dashboard') {
+    if (!dashboardReady.value) {
+      return
+    }
     // Если выбран custom без обеих границ — не считаем dashboard загруженным:
     // watcher на customRangeFrom/customRangeTo догрузит данные сразу как юзер выберет диапазон
     if (overviewPeriod.value === 'custom' && !isCustomRangeReady.value) {
