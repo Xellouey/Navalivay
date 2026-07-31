@@ -1,8 +1,5 @@
 import crypto from 'node:crypto';
 
-import bcrypt from 'bcryptjs';
-
-import { db } from '../db.js';
 import { getTimeZoneDateParts } from './business-time.js';
 
 /**
@@ -17,7 +14,14 @@ import { getTimeZoneDateParts } from './business-time.js';
  */
 export const DASHBOARD_LOCK_FROM_HOUR = 10;
 export const DASHBOARD_LOCK_TO_HOUR = 16;
-const SETTING_KEY = 'dashboard_owner_password_hash';
+
+/**
+ * Пароль владельца. Меняется только правкой этой строки и перезапуском сервера:
+ * из настроек CRM его не достать и не подменить. Файл серверный, в браузер он
+ * не попадает, поэтому строка тут безопасна. В собранный фронтенд её класть
+ * нельзя ни при каких условиях.
+ */
+const OWNER_PASSWORD = '0002';
 const TOKEN_TTL_MS = 30 * 60_000;
 
 /** Токены живут в памяти: перезапуск сервера закрывает раздел, и это правильно. */
@@ -28,28 +32,12 @@ export function isDashboardLocked(now = new Date()) {
   return hour >= DASHBOARD_LOCK_FROM_HOUR && hour < DASHBOARD_LOCK_TO_HOUR;
 }
 
-export function getDashboardOwnerHash() {
-  const row = db
-    .prepare('SELECT value FROM settings WHERE key = ?')
-    .get(SETTING_KEY);
-  return row?.value || null;
-}
-
-export function setDashboardOwnerPassword(password) {
-  const normalized = String(password ?? '').trim();
-  if (normalized.length < 4) throw new TypeError('dashboard_password_too_short');
-  const hash = bcrypt.hashSync(normalized, 10);
-  db.prepare(`
-    INSERT INTO settings (key, value) VALUES (?, ?)
-    ON CONFLICT(key) DO UPDATE SET value = excluded.value
-  `).run(SETTING_KEY, hash);
-  return true;
-}
-
-export async function verifyDashboardOwnerPassword(password) {
-  const hash = getDashboardOwnerHash();
-  if (!hash) return false;
-  return bcrypt.compare(String(password ?? ''), hash);
+/** Сравнение за постоянное время: длина пароля короткая, подбор по таймингу дешёв. */
+export function verifyDashboardOwnerPassword(password) {
+  const given = Buffer.from(String(password ?? ''));
+  const expected = Buffer.from(OWNER_PASSWORD);
+  if (given.length !== expected.length) return false;
+  return crypto.timingSafeEqual(given, expected);
 }
 
 function purgeExpired(now) {

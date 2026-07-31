@@ -404,7 +404,7 @@ adminRouter.post(
       }
 
       const locked = isDashboardLocked();
-      const ownerOk = await verifyDashboardOwnerPassword(password);
+      const ownerOk = verifyDashboardOwnerPassword(password);
       let allowed = ownerOk;
 
       if (!allowed && !locked) {

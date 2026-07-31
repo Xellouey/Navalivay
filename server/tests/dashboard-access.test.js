@@ -34,9 +34,22 @@ const after = getTimeZoneDateParts(new Date('2026-07-30T13:30:00.000Z'));
 assert.equal(after.hour, 16);
 assert.equal(lockedAt(after.hour), false);
 
+const {
+  issueDashboardToken,
+  isDashboardTokenValid,
+  revokeAllDashboardTokens,
+  verifyDashboardOwnerPassword,
+} = await import('../utils/dashboard-access.js');
+
+console.log('обзор: пароль владельца');
+assert.equal(verifyDashboardOwnerPassword('0002'), true);
+assert.equal(verifyDashboardOwnerPassword('0003'), false);
+assert.equal(verifyDashboardOwnerPassword('00021'), false, 'лишний символ не проходит');
+assert.equal(verifyDashboardOwnerPassword(''), false);
+assert.equal(verifyDashboardOwnerPassword(null), false);
+assert.equal(verifyDashboardOwnerPassword(undefined), false);
+
 console.log('обзор: пропуск и его срок');
-const { issueDashboardToken, isDashboardTokenValid, revokeAllDashboardTokens } =
-  await import('../utils/dashboard-access.js');
 
 revokeAllDashboardTokens();
 const { token } = issueDashboardToken(new Date('2026-07-30T08:30:00.000Z'));
