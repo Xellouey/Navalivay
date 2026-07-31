@@ -12,7 +12,7 @@
             <!-- Overview -->
             <template v-if="activeTab === 'dashboard'">
               <!-- Profit access form for dashboard -->
-              <div v-if="!profitUnlocked" class="flex justify-center py-12">
+              <div v-if="!dashboardReady" class="flex justify-center py-12">
                 <div class="w-full max-w-sm rounded-2xl bg-white p-6 shadow">
                   <h3 class="text-lg font-semibold text-gray-900 text-center mb-3">Введите код доступа</h3>
                   <form class="space-y-4" @submit.prevent="handleProfitUnlocked">
@@ -1286,7 +1286,13 @@ const router = useRouter()
 const route = useRoute()
 const adminStore = useAdminStore()
 const crmStore = useCrmStore()
-const { dashboardStats, loadingDashboard, profitUnlocked, verifyingProfitAccess, dashboardTimeseries, loadingTimeseries } = storeToRefs(crmStore)
+const { dashboardStats, loadingDashboard, profitUnlocked, verifyingProfitAccess, dashboardTimeseries, loadingTimeseries, dashboardToken, dashboardLocked } = storeToRefs(crmStore)
+
+// Раздел «Обзор» закрыт отдельно: с 10:00 до 16:00 по Минску обычный ключ CRM
+// сюда не пускает, нужен пароль владельца. В остальное время всё как раньше.
+const dashboardReady = computed(
+  () => profitUnlocked.value && (!dashboardLocked.value || Boolean(dashboardToken.value)),
+)
 const isCrmRoute = computed(() => route.path.startsWith('/admin/crm'))
 
 // Lock screen state
@@ -1537,7 +1543,10 @@ async function ensureTabData(tab: AdminTabId) {
   }
 
   if (tab === 'dashboard') {
-    if (dataLoaded.dashboard || !profitUnlocked.value) {
+    // Замок зависит от времени, поэтому состояние спрашиваем у сервера при
+    // каждом заходе: браузерным часам тут доверять нельзя.
+    await crmStore.fetchDashboardAccessState().catch(() => undefined)
+    if (dataLoaded.dashboard || !dashboardReady.value) {
       return
     }
 
@@ -2042,7 +2051,7 @@ watch([overviewPeriod, overviewOffset, profitUnlocked, customRangeFrom, customRa
   if (!adminStore.isAuthenticated) {
     return
   }
-  if (!unlocked) {
+  if (!unlocked || !dashboardReady.value) {
     dataLoaded.dashboard = false
     return
   }
@@ -2174,14 +2183,24 @@ async function handleProfitUnlocked() {
   }
 
   profitError.value = ''
+  const entered = profitPassword.value.trim()
 
   try {
-    await crmStore.verifyProfitPassword(profitPassword.value.trim())
+    // На вкладке «Обзор» вход идёт через отдельную проверку: в окно проверок
+    // она принимает только пароль владельца, вне окна и обычный ключ тоже.
+    if (activeTab.value === 'dashboard') {
+      await crmStore.verifyDashboardAccess(entered)
+    } else {
+      await crmStore.verifyProfitPassword(entered)
+    }
     profitPassword.value = ''
     await loadDataAfterProfitUnlock()
-  } catch (error) {
+  } catch (error: any) {
     console.error('Failed to unlock profit access:', error)
-    profitError.value = 'Неверный ключ'
+    profitError.value =
+      error?.data?.error === 'too_many_attempts'
+        ? 'Слишком много попыток. Попробуйте позже'
+        : 'Неверный ключ'
   }
 }
 

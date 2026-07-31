@@ -2,6 +2,10 @@ import express from 'express';
 import { db } from '../db.js';
 import { authMiddleware } from '../auth.js';
 import {
+  isDashboardLocked,
+  isDashboardTokenValid,
+} from '../utils/dashboard-access.js';
+import {
   getBusinessCalendarDayRange,
   getBusinessCalendarMonthRange,
   getBusinessDayLabel,
@@ -130,9 +134,23 @@ function getNextNumber(table, field) {
 }
 
 // =========================
+/**
+ * Внутри окна проверок сводку отдаём только по пропуску из
+ * /api/admin/dashboard-access/verify. Без этого замок был бы декоративным:
+ * данные всё равно приезжали бы в браузер, и их было бы видно через консоль.
+ */
+function requireDashboardAccess(req, res, next) {
+  if (!isDashboardLocked()) return next();
+  const token = String(req.get('X-Dashboard-Token') || '').trim();
+  if (!isDashboardTokenValid(token)) {
+    return res.status(403).json({ error: 'dashboard_locked' });
+  }
+  return next();
+}
+
 // DASHBOARD (Главная CRM)
 // =========================
-crmRouter.get('/api/admin/crm/dashboard', authMiddleware, (req, res) => {
+crmRouter.get('/api/admin/crm/dashboard', authMiddleware, requireDashboardAccess, (req, res) => {
   try {
     const { period = 'today' } = req.query;
     const offset = Number(req.query.offset || 0) || 0;
@@ -289,7 +307,7 @@ crmRouter.get('/api/admin/crm/dashboard', authMiddleware, (req, res) => {
 });
 
 // Dashboard Timeseries - детализированные данные для графиков
-crmRouter.get('/api/admin/crm/dashboard-timeseries', authMiddleware, (req, res) => {
+crmRouter.get('/api/admin/crm/dashboard-timeseries', authMiddleware, requireDashboardAccess, (req, res) => {
   try {
     const { period = 'month', year } = req.query;
     const offset = Number(req.query.offset || 0) || 0;

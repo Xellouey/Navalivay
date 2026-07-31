@@ -1881,7 +1881,15 @@ export const useCrmStore = defineStore("crm", () => {
 
       dashboardStats.value = await fetchAPI<DashboardStats>(
         `${API_BASE}/dashboard?${params.toString()}`,
+        { headers: dashboardHeaders() },
       );
+    } catch (error: any) {
+      // Окно проверок могло начаться, пока раздел был открыт: закрываем его.
+      if (error?.data?.error === "dashboard_locked") {
+        dashboardToken.value = "";
+        dashboardLocked.value = true;
+      }
+      throw error;
     } finally {
       loadingDashboard.value = false;
     }
@@ -1909,7 +1917,9 @@ export const useCrmStore = defineStore("crm", () => {
           revenue: number;
           profit: number;
         }>
-      >(`${API_BASE}/dashboard-timeseries?${params.toString()}`);
+      >(`${API_BASE}/dashboard-timeseries?${params.toString()}`, {
+        headers: dashboardHeaders(),
+      });
       dashboardTimeseries.value = data;
     } catch (error) {
       console.error("[CRM] Failed to fetch timeseries:", error);
@@ -4869,6 +4879,50 @@ export const useCrmStore = defineStore("crm", () => {
     messageTemplates.value = messageTemplates.value.filter((t) => t.id !== id);
   }
 
+  /**
+   * Пропуск в «Обзор». Отдельно от общего ключа CRM: с 10:00 до 16:00 по Минску
+   * туда пускает только пароль владельца, в остальное время работает и обычный.
+   * Пропуск держим в памяти, чтобы он не пережил перезагрузку вкладки.
+   */
+  const dashboardToken = ref("");
+  const dashboardLocked = ref(false);
+
+  function dashboardHeaders(): Record<string, string> {
+    return dashboardToken.value
+      ? { "X-Dashboard-Token": dashboardToken.value }
+      : {};
+  }
+
+  async function fetchDashboardAccessState() {
+    const state = await fetchAPI<{ locked: boolean }>(
+      `/api/admin/dashboard-access/state`,
+    );
+    dashboardLocked.value = Boolean(state.locked);
+    return state;
+  }
+
+  async function verifyDashboardAccess(password: string) {
+    const result = await fetchAPI<{ ok: boolean; token: string }>(
+      `/api/admin/dashboard-access/verify`,
+      { method: "POST", body: JSON.stringify({ password }) },
+    );
+    if (result.ok && result.token) {
+      dashboardToken.value = result.token;
+      dashboardLocked.value = false;
+      // Сервер уже подтвердил право на финансовые цифры, второй раз спрашивать
+      // тот же пароль незачем.
+      profitUnlocked.value = true;
+      if (typeof localStorage !== "undefined") {
+        localStorage.setItem("crm_profit_unlocked", "true");
+      }
+    }
+    return result;
+  }
+
+  function clearDashboardAccess() {
+    dashboardToken.value = "";
+  }
+
   async function verifyProfitPassword(password: string) {
     verifyingProfitAccess.value = true;
     try {
@@ -5217,5 +5271,10 @@ export const useCrmStore = defineStore("crm", () => {
     deleteProcurement,
     removeProcurementPayment,
     verifyProfitPassword,
+    verifyDashboardAccess,
+    fetchDashboardAccessState,
+    clearDashboardAccess,
+    dashboardToken,
+    dashboardLocked,
   };
 });

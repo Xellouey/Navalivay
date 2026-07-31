@@ -8,6 +8,14 @@ import bcrypt from 'bcryptjs';
 import { db } from '../db.js';
 import { authMiddleware, issueToken, verifyPassword, changePassword, getAdminUsername } from '../auth.js';
 import { DEFAULT_PROFIT_PASSWORD } from '../migrations/add_profit_password_setting.js';
+import rateLimit from 'express-rate-limit';
+import {
+  DASHBOARD_LOCK_FROM_HOUR,
+  DASHBOARD_LOCK_TO_HOUR,
+  isDashboardLocked,
+  issueDashboardToken,
+  verifyDashboardOwnerPassword,
+} from '../utils/dashboard-access.js';
 import { convertImageToWebP } from '../utils/imageUtils.js';
 import {
   buildWholesaleLinkPath,
@@ -367,6 +375,63 @@ adminRouter.post('/api/admin/verify-password', authMiddleware, async (req, res) 
     console.error('[admin] Password verify error:', error);
     res.status(500).json({ error: 'failed', message: error.message });
   }
+});
+
+// Четыре цифры перебираются мгновенно, поэтому попытки ограничены.
+const dashboardAccessLimiter = rateLimit({
+  windowMs: 15 * 60_000,
+  limit: 12,
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: (_req, res) => res.status(429).json({ error: 'too_many_attempts' }),
+});
+
+/**
+ * Вход в раздел «Обзор».
+ *
+ * С 10:00 до 16:00 по Минску обычный ключ CRM сюда не пускает, нужен пароль
+ * владельца. В остальное время работает и обычный ключ, как раньше.
+ */
+adminRouter.post(
+  '/api/admin/dashboard-access/verify',
+  authMiddleware,
+  dashboardAccessLimiter,
+  async (req, res) => {
+    try {
+      const password = String(req.body?.password || '');
+      if (!password) {
+        return res.status(400).json({ error: 'missing_password' });
+      }
+
+      const locked = isDashboardLocked();
+      const ownerOk = await verifyDashboardOwnerPassword(password);
+      let allowed = ownerOk;
+
+      if (!allowed && !locked) {
+        allowed = await bcrypt.compare(password, getProfitPasswordHash());
+      }
+
+      // Ответ одинаковый в любое время: подсказывать про второй пароль тому,
+      // кто его не знает, незачем.
+      if (!allowed) {
+        return res.status(401).json({ error: 'invalid_password' });
+      }
+
+      const { token, expiresInMs } = issueDashboardToken();
+      res.json({ ok: true, token, expires_in_ms: expiresInMs });
+    } catch (error) {
+      console.error('[admin] Dashboard access verify error:', error);
+      res.status(500).json({ error: 'failed', message: error.message });
+    }
+  },
+);
+
+/** Состояние замка, чтобы интерфейс знал, какой пароль спрашивать. */
+adminRouter.get('/api/admin/dashboard-access/state', authMiddleware, (_req, res) => {
+  res.json({
+    locked: isDashboardLocked(),
+    window: { from: DASHBOARD_LOCK_FROM_HOUR, to: DASHBOARD_LOCK_TO_HOUR },
+  });
 });
 
 adminRouter.post('/api/admin/settings/profit-password/verify', authMiddleware, async (req, res) => {
