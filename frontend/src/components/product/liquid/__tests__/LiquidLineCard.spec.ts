@@ -59,6 +59,39 @@ describe("LiquidLineCard", () => {
     expect(wrapper.find(".liquid-line-image-wrapper .liquid-line-image-price").exists()).toBe(true);
   });
 
+  it("рисует плашку новинки только когда линейка отмечена", () => {
+    const mountCard = (isNew: boolean) =>
+      mount(LiquidLineCard, {
+        global: { plugins: [pinia], stubs: { ColorPreviewModal: true } },
+        props: {
+          groupId: "g-1",
+          title: "CHAPPMAN",
+          products: [makeProduct()],
+          expanded: false,
+          coverImage: null,
+          fallbackImage: "/placeholder-category.png",
+          subgroups: [],
+          isNew,
+        },
+      });
+
+    const marked = mountCard(true);
+    const badge = marked.find(".new-lineup-badge");
+    expect(badge.exists()).toBe(true);
+    // Название плашки живёт на контейнере, а вся бегущая дорожка спрятана от
+    // скринридера: иначе он зачитает «Новинка» дюжину раз подряд.
+    expect(badge.attributes("role")).toBe("img");
+    expect(badge.attributes("aria-label")).toBe("Новинка");
+    expect(marked.find(".new-lineup-badge__track").attributes("aria-hidden")).toBe("true");
+    // Дорожка едет на половину своей ширины, поэтому наборов ровно два.
+    expect(marked.findAll(".new-lineup-badge__set")).toHaveLength(2);
+    const words = marked.findAll(".new-lineup-badge__word");
+    expect(words.length % 2).toBe(0);
+    expect(words[0].text()).toBe("Новинка");
+
+    expect(mountCard(false).find(".new-lineup-badge").exists()).toBe(false);
+  });
+
   it("hides flavor prices in the expanded list when they match the header price", () => {
     const wrapper = mount(LiquidLineCard, {
       global: {

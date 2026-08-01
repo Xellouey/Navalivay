@@ -88,6 +88,45 @@
       </span>
     </label>
 
+    <div
+      class="rounded-2xl border p-4 transition"
+      :class="form.isNew
+        ? 'border-rose-300 bg-rose-50'
+        : 'border-gray-200 bg-white hover:border-gray-300'"
+    >
+      <label class="flex cursor-pointer items-start gap-3">
+        <input
+          v-model="form.isNew"
+          type="checkbox"
+          class="mt-0.5 h-5 w-5 rounded border-gray-300 text-rose-600 focus:ring-rose-500/30"
+        />
+        <span>
+          <span class="block text-sm font-semibold text-gray-800">Пометить как новинку</span>
+          <span class="mt-1 block text-xs leading-5 text-gray-600">
+            Линейка поднимется в начало списка на витрине и получит красную
+            плашку. Когда срок выйдет, плашка пропадёт, и линейка вернётся на
+            своё место.
+          </span>
+        </span>
+      </label>
+
+      <div v-if="form.isNew" class="mt-3 flex flex-wrap items-center gap-2 pl-8">
+        <label class="text-xs font-medium text-gray-700" for="group-new-days">Срок показа, дней</label>
+        <input
+          id="group-new-days"
+          v-model="form.newDays"
+          type="number"
+          min="1"
+          max="180"
+          step="1"
+          inputmode="numeric"
+          class="w-24 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-transparent focus:ring-2 focus:ring-rose-500/30"
+        />
+        <span class="text-xs text-gray-500">от 1 до 180</span>
+      </div>
+      <p v-if="newDaysLeftLabel" class="mt-2 pl-8 text-xs text-gray-500">{{ newDaysLeftLabel }}</p>
+    </div>
+
     <div class="space-y-3 rounded-2xl border border-gray-200 bg-gray-50/80 p-4">
       <div class="flex flex-wrap items-start justify-between gap-2">
         <div>
@@ -327,6 +366,16 @@
 <script setup lang="ts">
 import { reactive, ref, watch, computed } from 'vue'
 
+/** Срок плашки по умолчанию, столько же стоит на сервере. */
+const DEFAULT_NEW_DAYS = 30
+const MAX_NEW_DAYS = 180
+
+function parseNewDays(value: string): number {
+  const parsed = Math.trunc(Number(value))
+  if (!Number.isFinite(parsed) || parsed < 1) return DEFAULT_NEW_DAYS
+  return Math.min(parsed, MAX_NEW_DAYS)
+}
+
 interface CategoryGroup {
   id?: string
   name: string
@@ -337,6 +386,9 @@ interface CategoryGroup {
   metaValue?: string | null
   minStockThreshold?: number | null
   totalControl?: boolean
+  isNew?: boolean
+  newDaysTotal?: number | null
+  newDaysLeft?: number | null
   waiveDescription?: boolean
   waiveMinStock?: boolean
   waiveWholesale?: boolean
@@ -367,7 +419,7 @@ const props = withDefaults(defineProps<{ editingGroup?: CategoryGroup | null; is
 })
 
 const emit = defineEmits<{
-  (e: 'submit', payload: { name: string; coverImage?: string | null; hideEmpty?: boolean; parentId?: string | null; metaLabel?: string | null; metaValue?: string | null; minStockThreshold?: number | null; totalControl?: boolean; wholesalePrices?: Record<string, number | null>; waiveDescription?: boolean; waiveMinStock?: boolean; waiveWholesale?: boolean; waiveStrengthTier?: boolean; strengthTier?: string | null }): void
+  (e: 'submit', payload: { name: string; coverImage?: string | null; hideEmpty?: boolean; parentId?: string | null; metaLabel?: string | null; metaValue?: string | null; minStockThreshold?: number | null; totalControl?: boolean; isNew?: boolean; newDays?: number; wholesalePrices?: Record<string, number | null>; waiveDescription?: boolean; waiveMinStock?: boolean; waiveWholesale?: boolean; waiveStrengthTier?: boolean; strengthTier?: string | null }): void
   (e: 'cancel'): void
 }>()
 
@@ -379,6 +431,8 @@ const form = reactive({
   metaValue: '',
   minStockThreshold: '',
   totalControl: false,
+  isNew: false,
+  newDays: '30',
   waiveDescription: false,
   waiveMinStock: false,
   waiveWholesale: false,
@@ -469,6 +523,8 @@ watch(
           ? ''
           : String(threshold)
       form.totalControl = Boolean(group.totalControl)
+      form.isNew = Boolean(group.isNew)
+      form.newDays = String(group.newDaysTotal && group.newDaysTotal > 0 ? group.newDaysTotal : DEFAULT_NEW_DAYS)
       form.waiveDescription = Boolean(group.waiveDescription)
       form.waiveMinStock = Boolean(group.waiveMinStock)
       form.waiveWholesale = Boolean(group.waiveWholesale)
@@ -491,6 +547,8 @@ watch(
       form.metaValue = ''
       form.minStockThreshold = ''
       form.totalControl = false
+      form.isNew = false
+      form.newDays = String(DEFAULT_NEW_DAYS)
       form.waiveDescription = false
       form.waiveMinStock = false
       form.waiveWholesale = false
@@ -505,6 +563,23 @@ watch(
   },
   { immediate: true }
 )
+
+/** Сколько ещё висит плашка: число приходит с сервера, дату не парсим. */
+const newDaysLeftLabel = computed(() => {
+  if (!props.editingGroup?.isNew) return ''
+  const left = Number(props.editingGroup.newDaysLeft ?? 0)
+  if (!Number.isFinite(left) || left <= 0) return 'Сегодня последний день показа'
+  return `Сейчас плашка горит ещё ${left} ${pluralDays(left)}`
+})
+
+function pluralDays(count: number) {
+  const mod100 = count % 100
+  const mod10 = count % 10
+  if (mod100 >= 11 && mod100 <= 14) return 'дней'
+  if (mod10 === 1) return 'день'
+  if (mod10 >= 2 && mod10 <= 4) return 'дня'
+  return 'дней'
+}
 
 const isValid = computed(() => {
   const trimmed = form.name.trim()
@@ -554,6 +629,10 @@ function onSubmit() {
     metaValue: metaValue.length ? metaValue : null,
     minStockThreshold,
     totalControl: form.totalControl,
+    isNew: form.isNew,
+    // Срок уходит только вместе с включённой галкой: сервер сам решает,
+    // продлить текущую новинку или начать отсчёт заново.
+    ...(form.isNew ? { newDays: parseNewDays(form.newDays) } : {}),
     wholesalePrices,
     waiveDescription: form.waiveDescription,
     waiveMinStock: form.waiveMinStock,
@@ -663,7 +742,7 @@ const parentOptions = computed(() => {
     })
     .map(group => ({
       id: group.id || '',
-      label: `${'— '.repeat(group.depth ?? 0)}${group.name}`.trim()
+      label: `${'· '.repeat(group.depth ?? 0)}${group.name}`.trim()
     }))
 })
 

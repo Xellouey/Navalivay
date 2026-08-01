@@ -54,6 +54,10 @@ function mountEmployees() {
 describe("CrmEmployees: вход сотрудника", () => {
   beforeEach(() => {
     setActivePinia(createPinia());
+    // График строится по текущему месяцу, а фикстуры ниже за июль. Без
+    // фиксированной даты тесты начинали падать первого числа следующего месяца.
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-15T12:00:00.000Z"));
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue(
@@ -66,6 +70,7 @@ describe("CrmEmployees: вход сотрудника", () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });

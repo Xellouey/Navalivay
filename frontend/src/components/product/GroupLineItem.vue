@@ -1,5 +1,6 @@
 <template>
   <div class="group-line-card" :class="{ expanded: isExpanded }">
+    <NewLineupBadge v-if="node.isNew" />
     <button
       :id="headerId"
       type="button"
@@ -128,6 +129,7 @@ import { useCustomerOrders } from "@/composables/useCustomerOrders";
 import { ChevronDownIcon } from "@heroicons/vue/24/outline";
 import { useCatalogStore, type Product } from "@/stores/catalog";
 import GroupLineItemContent from "@/components/product/GroupLineItemContent.vue";
+import NewLineupBadge from "@/components/product/NewLineupBadge.vue";
 import { getMinPriceForProducts } from "@/components/product/groupPrice";
 
 const GroupLineItem = defineAsyncComponent(
@@ -146,6 +148,8 @@ interface GroupNode {
   parentId?: string | null;
   metaLabel?: string | null;
   metaValue?: string | null;
+  isNew?: boolean;
+  newSince?: string | null;
   children: GroupNode[];
   products: Product[];
 }
@@ -368,7 +372,7 @@ function forwardToast(
 }
 
 function formatPrice(value?: number | null) {
-  if (value === null || value === undefined) return "—";
+  if (value === null || value === undefined) return "-";
   return value.toLocaleString("ru-RU");
 }
 

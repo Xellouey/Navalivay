@@ -755,7 +755,9 @@ publicRouter.get("/api/categories", (req, res) => {
     SELECT g.id, g.categoryId, g.slug, g.name, 
            CASE WHEN g.cover_image IS NOT NULL AND g.cover_image != '' THEN 1 ELSE 0 END as hasCoverImage,
            g.[order], g.hide_empty, g.parent_group_id, g.meta_label, g.meta_value,
-           g.strength_tier
+           g.strength_tier,
+           g.new_since,
+           CASE WHEN g.new_until > DATETIME('now') THEN 1 ELSE 0 END AS is_new
     FROM category_groups g
     ORDER BY g.categoryId ASC, g.[order] ASC, g.name ASC
   `,
@@ -869,6 +871,8 @@ publicRouter.get("/api/categories", (req, res) => {
     metaLabel: group.meta_label || null,
     metaValue: group.meta_value || null,
     strengthTier: group.strength_tier || null,
+    isNew: group.is_new === 1,
+    newSince: group.new_since || null,
     productCount: groupCounts.get(group.id) || 0,
     totalProductCount: 0,
     children: [],
@@ -919,6 +923,10 @@ publicRouter.get("/api/categories", (req, res) => {
         metaLabel: node.metaLabel || null,
         metaValue: node.metaValue || null,
         strengthTier: node.strengthTier || null,
+        // Линейка без остатка на витрину вообще не попадает, поэтому «кончился
+        // товар, плашка снимается» отрабатывает само.
+        isNew: node.isNew && node.totalProductCount > 0,
+        newSince: node.newSince || null,
         productCount: node.productCount,
         totalProductCount: node.totalProductCount,
       },

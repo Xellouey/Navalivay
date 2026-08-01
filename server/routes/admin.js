@@ -2592,6 +2592,11 @@ adminRouter.get('/api/admin/category-groups', authMiddleware, (req, res) => {
       g.parked_order,
       g.min_stock_threshold,
       g.total_control,
+      g.new_since,
+      g.new_until,
+      CASE WHEN g.new_until > DATETIME('now') THEN 1 ELSE 0 END AS is_new,
+      CAST(julianday(g.new_until) - julianday(g.new_since) AS INTEGER) AS new_days_total,
+      CAST(CEIL(julianday(g.new_until) - julianday('now')) AS INTEGER) AS new_days_left,
       g.waive_description,
       g.waive_min_stock,
       g.waive_wholesale,
@@ -2609,7 +2614,7 @@ adminRouter.get('/api/admin/category-groups', authMiddleware, (req, res) => {
     FROM category_groups g
     LEFT JOIN products p ON p.groupId = g.id
     ${whereClause}
-    GROUP BY g.id, g.categoryId, g.slug, g.name, g.[order], g.hide_empty, g.parent_group_id, g.meta_label, g.meta_value, g.empty_since, g.parked_order, g.min_stock_threshold, g.total_control, g.waive_description, g.waive_min_stock, g.waive_wholesale, g.strength_tier, g.waive_strength_tier, g.createdAt, g.updatedAt
+    GROUP BY g.id, g.categoryId, g.slug, g.name, g.[order], g.hide_empty, g.parent_group_id, g.meta_label, g.meta_value, g.empty_since, g.parked_order, g.min_stock_threshold, g.total_control, g.new_since, g.new_until, g.waive_description, g.waive_min_stock, g.waive_wholesale, g.strength_tier, g.waive_strength_tier, g.createdAt, g.updatedAt
     ORDER BY g.categoryId ASC, g.[order] ASC, g.name ASC
   `).all(...params);
 
@@ -2783,6 +2788,11 @@ adminRouter.get('/api/admin/category-groups/:id', authMiddleware, (req, res) => 
       g.meta_label,
       g.meta_value,
       g.total_control,
+      g.new_since,
+      g.new_until,
+      CASE WHEN g.new_until > DATETIME('now') THEN 1 ELSE 0 END AS is_new,
+      CAST(julianday(g.new_until) - julianday(g.new_since) AS INTEGER) AS new_days_total,
+      CAST(CEIL(julianday(g.new_until) - julianday('now')) AS INTEGER) AS new_days_left,
       g.createdAt,
       g.updatedAt
     FROM category_groups g
@@ -2866,6 +2876,17 @@ adminRouter.post('/api/admin/category-groups', authMiddleware, async (req, res) 
   let resolvedWaiveStrengthTier = 0;
   let resolvedStrengthTier = null;
   let resolvedTotalControl = 0;
+  // Линейку можно пометить новинкой прямо при создании: форма общая с правкой.
+  let newBadgeDays = null;
+  try {
+    const newBadge = resolveNewBadgeUpdate(req.body, null);
+    newBadgeDays = newBadge.changed ? newBadge.days : null;
+  } catch (error) {
+    if (error.code === 'invalid_is_new' || error.code === 'invalid_new_days') {
+      return res.status(400).json({ error: error.code });
+    }
+    throw error;
+  }
   try {
     resolvedWaiveDescription = resolveWaiverUpdate(
       req.body,
@@ -2954,9 +2975,15 @@ adminRouter.post('/api/admin/category-groups', authMiddleware, async (req, res) 
           total_control,
           waive_description, waive_min_stock, waive_wholesale,
           strength_tier, waive_strength_tier,
+          new_since, new_until,
           createdAt, updatedAt
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, DATETIME('now'), DATETIME('now'))
+        VALUES (
+          ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+          CASE WHEN ? IS NULL THEN NULL ELSE DATETIME('now') END,
+          CASE WHEN ? IS NULL THEN NULL ELSE DATETIME('now', ?) END,
+          DATETIME('now'), DATETIME('now')
+        )
       `).run(
         newId,
         String(categoryId),
@@ -2975,6 +3002,9 @@ adminRouter.post('/api/admin/category-groups', authMiddleware, async (req, res) 
         resolvedWaiveWholesale,
         resolvedStrengthTier,
         resolvedWaiveStrengthTier,
+        newBadgeDays,
+        newBadgeDays,
+        newBadgeDays === null ? null : `+${newBadgeDays} days`,
       );
 
       saveGroupWholesalePrices(newId, wholesalePrices ?? wholesale_prices ?? {});
@@ -3003,6 +3033,11 @@ adminRouter.post('/api/admin/category-groups', authMiddleware, async (req, res) 
       g.meta_value,
       g.min_stock_threshold,
       g.total_control,
+      g.new_since,
+      g.new_until,
+      CASE WHEN g.new_until > DATETIME('now') THEN 1 ELSE 0 END AS is_new,
+      CAST(julianday(g.new_until) - julianday(g.new_since) AS INTEGER) AS new_days_total,
+      CAST(CEIL(julianday(g.new_until) - julianday('now')) AS INTEGER) AS new_days_left,
       g.waive_description,
       g.waive_min_stock,
       g.waive_wholesale,
@@ -3014,7 +3049,7 @@ adminRouter.post('/api/admin/category-groups', authMiddleware, async (req, res) 
     FROM category_groups g
     LEFT JOIN products p ON p.groupId = g.id
     WHERE g.id = ?
-    GROUP BY g.id, g.categoryId, g.slug, g.name, g.cover_image, g.[order], g.hide_empty, g.parent_group_id, g.meta_label, g.meta_value, g.min_stock_threshold, g.total_control, g.waive_description, g.waive_min_stock, g.waive_wholesale, g.strength_tier, g.waive_strength_tier, g.createdAt, g.updatedAt
+    GROUP BY g.id, g.categoryId, g.slug, g.name, g.cover_image, g.[order], g.hide_empty, g.parent_group_id, g.meta_label, g.meta_value, g.min_stock_threshold, g.total_control, g.new_since, g.new_until, g.waive_description, g.waive_min_stock, g.waive_wholesale, g.strength_tier, g.waive_strength_tier, g.createdAt, g.updatedAt
   `).get(newId);
 
   if (!result) {
@@ -3039,6 +3074,54 @@ adminRouter.post('/api/admin/category-groups', authMiddleware, async (req, res) 
     totalProductCount: Number(totalRow?.total ?? result.productCount ?? 0)
   }));
 });
+
+/** Сколько дней держится плашка «новинка», если срок не задали явно. */
+const DEFAULT_NEW_BADGE_DAYS = 30;
+const MAX_NEW_BADGE_DAYS = 180;
+
+/**
+ * Метка «новинка» у линейки.
+ *
+ * Возвращает выражения для UPDATE, а не готовые строки: даты пишет SQLite через
+ * DATETIME, как и всё остальное время в проекте. Отсчёт начинается заново, если
+ * прошлый срок уже истёк, иначе менеджер снимет и поставит галку, а плашка не
+ * загорится, потому что срок посчитается от старой даты.
+ */
+function resolveNewBadgeUpdate(body, current) {
+  const raw = body?.is_new !== undefined ? body.is_new : body?.isNew;
+  if (raw === undefined) {
+    return { changed: false };
+  }
+  if (typeof raw !== 'boolean') {
+    const error = new Error('invalid_is_new');
+    error.code = 'invalid_is_new';
+    throw error;
+  }
+  if (!raw) {
+    return { changed: true, since: null, days: null };
+  }
+
+  const rawDays = body?.new_days !== undefined ? body.new_days : body?.newDays;
+  const days = Number(rawDays ?? DEFAULT_NEW_BADGE_DAYS);
+  if (!Number.isInteger(days) || days < 1 || days > MAX_NEW_BADGE_DAYS) {
+    const error = new Error('invalid_new_days');
+    error.code = 'invalid_new_days';
+    throw error;
+  }
+
+  const stillActive = Boolean(
+    db
+      .prepare("SELECT 1 AS active WHERE ? > DATETIME('now')")
+      .get(current?.new_until || '')?.active,
+  );
+  return {
+    changed: true,
+    // Продлеваем срок, но начало отсчёта у активной новинки не сдвигаем: иначе
+    // правка соседнего поля молча поднимала бы её выше свежих.
+    since: stillActive ? current.new_since : null,
+    days,
+  };
+}
 
 adminRouter.put('/api/admin/category-groups/:id', authMiddleware, async (req, res) => {
   const { id } = req.params;
@@ -3074,6 +3157,18 @@ adminRouter.put('/api/admin/category-groups/:id', authMiddleware, async (req, re
   const current = db.prepare('SELECT * FROM category_groups WHERE id = ?').get(id);
   if (!current) {
     return res.status(404).json({ error: 'not_found' });
+  }
+
+  // Своя обёртка: общий catch ниже переводит любую ошибку булева в
+  // invalid_total_control, и кривой is_new вернул бы ошибку про чужое поле.
+  let nextNewBadge;
+  try {
+    nextNewBadge = resolveNewBadgeUpdate(req.body, current);
+  } catch (error) {
+    if (error.code === 'invalid_is_new' || error.code === 'invalid_new_days') {
+      return res.status(400).json({ error: error.code });
+    }
+    throw error;
   }
 
   let nextWaiveDescription;
@@ -3242,6 +3337,28 @@ adminRouter.put('/api/admin/category-groups/:id', authMiddleware, async (req, re
         id,
       );
 
+      // Даты новинки пишем отдельным запросом: срок считает SQLite, чтобы в
+      // колонке не оказалось двух форматов времени.
+      if (nextNewBadge.changed) {
+        if (nextNewBadge.days === null) {
+          db.prepare(
+            'UPDATE category_groups SET new_since = NULL, new_until = NULL WHERE id = ?',
+          ).run(id);
+        } else {
+          db.prepare(`
+            UPDATE category_groups
+            SET new_since = COALESCE(?, DATETIME('now')),
+                new_until = DATETIME(COALESCE(?, DATETIME('now')), ?)
+            WHERE id = ?
+          `).run(
+            nextNewBadge.since,
+            nextNewBadge.since,
+            `+${nextNewBadge.days} days`,
+            id,
+          );
+        }
+      }
+
       if (wholesalePricesProvided) {
         saveGroupWholesalePrices(id, wholesalePrices ?? wholesale_prices ?? {});
       }
@@ -3270,6 +3387,11 @@ adminRouter.put('/api/admin/category-groups/:id', authMiddleware, async (req, re
       g.meta_value,
       g.min_stock_threshold,
       g.total_control,
+      g.new_since,
+      g.new_until,
+      CASE WHEN g.new_until > DATETIME('now') THEN 1 ELSE 0 END AS is_new,
+      CAST(julianday(g.new_until) - julianday(g.new_since) AS INTEGER) AS new_days_total,
+      CAST(CEIL(julianday(g.new_until) - julianday('now')) AS INTEGER) AS new_days_left,
       g.waive_description,
       g.waive_min_stock,
       g.waive_wholesale,
@@ -3281,7 +3403,7 @@ adminRouter.put('/api/admin/category-groups/:id', authMiddleware, async (req, re
     FROM category_groups g
     LEFT JOIN products p ON p.groupId = g.id
     WHERE g.id = ?
-    GROUP BY g.id, g.categoryId, g.slug, g.name, g.cover_image, g.[order], g.hide_empty, g.parent_group_id, g.meta_label, g.meta_value, g.min_stock_threshold, g.total_control, g.waive_description, g.waive_min_stock, g.waive_wholesale, g.strength_tier, g.waive_strength_tier, g.createdAt, g.updatedAt
+    GROUP BY g.id, g.categoryId, g.slug, g.name, g.cover_image, g.[order], g.hide_empty, g.parent_group_id, g.meta_label, g.meta_value, g.min_stock_threshold, g.total_control, g.new_since, g.new_until, g.waive_description, g.waive_min_stock, g.waive_wholesale, g.strength_tier, g.waive_strength_tier, g.createdAt, g.updatedAt
   `).get(id);
 
   if (!updated) {

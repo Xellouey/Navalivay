@@ -9,6 +9,7 @@
       :fallback-image="fallbackImage"
       :badge="group.badge ?? undefined"
       :badge-color="group.badgeColor ?? undefined"
+      :is-new="group.isNew ?? false"
       :meta-label="group.metaLabel ?? null"
       :meta-value="group.metaValue ?? null"
       :subgroups="group.children"
@@ -76,6 +77,8 @@ interface LiquidGroup {
   metaLabel?: string | null;
   metaValue?: string | null;
   strengthTier?: string | null;
+  isNew?: boolean;
+  newSince?: string | null;
   children: LiquidGroup[];
 }
 

@@ -63,6 +63,7 @@ import { migrateStorefrontFilters } from './migrations/add_storefront_filters.js
 import { migrateProductReviews } from './migrations/add_product_reviews.js';
 import { migratePendingNotifications } from './migrations/add_pending_notifications.js';
 import { migrateCategoryGroupTotalControl } from './migrations/add_total_control_to_category_groups.js';
+import { migrateGroupNewBadge } from './migrations/add_group_new_badge.js';
 import { migrateInventoryLocations } from './migrations/add_inventory_locations.js';
 import { migrateReferralAuthorization } from './migrations/add_referral_authorization.js';
 import { migrateReferralWelcomeNotifications } from './migrations/add_referral_welcome_notifications.js';
@@ -232,6 +233,7 @@ export function initDb() {
   migrateProductReviews();
   migratePendingNotifications();
   migrateCategoryGroupTotalControl();
+  migrateGroupNewBadge();
   migrateInventoryLocations();
   migrateStaffManagement(db);
   migrateInternalNotifications(db);

@@ -362,6 +362,7 @@ import { useCartStore } from "@/stores/cart";
 import { useWholesaleStore } from "@/stores/wholesale";
 import SmokeParticles from "@/components/SmokeParticles.vue";
 import LiquidLineTree from "@/components/product/liquid/LiquidLineTree.vue";
+import { compareLineups } from "@/utils/lineupOrder";
 import ToastNotification from "@/components/ToastNotification.vue";
 import GroupLineItem from "@/components/product/GroupLineItem.vue";
 import CategoryFilterBar from "@/components/product/CategoryFilterBar.vue";
@@ -594,6 +595,8 @@ type LiquidGroup = {
   metaLabel?: string | null;
   metaValue?: string | null;
   strengthTier?: string | null;
+  isNew?: boolean;
+  newSince?: string | null;
   children: LiquidGroup[];
 };
 
@@ -662,11 +665,11 @@ const groupCards = computed<GroupCardNode[]>(() => {
 
   // Сортируем детей рекурсивно
   const sortChildren = (node: GroupCardNode) => {
-    node.children.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+    node.children.sort(compareLineups);
     node.children.forEach(sortChildren);
   };
   roots.forEach(sortChildren);
-  roots.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+  roots.sort(compareLineups);
 
   return roots.filter(
     (node) => (node.totalProductCount ?? node.productCount ?? 0) > 0,
@@ -709,6 +712,8 @@ const liquidStructure = computed(() => {
         metaLabel: group.metaLabel ?? null,
         metaValue: group.metaValue ?? null,
         strengthTier: group.strengthTier ?? null,
+        isNew: group.isNew ?? false,
+        newSince: group.newSince ?? null,
         children: [],
       });
     });
@@ -727,11 +732,11 @@ const liquidStructure = computed(() => {
 
     // Сортируем рекурсивно
     const sortChildren = (node: LiquidGroup) => {
-      node.children.sort((a, b) => a.order - b.order);
+      node.children.sort(compareLineups);
       node.children.forEach(sortChildren);
     };
     roots.forEach(sortChildren);
-    roots.sort((a, b) => a.order - b.order);
+    roots.sort(compareLineups);
 
     return roots.filter((g) => g.products.length > 0 || g.children.length > 0);
   };

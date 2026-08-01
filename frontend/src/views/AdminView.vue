@@ -2783,7 +2783,7 @@ function closeGroupForm() {
   }
 }
 
-async function handleGroupFormSubmit(payload: { name: string; slug?: string; coverImage?: string | null; hideEmpty?: boolean; parentId?: string | null; metaLabel?: string | null; metaValue?: string | null; minStockThreshold?: number | null; totalControl?: boolean; wholesalePrices?: Record<string, number | null>; waiveDescription?: boolean; waiveMinStock?: boolean; waiveWholesale?: boolean; waiveStrengthTier?: boolean; strengthTier?: string | null }) {
+async function handleGroupFormSubmit(payload: { name: string; slug?: string; coverImage?: string | null; hideEmpty?: boolean; parentId?: string | null; metaLabel?: string | null; metaValue?: string | null; minStockThreshold?: number | null; totalControl?: boolean; isNew?: boolean; newDays?: number; wholesalePrices?: Record<string, number | null>; waiveDescription?: boolean; waiveMinStock?: boolean; waiveWholesale?: boolean; waiveStrengthTier?: boolean; strengthTier?: string | null }) {
   const categoryId = groupFormCategoryId.value || activeGroupCategory.value?.id || null
   if (!categoryId) {
     showToast('Сначала выберите категорию', 'error')
@@ -2810,6 +2810,8 @@ async function handleGroupFormSubmit(payload: { name: string; slug?: string; cov
         metaValue: payload.metaValue ?? null,
         minStockThreshold: payload.minStockThreshold ?? null,
         totalControl: payload.totalControl ?? false,
+        isNew: payload.isNew ?? false,
+        ...(payload.newDays !== undefined ? { newDays: payload.newDays } : {}),
         wholesalePrices: payload.wholesalePrices ?? {},
         waiveDescription: payload.waiveDescription,
         waiveMinStock: payload.waiveMinStock,
@@ -2830,6 +2832,8 @@ async function handleGroupFormSubmit(payload: { name: string; slug?: string; cov
         metaValue: payload.metaValue ?? null,
         minStockThreshold: payload.minStockThreshold ?? null,
         totalControl: payload.totalControl ?? false,
+        isNew: payload.isNew ?? false,
+        ...(payload.newDays !== undefined ? { newDays: payload.newDays } : {}),
         wholesalePrices: payload.wholesalePrices ?? {},
         waiveDescription: payload.waiveDescription,
         waiveMinStock: payload.waiveMinStock,

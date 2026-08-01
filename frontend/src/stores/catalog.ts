@@ -17,6 +17,8 @@ export interface CategoryGroup {
   metaLabel?: string | null
   metaValue?: string | null
   strengthTier?: string | null
+  isNew?: boolean
+  newSince?: string | null
 }
 
 export interface Category {
@@ -345,7 +347,9 @@ export const useCatalogStore = defineStore('catalog', () => {
               badgeColor: group.badgeColor ?? null,
               metaLabel: group.metaLabel ?? group.meta_label ?? null,
               metaValue: group.metaValue ?? group.meta_value ?? null,
-              strengthTier: group.strengthTier ?? group.strength_tier ?? null
+              strengthTier: group.strengthTier ?? group.strength_tier ?? null,
+              isNew: Boolean(group.isNew),
+              newSince: group.newSince ?? null
             }))
           : []
       }))

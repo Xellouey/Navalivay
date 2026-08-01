@@ -1,5 +1,6 @@
 <template>
   <div class="liquid-line-card" :class="{ expanded }">
+    <NewLineupBadge v-if="isNew" />
     <div class="liquid-line-header" @click="toggle">
       <div
         class="liquid-line-main"
@@ -297,6 +298,7 @@
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch, nextTick } from "vue";
+import NewLineupBadge from "@/components/product/NewLineupBadge.vue";
 import GroupReviewsModal from "@/components/reviews/GroupReviewsModal.vue";
 import ReviewRatingLink from "@/components/reviews/ReviewRatingLink.vue";
 import { useCustomerOrders } from "@/composables/useCustomerOrders";
@@ -331,6 +333,7 @@ const props = defineProps<{
   subgroups?: SubgroupInfo[];
   badge?: string;
   badgeColor?: string;
+  isNew?: boolean;
   metaLabel?: string | null;
   metaValue?: string | null;
   topRank?: number | null;
@@ -577,7 +580,7 @@ onMounted(async () => {
 });
 
 function formatPrice(value?: number | null) {
-  if (value === null || value === undefined) return "—";
+  if (value === null || value === undefined) return "-";
   return value.toLocaleString("ru-RU");
 }
 

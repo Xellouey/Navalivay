@@ -114,6 +114,9 @@ export interface CategoryGroup {
   metaValue?: string | null
   minStockThreshold?: number | null
   totalControl?: boolean
+  isNew?: boolean
+  newDaysTotal?: number | null
+  newDaysLeft?: number | null
   waiveDescription?: boolean
   waiveMinStock?: boolean
   waiveWholesale?: boolean
@@ -861,6 +864,9 @@ async function createCategory(category: { name: string; hideEmpty?: boolean; cov
         metaValue: group.metaValue ?? group.meta_value ?? null,
         minStockThreshold: normalizeMinStockThreshold(group.minStockThreshold ?? group.min_stock_threshold),
         totalControl: Boolean(group.totalControl ?? group.total_control),
+        isNew: Boolean(group.is_new ?? group.isNew),
+        newDaysTotal: group.new_days_total ?? null,
+        newDaysLeft: group.new_days_left ?? null,
         createdAt: group.createdAt,
         updatedAt: group.updatedAt,
         productCount: group.productCount ?? 0,
@@ -956,6 +962,9 @@ async function createCategory(category: { name: string; hideEmpty?: boolean; cov
         metaValue: response.metaValue ?? response.meta_value ?? null,
         minStockThreshold: normalizeMinStockThreshold(response.minStockThreshold ?? response.min_stock_threshold),
         totalControl: Boolean(response.totalControl ?? response.total_control),
+        isNew: Boolean(response.is_new ?? response.isNew),
+        newDaysTotal: response.new_days_total ?? null,
+        newDaysLeft: response.new_days_left ?? null,
         createdAt: response.createdAt,
         updatedAt: response.updatedAt,
         productCount: response.productCount ?? 0,
@@ -1001,7 +1010,7 @@ async function createCategory(category: { name: string; hideEmpty?: boolean; cov
     }
   }
 
-  async function createCategoryGroup(payload: { categoryId: string; name: string; slug?: string; coverImage?: string | null; hideEmpty?: boolean; parentId?: string | null; metaLabel?: string | null; metaValue?: string | null; minStockThreshold?: number | null; totalControl?: boolean; wholesalePrices?: Record<string, number | null>; waiveDescription?: boolean; waiveMinStock?: boolean; waiveWholesale?: boolean; waiveStrengthTier?: boolean; strengthTier?: string | null }) {
+  async function createCategoryGroup(payload: { categoryId: string; name: string; slug?: string; coverImage?: string | null; hideEmpty?: boolean; parentId?: string | null; metaLabel?: string | null; metaValue?: string | null; minStockThreshold?: number | null; totalControl?: boolean; isNew?: boolean; newDays?: number; wholesalePrices?: Record<string, number | null>; waiveDescription?: boolean; waiveMinStock?: boolean; waiveWholesale?: boolean; waiveStrengthTier?: boolean; strengthTier?: string | null }) {
     try {
       isLoading.value = true
       error.value = null
@@ -1020,6 +1029,8 @@ async function createCategory(category: { name: string; hideEmpty?: boolean; cov
           metaValue: payload.metaValue ?? null,
           minStockThreshold: payload.minStockThreshold ?? null,
           totalControl: payload.totalControl ?? false,
+          isNew: payload.isNew ?? false,
+          ...(payload.newDays !== undefined ? { newDays: payload.newDays } : {}),
           wholesalePrices: payload.wholesalePrices ?? undefined,
           waiveDescription: payload.waiveDescription ?? false,
           waiveMinStock: payload.waiveMinStock ?? false,
@@ -1042,6 +1053,9 @@ async function createCategory(category: { name: string; hideEmpty?: boolean; cov
         metaValue: response.metaValue ?? response.meta_value ?? null,
         minStockThreshold: normalizeMinStockThreshold(response.minStockThreshold ?? response.min_stock_threshold),
         totalControl: Boolean(response.totalControl ?? response.total_control),
+        isNew: Boolean(response.is_new ?? response.isNew),
+        newDaysTotal: response.new_days_total ?? null,
+        newDaysLeft: response.new_days_left ?? null,
         waiveDescription: Boolean(response.waiveDescription ?? response.waive_description),
         waiveMinStock: Boolean(response.waiveMinStock ?? response.waive_min_stock),
         waiveWholesale: Boolean(response.waiveWholesale ?? response.waive_wholesale),
@@ -1070,7 +1084,7 @@ async function createCategory(category: { name: string; hideEmpty?: boolean; cov
     }
   }
 
-  async function updateCategoryGroup(id: string, updates: Partial<CategoryGroup>) {
+  async function updateCategoryGroup(id: string, updates: Partial<CategoryGroup> & { newDays?: number }) {
     try {
       isLoading.value = true
       error.value = null
@@ -1093,6 +1107,8 @@ async function createCategory(category: { name: string; hideEmpty?: boolean; cov
       if ('metaValue' in updates) body.metaValue = updates.metaValue ?? null
       if ('minStockThreshold' in updates) body.minStockThreshold = updates.minStockThreshold ?? null
       if ('totalControl' in updates) body.totalControl = updates.totalControl
+      if ('isNew' in updates) body.isNew = updates.isNew
+      if ('newDays' in updates) body.newDays = updates.newDays
       if ('wholesalePrices' in updates) body.wholesalePrices = updates.wholesalePrices
       if ('waiveDescription' in updates) body.waiveDescription = updates.waiveDescription
       if ('waiveMinStock' in updates) body.waiveMinStock = updates.waiveMinStock
@@ -1125,6 +1141,9 @@ async function createCategory(category: { name: string; hideEmpty?: boolean; cov
         order: Number(response.order ?? response['order'] ?? existing?.order ?? 0),
         hideEmpty: Boolean(response.hide_empty),
         parentId: response.parent_group_id ?? null,
+        isNew: Boolean(response.is_new ?? response.isNew),
+        newDaysTotal: response.new_days_total ?? null,
+        newDaysLeft: response.new_days_left ?? null,
         metaLabel: response.metaLabel ?? response.meta_label ?? null,
         metaValue: response.metaValue ?? response.meta_value ?? null,
         minStockThreshold: normalizeMinStockThreshold(response.minStockThreshold ?? response.min_stock_threshold),
