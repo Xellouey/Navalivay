@@ -1914,9 +1914,8 @@ async function submitOrder() {
 
 .cart-item-price-old {
   margin-right: 6px;
-  font-size: 14px;
-  font-weight: 600;
   color: #98a2b3;
+  opacity: 0.6;
   text-decoration: line-through;
 }
 

@@ -578,9 +578,8 @@ function decrementVariantQuantity(
 
 .group-price-old {
   margin-right: 4px;
-  font-size: 11px;
-  font-weight: 600;
-  color: #98A2B3;
+  color: #98a2b3;
+  opacity: 0.6;
   text-decoration: line-through;
 }
 

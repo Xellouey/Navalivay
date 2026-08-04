@@ -1,7 +1,6 @@
 <template>
   <div class="group-line-card" :class="{ expanded: isExpanded }">
     <NewLineupBadge v-if="node.isNew" />
-    <DiscountBadge v-if="hasDiscount" class="group-line-discount" />
     <button
       :id="headerId"
       type="button"
@@ -13,22 +12,25 @@
       <span class="group-line-main">
         <span class="group-line-image-wrapper">
           <span v-if="topRank" class="group-line-top-rank">#{{ topRank }}</span>
-          <span v-if="coverImage" class="group-line-image">
-            <img :src="coverImage" :alt="node.name" loading="lazy" decoding="async" />
-          </span>
-          <span v-else class="group-line-image group-line-image-placeholder">
-            <svg
-              width="40"
-              height="40"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="#E6E9ED"
-              stroke-width="1.5"
-            >
-              <rect x="3" y="3" width="18" height="18" rx="2" />
-              <circle cx="8.5" cy="8.5" r="1.5" />
-              <path d="M21 15l-5-5L5 21" />
-            </svg>
+          <span class="group-line-image-box">
+            <span v-if="coverImage" class="group-line-image">
+              <img :src="coverImage" :alt="node.name" loading="lazy" decoding="async" />
+            </span>
+            <span v-else class="group-line-image group-line-image-placeholder">
+              <svg
+                width="40"
+                height="40"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="#E6E9ED"
+                stroke-width="1.5"
+              >
+                <rect x="3" y="3" width="18" height="18" rx="2" />
+                <circle cx="8.5" cy="8.5" r="1.5" />
+                <path d="M21 15l-5-5L5 21" />
+              </svg>
+            </span>
+            <DiscountBadge v-if="hasDiscount" class="group-line-discount" />
           </span>
           <span v-if="firstProductPrice" class="group-line-image-price">
             <span class="group-line-image-price-amount">{{ formatPrice(firstProductPrice) }}</span>
@@ -399,8 +401,21 @@ onBeforeUnmount(() => {
   margin-bottom: 0;
 }
 
+/* Плашка лежит на обложке линейки, ровно как на карточке категории. */
+.group-line-image-box {
+  position: relative;
+  display: flex;
+}
+
 .group-line-discount {
-  margin-bottom: 10px;
+  position: absolute;
+  left: 50%;
+  bottom: 6px;
+  transform: translateX(-50%);
+  padding: 3px 8px;
+  font-size: 9px;
+  line-height: 11px;
+  letter-spacing: 0.04em;
 }
 
 .group-line-header {

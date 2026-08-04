@@ -1,7 +1,6 @@
 <template>
   <div class="liquid-line-card" :class="{ expanded }">
     <NewLineupBadge v-if="isNew" />
-    <DiscountBadge v-if="hasDiscount" class="liquid-line-discount" />
     <div class="liquid-line-header" @click="toggle">
       <div
         class="liquid-line-main"
@@ -12,22 +11,25 @@
       >
         <div class="liquid-line-image-wrapper">
           <span v-if="topRank" class="liquid-line-top-rank">#{{ topRank }}</span>
-          <div v-if="coverUrl" class="liquid-line-image">
-            <img :src="coverUrl" :alt="title" loading="lazy" decoding="async" />
-          </div>
-          <div v-else class="liquid-line-image liquid-line-image-placeholder">
-            <svg
-              width="40"
-              height="40"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="#E6E9ED"
-              stroke-width="1.5"
-            >
-              <rect x="3" y="3" width="18" height="18" rx="2" />
-              <circle cx="8.5" cy="8.5" r="1.5" />
-              <path d="M21 15l-5-5L5 21" />
-            </svg>
+          <div class="liquid-line-image-box">
+            <div v-if="coverUrl" class="liquid-line-image">
+              <img :src="coverUrl" :alt="title" loading="lazy" decoding="async" />
+            </div>
+            <div v-else class="liquid-line-image liquid-line-image-placeholder">
+              <svg
+                width="40"
+                height="40"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="#E6E9ED"
+                stroke-width="1.5"
+              >
+                <rect x="3" y="3" width="18" height="18" rx="2" />
+                <circle cx="8.5" cy="8.5" r="1.5" />
+                <path d="M21 15l-5-5L5 21" />
+              </svg>
+            </div>
+            <DiscountBadge v-if="hasDiscount" class="liquid-line-discount" />
           </div>
           <p v-if="minPriceLabel" class="liquid-line-image-price" :class="{ discounted: oldPriceLabel }">
             <span v-if="oldPriceLabel" class="liquid-line-image-price-old">{{ oldPriceLabel }}</span>
@@ -943,25 +945,39 @@ function closeColorPreview() {
 
 <style scoped>
 /* Figma Redesign - Карточка линейки жидкостей */
-.liquid-line-discount {
-  align-self: flex-start;
-  margin-bottom: 10px;
+/* Плашка лежит на обложке линейки, ровно как на карточке категории. */
+.liquid-line-image-box {
+  position: relative;
+  display: flex;
 }
 
+.liquid-line-discount {
+  position: absolute;
+  left: 50%;
+  bottom: 6px;
+  transform: translateX(-50%);
+  padding: 3px 8px;
+  font-size: 9px;
+  line-height: 11px;
+  letter-spacing: 0.04em;
+}
+
+/*
+ * Старая цена того же размера и веса, что и новая: разный кегль сажает их на
+ * разную высоту, и пара выглядит съехавшей. Отличается только цветом и
+ * прозрачностью, чтобы взгляд цеплялся за новую цену.
+ */
 .liquid-line-image-price-old {
-  margin-right: 4px;
-  font-size: 11px;
-  font-weight: 600;
-  color: #98A2B3;
+  color: #98a2b3;
+  opacity: 0.6;
   text-decoration: line-through;
 }
 
 /* Старая цена и глубина скидки у позиции: одинаково у вкусов и у вариантов. */
 .liquid-price-old {
   margin-right: 6px;
-  font-size: 14px;
-  font-weight: 600;
   color: #98a2b3;
+  opacity: 0.6;
   text-decoration: line-through;
 }
 
@@ -1073,6 +1089,8 @@ function closeColorPreview() {
   font-size: 16px;
   line-height: 20px;
   white-space: nowrap;
+  /* Цифры одной ширины: иначе 16 и 17 встают под обложкой с разным отступом. */
+  font-variant-numeric: tabular-nums;
 }
 
 .liquid-line-image-price-amount {
