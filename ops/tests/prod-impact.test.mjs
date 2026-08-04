@@ -76,9 +76,20 @@ test('docs и тесты не вызывают действий', () => {
 })
 
 test('файлы без влияния на прод не блокируют и не вызывают действий', () => {
-  const plan = planImpact(['.gitignore', 'server/dev-server.js'], graph(), graph())
+  const plan = planImpact(
+    ['.gitignore', 'server/dev-server.js', 'ops/nginx.conf'],
+    graph(),
+    graph(),
+  )
   assert.deepEqual(plan.blocked, [])
   assert.equal(plan.noRuntimeActions, true)
+})
+
+test('настоящие инфраструктурные пути блокируют по-прежнему', () => {
+  // Послабление для справочной копии не должно распространяться на конфиги,
+  // которые действительно раскатывают на сервер.
+  const plan = planImpact(['nginx/site.conf', 'ops/systemd/api.service'], graph(), graph())
+  assert.equal(plan.blocked.length, 2)
 })
 
 test('соседний серверный файл вне графа запуска по-прежнему блокирует', () => {
