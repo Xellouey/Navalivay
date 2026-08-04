@@ -1,7 +1,6 @@
 import { createRouter, createWebHistory } from "vue-router";
 import HomeView from "../views/HomeView.vue";
 import { useAdminStore } from "@/stores/admin";
-import { useWholesaleStore } from "@/stores/wholesale";
 
 const requireAdminAuth = (to: any, from: any, next: any) => {
   const adminStore = useAdminStore();
@@ -97,16 +96,6 @@ const router = createRouter({
       name: "order-detail",
       component: () => import("../views/OrderDetailView.vue"),
       props: true,
-    },
-    {
-      path: "/section-2",
-      name: "section-2",
-      component: () => import("../views/PlaceholderView.vue"),
-    },
-    {
-      path: "/section-3",
-      name: "section-3",
-      component: () => import("../views/PlaceholderView.vue"),
     },
     {
       path: "/wheel",
@@ -226,18 +215,6 @@ const router = createRouter({
       redirect: "/",
     },
   ],
-});
-
-const wholesaleRestrictedRouteNames = new Set(["section-2", "section-3"]);
-
-router.beforeEach((to, _from, next) => {
-  const wholesaleStore = useWholesaleStore();
-  if (wholesaleStore.isWholesale && wholesaleRestrictedRouteNames.has(String(to.name || ""))) {
-    next({ name: "home" });
-    return;
-  }
-
-  next();
 });
 
 const visitLogger = typeof window !== "undefined" ? createVisitLogger() : null;
