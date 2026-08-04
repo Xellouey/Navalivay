@@ -118,7 +118,15 @@ function unionReachability(oldGraph, newGraph) {
  * поздно пропустит на прод то, чего там быть не должно.
  */
 function hasNoRuntimeImpact(file) {
-  return file === '.gitignore' || file === '.gitattributes' || file === 'server/dev-server.js'
+  return (
+    file === '.gitignore' ||
+    file === '.gitattributes' ||
+    file === 'server/dev-server.js' ||
+    // Справочная копия боевого конфига nginx. Деплой её никуда не applies:
+    // конфиг меняют на сервере руками. Настоящие инфраструктурные пути
+    // (nginx/, ops/systemd/, deploy/) блокировку по-прежнему получают.
+    file === 'ops/nginx.conf'
+  )
 }
 
 function isDocsOrTest(file) {
