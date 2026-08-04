@@ -77,6 +77,7 @@ import {
 } from "../utils/catalog-discounts.js";
 import { STOREFRONT_FILTER_PROFILES } from "../utils/storefront-filters.js";
 import { resolveCatalogUnitPrice } from "../utils/order-line-pricing.js";
+import { resolveCoverImage } from "../services/image-thumbnail-service.js";
 import { roundMoney } from "../utils/money.js";
 import {
   createProductReview,
@@ -893,6 +894,9 @@ publicRouter.get("/api/categories", (req, res) => {
     name: group.name,
     order: group["order"],
     hasCoverImage: group.hasCoverImage === 1,
+    // Готовый адрес обложки: витрина ставит его прямо в <img>, и картинку
+    // тянет сам браузер — лениво, параллельно и с кэшем.
+    coverImage: group.hasCoverImage === 1 ? `/api/category-groups/${group.id}/cover` : null,
     hideEmpty: group.hide_empty === 1,
     parentId: group.parent_group_id || null,
     metaLabel: group.meta_label || null,
@@ -945,6 +949,7 @@ publicRouter.get("/api/categories", (req, res) => {
         name: node.name,
         order: node.order,
         hasCoverImage: node.hasCoverImage,
+        coverImage: node.coverImage,
         hideEmpty: node.hideEmpty,
         parentId: node.parentId,
         metaLabel: node.metaLabel || null,
@@ -998,6 +1003,7 @@ publicRouter.get("/api/categories", (req, res) => {
       name: cat.name,
       order: cat["order"],
       hasCoverImage: cat.hasCoverImage === 1,
+      coverImage: cat.hasCoverImage === 1 ? `/api/categories/${cat.id}/cover` : null,
       productCount: totalProducts,
       groups,
       displayMode: cat.display_mode || "default",
@@ -1089,6 +1095,61 @@ publicRouter.get("/api/banners", (req, res) => {
 });
 
 // Endpoint РґР»СЏ РїРѕР»СѓС‡РµРЅРёСЏ РѕР±Р»РѕР¶РєРё РєР°С‚РµРіРѕСЂРёРё РѕС‚РґРµР»СЊРЅРѕ (РѕРїС‚РёРјРёР·Р°С†РёСЏ С‚СЂР°С„РёРєР°)
+/**
+ * Обложки отдаём файлом, а не base64 внутри JSON.
+ *
+ * В базе обложка лежит куском base64 на 800x800 — до 190 КБ на линейку, и в
+ * категории «Жидкости» таких 107 штук. Раньше витрина тянула их по одной
+ * JSON-запросом, браузер не мог ни кэшировать их, ни грузить лениво, и на
+ * мобильном интернете фото проявлялись по десять секунд.
+ *
+ * Теперь на первый запрос картинка один раз режется в webp и ложится на диск
+ * под именем от хэша содержимого, дальше отдаётся редиректом на готовый файл.
+ * Имя меняется вместе с картинкой, поэтому файл можно кэшировать надолго.
+ */
+function sendCoverRedirect(res, source, meta) {
+  return resolveCoverImage(source, meta)
+    .then((url) => {
+      if (!url) return res.status(404).json({ error: "Image not found" });
+      // Сам редирект короткоживущий: у линейки могут поменять обложку, и
+      // тогда покупатель должен увидеть новую, а не вчерашнюю.
+      res.set("Cache-Control", "public, max-age=300");
+      return res.redirect(302, url);
+    })
+    .catch((error) => {
+      console.error("[cover] failed to resolve cover image:", error);
+      return res.status(500).json({ error: "cover_failed" });
+    });
+}
+
+publicRouter.get("/api/categories/:id/cover", (req, res) => {
+  const row = db
+    .prepare("SELECT cover_image FROM categories WHERE id = ?")
+    .get(req.params.id);
+  if (!row?.cover_image) {
+    return res.status(404).json({ error: "Image not found" });
+  }
+  return sendCoverRedirect(res, row.cover_image, {
+    sourceType: "category",
+    sourceId: req.params.id,
+    sourceField: "cover_image",
+  });
+});
+
+publicRouter.get("/api/category-groups/:id/cover", (req, res) => {
+  const row = db
+    .prepare("SELECT cover_image FROM category_groups WHERE id = ?")
+    .get(req.params.id);
+  if (!row?.cover_image) {
+    return res.status(404).json({ error: "Image not found" });
+  }
+  return sendCoverRedirect(res, row.cover_image, {
+    sourceType: "category_group",
+    sourceId: req.params.id,
+    sourceField: "cover_image",
+  });
+});
+
 publicRouter.get("/api/categories/:id/image", (req, res) => {
   const { id } = req.params;
   const row = db

@@ -333,8 +333,9 @@ export const useCatalogStore = defineStore('catalog', () => {
         name: cat.name,
         order: cat.order ?? 0,
         productCount: cat.productCount ?? 0,
-        // Используем кэш если есть, иначе null
-        coverImage: categoryImageCache.value.get(String(cat.id)) || null,
+        // Сервер присылает готовый адрес картинки, тянет её сам браузер.
+        // Кэш остаётся запасным путём для старых ответов без адреса.
+        coverImage: cat.coverImage ?? categoryImageCache.value.get(String(cat.id)) ?? null,
         hasCoverImage: cat.hasCoverImage ?? false,
         displayMode: (cat.displayMode ?? cat.display_mode ?? 'default') as 'default' | 'liquid' | 'visual',
         storefrontFiltersProfile: (cat.storefrontFiltersProfile ?? cat.storefront_filters_profile ?? 'none') as 'none' | 'liquids' | 'snus_plates',
@@ -344,7 +345,7 @@ export const useCatalogStore = defineStore('catalog', () => {
               slug: group.slug,
               name: group.name,
               order: group.order ?? 0,
-              coverImage: groupImageCache.value.get(String(group.id)) || null,
+              coverImage: group.coverImage ?? groupImageCache.value.get(String(group.id)) ?? null,
               hasCoverImage: group.hasCoverImage ?? false,
               productCount: group.productCount ?? 0,
               totalProductCount: group.totalProductCount ?? group.productCount ?? 0,
