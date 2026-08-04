@@ -81,3 +81,15 @@ test-*.js
 migrate_existing_orders.*
 # Временные SQLite из server/tests (если node:test упал до cleanup)
 server/tests/.tmp-*
+
+# Следы отладочных прогонов в браузере: скриншоты, дампы страниц и логи
+# консоли. Пишутся сотнями за сессию, в истории проекта не нужны.
+.playwright-cli/
+.playwright-mcp/
+output/playwright/
+# Скриншоты, которые кидают в корень на посмотреть.
+/*.png
+# Черновики агентских прогонов: логи, диффы на ревью, вложения.
+.codex-*.log
+.codex-*.diff
+.codex-remote-attachments/
