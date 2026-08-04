@@ -90,6 +90,62 @@
 
     <div
       class="rounded-2xl border p-4 transition"
+      :class="form.discountEnabled
+        ? 'border-rose-300 bg-rose-50'
+        : 'border-gray-200 bg-white hover:border-gray-300'"
+    >
+      <label class="flex cursor-pointer items-start gap-3">
+        <input
+          v-model="form.discountEnabled"
+          type="checkbox"
+          class="mt-0.5 h-5 w-5 rounded border-gray-300 text-rose-600 focus:ring-rose-500/30"
+        />
+        <span>
+          <span class="block text-sm font-semibold text-gray-800">Скидка на всю линейку</span>
+          <span class="mt-1 block text-xs leading-5 text-gray-600">
+            Все вкусы линейки будут продаваться по этой цене. На витрине старая
+            цена зачёркивается, рядом встаёт новая. Бонусы за такую покупку не
+            начисляются и не списываются.
+          </span>
+        </span>
+      </label>
+
+      <div v-if="form.discountEnabled" class="mt-3 space-y-3 pl-8">
+        <div>
+          <label class="mb-1 block text-xs font-medium text-gray-700" for="group-discount-price">
+            Сколько будет стоить, BYN
+          </label>
+          <input
+            id="group-discount-price"
+            v-model="form.discountPrice"
+            type="number"
+            min="0"
+            step="0.01"
+            inputmode="decimal"
+            class="w-40 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-transparent focus:ring-2 focus:ring-rose-500/30"
+            placeholder="Например 12"
+          />
+          <p v-if="basePriceLabel" class="mt-1 text-xs text-gray-500">{{ basePriceLabel }}</p>
+        </div>
+        <div>
+          <label class="mb-1 block text-xs font-medium text-gray-700" for="group-discount-until">
+            Скидка действует по
+          </label>
+          <input
+            id="group-discount-until"
+            v-model="form.discountUntil"
+            type="date"
+            class="w-48 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-transparent focus:ring-2 focus:ring-rose-500/30"
+          />
+          <p class="mt-1 text-xs text-gray-500">
+            {{ form.discountUntil ? 'В этот день скидка ещё работает, дальше цена вернётся сама.' : 'Без даты скидка держится, пока её не снимут.' }}
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <div
+      class="rounded-2xl border p-4 transition"
       :class="form.isNew
         ? 'border-rose-300 bg-rose-50'
         : 'border-gray-200 bg-white hover:border-gray-300'"
@@ -367,6 +423,12 @@
 import { reactive, ref, watch, computed } from 'vue'
 
 /** Срок плашки по умолчанию, столько же стоит на сервере. */
+/** Цена скидки: пустое поле и мусор означают «скидки нет». */
+function parseDiscountPrice(value: string): number | null {
+  const parsed = Number(String(value).replace(',', '.'))
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null
+}
+
 const DEFAULT_NEW_DAYS = 30
 const MAX_NEW_DAYS = 180
 
@@ -389,6 +451,7 @@ interface CategoryGroup {
   isNew?: boolean
   newDaysTotal?: number | null
   newDaysLeft?: number | null
+  discount?: { price: number; untilDate: string | null; active: boolean } | null
   waiveDescription?: boolean
   waiveMinStock?: boolean
   waiveWholesale?: boolean
@@ -419,7 +482,7 @@ const props = withDefaults(defineProps<{ editingGroup?: CategoryGroup | null; is
 })
 
 const emit = defineEmits<{
-  (e: 'submit', payload: { name: string; coverImage?: string | null; hideEmpty?: boolean; parentId?: string | null; metaLabel?: string | null; metaValue?: string | null; minStockThreshold?: number | null; totalControl?: boolean; isNew?: boolean; newDays?: number; wholesalePrices?: Record<string, number | null>; waiveDescription?: boolean; waiveMinStock?: boolean; waiveWholesale?: boolean; waiveStrengthTier?: boolean; strengthTier?: string | null }): void
+  (e: 'submit', payload: { name: string; coverImage?: string | null; hideEmpty?: boolean; parentId?: string | null; metaLabel?: string | null; metaValue?: string | null; minStockThreshold?: number | null; totalControl?: boolean; isNew?: boolean; newDays?: number; discount?: { price: number | null; untilDate: string | null }; wholesalePrices?: Record<string, number | null>; waiveDescription?: boolean; waiveMinStock?: boolean; waiveWholesale?: boolean; waiveStrengthTier?: boolean; strengthTier?: string | null }): void
   (e: 'cancel'): void
 }>()
 
@@ -433,6 +496,9 @@ const form = reactive({
   totalControl: false,
   isNew: false,
   newDays: '30',
+  discountEnabled: false,
+  discountPrice: '',
+  discountUntil: '',
   waiveDescription: false,
   waiveMinStock: false,
   waiveWholesale: false,
@@ -524,6 +590,9 @@ watch(
           : String(threshold)
       form.totalControl = Boolean(group.totalControl)
       form.isNew = Boolean(group.isNew)
+      form.discountEnabled = Boolean(group.discount)
+      form.discountPrice = group.discount ? String(group.discount.price) : ''
+      form.discountUntil = group.discount?.untilDate ?? ''
       form.newDays = String(group.newDaysTotal && group.newDaysTotal > 0 ? group.newDaysTotal : DEFAULT_NEW_DAYS)
       form.waiveDescription = Boolean(group.waiveDescription)
       form.waiveMinStock = Boolean(group.waiveMinStock)
@@ -549,6 +618,9 @@ watch(
       form.totalControl = false
       form.isNew = false
       form.newDays = String(DEFAULT_NEW_DAYS)
+      form.discountEnabled = false
+      form.discountPrice = ''
+      form.discountUntil = ''
       form.waiveDescription = false
       form.waiveMinStock = false
       form.waiveWholesale = false
@@ -565,6 +637,15 @@ watch(
 )
 
 /** Сколько ещё висит плашка: число приходит с сервера, дату не парсим. */
+/** Подсказка про обычную цену: менеджеру надо видеть, от чего он отнимает. */
+const basePriceLabel = computed(() => {
+  const current = props.editingGroup?.discount
+  if (!current) return ''
+  return current.active
+    ? `Сейчас продаётся по ${current.price} BYN`
+    : `Прошлая скидка ${current.price} BYN уже не действует`
+})
+
 const newDaysLeftLabel = computed(() => {
   if (!props.editingGroup?.isNew) return ''
   const left = Number(props.editingGroup.newDaysLeft ?? 0)
@@ -630,6 +711,9 @@ function onSubmit() {
     minStockThreshold,
     totalControl: form.totalControl,
     isNew: form.isNew,
+    discount: form.discountEnabled
+      ? { price: parseDiscountPrice(form.discountPrice), untilDate: form.discountUntil || null }
+      : { price: null, untilDate: null },
     // Срок уходит только вместе с включённой галкой: сервер сам решает,
     // продлить текущую новинку или начать отсчёт заново.
     ...(form.isNew ? { newDays: parseNewDays(form.newDays) } : {}),

@@ -392,6 +392,53 @@ async function testClientPriceIsIgnored() {
   assert.equal(Number(items[0].price_per_unit || 0), 15);
 }
 
+async function testCatalogDiscountSnapshot() {
+  const { saveDiscount } = await import("../utils/catalog-discounts.js");
+  const identity = { telegram_id: "1010", telegram_username: "discount_snapshot" };
+  const line = {
+    product_id: "product-1",
+    variant_id: null,
+    quantity: 2,
+    product_title: "Liquid Cherry",
+    variant_name: null,
+  };
+
+  saveDiscount("product", "product-1", { price: 12, untilDate: null });
+  const created = await createOrder(identity, { items: [line] });
+  assert.equal(created.response.status, 200, JSON.stringify(created.data));
+
+  const [item] = getOrderItems(created.data.order_id);
+  // Продали по 12, а по каталогу товар стоит 15: в позиции видно и то, и другое.
+  assert.equal(Number(item.price_per_unit), 12);
+  assert.equal(Number(item.base_price_per_unit), 15);
+  assert.equal(Number(item.catalog_discount_per_unit), 3);
+
+  // Отменяем, иначе следующий заказ упрётся в «у вас уже есть активный».
+  await requestJson(`/api/orders/${created.data.order_id}/cancel-by-customer`, {
+    method: "POST",
+    headers: telegramHeaders(identity),
+    body: JSON.stringify(identity),
+  });
+
+  saveDiscount("product", "product-1", { price: null });
+  const withoutDiscount = await createOrder(identity, { items: [line] });
+  assert.equal(withoutDiscount.response.status, 200);
+
+  const [plainItem] = getOrderItems(withoutDiscount.data.order_id);
+  // Ноль, а не NULL: про этот заказ мы точно знаем, что скидки не было.
+  assert.equal(Number(plainItem.price_per_unit), 15);
+  assert.equal(Number(plainItem.base_price_per_unit), 15);
+  assert.equal(Number(plainItem.catalog_discount_per_unit), 0);
+
+  // Ячейки выдачи общие на весь файл: не отпустим свою, и следующему тесту
+  // просто не хватит свободной.
+  await requestJson(`/api/orders/${withoutDiscount.data.order_id}/cancel-by-customer`, {
+    method: "POST",
+    headers: telegramHeaders(identity),
+    body: JSON.stringify(identity),
+  });
+}
+
 async function testMissingTelegramAuthIsRejected() {
   const created = await requestJson("/api/orders", {
     method: "POST",
@@ -847,6 +894,7 @@ async function main() {
   await testCancelNewOrder();
   await testCancelInProgressOrder();
   await testClientPriceIsIgnored();
+  await testCatalogDiscountSnapshot();
   await testMissingTelegramAuthIsRejected();
   await testInvalidTelegramSignatureIsRejected();
   await testBodyIdentitySpoofIsIgnored();

@@ -53,6 +53,9 @@ export interface ProductVariant {
   colorImage?: string | null
   colorDisplayMode?: 'color' | 'image'  // Режим отображения: цвет или картинка
   priceRub?: number | null
+  /** Цена до скидки. Пусто означает, что скидки нет. */
+  oldPriceRub?: number | null
+  hasDiscount?: boolean
   stock?: number
   position?: number
   images: string[]
@@ -67,6 +70,9 @@ export interface Product {
   groupName?: string | null
   title: string
   priceRub: number
+  /** Цена до скидки. Пусто означает, что скидки нет. */
+  oldPriceRub?: number | null
+  hasDiscount?: boolean
   description: string
   images: string[]
   links?: ProductLink[]

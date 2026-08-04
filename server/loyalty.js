@@ -1,4 +1,6 @@
 import { db } from "./db.js";
+import { resolveDiscountPrice } from "./utils/catalog-discounts.js";
+import { resolveCatalogUnitPrice } from "./utils/order-line-pricing.js";
 
 function generateId(prefix) {
   return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
@@ -397,6 +399,16 @@ export function buildLoyaltyApplication({
           ? variantContext?.price_rub ?? productContext?.price_rub ?? rawItem.price_per_unit
           : productContext?.price_rub ?? rawItem.price_per_unit);
     const pricePerUnit = Math.max(0, toNumber(resolvedPricePerUnit, 0));
+    // Ноль у вкуса означает «цена лежит на товаре». Не откатись мы с нуля,
+    // база стала бы нулевой, скидка каталога перестала бы быть видна на
+    // разнице цен, и за скидочную позицию снова пошли бы штампы.
+    const catalogBasePrice = variantMatchesProduct
+      ? resolveCatalogUnitPrice(variantContext?.price_rub, productContext?.price_rub)
+      : resolveCatalogUnitPrice(null, productContext?.price_rub);
+    const basePricePerUnit = Math.max(
+      0,
+      catalogBasePrice > 0 ? catalogBasePrice : pricePerUnit,
+    );
 
     const loyaltyCategoryId = resolveLoyaltyCategoryId(productContext, mappingLookup);
     const category = loyaltyCategoryId ? categoryById.get(loyaltyCategoryId) || null : null;
@@ -434,8 +446,20 @@ export function buildLoyaltyApplication({
       }
     }
 
+    // Позиция со скидкой каталога не участвует в бонусах ни одной стороной:
+    // ни копит штампы, ни принимает их в оплату. Иначе скидка складывалась бы
+    // с бонусом, а этого магазин не хочет.
+    const catalogDiscountPrice = resolveDiscountPrice({
+      productId: productContext?.id || rawItem.product_id || null,
+      variantId: variantMatchesProduct ? variantContext?.id || rawItem.variant_id || null : null,
+      groupId: productContext?.groupId || null,
+    });
+    const lineHasCatalogDiscount =
+      catalogDiscountPrice !== null && catalogDiscountPrice < basePricePerUnit;
+
     const lineBlocked = promoBlocked || !category || !category.active;
-    const lineCanApplyBonus = !lineBlocked && manualDiscountAmount <= 0;
+    const lineCanApplyBonus =
+      !lineBlocked && manualDiscountAmount <= 0 && !lineHasCatalogDiscount;
     const lineRequestedUnits = lineCanApplyBonus ? requestedUnits : 0;
     const discountPerUnit = category
       ? Math.max(0, Math.min(Number(category.discount_amount || 0), pricePerUnit))
@@ -447,13 +471,15 @@ export function buildLoyaltyApplication({
     if (preview) {
       const maxRedeemableUnits = lineCanApplyBonus ? Math.min(quantity, 1) : 0;
       const earnedAfterFulfillment =
-        promoBlocked || manualDiscountAmount > 0 || !category?.active
+        promoBlocked || manualDiscountAmount > 0 || lineHasCatalogDiscount || !category?.active
           ? 0
           : Math.max(quantity - lineRequestedUnits, 0);
 
       preview.items_in_cart += quantity;
       preview.eligible_purchase_units +=
-        promoBlocked || manualDiscountAmount > 0 || !category?.active ? 0 : quantity;
+        promoBlocked || manualDiscountAmount > 0 || lineHasCatalogDiscount || !category?.active
+          ? 0
+          : quantity;
       preview.loyalty_units_applied += lineRequestedUnits;
       preview.spent_now += lineRequestedUnits * Number(category.threshold || 0);
       preview.earned_after_fulfillment += earnedAfterFulfillment;

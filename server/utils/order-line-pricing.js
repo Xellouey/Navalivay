@@ -1,4 +1,21 @@
 /**
+ * Каталожная цена единицы: цена варианта, если она задана и больше нуля, иначе
+ * цена самого товара. Ноль у варианта означает «цена лежит на товаре», а не
+ * «отдаём даром», поэтому `??` здесь не годится — он откатывается только с
+ * null, и вкус с price_rub = 0 уехал бы в заказ бесплатно.
+ *
+ * Возвращает 0, если каталожной цены нет вовсе. Что с этим делать, решает
+ * вызывающий: витрина показывает товар без цены, а оформление заказа обязано
+ * отказать.
+ */
+export function resolveCatalogUnitPrice(variantPrice, productPrice) {
+  const variant = Number(variantPrice);
+  if (Number.isFinite(variant) && variant > 0) return variant;
+  const product = Number(productPrice);
+  return Number.isFinite(product) && product > 0 ? product : 0;
+}
+
+/**
  * Resolves the unit price for a catalog line when building order_items
  * (e.g. demo orders). Devices often have priceRub=0 on the product row and
  * store the retail price on product_variants.price_rub.

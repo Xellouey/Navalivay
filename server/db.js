@@ -48,6 +48,7 @@ import { migrateManagerActionFields } from './migrations/add_manager_action_fiel
 import { migrateCustomerPhoto } from './migrations/add_customer_photo.js';
 import { migratePromoCodes } from './migrations/add_promo_codes.js';
 import { migrateOrderItemDisplayFields } from './migrations/add_order_item_display_fields.js';
+import { migrateOrderItemCatalogPrice } from './migrations/add_order_item_catalog_price.js';
 import { migrateLoyaltyTables, seedDefaultLoyaltyData } from './migrations/add_loyalty_tables.js';
 import { migrateCashPacingTables } from './migrations/add_cash_pacing_tables.js';
 import { migrateWholesalePricing } from './migrations/add_wholesale_pricing.js';
@@ -64,6 +65,7 @@ import { migrateProductReviews } from './migrations/add_product_reviews.js';
 import { migratePendingNotifications } from './migrations/add_pending_notifications.js';
 import { migrateCategoryGroupTotalControl } from './migrations/add_total_control_to_category_groups.js';
 import { migrateGroupNewBadge } from './migrations/add_group_new_badge.js';
+import { migrateCatalogDiscounts } from './migrations/add_catalog_discounts.js';
 import { migrateInventoryLocations } from './migrations/add_inventory_locations.js';
 import { migrateReferralAuthorization } from './migrations/add_referral_authorization.js';
 import { migrateReferralWelcomeNotifications } from './migrations/add_referral_welcome_notifications.js';
@@ -204,6 +206,7 @@ export function initDb() {
   migrateStockDeductedToOrders();
   migrateVariantIdToOrderItems();
   migrateOrderItemDisplayFields();
+  migrateOrderItemCatalogPrice();
   migrateEmptySinceToGroups();
   migrateParkedOrderToGroups();
   migrateCustomerBlockLifecycle();
@@ -234,6 +237,7 @@ export function initDb() {
   migratePendingNotifications();
   migrateCategoryGroupTotalControl();
   migrateGroupNewBadge();
+  migrateCatalogDiscounts();
   migrateInventoryLocations();
   migrateStaffManagement(db);
   migrateInternalNotifications(db);

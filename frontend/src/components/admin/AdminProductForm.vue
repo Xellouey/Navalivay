@@ -129,6 +129,49 @@
       <p class="mt-1 text-xs text-gray-500 break-words">Без копеек, только целые рубли. Пример: 3990</p>
     </div>
 
+    <div
+      class="w-full rounded-xl border p-4 transition"
+      :class="form.discountEnabled ? 'border-rose-300 bg-rose-50' : 'border-gray-200 bg-white'"
+    >
+      <label class="flex cursor-pointer items-start gap-3">
+        <input
+          v-model="form.discountEnabled"
+          type="checkbox"
+          class="mt-0.5 h-5 w-5 rounded border-gray-300 text-rose-600 focus:ring-rose-500/30"
+        />
+        <span>
+          <span class="block text-sm font-semibold text-gray-800">Скидка на товар</span>
+          <span class="mt-1 block text-xs leading-5 text-gray-600">
+            Действует на все вкусы этого товара. Бонусы за покупку со скидкой не
+            начисляются и не списываются.
+          </span>
+        </span>
+      </label>
+
+      <div v-if="form.discountEnabled" class="mt-3 flex flex-wrap gap-3 pl-8">
+        <div>
+          <label class="mb-1 block text-xs font-medium text-gray-700">Цена со скидкой, BYN</label>
+          <input
+            v-model="form.discountPrice"
+            type="number"
+            min="0"
+            step="0.01"
+            inputmode="decimal"
+            class="w-40 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:ring-2 focus:ring-rose-500/30"
+            placeholder="Например 12"
+          />
+        </div>
+        <div>
+          <label class="mb-1 block text-xs font-medium text-gray-700">Действует по</label>
+          <input
+            v-model="form.discountUntil"
+            type="date"
+            class="w-44 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:ring-2 focus:ring-rose-500/30"
+          />
+        </div>
+      </div>
+    </div>
+
     <!-- Inventory fields -->
     <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-5">
       <div v-if="!form.hasVariants">
@@ -417,6 +460,29 @@
           </div>
 
           <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Скидка на вкус, BYN</label>
+            <input
+              v-model="variant.discountPrice"
+              type="number"
+              min="0"
+              step="0.01"
+              inputmode="decimal"
+              class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-rose-500/30"
+              placeholder="Пусто, если скидки нет"
+            />
+          </div>
+
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Скидка действует по</label>
+            <input
+              v-model="variant.discountUntil"
+              type="date"
+              :disabled="!variant.discountPrice"
+              class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-rose-500/30 disabled:bg-gray-50"
+            />
+          </div>
+
+          <div>
             <label class="block text-sm font-medium text-gray-700 mb-1">Остаток, шт</label>
             <input
               v-model.number="variant.stock"
@@ -666,6 +732,12 @@ import { useAdminStore, type CategoryGroup as AdminCategoryGroup } from '@/store
 
 interface Category { id: string; name: string }
 interface ProductLink { label?: string; url: string }
+interface ProductDiscount {
+  price: number
+  untilDate: string | null
+  active: boolean
+}
+
 interface ProductVariant {
   id?: string
   name: string
@@ -673,6 +745,9 @@ interface ProductVariant {
   colorImage?: string | null
   colorDisplayMode?: 'color' | 'image'  // Режим отображения: цвет или картинка
   priceRub?: number | null
+  discount?: ProductDiscount | null
+  discountPrice?: string
+  discountUntil?: string
   stock?: number
   images: string[]
 }
@@ -695,6 +770,10 @@ interface Product {
   costPrice?: number
   stock?: number
   minStock?: number
+  discount?: ProductDiscount | null
+  discountEnabled?: boolean
+  discountPrice?: string
+  discountUntil?: string
 }
 
 const props = defineProps<{ product: Product | null; categories: Category[] }>()
@@ -707,6 +786,14 @@ const productIdForUpload = computed(() => props.product?.id || '')
 const isUploading = ref(false)
 const isSubmitting = ref(false)
 const fileInput = ref<HTMLInputElement | null>(null)
+
+/** Цена скидки: пустое поле и мусор означают «скидки нет». */
+function parseDiscountPrice(value: string | undefined): number | null {
+  const raw = String(value ?? '').trim()
+  if (!raw) return null
+  const parsed = Number(raw.replace(',', '.'))
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null
+}
 
 const form = reactive<Omit<Product, 'id'>>({
   categoryId: props.product?.categoryId || '',
@@ -725,8 +812,13 @@ const form = reactive<Omit<Product, 'id'>>({
     colorCode: v.colorCode || null,
     colorImage: v.colorImage || null,
     colorDisplayMode: (v.colorDisplayMode as 'color' | 'image') || (v.colorImage ? 'image' : 'color'),
+    discountPrice: v.discount ? String(v.discount.price) : '',
+    discountUntil: v.discount?.untilDate ?? '',
     images: [...(v.images || [])]
   })) : [],
+  discountEnabled: Boolean(props.product?.discount),
+  discountPrice: props.product?.discount ? String(props.product.discount.price) : '',
+  discountUntil: props.product?.discount?.untilDate ?? '',
   images: [...(props.product?.images || [])],
   links: [...(props.product?.links || [])]
 })
@@ -944,8 +1036,13 @@ watch(() => props.product, (p) => {
     colorImage: v.colorImage || null,
     // Определяем режим: если есть colorImage - режим 'image', иначе 'color'
     colorDisplayMode: (v.colorDisplayMode as 'color' | 'image') || (v.colorImage ? 'image' : 'color'),
+    discountPrice: v.discount ? String(v.discount.price) : '',
+    discountUntil: v.discount?.untilDate ?? '',
     images: [...(v.images || [])]
   })) : []
+  form.discountEnabled = Boolean(p?.discount)
+  form.discountPrice = p?.discount ? String(p.discount.price) : ''
+  form.discountUntil = p?.discount?.untilDate ?? ''
   form.images = [...(p?.images || [])]
   form.links = [...(p?.links || [])]
   if (form.categoryId) {
@@ -1245,6 +1342,9 @@ async function onSubmit() {
       description: form.description,
       costPrice: Number(form.costPrice ?? 0),
       minStock: Number(form.minStock ?? 0),
+      discount: form.discountEnabled
+        ? { price: parseDiscountPrice(form.discountPrice), untilDate: form.discountUntil || null }
+        : { price: null, untilDate: null },
       links: normalizedLinks.length ? normalizedLinks : []
     }
     
@@ -1264,6 +1364,11 @@ async function onSubmit() {
         colorDisplayMode: v.colorDisplayMode || 'color',
         priceRub: v.priceRub !== null && v.priceRub !== undefined ? Number(v.priceRub) : null,
         stock: v.stock !== undefined ? Number(v.stock) : 0,
+        // Пустое поле означает «скидки нет», сервер по нему её снимает.
+        discount: {
+          price: parseDiscountPrice(v.discountPrice),
+          untilDate: v.discountUntil || null,
+        },
         images: [...v.images]
       }))
     } else {

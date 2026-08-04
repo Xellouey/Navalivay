@@ -1,6 +1,10 @@
 import crypto from "node:crypto";
 import express from "express";
 import { db } from "../db.js";
+import {
+  applyDiscountToPrice,
+  resolveDiscountPrice,
+} from "../utils/catalog-discounts.js";
 import { authMiddleware } from "../auth.js";
 import { archiveOldDeliveredOrders } from "../cleanup-delivered-orders.js";
 import {
@@ -35,6 +39,7 @@ import {
   fetchKanbanBoardOrders,
 } from "../utils/crm-kanban-board.js";
 import { buildTotalControlGroups } from "../utils/total-control-groups.js";
+import { resolveCatalogUnitPrice } from "../utils/order-line-pricing.js";
 import { syncGroupParking } from "../utils/group-parking.js";
 import { attachFirstOrderToReferral } from "../utils/referral-authorization.js";
 import {
@@ -379,10 +384,20 @@ function buildAdminOrderItemsWithLoyalty({
       throw new Error("variant_required");
     }
 
+    // Цену, названную менеджером, уважаем: он может продать дешевле. Если он её
+    // не назвал, подставляем каталожную со скидкой, чтобы касса считала так же,
+    // как витрина.
+    const basePricePerUnit = resolveCatalogUnitPrice(variantData?.price_rub, product.priceRub);
+    const catalogPricePerUnit = applyDiscountToPrice(
+      basePricePerUnit,
+      resolveDiscountPrice({
+        productId: product.id,
+        variantId: variantData?.id || null,
+        groupId: product.groupId || null,
+      }),
+    );
     const pricePerUnit = Number(
-      item.price_per_unit !== undefined
-        ? item.price_per_unit
-        : variantData?.price_rub ?? product.priceRub,
+      item.price_per_unit !== undefined ? item.price_per_unit : catalogPricePerUnit,
     );
     if (!Number.isFinite(pricePerUnit) || pricePerUnit < 0) {
       throw new Error("invalid_item_price");
@@ -421,6 +436,11 @@ function buildAdminOrderItemsWithLoyalty({
       variant_name: variantName,
       quantity,
       price_per_unit: pricePerUnit,
+      // Снимок описывает каталог, а не решение менеджера: скидку считаем от
+      // каталожной цены, даже если продали по своей. Иначе уценка менеджера
+      // выглядела бы в отчёте акцией магазина.
+      base_price_per_unit: basePricePerUnit,
+      catalog_discount_per_unit: roundMoney(basePricePerUnit - catalogPricePerUnit),
       cost_per_unit: costPerUnit,
       manual_discount_amount: manualDiscountAmount,
       loyalty_units_applied: Number(item.loyalty_units_applied || 0),
@@ -445,6 +465,8 @@ function buildAdminOrderItemsWithLoyalty({
       variant_name: item.variant_name || null,
       quantity: Number(item.quantity || 0),
       price_per_unit: Number(item.price_per_unit || 0),
+      base_price_per_unit: Number(item.base_price_per_unit || 0),
+      catalog_discount_per_unit: Number(item.catalog_discount_per_unit || 0),
       cost_per_unit: Number(item.cost_per_unit || 0),
       manual_discount_amount: Number(item.manual_discount_amount || 0),
       loyalty_discount_amount: Number(item.loyalty_discount_amount || 0),
@@ -1144,8 +1166,9 @@ crmOperationsRouter.post(
         const itemStmt = db.prepare(`
         INSERT INTO order_items (
           id, order_id, product_id, variant_id, product_title, group_name, base_product_id, base_product_title, variant_name, quantity,
-          price_per_unit, cost_per_unit, manual_discount_amount, loyalty_discount_amount, loyalty_units_applied, discount_amount, total_price, total_cost
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          price_per_unit, base_price_per_unit, catalog_discount_per_unit,
+          cost_per_unit, manual_discount_amount, loyalty_discount_amount, loyalty_units_applied, discount_amount, total_price, total_cost
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
 
         for (const item of orderItems) {
@@ -1161,6 +1184,8 @@ crmOperationsRouter.post(
             item.variant_name,
             item.quantity,
             item.price_per_unit,
+            item.base_price_per_unit,
+            item.catalog_discount_per_unit,
             item.cost_per_unit,
             item.manual_discount_amount,
             item.loyalty_discount_amount,
@@ -1549,8 +1574,22 @@ crmOperationsRouter.patch(
           // Проверяем, изменились ли позиции (product_id, variant_id, quantity)
           // Если позиции не изменились, не нужно возвращать и списывать сток заново
           const oldItems = db
-            .prepare("SELECT product_id, variant_id, quantity FROM order_items WHERE order_id = ? ORDER BY product_id, variant_id")
+            .prepare(`
+              SELECT product_id, variant_id, quantity, base_price_per_unit, catalog_discount_per_unit
+              FROM order_items WHERE order_id = ? ORDER BY product_id, variant_id
+            `)
             .all(id);
+
+          // Снимок каталожной цены при правке заказа не пересчитываем.
+          // Менеджер сохраняет карточку и ради одной смены статуса, а форма
+          // всегда шлёт цену: пересчитай мы снимок после конца акции, скидка
+          // магазина в отчёте превратилась бы в уценку менеджера.
+          const oldSnapshots = new Map(
+            oldItems.map((old) => [
+              `${old.product_id}::${old.variant_id || ""}`,
+              old,
+            ]),
+          );
           
           const newItemsSorted = [...items]
             .map((item) => ({
@@ -1627,8 +1666,9 @@ crmOperationsRouter.patch(
           const itemStmt = db.prepare(`
           INSERT INTO order_items (
             id, order_id, product_id, variant_id, product_title, group_name, base_product_id, base_product_title, variant_name, quantity,
-            price_per_unit, cost_per_unit, manual_discount_amount, loyalty_discount_amount, loyalty_units_applied, discount_amount, total_price, total_cost
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            price_per_unit, base_price_per_unit, catalog_discount_per_unit,
+            cost_per_unit, manual_discount_amount, loyalty_discount_amount, loyalty_units_applied, discount_amount, total_price, total_cost
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `);
 
           for (const item of rebuiltItems) {
@@ -1657,6 +1697,17 @@ crmOperationsRouter.patch(
                 ? item.price_per_unit
                 : product.priceRub,
             );
+            // У позиции, которая в заказе уже была, снимок остаётся прежним.
+            // Новая позиция получает свежий, посчитанный из каталога.
+            const oldSnapshot = oldSnapshots.get(
+              `${item.product_id}::${item.variant_id || ""}`,
+            );
+            const basePricePerUnit = oldSnapshot?.base_price_per_unit != null
+              ? Number(oldSnapshot.base_price_per_unit)
+              : Number(item.base_price_per_unit || 0);
+            const catalogDiscountPerUnit = oldSnapshot?.base_price_per_unit != null
+              ? Number(oldSnapshot.catalog_discount_per_unit || 0)
+              : Number(item.catalog_discount_per_unit || 0);
             const costPerUnit = Number(product.cost_price || 0);
             const itemDiscount = Number(item.discount_amount || 0);
 
@@ -1711,6 +1762,8 @@ crmOperationsRouter.patch(
               item.variant_name || variantName,
               quantity,
               pricePerUnit,
+              basePricePerUnit,
+              catalogDiscountPerUnit,
               costPerUnit,
               Number(item.manual_discount_amount || 0),
               Number(item.loyalty_discount_amount || 0),

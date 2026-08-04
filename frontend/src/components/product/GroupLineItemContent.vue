@@ -29,9 +29,11 @@
             <!-- Название варианта - всегда черным текстом -->
             <span class="group-variant-title">{{ variant.name }}</span>
             <span v-if="shouldShowVariantPrice(variant)" class="group-variant-price">
+              <span v-if="oldPriceOf(variant)" class="group-price-old">{{ formatPrice(oldPriceOf(variant)) }}</span>
               <span class="group-price-amount">{{ formatPrice(variant.priceRub) }}</span>
               {{ ' ' }}
               <span class="group-price-currency">BYN</span>
+              <span v-if="priceDropPercent(variant) > 0" class="group-price-drop">-{{ priceDropPercent(variant) }}%</span>
             </span>
             <!-- 
               Кнопка "Как выглядит цвет" показывается ВСЕГДА когда есть изображение товара варианта
@@ -119,9 +121,11 @@
         <div class="group-product-info">
           <span class="group-product-title">{{ product.title }}</span>
           <span v-if="shouldShowProductPrice(product)" class="group-product-price">
+            <span v-if="oldPriceOf(product)" class="group-price-old">{{ formatPrice(oldPriceOf(product)) }}</span>
             <span class="group-price-amount">{{ formatPrice(product.priceRub) }}</span>
             {{ ' ' }}
             <span class="group-price-currency">BYN</span>
+            <span v-if="priceDropPercent(product) > 0" class="group-price-drop">-{{ priceDropPercent(product) }}%</span>
           </span>
         </div>
         <div class="group-product-actions">
@@ -178,7 +182,11 @@ import { PlusIcon, MinusIcon } from "@heroicons/vue/24/outline";
 import { useCartStore } from "@/stores/cart";
 import type { Product, ProductVariant } from "@/stores/catalog";
 import ColorPreviewModal from "@/components/product/ColorPreviewModal.vue";
-import { getMinPriceForProducts } from "@/components/product/groupPrice";
+import {
+  discountPercent,
+  getMinPriceForProducts,
+  shouldShowPrice,
+} from "@/components/product/groupPrice";
 
 export interface GroupNode {
   id: string;
@@ -244,22 +252,23 @@ const firstProductPrice = computed(() =>
   getMinPriceForProducts(props.node.products),
 );
 
-function hasPositivePrice(value: unknown): value is number {
-  return typeof value === "number" && Number.isFinite(value) && value > 0;
-}
-
 function shouldShowVariantPrice(variant: ProductVariant): boolean {
-  return (
-    hasPositivePrice(variant.priceRub) &&
-    variant.priceRub !== firstProductPrice.value
-  );
+  return shouldShowPrice(variant, firstProductPrice.value);
 }
 
 function shouldShowProductPrice(product: Product): boolean {
-  return (
-    hasPositivePrice(product.priceRub) &&
-    product.priceRub !== firstProductPrice.value
-  );
+  return shouldShowPrice(product, firstProductPrice.value);
+}
+
+/** Цена до скидки: ноль означает, что зачёркивать нечего. */
+function oldPriceOf(item: { hasDiscount?: boolean; oldPriceRub?: number | null }): number {
+  const oldPrice = Number(item?.oldPriceRub ?? 0)
+  return item?.hasDiscount && oldPrice > 0 ? oldPrice : 0
+}
+
+/** Насколько подешевела позиция: для бейджа рядом с ценой. */
+function priceDropPercent(item: Product | ProductVariant): number {
+  return discountPercent(oldPriceOf(item), Number(item.priceRub ?? 0));
 }
 
 function formatPrice(value?: number | null) {
@@ -565,6 +574,26 @@ function decrementVariantQuantity(
   font-size: 16px;
   line-height: 20px;
   color: #191919;
+}
+
+.group-price-old {
+  margin-right: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #98A2B3;
+  text-decoration: line-through;
+}
+
+.group-price-drop {
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: linear-gradient(106.76deg, #f50302 -2.64%, #a90f0e 85.78%);
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 14px;
+  color: #ffffff;
+  white-space: nowrap;
 }
 
 .group-price-amount {

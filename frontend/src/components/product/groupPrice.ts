@@ -1,7 +1,7 @@
 import type { Product, ProductVariant } from "@/stores/catalog";
 
 type PriceGroupNode = {
-  products: Product[];
+  products?: Product[];
   children?: PriceGroupNode[];
 };
 
@@ -46,7 +46,7 @@ export function getMinPriceForProducts(products: Product[]): number | null {
 }
 
 export function getMinPriceForGroupTree(node: PriceGroupNode): number | null {
-  const ownMinPrice = getMinPriceForProducts(node.products);
+  const ownMinPrice = getMinPriceForProducts(node.products || []);
   const childMinPrices = (node.children || [])
     .map(getMinPriceForGroupTree)
     .filter((price): price is number => price !== null);
@@ -58,4 +58,38 @@ export function getMinPriceForGroupTree(node: PriceGroupNode): number | null {
 
   if (!prices.length) return null;
   return Math.min(...prices);
+}
+
+/**
+ * Скидка у товара или у любого его вкуса: скидка на отдельный вкус не поднимает
+ * флаг у самого товара, поэтому одного `hasDiscount` мало.
+ */
+export function hasDiscountForProduct(product: Product): boolean {
+  return Boolean(product.hasDiscount)
+    || getSafeVariants(product).some((variant) => variant.hasDiscount);
+}
+
+/** Есть ли скидка где-то в линейке, включая вложенные линейки. */
+export function hasDiscountInTree(node: PriceGroupNode): boolean {
+  return (node.products || []).some(hasDiscountForProduct)
+    || (node.children || []).some(hasDiscountInTree);
+}
+
+/**
+ * Цену позиции прячем, когда она совпадает с ценой линейки, чтобы не дублировать
+ * одно и то же число. Но скидочная позиция цену показывает всегда: именно рядом
+ * с ней живут зачёркнутая старая цена и процент.
+ */
+export function shouldShowPrice(
+  item: { priceRub?: number | null; hasDiscount?: boolean },
+  reference: number | null,
+): boolean {
+  if (!hasPositivePrice(item.priceRub)) return false;
+  return Boolean(item.hasDiscount) || item.priceRub !== reference;
+}
+
+/** Глубина скидки в процентах. Одна формула на витрину и на админку. */
+export function discountPercent(basePrice: number, discountPrice: number): number {
+  if (!Number.isFinite(basePrice) || basePrice <= 0) return 0;
+  return Math.round(((basePrice - discountPrice) / basePrice) * 100);
 }

@@ -455,7 +455,15 @@
               <div class="flex items-center gap-3 min-w-0">
                 <img :src="getProductCover(p)" class="w-12 h-12 object-cover rounded border" />
                 <div class="min-w-0">
-                  <div class="font-medium text-gray-900 truncate">{{ p.title || p.id }}</div>
+                  <div class="flex items-center gap-2">
+                    <span class="font-medium text-gray-900 truncate">{{ p.title || p.id }}</span>
+                    <span
+                      v-if="discountBadge(p)"
+                      data-test="product-discount-badge"
+                      class="flex-shrink-0 rounded-full bg-rose-600 px-2 py-0.5 text-[0.65rem] font-bold text-white"
+                      :title="discountTitle(p)"
+                    >{{ discountBadge(p) }}</span>
+                  </div>
                   <div v-if="p.description" class="text-xs text-gray-500 truncate">{{ p.description }}</div>
                 </div>
               </div>
@@ -500,15 +508,17 @@
             </td>
             <td class="px-4 py-4 text-right" :style="columnStyle(8)">
               <div class="flex items-center justify-end gap-2">
-                <button 
-                  @click="copyProductLink(p.id)"
-                  class="rounded-full bg-gray-500/10 p-2 text-gray-600 transition hover:bg-gray-500/20 hover:text-gray-800"
-                  title="Копировать ссылку на товар"
+                <button
+                  v-if="location === 'retail'"
+                  data-test="product-discount-button"
+                  @click="$emit('discount', p)"
+                  class="rounded-full p-2 transition"
+                  :class="activeDiscount(p)
+                    ? 'bg-rose-600 text-white hover:bg-rose-700'
+                    : 'bg-rose-500/10 text-rose-600 hover:bg-rose-500/20 hover:text-rose-800'"
+                  :title="activeDiscount(p) ? discountTitle(p) : 'Поставить скидку'"
                 >
-                  <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                    <path d="M8 3a1 1 0 011-1h2a1 1 0 110 2H9a1 1 0 01-1-1z" />
-                    <path d="M6 3a2 2 0 00-2 2v1h2V5a1 1 0 011-1h1a1 1 0 100-2H6zM6 17a2 2 0 01-2-2v-1h2v1a1 1 0 001 1h1a1 1 0 100 2H6zM14 3h-1a1 1 0 100 2h1a1 1 0 011 1v1h2V5a2 2 0 00-2-2zM15 12h-2v-1a1 1 0 00-1-1h-2a1 1 0 00-1 1v1H7a1 1 0 00-1 1v2a1 1 0 001 1h2v1a1 1 0 001 1h2a1 1 0 001-1v-1h2a1 1 0 001-1v-2a1 1 0 00-1-1z" />
-                  </svg>
+                  <span class="block h-4 w-4 text-center text-xs font-black leading-4">%</span>
                 </button>
                 <button 
                   v-if="location === 'retail'"
@@ -563,7 +573,15 @@
                     :title="variant.name"
                   ></div>
                   <div class="min-w-0">
-                    <div class="text-sm text-gray-700 truncate">{{ variant.name }}</div>
+                    <div class="flex items-center gap-2">
+                      <span class="text-sm text-gray-700 truncate">{{ variant.name }}</span>
+                      <span
+                        v-if="variantDiscountBadge(p, variant)"
+                        data-test="variant-discount-badge"
+                        class="flex-shrink-0 rounded-full bg-rose-600 px-2 py-0.5 text-[0.65rem] font-bold text-white"
+                        :title="variantDiscountTitle(p, variant)"
+                      >{{ variantDiscountBadge(p, variant) }}</span>
+                    </div>
                     <div class="text-xs text-gray-500">Вариант</div>
                   </div>
                 </div>
@@ -702,16 +720,6 @@
                   <!-- Компактные кнопки действий в вертикальной группе -->
                   <div class="flex flex-col gap-1 flex-shrink-0">
                     <button 
-                      @click="copyProductLink(p.id)"
-                      class="flex items-center justify-center rounded-full bg-gray-500/10 p-1.5 text-gray-500 transition-colors hover:bg-gray-500/20 hover:text-gray-700 touch-manipulation"
-                      title="Копировать ссылку"
-                    >
-                      <svg class="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
-                        <path d="M8 3a1 1 0 011-1h2a1 1 0 110 2H9a1 1 0 01-1-1z" />
-                        <path d="M6 3a2 2 0 00-2 2v1h2V5a1 1 0 011-1h1a1 1 0 100-2H6zM6 17a2 2 0 01-2-2v-1h2v1a1 1 0 001 1h1a1 1 0 100 2H6zM14 3h-1a1 1 0 100 2h1a1 1 0 011 1v1h2V5a2 2 0 00-2-2zM15 12h-2v-1a1 1 0 00-1-1h-2a1 1 0 00-1 1v1H7a1 1 0 00-1 1v2a1 1 0 001 1h2v1a1 1 0 001 1h2a1 1 0 001-1v-1h2a1 1 0 001-1v-2a1 1 0 00-1-1z" />
-                      </svg>
-                    </button>
-                    <button 
                       v-if="location === 'retail'"
                       @click="$emit('edit', p)" 
                       class="flex items-center justify-center rounded-full bg-blue-500/10 p-1.5 text-blue-600 transition-colors hover:bg-blue-500/20 hover:text-blue-800 touch-manipulation"
@@ -814,16 +822,6 @@
                     </div>
                   </div>
                 <div class="flex items-center gap-2">
-                    <button 
-                      @click="copyProductLink(p.id)"
-                    class="rounded-full bg-gray-500/10 p-2 text-gray-600 transition hover:bg-gray-500/20 hover:text-gray-800"
-                      title="Копировать ссылку на товар"
-                    >
-                      <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-                        <path d="M8 3a1 1 0 011-1h2a1 1 0 110 2H9a1 1 0 01-1-1z" />
-                        <path d="M6 3a2 2 0 00-2 2v1h2V5a1 1 0 011-1h1a1 1 0 100-2H6zM6 17a2 2 0 01-2-2v-1h2v1a1 1 0 001 1h1a1 1 0 100 2H6zM14 3h-1a1 1 0 100 2h1a1 1 0 011 1v1h2V5a2 2 0 00-2-2zM15 12h-2v-1a1 1 0 00-1-1h-2a1 1 0 00-1 1v1H7a1 1 0 00-1 1v2a1 1 0 001 1h2v1a1 1 0 001 1h2a1 1 0 001-1v-1h2a1 1 0 001-1v-2a1 1 0 00-1-1z" />
-                      </svg>
-                    </button>
                     <button 
                       v-if="location === 'retail'"
                       @click="$emit('edit', p)" 
@@ -1027,23 +1025,6 @@
         </button>
       </div>
     </div>
-    
-    <!-- Toast notification -->
-    <Transition
-      enter-active-class="transition-all duration-300 ease-out"
-      enter-from-class="opacity-0 translate-y-2"
-      enter-to-class="opacity-100 translate-y-0"
-      leave-active-class="transition-all duration-200 ease-in"
-      leave-from-class="opacity-100 translate-y-0"
-      leave-to-class="opacity-0 translate-y-2"
-    >
-      <div
-        v-if="copiedToast"
-        class="fixed bottom-4 right-4 bg-green-600 text-white px-4 py-2 rounded-lg shadow-lg z-50 text-sm font-medium"
-      >
-        {{ copiedToast }}
-      </div>
-    </Transition>
     
     <!-- Filters Modal (mobile) -->
     <Transition
@@ -1289,6 +1270,7 @@ import AdminSectionHero from '@/components/admin/layout/AdminSectionHero.vue'
 import { useAdminStore } from '@/stores/admin'
 import { useCrmStore } from '@/stores/crm'
 import { storeToRefs } from 'pinia'
+import { discountPercent } from '@/components/product/groupPrice'
 
 interface ProductLink { label?: string; url: string }
 interface Category { id: string; name: string }
@@ -1344,6 +1326,7 @@ const props = withDefaults(defineProps<{
 const emit = defineEmits<{
   (e: 'create'): void
   (e: 'edit', p: Product): void
+  (e: 'discount', p: Product): void
   (e: 'delete', p: Product): void
   (e: 'changePage', page: number): void
   (e: 'changePageSize', limit: number): void
@@ -1549,18 +1532,29 @@ function measureColumnWidths() {
   const table = tableRef.value
   if (!table) return
 
-  const rows = Array.from(table.querySelectorAll<HTMLTableRowElement>('tbody tr'))
-  const dataRows = rows.filter(row => {
+  const isMeasurable = (row: HTMLTableRowElement) => {
     const cells = Array.from(row.cells)
     if (!cells.length) return false
     if (cells.length === 1 && cells[0].colSpan > 1) return false
     return true
-  })
+  }
+
+  const rows = Array.from(table.querySelectorAll<HTMLTableRowElement>('tbody tr'))
+  const dataRows = rows.filter(isMeasurable)
 
   if (!dataRows.length) {
     columnWidths.value = []
     return
   }
+
+  // Заголовки меряем наравне с данными: подписи набраны крупными буквами с
+  // разрядкой и почти всегда шире самих значений. Без этого колонка «Остаток»
+  // получала ширину по числу «3», а её заголовок вылезал на соседнюю колонку,
+  // потому что кнопка сортировки не разрешает перенос строки.
+  const headerRows = Array.from(
+    table.querySelectorAll<HTMLTableRowElement>('thead tr'),
+  ).filter(isMeasurable)
+  const measuredRows = [...headerRows, ...dataRows]
 
   const widths = new Array(COLUMN_COUNT).fill(0)
   const measureContainer = document.createElement('div')
@@ -1578,7 +1572,7 @@ function measureColumnWidths() {
   const host = table.parentElement || table
   host.appendChild(measureContainer)
 
-  dataRows.forEach(row => {
+  measuredRows.forEach(row => {
     Array.from(row.cells).forEach((cell: HTMLTableCellElement, index) => {
       if (index >= COLUMN_COUNT) return
       const clone = cell.cloneNode(true) as HTMLElement
@@ -1725,6 +1719,54 @@ function onSearchInput() {
     searchDebounceTimer = null
     onFiltersChanged()
   }, 300)
+}
+
+/**
+ * Скидка в строке товара: показываем процент, чтобы менеджер видел глубину
+ * скидки сразу, а точную цену и срок кладём в подсказку.
+ */
+function activeDiscount(product: any): { price: number; untilDate: string | null } | null {
+  const own = product?.discount
+  const inherited = product?.groupDiscount
+  const candidates = [own, inherited].filter((item) => item && item.active)
+  if (!candidates.length) return null
+  return candidates.reduce((best, item) => (item.price < best.price ? item : best))
+}
+
+function discountBadge(product: any): string | null {
+  const discount = activeDiscount(product)
+  if (!discount) return null
+  const percent = discountPercent(Number(product?.priceRub ?? 0), discount.price)
+  return percent > 0 ? `-${percent}%` : 'Скидка'
+}
+
+function discountTitle(product: any): string {
+  const discount = activeDiscount(product)
+  if (!discount) return ''
+  const until = discount.untilDate ? `, до ${formatDiscountDate(discount.untilDate)}` : ' без срока'
+  const source = product?.discount?.active ? 'на товар' : 'на линейку'
+  return `Скидка ${source}: ${discount.price} BYN${until}`
+}
+
+function variantDiscountBadge(product: any, variant: any): string | null {
+  const discount = variant?.discount?.active ? variant.discount : activeDiscount(product)
+  if (!discount) return null
+  const base = Number(variant?.priceRub ?? product?.priceRub ?? 0)
+  const percent = discountPercent(base, discount.price)
+  return percent > 0 ? `-${percent}%` : 'Скидка'
+}
+
+function variantDiscountTitle(product: any, variant: any): string {
+  const discount = variant?.discount?.active ? variant.discount : activeDiscount(product)
+  if (!discount) return ''
+  const until = discount.untilDate ? `, до ${formatDiscountDate(discount.untilDate)}` : ' без срока'
+  return `Скидка: ${discount.price} BYN${until}`
+}
+
+/** Дата в привычном виде: в базе она хранится как ГГГГ-ММ-ДД. */
+function formatDiscountDate(value: string): string {
+  const [year, month, day] = value.split('-')
+  return year && month && day ? `${day}.${month}.${year}` : value
 }
 
 /** Повторный клик по выбранной линейке снимает фильтр. */
@@ -2307,55 +2349,6 @@ function cancelGroupChange() {
   closeGroupModal()
 }
 
-// Copy link functionality
-const copiedToast = ref('')
-const toastTimer = ref<number | null>(null)
-
-function copyProductLink(productId: string) {
-  // Создаём ссылку на товар в формате /p/{id}
-  const productUrl = `/p/${productId}`
-  
-  // Копируем в буфер обмена
-  if (navigator.clipboard) {
-    navigator.clipboard.writeText(productUrl).then(() => {
-      showCopiedToast('Внутренняя ссылка для вставки в баннер скопирована')
-      console.log('Ссылка на товар скопирована:', productUrl)
-    }).catch(err => {
-      console.error('Ошибка копирования:', err)
-      fallbackCopy(productUrl)
-    })
-  } else {
-    fallbackCopy(productUrl)
-  }
-}
-
-function showCopiedToast(message: string) {
-  copiedToast.value = message
-  if (toastTimer.value) {
-    clearTimeout(toastTimer.value)
-  }
-  toastTimer.value = window.setTimeout(() => {
-    copiedToast.value = ''
-    toastTimer.value = null
-  }, 2000)
-}
-
-function fallbackCopy(text: string) {
-  // Fallback для старых браузеров
-  const textArea = document.createElement('textarea')
-  textArea.value = text
-  document.body.appendChild(textArea)
-  textArea.select()
-  try {
-    document.execCommand('copy')
-    showCopiedToast('Внутренняя ссылка для вставки в баннер скопирована')
-    console.log('Ссылка на товар скопирована (fallback):', text)
-  } catch (err) {
-    console.error('Ошибка fallback копирования:', err)
-    showCopiedToast('Ошибка копирования')
-  }
-  document.body.removeChild(textArea)
-}
 
 // Watch props - очищаем выбор при изменении товаров
 watch(() => props.products, () => {

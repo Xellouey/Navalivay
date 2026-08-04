@@ -399,6 +399,15 @@
                     Себестоимость: {{ formatCurrency(item.cost) }}
                     <span v-if="item.stock !== null && item.stock !== undefined" class="ml-2">Остаток: {{ item.stock }}</span>
                   </p>
+                  <p v-if="catalogDiscountOf(item)" class="text-xs text-red-600 mt-0.5">
+                    Обычная цена: {{ formatCurrency(item.basePrice!) }} · Скидка каталога:
+                    −{{ formatCurrency(catalogDiscountOf(item)) }}
+                    <span v-if="catalogDiscountPercentOf(item)">({{ catalogDiscountPercentOf(item) }}%)</span>
+                  </p>
+                  <p v-if="managerPriceChangeOf(item)" class="text-xs text-amber-600 mt-0.5">
+                    Цену менял менеджер:
+                    {{ managerPriceChangeOf(item)! > 0 ? '−' : '+' }}{{ formatCurrency(Math.abs(managerPriceChangeOf(item)!)) }}
+                  </p>
                 </div>
                 <button
                   class="admin-link-button admin-link-button--danger"
@@ -469,8 +478,18 @@
                 <span class="text-xs font-medium text-gray-400">Автоматический пересчет</span>
               </header>
               <dl class="space-y-3 text-sm text-gray-600">
+                <div v-if="catalogDiscountTotal > 0" class="flex items-center justify-between">
+                  <dt>Сумма по обычной цене</dt>
+                  <dd class="font-semibold text-gray-900">{{ formatCurrency(itemsBaseSubtotal) }}</dd>
+                </div>
+                <div v-if="catalogDiscountTotal > 0" class="flex items-center justify-between">
+                  <!-- Скидка каталога уже сидит внутри цены продажи. Не пометь
+                       её справочной, и менеджер вычтет её второй раз глазами. -->
+                  <dt>Скидка каталога <span class="text-xs text-gray-400">справочно</span></dt>
+                  <dd class="font-semibold text-red-600">−{{ formatCurrency(catalogDiscountTotal) }}</dd>
+                </div>
                 <div class="flex items-center justify-between">
-                  <dt>Сумма позиций (без скидок)</dt>
+                  <dt>Сумма позиций (по цене продажи)</dt>
                   <dd class="font-semibold text-gray-900">{{ formatCurrency(itemsSubtotal) }}</dd>
                 </div>
                 <div class="flex items-center justify-between">
@@ -606,6 +625,10 @@ type FormItem = {
   loyaltyUnitsApplied: number
   cost: number
   stock?: number | null
+  // Снимок каталожной цены на момент оформления. null у заказов старше
+  // миграции: про них мы просто не знаем, была скидка или нет.
+  basePrice?: number | null
+  catalogDiscount?: number | null
 }
 
 const crmStore = useCrmStore()
@@ -725,6 +748,44 @@ const paymentDescription = computed(() => {
 
 const itemsSubtotal = computed(() => {
   return form.items.reduce((sum, item) => sum + Math.max(item.price, 0) * Math.max(item.quantity, 0), 0)
+})
+
+/** Сколько срезала акция магазина с единицы. Ноль и пусто ведут себя одинаково. */
+function catalogDiscountOf(item: FormItem): number {
+  const discount = Number(item.catalogDiscount || 0)
+  return discount > 0 ? discount : 0
+}
+
+function catalogDiscountPercentOf(item: FormItem): number {
+  const base = Number(item.basePrice || 0)
+  if (base <= 0) return 0
+  return Math.round((catalogDiscountOf(item) / base) * 100)
+}
+
+/**
+ * Насколько менеджер отступил от каталожной цены со скидкой. Положительное
+ * число означает уценку, отрицательное — продали дороже каталога.
+ */
+function managerPriceChangeOf(item: FormItem): number | null {
+  if (item.basePrice == null) return null
+  const expected = Number(item.basePrice) - catalogDiscountOf(item)
+  const change = expected - Number(item.price || 0)
+  return Math.abs(change) > 0.001 ? change : null
+}
+
+/** Сумма позиций по обычной цене: сколько заказ стоил бы без акций магазина. */
+const itemsBaseSubtotal = computed(() => {
+  return form.items.reduce((sum, item) => {
+    const base = item.basePrice != null ? Number(item.basePrice) : Number(item.price || 0)
+    return sum + Math.max(base, 0) * Math.max(item.quantity, 0)
+  }, 0)
+})
+
+const catalogDiscountTotal = computed(() => {
+  return form.items.reduce(
+    (sum, item) => sum + catalogDiscountOf(item) * Math.max(item.quantity, 0),
+    0,
+  )
 })
 
 const loyaltyDiscountTotal = computed(() => {
@@ -910,7 +971,11 @@ function initializeForm(order: Order) {
       loyaltyDiscount: Number(item.loyalty_discount_amount || 0),
       loyaltyUnitsApplied: Number(item.loyalty_units_applied || 0),
       cost: Number(item.cost_per_unit || 0),
-      stock: null
+      stock: null,
+      basePrice: item.base_price_per_unit != null ? Number(item.base_price_per_unit) : null,
+      catalogDiscount: item.catalog_discount_per_unit != null
+        ? Number(item.catalog_discount_per_unit)
+        : null
     }))
   productSearch.value = ''
   clearProductSearchState()

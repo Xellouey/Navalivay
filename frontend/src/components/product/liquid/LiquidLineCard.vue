@@ -1,6 +1,7 @@
 <template>
   <div class="liquid-line-card" :class="{ expanded }">
     <NewLineupBadge v-if="isNew" />
+    <DiscountBadge v-if="hasDiscount" class="liquid-line-discount" />
     <div class="liquid-line-header" @click="toggle">
       <div
         class="liquid-line-main"
@@ -28,7 +29,8 @@
               <path d="M21 15l-5-5L5 21" />
             </svg>
           </div>
-          <p v-if="minPriceLabel" class="liquid-line-image-price">
+          <p v-if="minPriceLabel" class="liquid-line-image-price" :class="{ discounted: oldPriceLabel }">
+            <span v-if="oldPriceLabel" class="liquid-line-image-price-old">{{ oldPriceLabel }}</span>
             <span class="liquid-line-image-price-amount">{{ minPriceLabel }}</span>
             <span class="liquid-line-image-price-currency">BYN</span>
           </p>
@@ -165,7 +167,11 @@
                   <div class="liquid-variant-info">
                     <!-- Название варианта - всегда черным текстом -->
                     <span class="liquid-variant-title">{{ variant.name }}</span>
-                    <span v-if="shouldShowVariantPrice(variant, product)" class="liquid-variant-price">{{ formatPrice(variant.priceRub) }} BYN</span>
+                    <span v-if="shouldShowVariantPrice(variant, product)" class="liquid-variant-price">
+                      <span v-if="variant.oldPriceRub" class="liquid-price-old">{{ formatPrice(variant.oldPriceRub) }}</span>
+                      {{ formatPrice(variant.priceRub) }} BYN
+                      <span v-if="priceDropPercent(variant) > 0" class="liquid-price-drop">-{{ priceDropPercent(variant) }}%</span>
+                    </span>
                     <!-- 
                       Кнопка "Как выглядит цвет" показывается ВСЕГДА когда есть изображение товара варианта
                       Независимо от режима отображения (цвет или картинка)
@@ -236,7 +242,11 @@
           >
             <div class="liquid-flavor-info">
               <span class="liquid-flavor-title">{{ product.title }}</span>
-              <span v-if="shouldShowFlavorPrice(product)" class="liquid-flavor-price">{{ formatPrice(product.priceRub) }} BYN</span>
+              <span v-if="shouldShowFlavorPrice(product)" class="liquid-flavor-price">
+                <span v-if="product.oldPriceRub" class="liquid-price-old">{{ formatPrice(product.oldPriceRub) }}</span>
+                {{ formatPrice(product.priceRub) }} BYN
+                <span v-if="priceDropPercent(product) > 0" class="liquid-price-drop">-{{ priceDropPercent(product) }}%</span>
+              </span>
             </div>
             <div class="liquid-flavor-actions">
               <template v-if="getQuantity(product.id) > 0">
@@ -314,13 +324,25 @@ import {
 import { useCartStore } from "@/stores/cart";
 import { useCatalogStore, type Product, type ProductVariant } from "@/stores/catalog";
 import ColorPreviewModal from "@/components/product/ColorPreviewModal.vue";
-import { getMinPriceForProducts, hasPositivePrice } from "@/components/product/groupPrice";
+import DiscountBadge from "@/components/product/DiscountBadge.vue";
+import {
+  discountPercent,
+  getMinPriceForProducts,
+  hasDiscountInTree,
+  shouldShowPrice,
+} from "@/components/product/groupPrice";
 
+/**
+ * Подлинейка приезжает целиком, вместе со своими товарами и вложенностью:
+ * плашка скидки на родителе зажигается от того, что подешевело внутри.
+ */
 interface SubgroupInfo {
   id: string;
   name: string;
   slug?: string;
   productCount?: number;
+  products?: Product[];
+  children?: SubgroupInfo[];
 }
 
 const props = defineProps<{
@@ -389,18 +411,39 @@ const minPriceLabel = computed(() => {
   return formatPrice(groupMinPrice.value);
 });
 
-function shouldShowFlavorPrice(product: Product): boolean {
-  return (
-    hasPositivePrice(product.priceRub) &&
-    product.priceRub !== groupMinPrice.value
+/**
+ * Цена до скидки на обложке линейки. Зачёркиваем, только когда подешевела вся
+ * линейка: если скидка пришла на один вкус, обложка назвала бы старую цену для
+ * всех остальных, а они не дешевели. У такой линейки остаётся плашка, а
+ * зачёркнутая цена и процент живут рядом с самим вкусом в раскрытом списке.
+ */
+const oldPriceLabel = computed(() => {
+  if (minPriceLabel.value === null) return null;
+  if (!props.products.length) return null;
+  if (!props.products.every((product) => product.hasDiscount)) return null;
+  const source = props.products.find(
+    (product) => Number(product.priceRub) === groupMinPrice.value,
   );
+  const oldPrice = Number(source?.oldPriceRub ?? 0);
+  return oldPrice > 0 ? formatPrice(oldPrice) : null;
+});
+
+/** Плашка: показываем, пока скидка есть хоть где-то в линейке или внутри неё. */
+const hasDiscount = computed(() =>
+  hasDiscountInTree({ products: props.products, children: props.subgroups }),
+);
+
+/** Насколько подешевела позиция: для бейджа рядом с ценой. */
+function priceDropPercent(item: Product | ProductVariant): number {
+  return discountPercent(Number(item.oldPriceRub ?? 0), Number(item.priceRub ?? 0));
+}
+
+function shouldShowFlavorPrice(product: Product): boolean {
+  return shouldShowPrice(product, groupMinPrice.value);
 }
 
 function shouldShowVariantPrice(variant: ProductVariant, product: Product): boolean {
-  return (
-    hasPositivePrice(variant.priceRub) &&
-    variant.priceRub !== product.priceRub
-  );
+  return shouldShowPrice(variant, Number(product.priceRub ?? 0));
 }
 
 const metaText = computed(() => {
@@ -900,6 +943,40 @@ function closeColorPreview() {
 
 <style scoped>
 /* Figma Redesign - Карточка линейки жидкостей */
+.liquid-line-discount {
+  align-self: flex-start;
+  margin-bottom: 10px;
+}
+
+.liquid-line-image-price-old {
+  margin-right: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #98A2B3;
+  text-decoration: line-through;
+}
+
+/* Старая цена и глубина скидки у позиции: одинаково у вкусов и у вариантов. */
+.liquid-price-old {
+  margin-right: 6px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #98a2b3;
+  text-decoration: line-through;
+}
+
+.liquid-price-drop {
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: linear-gradient(106.76deg, #f50302 -2.64%, #a90f0e 85.78%);
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 14px;
+  color: #ffffff;
+  white-space: nowrap;
+}
+
 .liquid-line-card {
   box-sizing: border-box;
   background: #ffffff;

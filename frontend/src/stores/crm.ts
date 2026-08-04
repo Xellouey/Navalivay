@@ -451,6 +451,10 @@ export interface OrderItem {
   variant_name?: string | null;
   quantity: number;
   price_per_unit: number;
+  // Снимок каталожной цены на момент оформления: сколько товар стоил без
+  // акции и сколько с него срезала акция. У заказов старше миграции пусто.
+  base_price_per_unit?: number | null;
+  catalog_discount_per_unit?: number | null;
   cost_per_unit: number;
   manual_discount_amount?: number;
   loyalty_discount_amount?: number;

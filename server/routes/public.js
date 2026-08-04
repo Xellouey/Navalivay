@@ -69,7 +69,15 @@ import {
 } from "../utils/referral-authorization.js";
 import { getBusinessPeriodRange } from "../utils/business-time.js";
 import { queryTopSalesGroups } from "../utils/top-sales-groups.js";
+import {
+  applyDiscountToPrice,
+  loadActiveDiscounts,
+  pickDiscountFromMaps,
+  resolveDiscountPrice,
+} from "../utils/catalog-discounts.js";
 import { STOREFRONT_FILTER_PROFILES } from "../utils/storefront-filters.js";
+import { resolveCatalogUnitPrice } from "../utils/order-line-pricing.js";
+import { roundMoney } from "../utils/money.js";
 import {
   createProductReview,
   findCustomerByTelegram,
@@ -198,6 +206,25 @@ async function resolveTelegramUsernameStatus(telegramId) {
     .prepare("SELECT telegram_username, first_name, last_name FROM customers WHERE telegram_id = ?")
     .get(telegramId);
 
+  const storedUsername = normalizeTelegramUsername(dbCustomer?.telegram_username);
+
+  // Локально живого Telegram нет, и без этой ветки витрину в браузере не
+  // открыть вовсе: замок требует свежий username, а взять его неоткуда.
+  // Верим тому, что уже лежит в базе. Флаг требует одновременно
+  // NODE_ENV=development и ALLOW_INSECURE_TELEGRAM_AUTH=1, поэтому на проде
+  // ветка недостижима.
+  if (allowInsecureTelegramFallback && storedUsername) {
+    return {
+      ok: true,
+      status: "confirmed",
+      hasUsername: true,
+      username: storedUsername,
+      source: "dev-stored",
+      canRetryLive: false,
+      message: "Username взят из базы: локальная разработка без Telegram",
+    };
+  }
+
   if (!TELEGRAM_BOT_TOKEN) {
     return {
       ok: true,
@@ -206,7 +233,7 @@ async function resolveTelegramUsernameStatus(telegramId) {
       username: null,
       source: "unavailable",
       canRetryLive: false,
-      storedUsername: normalizeTelegramUsername(dbCustomer?.telegram_username),
+      storedUsername,
       message: "Проверка username временно недоступна. Закройте и откройте магазин заново.",
     };
   }
@@ -1286,20 +1313,31 @@ publicRouter.get("/api/products", (req, res) => {
     }
   }
 
+  // Оптовым покупателям скидки каталога не показываем: у них своя цена.
+  const activeDiscounts = wholesaleContext?.tier ? null : loadActiveDiscounts();
+
   const enriched = products
     .map((p) => {
       const stockValue = typeof p.stock === "number" ? p.stock : null;
-      const effectivePrice = Number(
+      const basePrice = Number(
         wholesaleContext?.tier ? p.effectivePriceRub ?? 0 : p.priceRub ?? 0,
       );
 
-      if (wholesaleContext?.tier && (!Number.isFinite(effectivePrice) || effectivePrice <= 0)) {
+      if (wholesaleContext?.tier && (!Number.isFinite(basePrice) || basePrice <= 0)) {
         return null;
       }
+
+      const productDiscount = activeDiscounts
+        ? pickDiscountFromMaps(activeDiscounts, { productId: p.id, groupId: p.groupId })
+        : null;
+      const effectivePrice = applyDiscountToPrice(basePrice, productDiscount);
+      const hasDiscount = effectivePrice < basePrice;
 
       const result = {
         ...p,
         priceRub: effectivePrice,
+        oldPriceRub: hasDiscount ? basePrice : null,
+        hasDiscount,
         stock: stockValue,
         costPrice: typeof p.costPrice === "number" ? p.costPrice : null,
         minStock: typeof p.minStock === "number" ? p.minStock : null,
@@ -1315,11 +1353,24 @@ publicRouter.get("/api/products", (req, res) => {
 
       if (p.hasVariants) {
         const variants = variantsByProduct.get(p.id) ?? [];
-        result.variants = variants.map((v) => ({
-          ...v,
-          priceRub: resolveVariantPublicPriceRub(v, effectivePrice, Boolean(wholesaleContext?.tier)),
-          images: variantImagesByProduct.get(p.id)?.get(v.id) ?? [],
-        }));
+        result.variants = variants.map((v) => {
+          const variantBase = resolveVariantPublicPriceRub(v, basePrice, Boolean(wholesaleContext?.tier));
+          const variantDiscount = activeDiscounts
+            ? pickDiscountFromMaps(activeDiscounts, {
+                variantId: v.id,
+                productId: p.id,
+                groupId: p.groupId,
+              })
+            : null;
+          const variantPrice = applyDiscountToPrice(variantBase, variantDiscount);
+          return {
+            ...v,
+            priceRub: variantPrice,
+            oldPriceRub: variantPrice < variantBase ? variantBase : null,
+            hasDiscount: variantPrice < variantBase,
+            images: variantImagesByProduct.get(p.id)?.get(v.id) ?? [],
+          };
+        });
         result.images =
           result.variants.length > 0 &&
           result.variants[0].images &&
@@ -1419,10 +1470,17 @@ publicRouter.get("/api/product/:id", (req, res) => {
     )
     .all(id);
   const stockValue = typeof p.stock === "number" ? p.stock : null;
+  const cardDiscounts = wholesaleContext?.tier ? null : loadActiveDiscounts();
+  const cardDiscountPrice = cardDiscounts
+    ? pickDiscountFromMaps(cardDiscounts, { productId: p.id, groupId: p.groupId })
+    : null;
+  const discountedPrice = applyDiscountToPrice(effectivePrice, cardDiscountPrice);
 
   const result = {
     ...p,
-    priceRub: effectivePrice,
+    priceRub: discountedPrice,
+    oldPriceRub: discountedPrice < effectivePrice ? effectivePrice : null,
+    hasDiscount: discountedPrice < effectivePrice,
     stock: stockValue,
     costPrice: typeof p.costPrice === "number" ? p.costPrice : null,
     minStock: typeof p.minStock === "number" ? p.minStock : null,
@@ -1453,16 +1511,25 @@ publicRouter.get("/api/product/:id", (req, res) => {
       )
       .all(id);
 
-    result.variants = variants.map((v) => ({
-      ...v,
-      priceRub: resolveVariantPublicPriceRub(v, effectivePrice, Boolean(wholesaleContext?.tier)),
-      images: db
-        .prepare(
-          "SELECT url FROM product_images WHERE productId = ? AND variant_id = ? ORDER BY position ASC",
-        )
-        .all(id, v.id)
-        .map((r) => r.url),
-    }));
+    result.variants = variants.map((v) => {
+      const variantBase = resolveVariantPublicPriceRub(v, effectivePrice, Boolean(wholesaleContext?.tier));
+      const variantDiscount = cardDiscounts
+        ? pickDiscountFromMaps(cardDiscounts, { variantId: v.id, productId: p.id, groupId: p.groupId })
+        : null;
+      const variantPrice = applyDiscountToPrice(variantBase, variantDiscount);
+      return {
+        ...v,
+        priceRub: variantPrice,
+        oldPriceRub: variantPrice < variantBase ? variantBase : null,
+        hasDiscount: variantPrice < variantBase,
+        images: db
+          .prepare(
+            "SELECT url FROM product_images WHERE productId = ? AND variant_id = ? ORDER BY position ASC",
+          )
+          .all(id, v.id)
+          .map((r) => r.url),
+      };
+    });
     // Р”Р»СЏ РѕР±СЂР°С‚РЅРѕР№ СЃРѕРІРјРµСЃС‚РёРјРѕСЃС‚Рё, РїРѕРєР°Р·С‹РІР°РµРј РёР·РѕР±СЂР°Р¶РµРЅРёСЏ РїРµСЂРІРѕРіРѕ РІР°СЂРёР°РЅС‚Р° РєР°Рє РёР·РѕР±СЂР°Р¶РµРЅРёСЏ С‚РѕРІР°СЂР°
     result.images =
       result.variants.length > 0 &&
@@ -2723,8 +2790,9 @@ publicRouter.put(
         const updatedItemStmt = db.prepare(`
           INSERT INTO order_items (
             id, order_id, product_id, product_title, group_name, base_product_title, base_product_id, variant_id, variant_name, quantity,
-            price_per_unit, cost_per_unit, manual_discount_amount, loyalty_discount_amount, loyalty_units_applied, discount_amount, total_price, total_cost
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            price_per_unit, base_price_per_unit, catalog_discount_per_unit,
+            cost_per_unit, manual_discount_amount, loyalty_discount_amount, loyalty_units_applied, discount_amount, total_price, total_cost
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `);
 
         for (const item of orderBuild.items) {
@@ -2740,6 +2808,8 @@ publicRouter.put(
             item.variant_name,
             item.quantity,
             item.price_per_unit,
+            item.base_price_per_unit,
+            item.catalog_discount_per_unit,
             item.cost_per_unit,
             item.manual_discount_amount,
             item.loyalty_discount_amount,
@@ -3286,8 +3356,9 @@ publicRouter.post(
         const createdItemStmt = db.prepare(`
           INSERT INTO order_items (
             id, order_id, product_id, product_title, group_name, base_product_title, base_product_id, variant_id, variant_name, quantity,
-            price_per_unit, cost_per_unit, manual_discount_amount, loyalty_discount_amount, loyalty_units_applied, discount_amount, total_price, total_cost
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            price_per_unit, base_price_per_unit, catalog_discount_per_unit,
+            cost_per_unit, manual_discount_amount, loyalty_discount_amount, loyalty_units_applied, discount_amount, total_price, total_cost
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `);
 
         for (const item of orderBuild.items) {
@@ -3303,6 +3374,8 @@ publicRouter.post(
             item.variant_name,
             item.quantity,
             item.price_per_unit,
+            item.base_price_per_unit,
+            item.catalog_discount_per_unit,
             item.cost_per_unit,
             item.manual_discount_amount,
             item.loyalty_discount_amount,
@@ -3704,8 +3777,16 @@ function buildPublicOrderItems({
       throw new Error(`Недостаточно товара: ${itemTitle}`);
     }
 
-    let pricePerUnit =
-      variantData?.price_rub ?? product.priceRub ?? item.price_per_unit ?? 0;
+    // Каталожная цена, какой она была бы без акции. Цену из тела запроса не
+    // берём даже в крайнем случае: это данные покупателя, а не каталога.
+    let basePricePerUnit = resolveCatalogUnitPrice(variantData?.price_rub, product.priceRub);
+    if (basePricePerUnit <= 0) {
+      const error = new Error(`Цена не найдена для товара: ${product.title}`);
+      error.code = "catalog_price_unavailable";
+      throw error;
+    }
+
+    let pricePerUnit = basePricePerUnit;
 
     if (wholesaleContext?.tier) {
       const wholesalePrice = getWholesaleUnitPriceForProduct(
@@ -3718,6 +3799,20 @@ function buildPublicOrderItems({
         throw error;
       }
       pricePerUnit = Number(wholesalePrice);
+      // Оптовику скидки каталога не показывают, значит и снимать с них нечего.
+      basePricePerUnit = pricePerUnit;
+    } else {
+      // Скидка каталога применяется только в рознице: у опта своя цена.
+      // Базовую цену товара при этом не трогаем, на разнице между ней и
+      // проданной ценой держится блокировка бонусов в loyalty.js.
+      pricePerUnit = applyDiscountToPrice(
+        pricePerUnit,
+        resolveDiscountPrice({
+          productId: product.id,
+          variantId: variantData?.id || null,
+          groupId: product.groupId || null,
+        }),
+      );
     }
 
     const costPerUnit = Number(product.cost_price || 0);
@@ -3744,6 +3839,8 @@ function buildPublicOrderItems({
       variant_name: item.variant_name || null,
       quantity,
       price_per_unit: Number(pricePerUnit),
+      base_price_per_unit: basePricePerUnit,
+      catalog_discount_per_unit: roundMoney(basePricePerUnit - Number(pricePerUnit)),
       cost_per_unit: costPerUnit,
       manual_discount_amount: 0,
       loyalty_units_applied: Number(item.loyalty_units_applied || 0),
@@ -3762,6 +3859,8 @@ function buildPublicOrderItems({
       variant_name: item.variant_name || null,
       quantity: Number(item.quantity || 0),
       price_per_unit: Number(item.price_per_unit || 0),
+      base_price_per_unit: Number(item.base_price_per_unit || 0),
+      catalog_discount_per_unit: Number(item.catalog_discount_per_unit || 0),
       cost_per_unit: Number(item.cost_per_unit || 0),
       manual_discount_amount: 0,
       loyalty_discount_amount: 0,
@@ -3801,6 +3900,8 @@ function buildPublicOrderItems({
     variant_name: item.variant_name || null,
     quantity: Number(item.quantity || 0),
     price_per_unit: Number(item.price_per_unit || 0),
+    base_price_per_unit: Number(item.base_price_per_unit || 0),
+    catalog_discount_per_unit: Number(item.catalog_discount_per_unit || 0),
     cost_per_unit: Number(item.cost_per_unit || 0),
     manual_discount_amount: Number(item.manual_discount_amount || 0),
     loyalty_discount_amount: Number(item.loyalty_discount_amount || 0),

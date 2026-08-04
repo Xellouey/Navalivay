@@ -31,10 +31,16 @@ const port = server.address().port;
 const baseUrl = `http://127.0.0.1:${port}`;
 const authToken = issueToken("test-admin");
 
+// Сводка внутри окна проверок закрыта замком, и без пропуска половина тестов
+// падала бы просто оттого, что их запустили днём.
+const { issueDashboardToken } = await import("../utils/dashboard-access.js");
+const dashboardToken = issueDashboardToken().token;
+
 function authHeaders() {
   return {
     Authorization: `Bearer ${authToken}`,
     "Content-Type": "application/json",
+    "X-Dashboard-Token": dashboardToken,
   };
 }
 
@@ -827,6 +833,66 @@ async function testIssuedOrderPaymentRollbackAndCancellationRestoreStock() {
   );
 }
 
+async function testCatalogPriceSnapshotSurvivesEdits() {
+  const { saveDiscount } = await import("../utils/catalog-discounts.js");
+  const productId = insertProduct({ stock: 5 });
+  db.prepare("UPDATE products SET priceRub = 20 WHERE id = ?").run(productId);
+  saveDiscount("product", productId, { price: 15, untilDate: null });
+
+  // Заказ собираем через тот же обработчик, что и менеджер: снимок должен
+  // проставиться сам.
+  const created = await requestJson("/api/admin/crm/orders", {
+    method: "POST",
+    headers: authHeaders(),
+    body: JSON.stringify({
+      status: "new",
+      delivery_type: "pickup",
+      items: [{ product_id: productId, quantity: 1 }],
+    }),
+  });
+  assert.equal(created.response.status, 200);
+  const orderId = created.data.id;
+
+  const snapshot = () =>
+    db.prepare(
+      "SELECT price_per_unit, base_price_per_unit, catalog_discount_per_unit FROM order_items WHERE order_id = ?",
+    ).get(orderId);
+
+  assert.equal(Number(snapshot().price_per_unit), 15);
+  assert.equal(Number(snapshot().base_price_per_unit), 20);
+  assert.equal(Number(snapshot().catalog_discount_per_unit), 5);
+
+  // Акция кончилась, а менеджер просто меняет статус. Форма при этом всегда
+  // шлёт цену: пересчитай мы снимок, скидка магазина превратилась бы в отчёте
+  // в уценку менеджера.
+  saveDiscount("product", productId, { price: null });
+  const patched = await patchOrder(orderId, {
+    status: "in_progress",
+    discount_amount: 0,
+    discount_percent: 0,
+    items: [{ product_id: productId, quantity: 1, price_per_unit: 15 }],
+  });
+  assert.equal(patched.response.status, 200);
+  assert.equal(Number(snapshot().price_per_unit), 15);
+  assert.equal(Number(snapshot().base_price_per_unit), 20);
+  assert.equal(Number(snapshot().catalog_discount_per_unit), 5);
+
+  // Менеджер сбрасывает цену руками. Снимок описывает каталог, а не его
+  // решение, поэтому не меняется и здесь.
+  const discounted = await patchOrder(orderId, {
+    status: "in_progress",
+    discount_amount: 0,
+    discount_percent: 0,
+    items: [{ product_id: productId, quantity: 1, price_per_unit: 10 }],
+  });
+  assert.equal(discounted.response.status, 200);
+  assert.equal(Number(snapshot().price_per_unit), 10);
+  assert.equal(Number(snapshot().base_price_per_unit), 20);
+  assert.equal(Number(snapshot().catalog_discount_per_unit), 5);
+
+  console.log("crm-regressions: снимок каталожной цены переживает правки заказа");
+}
+
 async function main() {
   await testDashboardUsesBusinessDayBoundary();
   await testPackedStatusTransitionsWithItemsPayload();
@@ -835,6 +901,7 @@ async function main() {
   await testCancellingWithChangedItemsDoesNotRedeductNewProduct();
   await testInsufficientReplacementStockRollsBackAtomically();
   await testIssuedOrderPaymentRollbackAndCancellationRestoreStock();
+  await testCatalogPriceSnapshotSurvivesEdits();
   console.log("[crm-regressions] OK");
 }
 

@@ -408,6 +408,24 @@ try {
       .get('bot_feature_off_customer').access_authorization_source,
     'feature_disabled',
   );
+  // Витрина показывает покупателю цену со скидкой, и он её же пишет в чат:
+  // заказ из бота обязан списать столько же, а не полный прайс.
+  const { saveDiscount } = await import('../utils/catalog-discounts.js');
+  saveDiscount('product', 'bot_test_product', { price: 11, untilDate: null });
+  const botDiscountOrder = createOrderFromBot({
+    customerId: 'bot_feature_off_customer',
+    product: db.prepare("SELECT * FROM products WHERE id = 'bot_test_product'").get(),
+    quantity: 2,
+    telegramMessageId: 2,
+    originalMessage: 'заказать Bot product',
+  });
+  const botDiscountItem = db.prepare(
+    'SELECT price_per_unit, total_price FROM order_items WHERE order_id = ?',
+  ).get(botDiscountOrder.orderId);
+  assert.equal(botDiscountItem.price_per_unit, 11);
+  assert.equal(botDiscountItem.total_price, 22);
+  saveDiscount('product', 'bot_test_product', { price: null });
+
   referral.setReferralAuthorizationEnabled(true);
   assert.equal(referral.getReferralAuthorizationStatus('902').required, true);
   assert.equal(referral.getReferralAuthorizationStatus('902').authorized, false);

@@ -15,6 +15,8 @@ import {
   getReferralOrderCreationGate,
 } from './utils/referral-authorization.js';
 import { assignLowestAvailablePickupCell } from './utils/pickup-cells.js';
+import { applyDiscountToPrice, resolveDiscountPrice } from './utils/catalog-discounts.js';
+import { roundMoney } from './utils/money.js';
 
 // Singleton прокси-агент для long-polling. См. комментарий ниже у Telegraf
 // init: на RU-хостинге без прокси bot не получает business updates.
@@ -118,7 +120,13 @@ function isDuplicateOrder(customerId, productId) {
 export function createOrderFromBot({ customerId, product, quantity, telegramMessageId, originalMessage }) {
   const orderId = generateId('order');
   const orderNumber = getNextNumber('orders', 'order_number');
-  const pricePerUnit = Number(product.priceRub) || 0;
+  // Витрина уже назвала покупателю цену со скидкой, и именно её он написал в
+  // сообщении: без этого ему показали бы 15, а списали 20.
+  const basePricePerUnit = Number(product.priceRub) || 0;
+  const pricePerUnit = applyDiscountToPrice(
+    basePricePerUnit,
+    resolveDiscountPrice({ productId: product.id, groupId: product.groupId }),
+  );
   const costPerUnit = Number(product.cost_price) || 0;
   const totalAmount = pricePerUnit * quantity;
   const totalCost = costPerUnit * quantity;
@@ -167,8 +175,9 @@ export function createOrderFromBot({ customerId, product, quantity, telegramMess
     db.prepare(`
       INSERT INTO order_items (
         id, order_id, product_id, product_title, quantity,
-        price_per_unit, cost_per_unit, discount_amount, total_price, total_cost
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
+        price_per_unit, base_price_per_unit, catalog_discount_per_unit,
+        cost_per_unit, discount_amount, total_price, total_cost
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
     `).run(
       generateId('oi'),
       orderId,
@@ -176,6 +185,8 @@ export function createOrderFromBot({ customerId, product, quantity, telegramMess
       product.title || 'Без названия',
       quantity,
       pricePerUnit,
+      basePricePerUnit,
+      roundMoney(basePricePerUnit - pricePerUnit),
       costPerUnit,
       totalAmount,
       totalCost

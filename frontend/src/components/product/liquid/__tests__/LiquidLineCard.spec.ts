@@ -92,6 +92,126 @@ describe("LiquidLineCard", () => {
     expect(mountCard(false).find(".new-lineup-badge").exists()).toBe(false);
   });
 
+  it("показывает скидку зачёркнутой ценой и плашкой", () => {
+    const wrapper = mount(LiquidLineCard, {
+      global: { plugins: [pinia], stubs: { ColorPreviewModal: true } },
+      props: {
+        groupId: "g-1",
+        title: "CHAPPMAN",
+        products: [
+          makeProduct({ priceRub: 12, oldPriceRub: 16, hasDiscount: true }),
+        ],
+        expanded: false,
+        coverImage: null,
+        fallbackImage: "/placeholder-category.png",
+        subgroups: [],
+      },
+    });
+
+    expect(wrapper.find(".liquid-line-image-price-amount").text()).toBe("12");
+    expect(wrapper.find(".liquid-line-image-price-old").text()).toBe("16");
+    // Числа на плашке нет: точная глубина скидки живёт бейджем у самой позиции.
+    expect(wrapper.find(".liquid-line-discount").text()).toBe("Скидки");
+  });
+
+  it("не зачёркивает цену линейки, когда подешевел только один вкус", () => {
+    const wrapper = mount(LiquidLineCard, {
+      global: { plugins: [pinia], stubs: { ColorPreviewModal: true } },
+      props: {
+        groupId: "g-1",
+        title: "CHAPPMAN",
+        products: [
+          makeProduct({ id: "p-1", title: "Малина", priceRub: 12, oldPriceRub: 16, hasDiscount: true }),
+          makeProduct({ id: "p-2", title: "Апельсин", priceRub: 16 }),
+        ],
+        expanded: true,
+        coverImage: null,
+        fallbackImage: "/placeholder-category.png",
+        subgroups: [],
+      },
+    });
+
+    // Обложка называет цену за всю линейку, а подешевел один вкус: старая цена
+    // на ней относилась бы и к тем, что не дешевели.
+    expect(wrapper.find(".liquid-line-image-price-old").exists()).toBe(false);
+    expect(wrapper.find(".liquid-line-discount").exists()).toBe(true);
+
+    // Зачёркнутая цена и процент живут в раскрытом списке, рядом со вкусом, и
+    // только у того вкуса, который подешевел.
+    const prices = wrapper.findAll(".liquid-flavor-price");
+    expect(prices).toHaveLength(2);
+    expect(prices[0].find(".liquid-price-old").text()).toBe("16");
+    expect(prices[0].find(".liquid-price-drop").text()).toBe("-25%");
+    expect(prices[1].find(".liquid-price-old").exists()).toBe(false);
+    expect(prices[1].find(".liquid-price-drop").exists()).toBe(false);
+  });
+
+  it("показывает цену скидочного вкуса, даже когда она совпала с минимумом", () => {
+    const wrapper = mount(LiquidLineCard, {
+      global: { plugins: [pinia], stubs: { ColorPreviewModal: true } },
+      props: {
+        groupId: "g-1",
+        title: "CHAPPMAN",
+        products: [
+          makeProduct({ id: "p-1", title: "Малина", priceRub: 12, oldPriceRub: 16, hasDiscount: true }),
+          makeProduct({ id: "p-2", title: "Апельсин", priceRub: 20 }),
+        ],
+        expanded: true,
+        coverImage: null,
+        fallbackImage: "/placeholder-category.png",
+        subgroups: [],
+      },
+    });
+
+    // Скидочный вкус обычно и есть самый дешёвый в линейке. Спрячь его цену как
+    // повтор минимума, и зачёркивать с процентом станет нечего.
+    const prices = wrapper.findAll(".liquid-flavor-price");
+    expect(prices).toHaveLength(2);
+    expect(prices[0].find(".liquid-price-drop").text()).toBe("-25%");
+  });
+
+  it("зажигает плашку у родителя, когда подешевело внутри подлинейки", () => {
+    const wrapper = mount(LiquidLineCard, {
+      global: { plugins: [pinia], stubs: { ColorPreviewModal: true } },
+      props: {
+        groupId: "g-root",
+        title: "PODONKI",
+        products: [],
+        expanded: false,
+        coverImage: null,
+        fallbackImage: "/placeholder-category.png",
+        subgroups: [
+          {
+            id: "g-kid",
+            name: "PODONKI INFERNO",
+            productCount: 1,
+            products: [makeProduct({ id: "p-9", priceRub: 12, oldPriceRub: 16, hasDiscount: true })],
+          },
+        ],
+      },
+    });
+
+    expect(wrapper.find(".liquid-line-discount").exists()).toBe(true);
+  });
+
+  it("без скидки не рисует ни зачёркнутой цены, ни плашки", () => {
+    const wrapper = mount(LiquidLineCard, {
+      global: { plugins: [pinia], stubs: { ColorPreviewModal: true } },
+      props: {
+        groupId: "g-1",
+        title: "CHAPPMAN",
+        products: [makeProduct({ priceRub: 16 })],
+        expanded: false,
+        coverImage: null,
+        fallbackImage: "/placeholder-category.png",
+        subgroups: [],
+      },
+    });
+
+    expect(wrapper.find(".liquid-line-image-price-old").exists()).toBe(false);
+    expect(wrapper.find(".liquid-line-discount").exists()).toBe(false);
+  });
+
   it("hides flavor prices in the expanded list when they match the header price", () => {
     const wrapper = mount(LiquidLineCard, {
       global: {

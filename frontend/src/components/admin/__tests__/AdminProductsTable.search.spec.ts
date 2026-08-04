@@ -121,6 +121,46 @@ describe("AdminProductsTable search regressions", () => {
     expect(wrapper.findAll('[data-test="product-group-chip"]')).toHaveLength(0);
   });
 
+  it("показывает скидку в строке товара и открывает быструю форму", async () => {
+    const wrapper = mountTable({
+      products: [
+        {
+          id: "p-1",
+          title: "Арбузная жвачка",
+          priceRub: 55,
+          categoryId: "cat-hookah",
+          discount: { price: 44, untilDate: "2030-03-01", active: true },
+        },
+      ],
+    });
+
+    const badge = wrapper.find('[data-test="product-discount-badge"]');
+    expect(badge.exists()).toBe(true);
+    // 55 стало 44, это пятая часть цены.
+    expect(badge.text()).toBe("-20%");
+    // Срок прячем в подсказку, чтобы не раздувать строку.
+    expect(badge.attributes("title")).toContain("01.03.2030");
+
+    await wrapper.find('[data-test="product-discount-button"]').trigger("click");
+    expect(wrapper.emitted("discount")?.[0]?.[0]).toMatchObject({ id: "p-1" });
+  });
+
+  it("не показывает бейдж, когда срок скидки вышел", () => {
+    const wrapper = mountTable({
+      products: [
+        {
+          id: "p-2",
+          title: "Без скидки",
+          priceRub: 55,
+          categoryId: "cat-hookah",
+          discount: { price: 44, untilDate: "2020-01-01", active: false },
+        },
+      ],
+    });
+
+    expect(wrapper.find('[data-test="product-discount-badge"]').exists()).toBe(false);
+  });
+
   it("emits warehouse location switch", async () => {
     const wrapper = mountTable();
     const warehouseButton = wrapper.find('[data-test="location-warehouse"]');

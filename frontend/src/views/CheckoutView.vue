@@ -121,6 +121,9 @@
                   </div> -->
 
                   <p class="cart-item-price">
+                    <span v-if="getItemOldTotal(item)" class="cart-item-price-old">
+                      {{ formatPrice(getItemOldTotal(item)!) }}
+                    </span>
                     {{ formatPrice(item.priceRub * item.quantity) }} BYN
                   </p>
                 </div>
@@ -778,6 +781,33 @@ const groupMetaMap = computed(() => {
 function getItemMetaText(item: (typeof cartStore.items)[0]): string | null {
   if (!item.groupId) return null;
   return groupMetaMap.value.get(item.groupId) || null;
+}
+
+/**
+ * Цены до скидки берём из каталога, а не из самой корзины. Корзина лежит в
+ * localStorage неделями: сохрани мы старую цену туда, и после окончания акции
+ * зачёркнутая цена висела бы вечно.
+ */
+const oldPriceMap = computed(() => {
+  const map = new Map<string, number>();
+  for (const product of catalogStore.allProducts) {
+    if (product.hasDiscount && product.oldPriceRub) {
+      map.set(`${product.id}::`, product.oldPriceRub);
+    }
+    for (const variant of product.variants || []) {
+      if (variant.hasDiscount && variant.oldPriceRub) {
+        map.set(`${product.id}::${variant.id}`, variant.oldPriceRub);
+      }
+    }
+  }
+  return map;
+});
+
+/** Старая цена всей позиции: в строке показан её итог, а не цена за штуку. */
+function getItemOldTotal(item: (typeof cartStore.items)[0]): number | null {
+  const oldPrice = oldPriceMap.value.get(`${item.productId}::${item.variantId ?? ""}`);
+  if (!oldPrice || oldPrice <= item.priceRub) return null;
+  return oldPrice * item.quantity;
 }
 
 function isIceProduct(item: (typeof cartStore.items)[0]): boolean {
@@ -1880,6 +1910,14 @@ async function submitOrder() {
   line-height: 24px;
   color: #191919;
   margin: 0;
+}
+
+.cart-item-price-old {
+  margin-right: 6px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #98a2b3;
+  text-decoration: line-through;
 }
 
 .cart-item-controls {

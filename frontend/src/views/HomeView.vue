@@ -64,6 +64,7 @@
                 class="category-card-media"
                 :style="{ backgroundImage: `url(${category.previewImage})` }"
               ></div>
+              <DiscountBadge v-if="category.hasDiscount" class="category-card-discount" />
             </div>
             <p class="category-card-title">{{ category.name }}</p>
           </button>
@@ -121,6 +122,8 @@ import { useCartStore } from "@/stores/cart";
 import { useWholesaleStore } from "@/stores/wholesale";
 import SmokeParticles from "@/components/SmokeParticles.vue";
 import BannerCarousel from "@/components/BannerCarousel.vue";
+import DiscountBadge from "@/components/product/DiscountBadge.vue";
+import { hasDiscountForProduct } from "@/components/product/groupPrice";
 import {
   fetchMyActiveOrder,
   getTelegramIdentity,
@@ -137,6 +140,18 @@ const PLACEHOLDER_IMAGE = "/placeholder-category.png";
 
 const categories = computed<Category[]>(() => catalogStore.categories);
 
+/**
+ * Категории со скидками. Товар попал в этот список — значит он в наличии,
+ * сервер отсеял пустые остатки ещё при выдаче каталога.
+ */
+const categoriesWithDiscount = computed(() => {
+  const ids = new Set<string>();
+  for (const product of catalogStore.allProducts) {
+    if (product.categoryId && hasDiscountForProduct(product)) ids.add(product.categoryId);
+  }
+  return ids;
+});
+
 const categoryCards = computed(() => {
   return categories.value.map((category) => {
     const previewImage =
@@ -150,6 +165,7 @@ const categoryCards = computed(() => {
       order: category.order,
       productCount: category.productCount,
       previewImage,
+      hasDiscount: categoriesWithDiscount.value.has(category.id),
     };
   });
 });
@@ -328,6 +344,7 @@ onMounted(async () => {
 
 /* White box containing the image */
 .category-card-box {
+  position: relative;
   width: 107px;
   height: 107px;
   background: #ffffff;
@@ -336,6 +353,18 @@ onMounted(async () => {
   align-items: center;
   justify-content: center;
   overflow: hidden;
+}
+
+/* Плашка прижата к низу картинки: там она не спорит с самим изображением. */
+.category-card-discount {
+  position: absolute;
+  left: 50%;
+  bottom: 6px;
+  transform: translateX(-50%);
+  padding: 3px 8px;
+  font-size: 9px;
+  line-height: 11px;
+  letter-spacing: 0.04em;
 }
 
 .category-card-media {
@@ -348,13 +377,16 @@ onMounted(async () => {
 
 .category-card-title {
   font-family: "Montserrat", sans-serif;
-  font-size: 16px;
-  font-weight: 700;
-  line-height: 20px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 15px;
   text-align: center;
   letter-spacing: 0.008em;
   color: #000000;
   margin: 0;
+  /* Ровно по ширине карточки: иначе длинное название вылезает за её края и
+     подпись перестаёт читаться как центрированная под картинкой. */
+  width: 100%;
 }
 
 /* Сетка категорий - автоматические равномерные отступы включая края экрана */
@@ -416,8 +448,8 @@ onMounted(async () => {
   }
 
   .category-card-title {
-    font-size: 14px;
-    line-height: 18px;
+    font-size: 11px;
+    line-height: 14px;
   }
 
   .main-content-wrapper {
@@ -444,8 +476,8 @@ onMounted(async () => {
   }
 
   .category-card-title {
-    font-size: 12px;
-    line-height: 16px;
+    font-size: 10px;
+    line-height: 13px;
   }
 }
 

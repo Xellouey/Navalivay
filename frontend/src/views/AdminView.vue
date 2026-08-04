@@ -553,6 +553,7 @@
                 :availableGroups="adminStore.availableProductGroups"
                 @create="handleCreateProduct"
                 @edit="handleEditProduct"
+                @discount="openProductDiscount"
                 @delete="handleDeleteProduct"
                 @changePage="handleProductsPageChange"
                 @changePageSize="handleProductsPageSizeChange"
@@ -1124,6 +1125,13 @@
       />
     </AdminModal>
 
+    <ProductDiscountModal
+      :is-open="showProductDiscountModal"
+      :product="discountProduct"
+      @close="showProductDiscountModal = false"
+      @saved="reloadProductsAfterDiscount"
+    />
+
     <AdminModal
       :isOpen="showWholesaleLinksModal"
       title="Оптовые ссылки"
@@ -1272,6 +1280,7 @@ import AdminProductsTable from '@/components/admin/AdminProductsTable.vue'
 import AdminStockTransferModal from '@/components/admin/AdminStockTransferModal.vue'
 import AdminCategoryGroupForm from '@/components/admin/AdminCategoryGroupForm.vue'
 import AdminGroupMinStockEditor from '@/components/admin/AdminGroupMinStockEditor.vue'
+import ProductDiscountModal from '@/components/admin/ProductDiscountModal.vue'
 import AdminWholesaleLinksPanel from '@/components/admin/AdminWholesaleLinksPanel.vue'
 import IncompleteGroupsPanel from '@/components/admin/IncompleteGroupsPanel.vue'
 import AdminAgreementsSection from '@/components/admin/AdminAgreementsSection.vue'
@@ -2783,7 +2792,27 @@ function closeGroupForm() {
   }
 }
 
-async function handleGroupFormSubmit(payload: { name: string; slug?: string; coverImage?: string | null; hideEmpty?: boolean; parentId?: string | null; metaLabel?: string | null; metaValue?: string | null; minStockThreshold?: number | null; totalControl?: boolean; isNew?: boolean; newDays?: number; wholesalePrices?: Record<string, number | null>; waiveDescription?: boolean; waiveMinStock?: boolean; waiveWholesale?: boolean; waiveStrengthTier?: boolean; strengthTier?: string | null }) {
+const showProductDiscountModal = ref(false)
+const discountProduct = ref<any | null>(null)
+
+function openProductDiscount(product: any) {
+  discountProduct.value = product
+  showProductDiscountModal.value = true
+}
+
+async function reloadProductsAfterDiscount() {
+  showToast('Скидка сохранена', 'success')
+  await adminStore.fetchProducts({
+    page: adminStore.productsPagination?.page || 1,
+    limit: adminStore.productsPagination?.limit || 10,
+    category: productsFilters.value.category || undefined,
+    search: productsFilters.value.search || undefined,
+    group: productsFilters.value.group || undefined,
+    location: productsFilters.value.location,
+  })
+}
+
+async function handleGroupFormSubmit(payload: { name: string; slug?: string; coverImage?: string | null; hideEmpty?: boolean; parentId?: string | null; metaLabel?: string | null; metaValue?: string | null; minStockThreshold?: number | null; totalControl?: boolean; isNew?: boolean; newDays?: number; discount?: { price: number | null; untilDate: string | null }; wholesalePrices?: Record<string, number | null>; waiveDescription?: boolean; waiveMinStock?: boolean; waiveWholesale?: boolean; waiveStrengthTier?: boolean; strengthTier?: string | null }) {
   const categoryId = groupFormCategoryId.value || activeGroupCategory.value?.id || null
   if (!categoryId) {
     showToast('Сначала выберите категорию', 'error')
@@ -2812,6 +2841,7 @@ async function handleGroupFormSubmit(payload: { name: string; slug?: string; cov
         totalControl: payload.totalControl ?? false,
         isNew: payload.isNew ?? false,
         ...(payload.newDays !== undefined ? { newDays: payload.newDays } : {}),
+        ...(payload.discount !== undefined ? { discount: payload.discount } : {}),
         wholesalePrices: payload.wholesalePrices ?? {},
         waiveDescription: payload.waiveDescription,
         waiveMinStock: payload.waiveMinStock,

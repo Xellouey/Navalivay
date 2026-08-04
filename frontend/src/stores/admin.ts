@@ -117,6 +117,7 @@ export interface CategoryGroup {
   isNew?: boolean
   newDaysTotal?: number | null
   newDaysLeft?: number | null
+  discount?: { price: number; untilDate: string | null; active: boolean } | null
   waiveDescription?: boolean
   waiveMinStock?: boolean
   waiveWholesale?: boolean
@@ -315,6 +316,7 @@ export const useAdminStore = defineStore('admin', () => {
       warehouseStock: Number(product?.warehouseStock ?? product?.warehouse_stock ?? 0),
       minStock: Number(product?.minStock ?? 0),
       hasVariants,
+      discount: product?.discount ?? null,
       useCategoryImage: Boolean(product?.useCategoryImage ?? 1)
     }
     
@@ -325,6 +327,8 @@ export const useAdminStore = defineStore('admin', () => {
         name: v.name || '',
         colorCode: v.colorCode || v.color_code || null,
         colorImage: v.colorImage || v.color_image || null,
+        colorDisplayMode: v.colorDisplayMode || v.color_display_mode || (v.colorImage || v.color_image ? 'image' : 'color'),
+        discount: v.discount ?? null,
         priceRub: v.priceRub !== undefined ? Number(v.priceRub) : null,
         stock: v.stock !== undefined ? Number(v.stock) : 0,
         warehouseStock: Number(v.warehouseStock ?? v.warehouse_stock ?? 0),
@@ -865,6 +869,7 @@ async function createCategory(category: { name: string; hideEmpty?: boolean; cov
         minStockThreshold: normalizeMinStockThreshold(group.minStockThreshold ?? group.min_stock_threshold),
         totalControl: Boolean(group.totalControl ?? group.total_control),
         isNew: Boolean(group.is_new ?? group.isNew),
+        discount: group.discount ?? null,
         newDaysTotal: group.new_days_total ?? null,
         newDaysLeft: group.new_days_left ?? null,
         createdAt: group.createdAt,
@@ -963,6 +968,7 @@ async function createCategory(category: { name: string; hideEmpty?: boolean; cov
         minStockThreshold: normalizeMinStockThreshold(response.minStockThreshold ?? response.min_stock_threshold),
         totalControl: Boolean(response.totalControl ?? response.total_control),
         isNew: Boolean(response.is_new ?? response.isNew),
+        discount: response.discount ?? null,
         newDaysTotal: response.new_days_total ?? null,
         newDaysLeft: response.new_days_left ?? null,
         createdAt: response.createdAt,
@@ -1054,6 +1060,7 @@ async function createCategory(category: { name: string; hideEmpty?: boolean; cov
         minStockThreshold: normalizeMinStockThreshold(response.minStockThreshold ?? response.min_stock_threshold),
         totalControl: Boolean(response.totalControl ?? response.total_control),
         isNew: Boolean(response.is_new ?? response.isNew),
+        discount: response.discount ?? null,
         newDaysTotal: response.new_days_total ?? null,
         newDaysLeft: response.new_days_left ?? null,
         waiveDescription: Boolean(response.waiveDescription ?? response.waive_description),
@@ -1084,7 +1091,13 @@ async function createCategory(category: { name: string; hideEmpty?: boolean; cov
     }
   }
 
-  async function updateCategoryGroup(id: string, updates: Partial<CategoryGroup> & { newDays?: number }) {
+  async function updateCategoryGroup(
+    id: string,
+    updates: Omit<Partial<CategoryGroup>, 'discount'> & {
+      newDays?: number
+      discount?: { price: number | null; untilDate: string | null }
+    },
+  ) {
     try {
       isLoading.value = true
       error.value = null
@@ -1109,6 +1122,7 @@ async function createCategory(category: { name: string; hideEmpty?: boolean; cov
       if ('totalControl' in updates) body.totalControl = updates.totalControl
       if ('isNew' in updates) body.isNew = updates.isNew
       if ('newDays' in updates) body.newDays = updates.newDays
+      if ('discount' in updates) body.discount = updates.discount
       if ('wholesalePrices' in updates) body.wholesalePrices = updates.wholesalePrices
       if ('waiveDescription' in updates) body.waiveDescription = updates.waiveDescription
       if ('waiveMinStock' in updates) body.waiveMinStock = updates.waiveMinStock
@@ -1142,6 +1156,7 @@ async function createCategory(category: { name: string; hideEmpty?: boolean; cov
         hideEmpty: Boolean(response.hide_empty),
         parentId: response.parent_group_id ?? null,
         isNew: Boolean(response.is_new ?? response.isNew),
+        discount: response.discount ?? null,
         newDaysTotal: response.new_days_total ?? null,
         newDaysLeft: response.new_days_left ?? null,
         metaLabel: response.metaLabel ?? response.meta_label ?? null,

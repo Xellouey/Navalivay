@@ -305,6 +305,9 @@
                   <div class="mb-8 p-6 bg-gray-50 rounded-2xl">
                     <div class="flex items-center justify-between mb-4">
                       <div>
+                        <span v-if="currentOldPrice" class="mr-2 text-xl font-semibold text-gray-400 line-through tabular-nums">
+                          {{ formatPrice(currentOldPrice) }}
+                        </span>
                         <span class="text-4xl font-bold text-brand-dark tabular-nums">
                           {{ formatPrice(currentPrice) }}
                         </span>
@@ -376,6 +379,9 @@
           <div class="flex items-center justify-between" style="margin-bottom: 0.9rem;">
             <div>
               <div class="flex items-baseline gap-2">
+                <span v-if="currentOldPrice" class="text-base font-semibold text-gray-400 line-through tabular-nums">
+                  {{ formatPrice(currentOldPrice) }}
+                </span>
                 <span class="text-2xl font-bold text-brand-dark tabular-nums">
                   {{ formatPrice(currentPrice) }}
                 </span>
@@ -523,6 +529,15 @@ const currentPrice = computed(() => {
     return selectedVariant.value.priceRub
   }
   return product.value?.priceRub || 0
+})
+
+/** Цена до скидки для выбранного вкуса или самого товара. */
+const currentOldPrice = computed(() => {
+  const source = hasVariants.value && selectedVariant.value
+    ? selectedVariant.value
+    : product.value
+  const oldPrice = Number(source?.oldPriceRub ?? 0)
+  return source?.hasDiscount && oldPrice > currentPrice.value ? oldPrice : 0
 })
 
 // Доступность с учетом варианта

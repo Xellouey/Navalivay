@@ -6,6 +6,12 @@ import fs from 'fs';
 import { fileURLToPath } from 'url';
 import bcrypt from 'bcryptjs';
 import { db } from '../db.js';
+import {
+  getDiscountRecord,
+  loadDiscountRecords,
+  normalizeDiscountInput,
+  saveDiscount,
+} from '../utils/catalog-discounts.js';
 import { authMiddleware, issueToken, verifyPassword, changePassword, getAdminUsername } from '../auth.js';
 import { DEFAULT_PROFIT_PASSWORD } from '../migrations/add_profit_password_setting.js';
 import rateLimit from 'express-rate-limit';
@@ -227,6 +233,7 @@ function enrichAdminCategoryGroups(groups) {
     const costStats = costStatsByGroup.get(groupId) || null;
     return {
       ...group,
+      discount: getDiscountRecord('group', groupId),
       wholesale_prices: priceMapByGroup.get(groupId) || {},
       average_cost_auto: costStats?.averageCostAuto ?? null,
       direct_product_count: costStats?.directProductCount ?? Number(group.productCount ?? 0),
@@ -245,6 +252,7 @@ function enrichAdminCategoryGroup(group) {
   const wholesaleTiers = buildWholesaleTiersPayload();
   return {
     ...group,
+    discount: getDiscountRecord('group', group.id),
     wholesale_prices: getGroupWholesalePrices(group.id),
     average_cost_auto: costStats.averageCostAuto,
     direct_product_count: costStats.directProductCount,
@@ -843,8 +851,40 @@ adminRouter.patch('/api/admin/products/:id', authMiddleware, async (req, res) =>
     minStock,
     useCategoryImage,
     hasVariants,
-    variants
+    variants,
+    discount
   } = req.body || {};
+
+  // Скидки товара и вкусов проверяем до записи: отказ по кривой цене не должен
+  // случиться на середине сохранения товара.
+  const productDiscountProvided = 'discount' in (req.body || {});
+  let productDiscountPayload = null;
+  const variantDiscountPayloads = new Map();
+  try {
+    if (productDiscountProvided) {
+      productDiscountPayload = normalizeDiscountInput(
+        discount && typeof discount === 'object'
+          ? { price: discount.price ?? null, untilDate: discount.untilDate ?? discount.until_date ?? null }
+          : { price: null, untilDate: null },
+      );
+    }
+    if (Array.isArray(variants)) {
+      for (const variant of variants) {
+        if (!variant || !('discount' in variant)) continue;
+        const raw = variant.discount;
+        variantDiscountPayloads.set(
+          String(variant.id || variant.name || ''),
+          normalizeDiscountInput(
+            raw && typeof raw === 'object'
+              ? { price: raw.price ?? null, untilDate: raw.untilDate ?? raw.until_date ?? null }
+              : { price: null, untilDate: null },
+          ),
+        );
+      }
+    }
+  } catch (error) {
+    return res.status(400).json({ error: error.code || 'invalid_discount' });
+  }
 
   const normalizedCostPrice = cost_price ?? costPrice;
   const normalizedMinStock = min_stock ?? minStock;
@@ -1055,6 +1095,15 @@ adminRouter.patch('/api/admin/products/:id', authMiddleware, async (req, res) =>
             insertVariantStmt.run(variantId, id, ...values);
           }
 
+          // Скидка вкуса: ключ ищем и по идентификатору, и по названию, потому
+          // что у нового варианта идентификатор появляется только здесь.
+          const variantDiscount =
+            variantDiscountPayloads.get(String(variant.id || '')) ??
+            variantDiscountPayloads.get(String(variant.name || ''));
+          if (variantDiscount) {
+            saveDiscount('variant', variantId, variantDiscount);
+          }
+
           // Обработка изображений вариантов
           if (Array.isArray(variant.images) && variant.images.length > 0) {
             variant.images.forEach((img) => {
@@ -1073,6 +1122,10 @@ adminRouter.patch('/api/admin/products/:id', authMiddleware, async (req, res) =>
       // Если больше нет вариантов, удаляем все связанные данные
       db.prepare('DELETE FROM product_variants WHERE product_id = ?').run(id);
       db.prepare('DELETE FROM product_images WHERE variant_id IS NOT NULL AND productId = ?').run(id);
+    }
+
+    if (productDiscountProvided) {
+      saveDiscount('product', id, productDiscountPayload);
     }
 
     // Синк парковки групп: изменился stock и/или сменился groupId — затронута старая и новая линейка.
@@ -1280,10 +1333,14 @@ adminRouter.get('/api/admin/products', authMiddleware, (req, res) => {
     }
   }
 
+  const discountsForList = loadDiscountRecords();
+
   const products = rows.map(r => {
     const product = {
       ...r,
       locationStock: location === 'warehouse' ? Number(r.warehouseStock || 0) : Number(r.stock || 0),
+      discount: discountsForList.product.get(String(r.id)) ?? null,
+      groupDiscount: r.groupId ? discountsForList.group.get(String(r.groupId)) ?? null : null,
       links: linksByProduct.get(r.id) ?? []
     };
 
@@ -1294,6 +1351,7 @@ adminRouter.get('/api/admin/products', authMiddleware, (req, res) => {
       product.variants = variants.map(v => ({
         ...v,
         locationStock: location === 'warehouse' ? Number(v.warehouseStock || 0) : Number(v.stock || 0),
+        discount: discountsForList.variant.get(String(v.id)) ?? null,
         images: (variantImagesByProduct.get(r.id)?.get(v.id)) ?? []
       }));
 
@@ -2048,7 +2106,7 @@ adminRouter.get('/api/admin/products/:id', authMiddleware, (req, res) => {
     url: row.url
   }))
   
-  const result = { ...p, links };
+  const result = { ...p, links, discount: getDiscountRecord('product', id) };
   
   if (p.hasVariants) {
     // Для товаров с вариантами получаем варианты и их изображения
@@ -2061,6 +2119,7 @@ adminRouter.get('/api/admin/products/:id', authMiddleware, (req, res) => {
     
     result.variants = variants.map(v => ({
       ...v,
+      discount: getDiscountRecord('variant', v.id),
       images: db.prepare('SELECT url FROM product_images WHERE productId = ? AND variant_id = ? ORDER BY position ASC')
         .all(id, v.id).map(r => r.url)
     }));
@@ -3159,6 +3218,22 @@ adminRouter.put('/api/admin/category-groups/:id', authMiddleware, async (req, re
     return res.status(404).json({ error: 'not_found' });
   }
 
+  // Скидку разбираем заранее: сохранение идёт внутри транзакции, а отказ по
+  // кривым данным должен случиться до неё.
+  const discountProvided = 'discount' in (req.body || {});
+  let discountPayload = null;
+  if (discountProvided) {
+    const raw = req.body.discount;
+    discountPayload = raw && typeof raw === 'object'
+      ? { price: raw.price ?? null, untilDate: raw.untilDate ?? raw.until_date ?? null }
+      : { price: null, untilDate: null };
+    try {
+      normalizeDiscountInput(discountPayload);
+    } catch (error) {
+      return res.status(400).json({ error: error.code || 'invalid_discount' });
+    }
+  }
+
   // Своя обёртка: общий catch ниже переводит любую ошибку булева в
   // invalid_total_control, и кривой is_new вернул бы ошибку про чужое поле.
   let nextNewBadge;
@@ -3336,6 +3411,10 @@ adminRouter.put('/api/admin/category-groups/:id', authMiddleware, async (req, re
         nextWaiveStrengthTier,
         id,
       );
+
+      if (discountProvided) {
+        saveDiscount('group', id, discountPayload);
+      }
 
       // Даты новинки пишем отдельным запросом: срок считает SQLite, чтобы в
       // колонке не оказалось двух форматов времени.

@@ -1,6 +1,7 @@
 <template>
   <div class="group-line-card" :class="{ expanded: isExpanded }">
     <NewLineupBadge v-if="node.isNew" />
+    <DiscountBadge v-if="hasDiscount" class="group-line-discount" />
     <button
       :id="headerId"
       type="button"
@@ -130,7 +131,8 @@ import { ChevronDownIcon } from "@heroicons/vue/24/outline";
 import { useCatalogStore, type Product } from "@/stores/catalog";
 import GroupLineItemContent from "@/components/product/GroupLineItemContent.vue";
 import NewLineupBadge from "@/components/product/NewLineupBadge.vue";
-import { getMinPriceForProducts } from "@/components/product/groupPrice";
+import DiscountBadge from "@/components/product/DiscountBadge.vue";
+import { getMinPriceForProducts, hasDiscountInTree } from "@/components/product/groupPrice";
 
 const GroupLineItem = defineAsyncComponent(
   () => import("@/components/product/GroupLineItem.vue"),
@@ -203,6 +205,9 @@ const firstProductPrice = computed(() => {
   if (props.node.children.length > 0) return null;
   return getMinPriceForProducts(props.node.products);
 });
+
+/** Плашка: скидка где угодно в линейке, включая вложенные. */
+const hasDiscount = computed(() => hasDiscountInTree(props.node));
 
 const metaText = computed(() => {
   const label = (props.node.metaLabel ?? "").trim();
@@ -392,6 +397,10 @@ onBeforeUnmount(() => {
 
 .group-line-card:last-of-type {
   margin-bottom: 0;
+}
+
+.group-line-discount {
+  margin-bottom: 10px;
 }
 
 .group-line-header {
