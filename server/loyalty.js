@@ -452,7 +452,10 @@ export function buildLoyaltyApplication({
     const catalogDiscountPrice = resolveDiscountPrice({
       productId: productContext?.id || rawItem.product_id || null,
       variantId: variantMatchesProduct ? variantContext?.id || rawItem.variant_id || null : null,
-      groupId: productContext?.groupId || null,
+      // Именно group_id: запрос отдаёт линейку под этим именем. Пока здесь
+      // стояло groupId, поле было undefined, скидки на линейку до проверки не
+      // доходили, и товар со скидкой всё равно предлагал бонусную карту.
+      groupId: productContext?.group_id || null,
     });
     const lineHasCatalogDiscount =
       catalogDiscountPrice !== null && catalogDiscountPrice < basePricePerUnit;

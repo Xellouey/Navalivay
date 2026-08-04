@@ -331,8 +331,8 @@ import {
   discountPercent,
   getMinBasePriceForProducts,
   getMinPriceForProducts,
-  hasDiscountForProduct,
   hasDiscountInTree,
+  isFullyDiscountedProduct,
   shouldShowPrice,
 } from "@/components/product/groupPrice";
 
@@ -414,7 +414,7 @@ const baseMinPrice = computed(() => getMinBasePriceForProducts(props.products));
 const wholeLineDiscounted = computed(
   () =>
     props.products.length > 0 &&
-    props.products.every((product) => hasDiscountForProduct(product)),
+    props.products.every((product) => isFullyDiscountedProduct(product)),
 );
 
 /**

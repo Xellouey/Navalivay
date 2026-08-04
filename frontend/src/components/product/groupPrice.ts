@@ -101,6 +101,19 @@ export function hasDiscountForProduct(product: Product): boolean {
     || getSafeVariants(product).some((variant) => variant.hasDiscount);
 }
 
+/**
+ * Подешевело ли у товара вообще всё. У товара с цветами это значит «каждый
+ * цвет со скидкой»: если подешевел один цвет из десяти, цена линейки на
+ * обложке меняться не должна, остальные продаются по-старому.
+ */
+export function isFullyDiscountedProduct(product: Product): boolean {
+  const variants = getSafeVariants(product).filter((variant) =>
+    hasPositivePrice(variant.priceRub),
+  );
+  if (variants.length) return variants.every((variant) => variant.hasDiscount);
+  return Boolean(product.hasDiscount);
+}
+
 /** Есть ли скидка где-то в линейке, включая вложенные линейки. */
 export function hasDiscountInTree(node: PriceGroupNode): boolean {
   return (node.products || []).some(hasDiscountForProduct)

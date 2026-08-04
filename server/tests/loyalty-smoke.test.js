@@ -1271,6 +1271,79 @@ async function testAwardMissingOrderId() {
   assert.equal(award.reason, "missing_order_id");
 }
 
+/**
+ * Скидку ставят на линейку куда чаще, чем на отдельный товар: на проде сейчас
+ * так сделаны вообще все акции. Проверка на скидку читала поле линейки не под
+ * тем именем, из-за чего скидочная жидкость всё равно предлагала бонусную
+ * карту, и покупатель мог сложить акцию с бонусом.
+ */
+async function testGroupDiscountBlocksBonus() {
+  const { buildLoyaltyApplication } = await import("../loyalty.js");
+  const { saveDiscount } = await import("../utils/catalog-discounts.js");
+
+  db.prepare(
+    `INSERT OR IGNORE INTO category_groups (id, categoryId, slug, name, [order])
+     VALUES ('g-discount', 'c_liquids_salt', 'discount-line', 'Скидочная линейка', 1)`,
+  ).run();
+  db.prepare(
+    `INSERT OR IGNORE INTO products (
+       id, categoryId, groupId, title, priceRub, description, use_category_image,
+       createdAt, cost_price, stock, min_stock, has_variants
+     ) VALUES ('liquid-discounted', 'c_liquids_salt', 'g-discount', 'Ягодный пирог', 16, '', 0,
+       DATETIME('now'), 5, 50, 0, 0)`,
+  ).run();
+
+  resetMappingsToLiquidsOnly();
+  const categoryId = getLoyaltyCategoryId("liquids");
+  // Предыдущие проверки в файле могли выключить категорию: тест должен стоять
+  // на своих ногах, иначе он молча перестанет проверять что-либо.
+  db.prepare(
+    "UPDATE loyalty_category_settings SET active = 1 WHERE loyalty_category_id = ?",
+  ).run(categoryId);
+  const customerId = "cust-group-discount";
+  db.prepare("DELETE FROM customers WHERE id = ?").run(customerId);
+  createCustomer({ id: customerId, telegramId: "990001", telegramUsername: "discount_tester" });
+  setBalance(customerId, categoryId, 99);
+
+  const line = () => {
+    const application = buildLoyaltyApplication({
+      customerId,
+      items: [
+        {
+          product_id: "liquid-discounted",
+          variant_id: null,
+          quantity: 1,
+          price_per_unit: 16,
+          product_title: "Ягодный пирог",
+        },
+      ],
+      requestedUnitsByLine: {},
+    });
+    const category = (application.categories || []).find(
+      (item) => (item.line_items || []).length,
+    );
+    return category?.line_items?.[0] || null;
+  };
+
+  const withoutDiscount = line();
+  assert.ok(withoutDiscount, "без скидки позиция обязана попадать в бонусную программу");
+  assert.ok(
+    Number(withoutDiscount.max_redeemable_units) > 0,
+    "без скидки бонус должен предлагаться",
+  );
+
+  saveDiscount("group", "g-discount", { price: 12, untilDate: null });
+  const withDiscount = line();
+  assert.equal(
+    Number(withDiscount?.max_redeemable_units || 0),
+    0,
+    "скидка на линейку обязана закрывать позиции доступ к бонусной карте",
+  );
+
+  saveDiscount("group", "g-discount", { price: null });
+  console.log("  OK: скидка на линейку не пускает позицию в бонусы");
+}
+
 async function testAwardCompletedStatusAllowed() {
   const customerId = createCustomer({
     id: "cust-loyalty-completed",
@@ -1328,6 +1401,7 @@ async function main() {
   await testAwardDeductsLoyaltyUnitsFromEarnedStamps();
   await testAwardMissingOrderId();
   await testAwardCompletedStatusAllowed();
+  await testGroupDiscountBlocksBonus();
 
   console.log("[loyalty-smoke] OK");
 }
