@@ -106,6 +106,21 @@ function unionReachability(oldGraph, newGraph) {
   return result
 }
 
+/**
+ * Файлы, которые лежат в репозитории, но на работающий прод не влияют никак.
+ *
+ * `.gitignore` читает только git. `server/dev-server.js` — локальный запуск
+ * витрины в браузере: он подхватывает server/.env и импортирует index.js, а на
+ * проде сервер поднимает systemd напрямую, поэтому в граф запуска этот файл не
+ * входит и войти не должен.
+ *
+ * Список намеренно перечисляет точные пути: маска вида `server/dev-*` рано или
+ * поздно пропустит на прод то, чего там быть не должно.
+ */
+function hasNoRuntimeImpact(file) {
+  return file === '.gitignore' || file === '.gitattributes' || file === 'server/dev-server.js'
+}
+
 function isDocsOrTest(file) {
   return (
     file === 'AGENTS.md' ||
@@ -129,6 +144,8 @@ export function planImpact(changedFiles, oldGraph = {}, newGraph = {}) {
   let pm2Reload = false
 
   for (const file of changedFiles) {
+    if (hasNoRuntimeImpact(file)) continue
+
     if (file.startsWith('frontend/')) {
       if (isDocsOrTest(file)) continue
       if (file === 'frontend/package.json' || file === 'frontend/package-lock.json') frontendInstall = true
