@@ -362,7 +362,7 @@ import { useCartStore } from "@/stores/cart";
 import { useWholesaleStore } from "@/stores/wholesale";
 import SmokeParticles from "@/components/SmokeParticles.vue";
 import LiquidLineTree from "@/components/product/liquid/LiquidLineTree.vue";
-import { sortLineupTree } from "@/utils/lineupOrder";
+import { arrangeLineups } from "@/utils/lineupOrder";
 import ToastNotification from "@/components/ToastNotification.vue";
 import GroupLineItem from "@/components/product/GroupLineItem.vue";
 import CategoryFilterBar from "@/components/product/CategoryFilterBar.vue";
@@ -663,10 +663,10 @@ const groupCards = computed<GroupCardNode[]>(() => {
     }
   });
 
-  // Новинка внутри поднимает и родителя, поэтому сортируем дерево целиком.
-  sortLineupTree(roots);
+  // Новинка выходит из своей линейки наверх, дальше обычный порядок.
+  const arranged = arrangeLineups(roots);
 
-  return roots.filter(
+  return arranged.filter(
     (node) => (node.totalProductCount ?? node.productCount ?? 0) > 0,
   );
 });
@@ -725,10 +725,10 @@ const liquidStructure = computed(() => {
       }
     });
 
-    // Новинка внутри поднимает и родителя, поэтому сортируем дерево целиком.
-    sortLineupTree(roots);
+    // Новинка выходит из своей линейки наверх, дальше обычный порядок.
+    const arranged = arrangeLineups(roots);
 
-    return roots.filter((g) => g.products.length > 0 || g.children.length > 0);
+    return arranged.filter((g) => g.products.length > 0 || g.children.length > 0);
   };
 
   const liquidGroups = buildLiquidTree();

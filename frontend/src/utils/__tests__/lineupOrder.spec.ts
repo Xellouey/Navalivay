@@ -5,7 +5,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { compareLineups, sortLineupTree, type OrderedLineup } from '@/utils/lineupOrder'
+import { arrangeLineups, compareLineups, type OrderedLineup } from '@/utils/lineupOrder'
 
 const lineup = (
   name: string,
@@ -53,31 +53,66 @@ describe('порядок линеек', () => {
     expect(sortedNames(expired)).toEqual(['первая', 'пятнадцатая', 'шестнадцатая'])
   })
 
-  it('новинка внутри поднимает и родителя, и себя внутри него', () => {
+  it('подлинейка-новинка выходит из родителя и встаёт первой', () => {
     const tree = [
       {
         name: 'PODONKI',
         order: 1,
         children: [
           { name: 'INFERNO', order: 3, children: [] },
-          { name: 'PODGON', order: 9, isNew: true, newSince: '2026-08-01 07:38:13', children: [] },
+          { name: 'HOTSPOT', order: 9, isNew: true, newSince: '2026-08-01 07:38:13', children: [] },
         ],
       },
       { name: 'CHAPPMAN', order: 2, children: [] },
+    ]
+
+    const result = arrangeLineups(tree)
+    // Новинка показывается сама по себе, выше своего родителя.
+    expect(result.map((node) => node.name)).toEqual(['HOTSPOT', 'PODONKI', 'CHAPPMAN'])
+    // Внутри родителя её больше нет, иначе она была бы на экране дважды.
+    const podonki = result.find((node) => node.name === 'PODONKI')
+    expect(podonki?.children.map((node) => node.name)).toEqual(['INFERNO'])
+  })
+
+  it('несколько новинок из разных линеек идут свежей выше', () => {
+    const tree = [
       {
-        name: 'SLURM',
-        order: 3,
+        name: 'PODONKI',
+        order: 1,
+        children: [{ name: 'HOTSPOT', order: 9, isNew: true, newSince: '2026-08-01 07:00:00', children: [] }],
+      },
+      {
+        name: 'PIXEL',
+        order: 5,
+        children: [{ name: 'PIXEL SOUR', order: 2, isNew: true, newSince: '2026-08-02 09:00:00', children: [] }],
+      },
+    ]
+
+    expect(arrangeLineups(tree).map((node) => node.name)).toEqual([
+      'PIXEL SOUR',
+      'HOTSPOT',
+      'PODONKI',
+      'PIXEL',
+    ])
+  })
+
+  it('после снятия отметки линейка возвращается внутрь родителя', () => {
+    const build = (isNew: boolean) => [
+      {
+        name: 'PODONKI',
+        order: 1,
         children: [
-          { name: 'SLURM MIX', order: 1, isNew: true, newSince: '2026-08-01 09:00:00', children: [] },
+          { name: 'INFERNO', order: 3, children: [] },
+          { name: 'HOTSPOT', order: 9, isNew, newSince: '2026-08-01 07:38:13', children: [] },
         ],
       },
     ]
 
-    sortLineupTree(tree)
-    // Ветка со свежей новинкой идёт первой, обычная линейка опускается.
-    expect(tree.map((node) => node.name)).toEqual(['SLURM', 'PODONKI', 'CHAPPMAN'])
-    // Внутри родителя новинка тоже наверху, хотя её порядок больше.
-    expect(tree[1].children.map((node) => node.name)).toEqual(['PODGON', 'INFERNO'])
+    expect(arrangeLineups(build(true)).map((node) => node.name)).toEqual(['HOTSPOT', 'PODONKI'])
+
+    const back = arrangeLineups(build(false))
+    expect(back.map((node) => node.name)).toEqual(['PODONKI'])
+    expect(back[0].children.map((node) => node.name)).toEqual(['INFERNO', 'HOTSPOT'])
   })
 
   it('ветка без новинок остаётся на своём месте', () => {
@@ -86,9 +121,9 @@ describe('порядок линеек', () => {
       { name: 'вторая', order: 2, children: [] },
     ]
 
-    sortLineupTree(tree)
-    expect(tree.map((node) => node.name)).toEqual(['первая', 'вторая'])
-    expect(tree[0].children.map((node) => node.name)).toEqual(['б', 'а'])
+    const result = arrangeLineups(tree)
+    expect(result.map((node) => node.name)).toEqual(['первая', 'вторая'])
+    expect(result[0].children.map((node) => node.name)).toEqual(['б', 'а'])
   })
 
   it('новинки без даты отметки не роняют сортировку', () => {
