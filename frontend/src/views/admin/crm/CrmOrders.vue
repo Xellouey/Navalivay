@@ -913,6 +913,13 @@
                         >{{ item.group_name ? " - " : ""
                         }}{{ item.base_product_title || item.product_title
                         }}{{ item.variant_name ? " - " + item.variant_name : "" }}
+                        <span
+                          v-if="catalogDiscountPerUnit(item) > 0"
+                          class="ml-1 inline-flex items-center rounded px-1 py-px align-middle text-[10px] font-bold uppercase tracking-wide text-white"
+                          style="background: linear-gradient(106.76deg, #f50302 -2.64%, #a90f0e 85.78%)"
+                          :title="discountHint(item)"
+                          data-test="order-item-discount"
+                        >Скидка</span>
                         <span class="font-medium text-gray-800">× {{ item.quantity }}</span>
                       </div>
                       <div v-if="item.product_description" class="text-[11px] text-gray-400 leading-tight">
@@ -1711,7 +1718,7 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import { storeToRefs } from "pinia";
-import type { Order } from "@/stores/crm";
+import type { Order, OrderItem } from "@/stores/crm";
 import { useCrmStore } from "@/stores/crm";
 import CrmButton from "@/components/admin/crm/CrmButton.vue";
 import OrderCreateModal from "@/components/crm/OrderCreateModal.vue";
@@ -2528,6 +2535,27 @@ function formatDate(dateString: string) {
     hour: "2-digit",
     minute: "2-digit",
   });
+}
+
+/**
+ * Скидка каталога, срезанная с единицы товара на момент оформления.
+ *
+ * Берём снимок из позиции, а не текущую скидку из каталога: акция могла
+ * закончиться или появиться уже после заказа, и тогда пометка врала бы про то,
+ * как человек покупал на самом деле. У заказов старше этого снимка поле пустое,
+ * и пометки просто нет — это честнее, чем гадать.
+ */
+function catalogDiscountPerUnit(item: OrderItem): number {
+  return Number(item.catalog_discount_per_unit ?? 0);
+}
+
+function discountHint(item: OrderItem): string {
+  const base = Number(item.base_price_per_unit ?? 0);
+  const perUnit = catalogDiscountPerUnit(item);
+  if (base > 0) {
+    return `Продано со скидкой: было ${base} BYN, скидка ${perUnit} BYN за штуку`;
+  }
+  return `Продано со скидкой ${perUnit} BYN за штуку`;
 }
 
 function previewItems(order: Order) {

@@ -747,6 +747,9 @@ export function accrueWheelSpinsForOrder(orderId) {
   }
 
   const isWholesale = Number(order.is_wholesale || 0) === 1;
+  // Скидочные позиции копят прокрутки наравне с обычными, и это решение
+  // владельца, а не недосмотр. Бонусная карта устроена наоборот: там позиция со
+  // скидкой не копит и не тратит штампы. Не выравнивайте одно по другому.
   const amount = Math.max(
     0,
     safeNumber(order.final_amount, safeNumber(order.total_amount, 0)),

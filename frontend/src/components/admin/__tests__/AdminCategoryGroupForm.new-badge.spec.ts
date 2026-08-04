@@ -55,6 +55,24 @@ describe("AdminCategoryGroupForm: срок показа новинки", () => {
     expect(wrapper.text()).not.toContain("03.09.2026");
   });
 
+  it("разбирает дату из базы, записанную через пробел", async () => {
+    // Так её отдаёт SQLite. Chrome такую строку понимает, Safari — нет, и
+    // подсказка молча исчезала бы на маке или айпаде.
+    const wrapper = mountForm({
+      id: "g-1",
+      name: "PODONKI",
+      isNew: true,
+      newSince: "2026-07-20 10:00:00",
+      newDaysLeft: 15,
+    });
+    const vm = wrapper.vm as any;
+    vm.form.isNew = true;
+    vm.form.newDays = 30;
+    await wrapper.vm.$nextTick();
+
+    expect(wrapper.text()).toContain("19.08.2026");
+  });
+
   it("без отметки новинки подсказки нет", async () => {
     const wrapper = mountForm();
     const vm = wrapper.vm as any;

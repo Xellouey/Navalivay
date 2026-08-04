@@ -649,6 +649,17 @@ const basePriceLabel = computed(() => {
 })
 
 /**
+ * Дата из базы приходит как «2026-07-20 10:00:00», через пробел. Chrome такую
+ * строку разбирает, Safari отдаёт Invalid Date — и подсказка молча исчезает у
+ * менеджера на маке или айпаде. Приводим к виду с T, который понимают все.
+ */
+function parseServerDate(value: string): Date | null {
+  const normalized = String(value).trim().replace(' ', 'T')
+  const parsed = new Date(normalized)
+  return Number.isNaN(parsed.getTime()) ? null : parsed
+}
+
+/**
  * До какого числа будет гореть плашка, если сохранить форму как есть.
  *
  * Отсчёт повторяет серверный: у линейки, уже отмеченной новинкой, срок идёт от
@@ -661,8 +672,8 @@ const newUntilLabel = computed(() => {
   if (!Number.isFinite(days) || days < 1 || days > 180) return ''
 
   const startedAt = props.editingGroup?.isNew ? props.editingGroup.newSince : null
-  const start = startedAt ? new Date(startedAt) : new Date()
-  if (Number.isNaN(start.getTime())) return ''
+  const start = startedAt ? parseServerDate(startedAt) : new Date()
+  if (!start || Number.isNaN(start.getTime())) return ''
 
   const until = new Date(start)
   until.setDate(until.getDate() + days)
