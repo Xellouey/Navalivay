@@ -848,16 +848,49 @@
           </button>
         </div>
 
-        <label class="flex flex-col gap-2 text-sm font-medium text-gray-700">
-          Название товара
-          <input
-            v-model.trim="quickProduct.title"
-            type="text"
-            class="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
-            placeholder="Например, Кремовое мороженое"
-            required
-          />
-        </label>
+        <div class="flex flex-col gap-2">
+          <span class="text-sm font-medium text-gray-700">
+            {{ quickProduct.titles.length > 1 ? "Названия товаров" : "Название товара" }}
+          </span>
+          <div
+            v-for="(_, index) in quickProduct.titles"
+            :key="index"
+            class="flex items-center gap-2"
+          >
+            <input
+              v-model.trim="quickProduct.titles[index]"
+              :ref="(el) => setQuickTitleInput(el, index)"
+              type="text"
+              class="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
+              :placeholder="index === 0 ? 'Например, Кремовое мороженое' : 'Ещё один вкус'"
+              data-test="quick-product-title"
+              @keydown.enter.prevent="addQuickProductTitle(index)"
+            />
+            <button
+              v-if="quickProduct.titles.length > 1"
+              type="button"
+              class="shrink-0 rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-500 transition hover:border-red-200 hover:bg-red-50 hover:text-red-600"
+              :aria-label="`Убрать поле ${index + 1}`"
+              data-test="quick-product-title-remove"
+              @click="removeQuickProductTitle(index)"
+            >
+              ✕
+            </button>
+          </div>
+          <div class="flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              class="inline-flex items-center gap-2 rounded-lg border border-dashed border-blue-200 px-3 py-2 text-xs font-semibold text-blue-600 transition hover:border-blue-300 hover:bg-blue-50"
+              data-test="quick-product-title-add"
+              @click="addQuickProductTitle()"
+            >
+              + Ещё название
+            </button>
+            <span class="text-xs text-gray-500">
+              Категория, линейка, цены и остаток у всех будут общие
+            </span>
+          </div>
+        </div>
 
         <div class="grid gap-4 md:grid-cols-2">
           <label class="flex flex-col gap-2 text-sm font-medium text-gray-700">
@@ -1016,7 +1049,7 @@
             :disabled="quickProductSaving || quickProductUploading"
             @click="submitQuickProduct"
           >
-            {{ quickProductSaving ? "Создаём…" : "Создать и добавить" }}
+            {{ quickProductSubmitLabel }}
           </button>
           <button
             type="button"
@@ -1157,7 +1190,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, watch, reactive } from "vue";
+import { ref, computed, onMounted, watch, reactive, nextTick } from "vue";
 import { storeToRefs } from "pinia";
 import {
   useCrmStore,
@@ -1276,7 +1309,10 @@ const quickProductError = ref("");
 const quickProduct = reactive({
   categoryId: "",
   groupId: "",
-  title: "",
+  // Вкусы одной линейки отличаются только названием, поэтому имён может быть
+  // сколько угодно, а остальные поля общие: менеджеру не нужно открывать
+  // форму заново на каждый вкус.
+  titles: [""],
   priceRub: 0,
   costPrice: 0,
   stock: 0,
@@ -1286,6 +1322,48 @@ const quickProduct = reactive({
 const quickProductImages = ref<string[]>([]);
 const quickProductUploading = ref(false);
 const quickProductFileInput = ref<HTMLInputElement | null>(null);
+const quickTitleInputs = ref<HTMLInputElement[]>([]);
+
+function setQuickTitleInput(el: unknown, index: number) {
+  if (el instanceof HTMLInputElement) quickTitleInputs.value[index] = el;
+}
+
+/**
+ * Новое поле для названия. Курсор уезжает в него сразу: вкусы вбивают пачкой,
+ * и тянуться мышкой после каждого имени — та же морока, ради которой всё и
+ * затевалось.
+ */
+function addQuickProductTitle(afterIndex?: number) {
+  const at = afterIndex === undefined ? quickProduct.titles.length : afterIndex + 1;
+  quickProduct.titles.splice(at, 0, "");
+  nextTick(() => quickTitleInputs.value[at]?.focus());
+}
+
+function removeQuickProductTitle(index: number) {
+  if (quickProduct.titles.length <= 1) return;
+  quickProduct.titles.splice(index, 1);
+  quickTitleInputs.value.splice(index, 1);
+}
+
+const quickProductSubmitLabel = computed(() => {
+  const count = quickProductTitles.value.length;
+  if (quickProductSaving.value) return "Создаём…";
+  return count > 1 ? `Создать ${count} и добавить` : "Создать и добавить";
+});
+
+/** Непустые названия без повторов: одно и то же имя дважды создало бы дубль. */
+const quickProductTitles = computed(() => {
+  const seen = new Set<string>();
+  return quickProduct.titles
+    .map((title) => title.trim())
+    .filter((title) => {
+      if (!title) return false;
+      const key = title.toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+});
 const showQuickCategoryModal = ref(false);
 const quickCategoryName = ref("");
 const quickCategoryError = ref("");
@@ -1753,7 +1831,7 @@ async function openQuickProductModal() {
   quickProductError.value = "";
   quickProduct.categoryId = "";
   quickProduct.groupId = "";
-  quickProduct.title = "";
+  quickProduct.titles = [""];
   quickProduct.priceRub = 0;
   quickProduct.costPrice = 0;
   quickProduct.stock = 0;
@@ -1927,7 +2005,7 @@ async function submitQuickProduct() {
   if (quickProductSaving.value) return;
   quickProductError.value = "";
 
-  if (!quickProduct.title.trim()) {
+  if (!quickProductTitles.value.length) {
     quickProductError.value = "Укажите название товара";
     return;
   }
@@ -1951,36 +2029,65 @@ async function submitQuickProduct() {
   }
 
   quickProductSaving.value = true;
-  try {
-    const created = await adminStore.createProduct({
-      categoryId: quickProduct.categoryId,
-      groupId: quickProduct.groupId || null,
-      title: quickProduct.title.trim(),
-      priceRub: Math.round(quickProduct.priceRub),
-      description: "",
-      images: quickProduct.useCategoryImage
-        ? []
-        : [...quickProductImages.value],
-      links: [],
-      strength: null,
-      costPrice: Number(quickProduct.costPrice || 0),
-      stock: Number(quickProduct.stock || 0),
-      minStock: Number(quickProduct.minStock || 0),
-      useCategoryImage: quickProduct.useCategoryImage,
-    });
+  const titles = quickProductTitles.value;
+  // Товары создаются по одному, и сорваться может любой. Уже созданные надо
+  // довести до закупки и убрать из формы, иначе повторное сохранение сделает
+  // дубли, а менеджер не поймёт, на каком имени всё встало.
+  const done: string[] = [];
+  let failure = "";
 
-    closeQuickProductModal();
-    const summary = convertAdminProductToCrmSummary(created);
-    addProduct(summary);
-    productResults.value = [summary, ...productResults.value];
-    // Обновляем список товаров с низким остатком (вдруг новый товар уже в зоне риска)
-    await refreshLowStock();
-  } catch (error: any) {
-    console.error("[CRM] quick product create error", error);
-    quickProductError.value = error?.message || "Не удалось создать товар";
+  try {
+    for (const title of titles) {
+      try {
+        const created = await adminStore.createProduct({
+          categoryId: quickProduct.categoryId,
+          groupId: quickProduct.groupId || null,
+          title,
+          priceRub: Math.round(quickProduct.priceRub),
+          description: "",
+          images: quickProduct.useCategoryImage
+            ? []
+            : [...quickProductImages.value],
+          links: [],
+          strength: null,
+          costPrice: Number(quickProduct.costPrice || 0),
+          stock: Number(quickProduct.stock || 0),
+          minStock: Number(quickProduct.minStock || 0),
+          useCategoryImage: quickProduct.useCategoryImage,
+        });
+
+        const summary = convertAdminProductToCrmSummary(created);
+        addProduct(summary);
+        productResults.value = [summary, ...productResults.value];
+        done.push(title);
+      } catch (error: any) {
+        console.error("[CRM] quick product create error", title, error);
+        failure = `${title}: ${error?.message || "не удалось создать"}`;
+        break;
+      }
+    }
+
+    if (done.length) {
+      // Обновляем список товаров с низким остатком (вдруг новый товар уже в зоне риска)
+      await refreshLowStock();
+    }
+
+    if (!failure) {
+      closeQuickProductModal();
+      return;
+    }
+
+    const doneKeys = new Set(done.map((title) => title.toLowerCase()));
+    quickProduct.titles = quickProduct.titles.filter(
+      (title) => !doneKeys.has(title.trim().toLowerCase()),
+    );
+    if (!quickProduct.titles.length) quickProduct.titles = [""];
+    quickProductError.value = done.length
+      ? `Добавили ${done.length} из ${titles.length}. Дальше не пошло — ${failure}`
+      : `Не удалось создать товар. ${failure}`;
   } finally {
     quickProductSaving.value = false;
-    quickProductImages.value = [];
+    if (!showQuickProductModal.value) quickProductImages.value = [];
   }
 }
 
