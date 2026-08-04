@@ -131,19 +131,39 @@ describe("LiquidLineCard", () => {
       },
     });
 
-    // Обложка называет цену за всю линейку, а подешевел один вкус: старая цена
-    // на ней относилась бы и к тем, что не дешевели.
+    // Скидка на один вкус цену линейки не занижает: остальные продаются по 16,
+    // и обложка обязана называть цену, по которой линейку реально можно взять.
+    expect(wrapper.find(".liquid-line-image-price-amount").text()).toBe("16");
     expect(wrapper.find(".liquid-line-image-price-old").exists()).toBe(false);
     expect(wrapper.find(".liquid-line-discount").exists()).toBe(true);
 
-    // Зачёркнутая цена и процент живут в раскрытом списке, рядом со вкусом, и
-    // только у того вкуса, который подешевел.
+    // Зачёркнутая цена и процент живут в раскрытом списке, рядом со вкусом.
+    // Апельсин за 16 повторил бы цену обложки, поэтому его цена скрыта.
     const prices = wrapper.findAll(".liquid-flavor-price");
-    expect(prices).toHaveLength(2);
+    expect(prices).toHaveLength(1);
     expect(prices[0].find(".liquid-price-old").text()).toBe("16");
     expect(prices[0].find(".liquid-price-drop").text()).toBe("-25%");
-    expect(prices[1].find(".liquid-price-old").exists()).toBe(false);
-    expect(prices[1].find(".liquid-price-drop").exists()).toBe(false);
+  });
+
+  it("подешевела вся линейка — на обложке новая цена и зачёркнутая старая", () => {
+    const wrapper = mount(LiquidLineCard, {
+      global: { plugins: [pinia], stubs: { ColorPreviewModal: true } },
+      props: {
+        groupId: "g-1",
+        title: "CHAPPMAN",
+        products: [
+          makeProduct({ id: "p-1", title: "Малина", priceRub: 12, oldPriceRub: 16, hasDiscount: true }),
+          makeProduct({ id: "p-2", title: "Апельсин", priceRub: 14, oldPriceRub: 18, hasDiscount: true }),
+        ],
+        expanded: false,
+        coverImage: null,
+        fallbackImage: "/placeholder-category.png",
+        subgroups: [],
+      },
+    });
+
+    expect(wrapper.find(".liquid-line-image-price-amount").text()).toBe("12");
+    expect(wrapper.find(".liquid-line-image-price-old").text()).toBe("16");
   });
 
   it("показывает цену скидочного вкуса, даже когда она совпала с минимумом", () => {

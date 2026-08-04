@@ -134,7 +134,7 @@ import { useCatalogStore, type Product } from "@/stores/catalog";
 import GroupLineItemContent from "@/components/product/GroupLineItemContent.vue";
 import NewLineupBadge from "@/components/product/NewLineupBadge.vue";
 import DiscountBadge from "@/components/product/DiscountBadge.vue";
-import { getMinPriceForProducts, hasDiscountInTree } from "@/components/product/groupPrice";
+import { getMinBasePriceForProducts, hasDiscountInTree } from "@/components/product/groupPrice";
 
 const GroupLineItem = defineAsyncComponent(
   () => import("@/components/product/GroupLineItem.vue"),
@@ -205,7 +205,9 @@ const totalProductCount = computed(() => {
 
 const firstProductPrice = computed(() => {
   if (props.node.children.length > 0) return null;
-  return getMinPriceForProducts(props.node.products);
+  // Скидка на отдельный вкус цену линейки не занижает: остальные вкусы
+  // продаются по-старому.
+  return getMinBasePriceForProducts(props.node.products);
 });
 
 /** Плашка: скидка где угодно в линейке, включая вложенные. */

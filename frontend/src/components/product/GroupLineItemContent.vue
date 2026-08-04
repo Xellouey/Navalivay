@@ -184,7 +184,7 @@ import type { Product, ProductVariant } from "@/stores/catalog";
 import ColorPreviewModal from "@/components/product/ColorPreviewModal.vue";
 import {
   discountPercent,
-  getMinPriceForProducts,
+  getMinBasePriceForProducts,
   shouldShowPrice,
 } from "@/components/product/groupPrice";
 
@@ -248,8 +248,10 @@ const productsWithoutVariants = computed(() =>
 );
 
 // Цена минимального товара для сравнения цен
+// Та же цена, что стоит на обложке линейки: с ней сравниваем, показывать ли
+// цену у позиции, чтобы не повторять одно и то же число.
 const firstProductPrice = computed(() =>
-  getMinPriceForProducts(props.node.products),
+  getMinBasePriceForProducts(props.node.products),
 );
 
 function shouldShowVariantPrice(variant: ProductVariant): boolean {

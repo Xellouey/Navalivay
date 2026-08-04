@@ -16,14 +16,40 @@ function getSafeVariants(product: Product): ProductVariant[] {
   );
 }
 
-function getProductPrices(product: Product): number[] {
+type PricedItem = {
+  priceRub?: number | null;
+  oldPriceRub?: number | null;
+  hasDiscount?: boolean;
+};
+
+/** Цена, по которой позиция продаётся сейчас. */
+function effectivePriceOf(item: PricedItem): number | null {
+  return item.priceRub ?? null;
+}
+
+/**
+ * Цена до скидки. Нужна там, где скидка отдельной позиции не должна утягивать
+ * за собой цену всей линейки: подешевел один вкус, а на обложке стоит цена,
+ * по которой продаются остальные.
+ */
+function basePriceOf(item: PricedItem): number | null {
+  const oldPrice = Number(item.oldPriceRub ?? 0);
+  if (item.hasDiscount && oldPrice > 0) return oldPrice;
+  return item.priceRub ?? null;
+}
+
+function getProductPrices(
+  product: Product,
+  pick: (item: PricedItem) => number | null = effectivePriceOf,
+): number[] {
   if (product.hasVariants) {
     const variantsWithPrice = getSafeVariants(product).filter((variant) =>
-      hasPositivePrice(variant.priceRub),
+      hasPositivePrice(pick(variant)),
     );
 
     if (!variantsWithPrice.length) {
-      return hasPositivePrice(product.priceRub) ? [product.priceRub] : [];
+      const own = pick(product);
+      return hasPositivePrice(own) ? [own] : [];
     }
 
     const inStockVariants = variantsWithPrice.filter(
@@ -31,16 +57,22 @@ function getProductPrices(product: Product): number[] {
     );
     const source = inStockVariants.length ? inStockVariants : variantsWithPrice;
 
-    return source
-      .map((variant) => variant.priceRub)
-      .filter(hasPositivePrice);
+    return source.map(pick).filter(hasPositivePrice);
   }
 
-  return hasPositivePrice(product.priceRub) ? [product.priceRub] : [];
+  const own = pick(product);
+  return hasPositivePrice(own) ? [own] : [];
 }
 
 export function getMinPriceForProducts(products: Product[]): number | null {
-  const prices = products.flatMap(getProductPrices);
+  const prices = products.flatMap((product) => getProductPrices(product));
+  if (!prices.length) return null;
+  return Math.min(...prices);
+}
+
+/** Минимальная цена линейки без учёта скидок на отдельные позиции. */
+export function getMinBasePriceForProducts(products: Product[]): number | null {
+  const prices = products.flatMap((product) => getProductPrices(product, basePriceOf));
   if (!prices.length) return null;
   return Math.min(...prices);
 }

@@ -117,6 +117,7 @@ export interface CategoryGroup {
   isNew?: boolean
   newDaysTotal?: number | null
   newDaysLeft?: number | null
+  newSince?: string | null
   discount?: { price: number; untilDate: string | null; active: boolean } | null
   waiveDescription?: boolean
   waiveMinStock?: boolean
@@ -872,6 +873,7 @@ async function createCategory(category: { name: string; hideEmpty?: boolean; cov
         discount: group.discount ?? null,
         newDaysTotal: group.new_days_total ?? null,
         newDaysLeft: group.new_days_left ?? null,
+        newSince: group.new_since ?? null,
         createdAt: group.createdAt,
         updatedAt: group.updatedAt,
         productCount: group.productCount ?? 0,
@@ -971,6 +973,7 @@ async function createCategory(category: { name: string; hideEmpty?: boolean; cov
         discount: response.discount ?? null,
         newDaysTotal: response.new_days_total ?? null,
         newDaysLeft: response.new_days_left ?? null,
+        newSince: response.new_since ?? null,
         createdAt: response.createdAt,
         updatedAt: response.updatedAt,
         productCount: response.productCount ?? 0,
@@ -1063,6 +1066,7 @@ async function createCategory(category: { name: string; hideEmpty?: boolean; cov
         discount: response.discount ?? null,
         newDaysTotal: response.new_days_total ?? null,
         newDaysLeft: response.new_days_left ?? null,
+        newSince: response.new_since ?? null,
         waiveDescription: Boolean(response.waiveDescription ?? response.waive_description),
         waiveMinStock: Boolean(response.waiveMinStock ?? response.waive_min_stock),
         waiveWholesale: Boolean(response.waiveWholesale ?? response.waive_wholesale),
@@ -1159,6 +1163,7 @@ async function createCategory(category: { name: string; hideEmpty?: boolean; cov
         discount: response.discount ?? null,
         newDaysTotal: response.new_days_total ?? null,
         newDaysLeft: response.new_days_left ?? null,
+        newSince: response.new_since ?? null,
         metaLabel: response.metaLabel ?? response.meta_label ?? null,
         metaValue: response.metaValue ?? response.meta_value ?? null,
         minStockThreshold: normalizeMinStockThreshold(response.minStockThreshold ?? response.min_stock_threshold),

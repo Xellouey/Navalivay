@@ -180,7 +180,8 @@
         />
         <span class="text-xs text-gray-500">от 1 до 180</span>
       </div>
-      <p v-if="newDaysLeftLabel" class="mt-2 pl-8 text-xs text-gray-500">{{ newDaysLeftLabel }}</p>
+      <p v-if="newUntilLabel" class="mt-2 pl-8 text-xs text-gray-500">{{ newUntilLabel }}</p>
+      <p v-if="newDaysLeftLabel" class="mt-1 pl-8 text-xs text-gray-500">{{ newDaysLeftLabel }}</p>
     </div>
 
     <div class="space-y-3 rounded-2xl border border-gray-200 bg-gray-50/80 p-4">
@@ -451,6 +452,7 @@ interface CategoryGroup {
   isNew?: boolean
   newDaysTotal?: number | null
   newDaysLeft?: number | null
+  newSince?: string | null
   discount?: { price: number; untilDate: string | null; active: boolean } | null
   waiveDescription?: boolean
   waiveMinStock?: boolean
@@ -644,6 +646,27 @@ const basePriceLabel = computed(() => {
   return current.active
     ? `Сейчас продаётся по ${current.price} BYN`
     : `Прошлая скидка ${current.price} BYN уже не действует`
+})
+
+/**
+ * До какого числа будет гореть плашка, если сохранить форму как есть.
+ *
+ * Отсчёт повторяет серверный: у линейки, уже отмеченной новинкой, срок идёт от
+ * даты, когда её отметили, а не от сегодня. Иначе каждое сохранение карточки
+ * продлевало бы показ, и менеджер видел бы одну дату, а получал другую.
+ */
+const newUntilLabel = computed(() => {
+  if (!form.isNew) return ''
+  const days = Number(form.newDays)
+  if (!Number.isFinite(days) || days < 1 || days > 180) return ''
+
+  const startedAt = props.editingGroup?.isNew ? props.editingGroup.newSince : null
+  const start = startedAt ? new Date(startedAt) : new Date()
+  if (Number.isNaN(start.getTime())) return ''
+
+  const until = new Date(start)
+  until.setDate(until.getDate() + days)
+  return `С учётом срока плашка будет гореть до ${until.toLocaleDateString('ru-RU')}`
 })
 
 const newDaysLeftLabel = computed(() => {

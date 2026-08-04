@@ -329,7 +329,9 @@ import ColorPreviewModal from "@/components/product/ColorPreviewModal.vue";
 import DiscountBadge from "@/components/product/DiscountBadge.vue";
 import {
   discountPercent,
+  getMinBasePriceForProducts,
   getMinPriceForProducts,
+  hasDiscountForProduct,
   hasDiscountInTree,
   shouldShowPrice,
 } from "@/components/product/groupPrice";
@@ -405,7 +407,24 @@ const coverUrl = computed(
   () => props.coverImage || catalogStore.getGroupImage(props.groupId) || props.fallbackImage,
 );
 
-const groupMinPrice = computed(() => getMinPriceForProducts(props.products));
+const discountedMinPrice = computed(() => getMinPriceForProducts(props.products));
+const baseMinPrice = computed(() => getMinBasePriceForProducts(props.products));
+
+/** Подешевела ли линейка целиком, а не отдельные её вкусы. */
+const wholeLineDiscounted = computed(
+  () =>
+    props.products.length > 0 &&
+    props.products.every((product) => hasDiscountForProduct(product)),
+);
+
+/**
+ * Цена на обложке. Скидка на отдельный вкус её не трогает: остальные вкусы
+ * продаются по-старому, и обложка обязана называть цену, по которой линейку
+ * реально можно взять. Новую цену показываем, только когда подешевело всё.
+ */
+const groupMinPrice = computed(() =>
+  wholeLineDiscounted.value ? discountedMinPrice.value : baseMinPrice.value,
+);
 
 const minPriceLabel = computed(() => {
   if (props.subgroups && props.subgroups.length > 0) return null;
@@ -413,21 +432,13 @@ const minPriceLabel = computed(() => {
   return formatPrice(groupMinPrice.value);
 });
 
-/**
- * Цена до скидки на обложке линейки. Зачёркиваем, только когда подешевела вся
- * линейка: если скидка пришла на один вкус, обложка назвала бы старую цену для
- * всех остальных, а они не дешевели. У такой линейки остаётся плашка, а
- * зачёркнутая цена и процент живут рядом с самим вкусом в раскрытом списке.
- */
+/** Зачёркнутая цена на обложке — только у линейки, подешевевшей целиком. */
 const oldPriceLabel = computed(() => {
   if (minPriceLabel.value === null) return null;
-  if (!props.products.length) return null;
-  if (!props.products.every((product) => product.hasDiscount)) return null;
-  const source = props.products.find(
-    (product) => Number(product.priceRub) === groupMinPrice.value,
-  );
-  const oldPrice = Number(source?.oldPriceRub ?? 0);
-  return oldPrice > 0 ? formatPrice(oldPrice) : null;
+  if (!wholeLineDiscounted.value) return null;
+  const oldPrice = Number(baseMinPrice.value ?? 0);
+  if (!oldPrice || oldPrice <= Number(groupMinPrice.value ?? 0)) return null;
+  return formatPrice(oldPrice);
 });
 
 /** Плашка: показываем, пока скидка есть хоть где-то в линейке или внутри неё. */
