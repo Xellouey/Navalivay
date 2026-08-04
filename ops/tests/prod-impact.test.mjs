@@ -75,6 +75,18 @@ test('docs и тесты не вызывают действий', () => {
   assert.deepEqual(plan.blocked, [])
 })
 
+test('файлы без влияния на прод не блокируют и не вызывают действий', () => {
+  const plan = planImpact(['.gitignore', 'server/dev-server.js'], graph(), graph())
+  assert.deepEqual(plan.blocked, [])
+  assert.equal(plan.noRuntimeActions, true)
+})
+
+test('соседний серверный файл вне графа запуска по-прежнему блокирует', () => {
+  // Исключение точечное: послабление не должно расползтись на server/dev-*.
+  const plan = planImpact(['server/dev-tools.js'], graph(), graph())
+  assert.equal(plan.blocked.length, 1)
+})
+
 test('неизвестный путь и инфраструктура блокируют деплой', () => {
   const plan = planImpact([
     'mystery/config.bin',
