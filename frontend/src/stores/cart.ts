@@ -34,6 +34,37 @@ export const useCartStore = defineStore('cart', () => {
     return items.value.reduce((sum, item) => sum + item.priceRub * item.quantity, 0)
   })
 
+  function resolveCartItemImage(
+    product: Product,
+    variantId?: string | null,
+    fallbackImage: string | null = null,
+  ): string | null {
+    const catalogStore = useCatalogStore()
+    const variantImage = variantId
+      ? product.variants?.find((variant) => variant.id === variantId)?.images?.[0]
+      : null
+
+    // Собственное фото товара или варианта всегда точнее обложки линейки.
+    if (variantImage) return variantImage
+    if (!product.needsCategoryImage && product.images?.[0]) {
+      return product.images[0]
+    }
+
+    if (product.needsCategoryImage) {
+      const groupImage = product.groupId
+        ? catalogStore.getGroupImage(product.groupId)
+        : null
+      if (groupImage) return groupImage
+
+      const categoryImage = product.categoryId
+        ? catalogStore.getCategoryImage(product.categoryId)
+        : null
+      if (categoryImage) return categoryImage
+    }
+
+    return product.images?.[0] || fallbackImage
+  }
+
   /** Подтянуть цены строк корзины из актуального каталога (опт: после повторного fetch allProducts). */
   function syncItemPricesFromCatalog() {
     if (!items.value.length) return
@@ -76,8 +107,8 @@ export const useCartStore = defineStore('cart', () => {
         const wholesaleStore = useWholesaleStore()
 
         // На /opt/... корзина инициализируется до onMounted WholesaleEntry; не дергаем
-        // полный каталог без опта, пока activateFromLink не выставил контекст (иначе розничный снимок).
-        if (!catalogStore.allProducts.length) {
+        // каталог без опта, пока activateFromLink не выставил контекст (иначе розничный снимок).
+        if (!catalogStore.allProducts.length || !catalogStore.categories.length) {
           const path =
             typeof window !== 'undefined' ? (window.location.pathname.split('?')[0] || '') : ''
           const onWholesaleEntryPath = /^\/opt\/[^/]+\/[^/]+\/?$/.test(path)
@@ -91,9 +122,14 @@ export const useCartStore = defineStore('cart', () => {
               await new Promise((r) => setTimeout(r, 40))
             }
           }
-          if (!catalogStore.allProducts.length) {
-            await catalogStore.fetchAllProducts()
-          }
+          await Promise.all([
+            !catalogStore.allProducts.length
+              ? catalogStore.fetchAllProducts()
+              : Promise.resolve(),
+            !catalogStore.categories.length
+              ? catalogStore.fetchCategories()
+              : Promise.resolve(),
+          ])
         }
         
         // Migrate old items
@@ -119,27 +155,23 @@ export const useCartStore = defineStore('cart', () => {
             migrated.variantName = null
           }
           
-          // Update image from group/category if needed
-          if (item.groupId) {
-            const groupImage = catalogStore.getGroupImage(item.groupId)
-            if (groupImage) migrated.image = groupImage
-          } else if (item.categoryId) {
-            const categoryImage = catalogStore.getCategoryImage(item.categoryId)
-            if (categoryImage) migrated.image = categoryImage
-          } else if (!item.groupId && !item.categoryId) {
-            // Old item without IDs - try to find product in catalog
-            const product = catalogStore.allProducts.find(p => p.id === item.productId)
-            if (product) {
-              migrated.groupId = product.groupId || null
-              migrated.categoryId = product.categoryId || null
-              if (product.groupId) {
-                const groupImage = catalogStore.getGroupImage(product.groupId)
-                if (groupImage) migrated.image = groupImage
-              } else if (product.categoryId) {
-                const categoryImage = catalogStore.getCategoryImage(product.categoryId)
-                if (categoryImage) migrated.image = categoryImage
-              }
-            }
+          const product = catalogStore.allProducts.find(p => p.id === item.productId)
+          if (product) {
+            migrated.groupId = product.groupId || migrated.groupId || null
+            migrated.categoryId = product.categoryId || migrated.categoryId || null
+            migrated.image = resolveCartItemImage(
+              product,
+              migrated.variantId,
+              migrated.image || null,
+            )
+          } else if (!migrated.image) {
+            // Удалённый из каталога товар не теряем: для старой строки используем
+            // доступную обложку, но существующее сохранённое фото не затираем.
+            migrated.image = (migrated.groupId
+              ? catalogStore.getGroupImage(migrated.groupId)
+              : null) || (migrated.categoryId
+              ? catalogStore.getCategoryImage(migrated.categoryId)
+              : null)
           }
 
           return migrated
@@ -206,7 +238,7 @@ export const useCartStore = defineStore('cart', () => {
       let title = product.title
       const productTitle = product.title
       let priceRub = product.priceRub
-      let image = product.images?.[0] || null
+      let image: string | null = null
       let variantName: string | null = null
       
       // Если указан variantId, найдем его данные
@@ -218,25 +250,10 @@ export const useCartStore = defineStore('cart', () => {
           if (variant.priceRub) {
             priceRub = variant.priceRub
           }
-          // Изображение варианта берем только если НЕТ флага needsCategoryImage
-          if (!product.needsCategoryImage && variant.images && variant.images.length > 0) {
-            image = variant.images[0]
-          }
         }
       }
-      
-      // Если у товара флаг needsCategoryImage - ВСЕГДА берем из группы или категории
-      if (product.needsCategoryImage) {
-        const catalogStore = useCatalogStore()
-        if (product.groupId) {
-          const groupImage = catalogStore.getGroupImage(product.groupId)
-          if (groupImage) image = groupImage
-        }
-        if (!image && product.categoryId) {
-          const categoryImage = catalogStore.getCategoryImage(product.categoryId)
-          if (categoryImage) image = categoryImage
-        }
-      }
+
+      image = resolveCartItemImage(product, variantId)
       
       items.value.push({
         productId: product.id,

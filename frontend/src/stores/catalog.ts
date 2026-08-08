@@ -218,9 +218,11 @@ export const useCatalogStore = defineStore('catalog', () => {
 
   // Функция загрузки изображения категории с кэшированием
   async function fetchCategoryImage(categoryId: string): Promise<string | null> {
-    // Проверяем кэш
-    if (categoryImageCache.value.has(categoryId)) {
-      return categoryImageCache.value.get(categoryId) || null
+    // Новый API уже присылает короткий адрес обложки в списке категорий.
+    // Старый JSON с base64 оставляем только запасным путём.
+    const existingImage = getCategoryImage(categoryId)
+    if (existingImage) {
+      return existingImage
     }
     // Проверяем, не загружается ли уже
     if (loadingCategoryImages.value.has(categoryId)) {
@@ -250,8 +252,9 @@ export const useCatalogStore = defineStore('catalog', () => {
 
   // Функция загрузки изображения группы с кэшированием
   async function fetchGroupImage(groupId: string): Promise<string | null> {
-    if (groupImageCache.value.has(groupId)) {
-      return groupImageCache.value.get(groupId) || null
+    const existingImage = getGroupImage(groupId)
+    if (existingImage) {
+      return existingImage
     }
     if (loadingGroupImages.value.has(groupId)) {
       while (loadingGroupImages.value.has(groupId)) {
@@ -277,14 +280,26 @@ export const useCatalogStore = defineStore('catalog', () => {
     }
   }
 
-  // Получить изображение категории из кэша (синхронно)
+  // Получить актуальное изображение категории (синхронно).
+  // coverImage — основной путь, кэш нужен для старого API с base64.
   function getCategoryImage(categoryId: string): string | null {
-    return categoryImageCache.value.get(categoryId) || null
+    const normalizedId = String(categoryId)
+    const categoryImage = categories.value.find(
+      (category) => category.id === normalizedId,
+    )?.coverImage
+    return categoryImage || categoryImageCache.value.get(normalizedId) || null
   }
 
-  // Получить изображение группы из кэша (синхронно)
+  // Получить актуальное изображение линейки (синхронно).
   function getGroupImage(groupId: string): string | null {
-    return groupImageCache.value.get(groupId) || null
+    const normalizedId = String(groupId)
+    for (const category of categories.value) {
+      const groupImage = category.groups.find(
+        (group) => group.id === normalizedId,
+      )?.coverImage
+      if (groupImage) return groupImage
+    }
+    return groupImageCache.value.get(normalizedId) || null
   }
 
   function updateCategoryCoverImage(categoryId: string, image: string) {
@@ -516,10 +531,10 @@ export const useCatalogStore = defineStore('catalog', () => {
       Array.from(categoryIdsToLoad).map(catId => fetchCategoryImage(catId))
     )
     
-    // Подставляем изображения из кэша
+    // Подставляем прямой адрес из списка категорий или старое значение из кэша.
     return productsList.map(p => {
       if (p.needsCategoryImage && p.categoryId) {
-        const categoryImage = categoryImageCache.value.get(p.categoryId)
+        const categoryImage = getCategoryImage(p.categoryId)
         if (categoryImage) {
           return { ...p, images: [categoryImage] }
         }
