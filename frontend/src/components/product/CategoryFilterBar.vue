@@ -1,13 +1,18 @@
 <template>
   <section v-if="visible" class="category-filter-bar" aria-label="Фильтры категории">
-    <div v-if="chips.length" class="category-filter-rows" aria-label="Быстрые фильтры">
+    <div
+      v-if="chips.length || showDiscountChip"
+      class="category-filter-rows"
+      aria-label="Быстрые фильтры"
+    >
       <div
-        v-if="topChip"
+        v-if="topChip || showDiscountChip"
         class="category-filter-row category-filter-row--top"
         role="group"
-        aria-label="Популярные линейки"
+        aria-label="Популярные линейки и скидки"
       >
         <button
+          v-if="topChip"
           type="button"
           class="category-filter-chip category-filter-chip--top"
           :class="{ 'is-active': topChip.active, 'is-loading': topChip.loading }"
@@ -94,7 +99,10 @@ const emit = defineEmits<{
 const showDiscountChip = computed(() => props.discountCount > 0);
 
 const visible = computed(
-  () => props.profile === "liquids" || props.profile === "snus_plates",
+  () =>
+    props.profile === "liquids" ||
+    props.profile === "snus_plates" ||
+    showDiscountChip.value,
 );
 
 const showTop = computed(

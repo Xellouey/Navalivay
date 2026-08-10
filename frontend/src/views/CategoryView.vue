@@ -495,10 +495,16 @@ const storefrontFiltersProfile = computed(
   () => selectedCategory.value?.storefrontFiltersProfile ?? "none",
 );
 
+/**
+ * Панель фильтров нужна не только жидкостям и снюсу: кнопка скидок работает в
+ * любом разделе, где акции сейчас есть. В остальных категориях панель по-
+ * прежнему не появляется, пока скидок нет.
+ */
 const showCategoryFilters = computed(
   () =>
     storefrontFiltersProfile.value === "liquids" ||
-    storefrontFiltersProfile.value === "snus_plates",
+    storefrontFiltersProfile.value === "snus_plates" ||
+    discountedGroupsCount.value > 0,
 );
 
 const topRankMap = computed(() => {
