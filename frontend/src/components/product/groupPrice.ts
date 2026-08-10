@@ -93,12 +93,23 @@ export function getMinPriceForGroupTree(node: PriceGroupNode): number | null {
 }
 
 /**
+ * Минимум, который нужен, чтобы понять «есть ли скидка». Отдельный тип нужен
+ * фильтру раздела: там линейки описаны урезанной формой товара, полного
+ * `Product` у него нет.
+ */
+type DiscountableProduct = {
+  hasDiscount?: boolean;
+  variants?: Array<{ hasDiscount?: boolean } | null | undefined> | null;
+};
+
+/**
  * Скидка у товара или у любого его вкуса: скидка на отдельный вкус не поднимает
  * флаг у самого товара, поэтому одного `hasDiscount` мало.
  */
-export function hasDiscountForProduct(product: Product): boolean {
-  return Boolean(product.hasDiscount)
-    || getSafeVariants(product).some((variant) => variant.hasDiscount);
+export function hasDiscountForProduct(product: DiscountableProduct): boolean {
+  if (product.hasDiscount) return true;
+  const variants = Array.isArray(product.variants) ? product.variants : [];
+  return variants.some((variant) => variant?.hasDiscount);
 }
 
 /**

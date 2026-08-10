@@ -14,9 +14,23 @@
           :disabled="topChip.loading"
           :aria-pressed="topChip.active"
           aria-label="Показать популярные линейки"
+          data-test="filter-top"
           @click="topChip.onClick"
         >
-          <span>{{ topChip.label }}</span>
+          <span>{{ showDiscountChip ? "Чаще берут" : topChip.label }}</span>
+        </button>
+        <button
+          v-if="showDiscountChip"
+          type="button"
+          class="category-filter-chip category-filter-chip--top"
+          :class="{ 'is-active': discountActive }"
+          :aria-pressed="discountActive"
+          :aria-label="`Показать линейки со скидками, сейчас ${discountCount}`"
+          data-test="filter-discount"
+          @click="$emit('toggle-discount')"
+        >
+          <span>Скидки</span>
+          <span class="category-filter-count" aria-hidden="true">{{ discountCount }}</span>
         </button>
       </div>
 
@@ -53,19 +67,31 @@ const props = withDefaults(
     topActive?: boolean;
     strengthTier?: StrengthTier | null;
     topLoading?: boolean;
+    discountActive?: boolean;
+    discountCount?: number;
   }>(),
   {
     profile: "none",
     topActive: false,
     strengthTier: null,
     topLoading: false,
+    discountActive: false,
+    discountCount: 0,
   },
 );
 
 const emit = defineEmits<{
   (e: "toggle-top"): void;
   (e: "toggle-strength", tier: StrengthTier): void;
+  (e: "toggle-discount"): void;
 }>();
+
+/**
+ * Кнопка скидок появляется, только когда скидки в разделе есть. Пустой фильтр,
+ * который ничего не находит, покупателю не нужен, а «чаще берут» в одиночестве
+ * спокойно занимает всю ширину.
+ */
+const showDiscountChip = computed(() => props.discountCount > 0);
 
 const visible = computed(
   () => props.profile === "liquids" || props.profile === "snus_plates",
@@ -137,6 +163,7 @@ const strengthChips = computed(() =>
 
 .category-filter-row--top {
   width: 100%;
+  flex-wrap: nowrap;
 }
 
 .category-filter-row--strength {
@@ -169,11 +196,46 @@ const strengthChips = computed(() =>
   touch-action: manipulation;
 }
 
+/*
+ * Кнопки верхнего ряда делят ширину поровну. flex-basis: 0 вместо auto — иначе
+ * «Чаще берут» с более длинным текстом забрала бы себе больше места, и ряд
+ * перестал бы выглядеть половинками.
+ */
 .category-filter-chip--top {
-  width: 100%;
+  flex: 1 1 0;
+  min-width: 0;
   min-height: 44px;
   padding: 0 16px;
   font-size: 14px;
+}
+
+/* Сколько линеек сейчас со скидкой. */
+.category-filter-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: linear-gradient(106.76deg, #f50302 -2.64%, #a90f0e 85.78%);
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+/* На нажатой кнопке фон уже красный: кружок выворачиваем, иначе он сливается. */
+.category-filter-chip.is-active .category-filter-count {
+  background: #ffffff;
+  color: #a90f0e;
+}
+
+@media (max-width: 360px) {
+  .category-filter-chip--top {
+    padding: 0 10px;
+    font-size: 13px;
+  }
 }
 
 .category-filter-chip--strength {

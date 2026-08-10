@@ -244,4 +244,84 @@ describe("useCategoryFilters", () => {
     expect(topSales.value).toEqual([]);
     expect(topSalesError.value).toBe("failed_to_load_top_sales");
   });
+
+  describe("фильтр скидок", () => {
+    const treeWithDiscounts = () => [
+      makeGroup({
+        id: "parent",
+        name: "PODONKI",
+        products: [{ title: "Обычный" }],
+        children: [
+          makeGroup({
+            id: "kid",
+            name: "PODONKI LAST HAP",
+            products: [{ title: "Ягодный пирог", hasDiscount: true }],
+          }),
+        ],
+      }),
+      makeGroup({
+        id: "plain",
+        name: "ANNIMA",
+        products: [{ title: "Без скидки" }],
+      }),
+      makeGroup({
+        id: "variants",
+        name: "XROS",
+        products: [{ title: "Устройство", variants: [{ hasDiscount: true }] }],
+      }),
+    ];
+
+    it("считает линейки, у которых скидка на своих товарах", () => {
+      const { countDiscountedGroups } = useCategoryFilters();
+      // Родитель не в счёте: у него на своём уровне ничего не подешевело.
+      expect(countDiscountedGroups(treeWithDiscounts())).toBe(2);
+    });
+
+    it("скидка на отдельном вкусе устройства тоже считается", () => {
+      const { countDiscountedGroups } = useCategoryFilters();
+      const groups = [
+        makeGroup({
+          id: "x",
+          name: "XROS",
+          products: [{ title: "Устройство", variants: [{ hasDiscount: true }] }],
+        }),
+      ];
+      expect(countDiscountedGroups(groups)).toBe(1);
+    });
+
+    it("показывает только скидочные линейки плоским списком", () => {
+      const { discountActive, toggleDiscountFilter, filterGroupTree } =
+        useCategoryFilters();
+
+      toggleDiscountFilter();
+      expect(discountActive.value).toBe(true);
+
+      const filtered = filterGroupTree(treeWithDiscounts());
+      // Вложенная линейка выходит наверх, родитель без своих скидок не едет.
+      expect(filtered.map((group) => group.id).sort()).toEqual(["kid", "variants"]);
+    });
+
+    it("повторное нажатие возвращает полное дерево", () => {
+      const { toggleDiscountFilter, filterGroupTree } = useCategoryFilters();
+
+      toggleDiscountFilter();
+      toggleDiscountFilter();
+
+      const filtered = filterGroupTree(treeWithDiscounts());
+      expect(filtered.map((group) => group.id)).toEqual(["parent", "plain", "variants"]);
+      expect(filtered[0].children?.map((child) => child.id)).toEqual(["kid"]);
+    });
+
+    it("сброс фильтров выключает и скидки", () => {
+      const { discountActive, toggleDiscountFilter, resetFilters, hasActiveFilters } =
+        useCategoryFilters();
+
+      toggleDiscountFilter();
+      expect(hasActiveFilters.value).toBe(true);
+
+      resetFilters();
+      expect(discountActive.value).toBe(false);
+      expect(hasActiveFilters.value).toBe(false);
+    });
+  });
 });

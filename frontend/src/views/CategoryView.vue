@@ -35,8 +35,11 @@
           :top-active="filterTopActive"
           :strength-tier="filterStrengthTier"
           :top-loading="filterTopSalesLoading"
+          :discount-active="filterDiscountActive"
+          :discount-count="discountedGroupsCount"
           @toggle-top="toggleTopFilter()"
           @toggle-strength="toggleStrengthFilter($event)"
+          @toggle-discount="toggleDiscountFilter()"
         />
       </div>
 
@@ -386,8 +389,10 @@ const {
   topSalesLoading: filterTopSalesLoading,
   topSales: filterTopSales,
   hasActiveFilters: filterHasActiveFilters,
+  discountActive: filterDiscountActive,
   toggleTopFilter,
   toggleStrengthFilter,
+  toggleDiscountFilter,
 } = categoryFilters;
 
 // Toast notification
@@ -770,6 +775,16 @@ const filteredLiquidGroups = computed(() =>
 
 const filteredGroupCards = computed(() =>
   categoryFilters.filterGroupTree(groupCards.value),
+);
+
+/**
+ * Сколько линеек раздела сейчас со скидкой. Считаем по неотфильтрованному
+ * дереву: число на кнопке не должно меняться от того, что фильтр уже нажат.
+ */
+const discountedGroupsCount = computed(() =>
+  categoryFilters.countDiscountedGroups(
+    showLiquidShowcase.value ? liquidGroups.value : groupCards.value,
+  ),
 );
 
 const liquidUngrouped = computed(() => {

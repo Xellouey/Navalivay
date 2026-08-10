@@ -1,4 +1,5 @@
 import { computed, ref } from "vue";
+import { hasDiscountForProduct } from "@/components/product/groupPrice";
 
 export type StrengthTier = "very_strong" | "strong" | "light";
 export type StorefrontFiltersProfile = "none" | "liquids" | "snus_plates";
@@ -13,7 +14,11 @@ export interface FilterableGroup {
   id: string;
   name: string;
   strengthTier?: string | null;
-  products?: Array<{ title: string }>;
+  products?: Array<{
+    title: string;
+    hasDiscount?: boolean;
+    variants?: Array<{ hasDiscount?: boolean } | null | undefined> | null;
+  }>;
   children?: FilterableGroup[];
 }
 
@@ -30,6 +35,7 @@ export function getStrengthLabel(tier: StrengthTier): string {
 export function useCategoryFilters() {
   const searchQuery = ref("");
   const topActive = ref(false);
+  const discountActive = ref(false);
   const strengthTier = ref<StrengthTier | null>(null);
   const topSales = ref<TopSalesItem[]>([]);
   const topSalesLoading = ref(false);
@@ -47,8 +53,28 @@ export function useCategoryFilters() {
     () =>
       searchQuery.value.trim().length > 0 ||
       topActive.value ||
+      discountActive.value ||
       strengthTier.value !== null,
   );
+
+  /**
+   * Линейка попадает в фильтр скидок по своим собственным товарам, а не по
+   * вложенным. Иначе рядом со скидочной подлинейкой в список приезжал бы её
+   * родитель, у которого на своём уровне ничего не подешевело.
+   */
+  function groupHasOwnDiscount(group: FilterableGroup): boolean {
+    return (group.products ?? []).some((product) => hasDiscountForProduct(product));
+  }
+
+  function countDiscountedGroups(groups: FilterableGroup[]): number {
+    let count = 0;
+    const walk = (group: FilterableGroup) => {
+      if (groupHasOwnDiscount(group)) count += 1;
+      (group.children ?? []).forEach(walk);
+    };
+    groups.forEach(walk);
+    return count;
+  }
 
   async function loadTopSales(categoryId: string, limit = 5) {
     topSalesLoading.value = true;
@@ -83,11 +109,16 @@ export function useCategoryFilters() {
   function resetFilters() {
     searchQuery.value = "";
     topActive.value = false;
+    discountActive.value = false;
     strengthTier.value = null;
   }
 
   function toggleTopFilter() {
     topActive.value = !topActive.value;
+  }
+
+  function toggleDiscountFilter() {
+    discountActive.value = !discountActive.value;
   }
 
   function toggleStrengthFilter(tier: StrengthTier) {
@@ -119,6 +150,11 @@ export function useCategoryFilters() {
     return topRankByGroupId.value.has(String(group.id));
   }
 
+  function groupMatchesDiscount(group: FilterableGroup, useDiscount: boolean) {
+    if (!useDiscount) return true;
+    return groupHasOwnDiscount(group);
+  }
+
   function compareByTopRank(a: FilterableGroup, b: FilterableGroup): number {
     const rankA = topRankByGroupId.value.get(String(a.id)) ?? 999;
     const rankB = topRankByGroupId.value.get(String(b.id)) ?? 999;
@@ -131,6 +167,7 @@ export function useCategoryFilters() {
     query: string,
     tier: StrengthTier | null,
     useTop: boolean,
+    useDiscount: boolean,
   ): T[] {
     const collected: T[] = [];
 
@@ -140,7 +177,8 @@ export function useCategoryFilters() {
       const selfMatches =
         groupMatchesSearch(group, query) &&
         groupMatchesStrength(group, tier) &&
-        groupMatchesTop(group, useTop);
+        groupMatchesTop(group, useTop) &&
+        groupMatchesDiscount(group, useDiscount);
 
       if (!selfMatches) return;
 
@@ -164,10 +202,13 @@ export function useCategoryFilters() {
   function filterGroupTree<T extends FilterableGroup>(groups: T[]): T[] {
     const query = normalizeSearch(searchQuery.value);
     const useTop = topActive.value;
+    const useDiscount = discountActive.value;
     const tier = strengthTier.value;
 
-    if (useTop || tier) {
-      return collectFlatMatches(groups, query, tier, useTop);
+    // Скидки показываются плоским списком, как и «чаще берут»: вложенная
+    // скидочная линейка должна быть видна сразу, а не под раскрытым родителем.
+    if (useTop || useDiscount || tier) {
+      return collectFlatMatches(groups, query, tier, useTop, useDiscount);
     }
 
     const walk = (group: T): T | null => {
@@ -178,7 +219,8 @@ export function useCategoryFilters() {
       const selfMatches =
         groupMatchesSearch(group, query) &&
         groupMatchesStrength(group, tier) &&
-        groupMatchesTop(group, useTop);
+        groupMatchesTop(group, useTop) &&
+        groupMatchesDiscount(group, useDiscount);
 
       if (selfMatches) {
         return {
@@ -211,6 +253,9 @@ export function useCategoryFilters() {
   return {
     searchQuery,
     topActive,
+    discountActive,
+    toggleDiscountFilter,
+    countDiscountedGroups,
     strengthTier,
     topSales,
     topSalesLoading,
