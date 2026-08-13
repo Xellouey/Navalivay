@@ -1,6 +1,6 @@
 <template>
   <TransitionRoot :show="isOpen" as="template">
-    <Dialog @close="handleDialogClose">
+    <Dialog :initialFocus="initialFocus" @close="handleDialogClose">
       <!-- Backdrop - СТАБИЛЬНЫЙ -->
       <TransitionChild
         enter="duration-300 ease-out"
@@ -135,6 +135,7 @@ interface Props {
   isConfirmDisabled?: boolean
   confirmVariant?: 'primary' | 'danger' | 'success'
   persistent?: boolean
+  initialFocus?: HTMLElement | null
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -149,7 +150,8 @@ const props = withDefaults(defineProps<Props>(), {
   isLoading: false,
   isConfirmDisabled: false,
   confirmVariant: 'primary',
-  persistent: false
+  persistent: false,
+  initialFocus: null
 })
 
 const emit = defineEmits<{

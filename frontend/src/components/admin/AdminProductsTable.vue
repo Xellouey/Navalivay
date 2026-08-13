@@ -1038,7 +1038,7 @@
       <div
         v-if="showFiltersModal"
         class="fixed inset-0 z-50 flex items-end justify-center bg-black/40 px-4 py-6 sm:items-center"
-        @click.self="closeFiltersModal"
+        v-safe-backdrop-close="closeFiltersModal"
       >
         <div class="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
           <div class="flex items-center justify-between gap-2">
@@ -1271,6 +1271,7 @@ import { useAdminStore } from '@/stores/admin'
 import { useCrmStore } from '@/stores/crm'
 import { storeToRefs } from 'pinia'
 import { discountPercent } from '@/components/product/groupPrice'
+import { vSafeBackdropClose } from '@/directives/safeBackdropClose'
 
 interface ProductLink { label?: string; url: string }
 interface Category { id: string; name: string }

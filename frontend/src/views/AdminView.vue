@@ -927,9 +927,9 @@
 
     <!-- Category Groups Modal -->
     <AdminModal
+      v-if="showGroupModal && !showWholesaleLinksModal && !minStockEditorOpen"
       ref="groupModalRef"
-      :isOpen="showGroupModal"
-      :persistent="minStockEditorOpen"
+      :isOpen="true"
       :title="activeGroupCategory ? `Линейки: ${activeGroupCategory.name}` : 'Линейки'"
       size="lg"
       :showActions="false"
@@ -1087,11 +1087,8 @@
       </div>
     </AdminModal>
 
-    <!-- Quick-edit модалка минимального остатка. Открывается поверх
-         модалки линеек. Рендерится через Teleport в body (z-index
-         выше Headless UI Dialog), а родительская модалка пока открыт
-         min-stock получает :persistent="true" — её Headless UI
-         click-outside detector выключен и не может её закрыть. -->
+    <!-- Пока открыт быстрый редактор, окно линеек размонтировано: иначе его
+         ловушка фокуса перехватывает ввод в Teleport-окне. -->
     <AdminGroupMinStockEditor
       v-if="minStockEditorOpen && minStockEditorGroup"
       :key="minStockEditorGroup.id"
@@ -1107,7 +1104,8 @@
 
     <!-- Category Group Form Modal -->
     <AdminModal
-      :isOpen="showGroupFormModal"
+      v-if="showGroupFormModal"
+      :isOpen="true"
       :title="editingGroup ? 'Редактировать линейку' : 'Добавить линейку'"
       size="md"
       :showActions="false"
@@ -1133,12 +1131,13 @@
     />
 
     <AdminModal
-      :isOpen="showWholesaleLinksModal"
+      v-if="showWholesaleLinksModal"
+      :isOpen="true"
       title="Оптовые ссылки"
       size="lg"
       :showActions="false"
-      @cancel="showWholesaleLinksModal = false"
-      @close="showWholesaleLinksModal = false"
+      @cancel="closeWholesaleLinksModal"
+      @close="closeWholesaleLinksModal"
     >
       <AdminWholesaleLinksPanel
         :links="adminStore.wholesaleLinks"
@@ -1507,6 +1506,10 @@ function showToast(message: string, type: 'success' | 'error' = 'success', timeo
 }
 
 async function openWholesaleLinksModal() {
+  const scrollContainer = groupModalRef.value?.scrollContainer
+  if (showGroupModal.value && scrollContainer) {
+    savedGroupModalScrollTop.value = scrollContainer.scrollTop
+  }
   showWholesaleLinksModal.value = true
   wholesaleLinksLoading.value = true
   try {
@@ -1517,6 +1520,18 @@ async function openWholesaleLinksModal() {
   } finally {
     wholesaleLinksLoading.value = false
   }
+}
+
+function closeWholesaleLinksModal() {
+  showWholesaleLinksModal.value = false
+  if (!showGroupModal.value) return
+
+  nextTick(() => {
+    const scrollContainer = groupModalRef.value?.scrollContainer
+    if (scrollContainer) {
+      scrollContainer.scrollTop = savedGroupModalScrollTop.value
+    }
+  })
 }
 
 function resetLoadedState() {
@@ -3006,6 +3021,8 @@ function minStockBadgeClasses(group: CategoryGroupWithDepth): string[] {
 }
 
 function openMinStockEditor(group: CategoryGroupWithDepth) {
+  const scrollContainer = groupModalRef.value?.scrollContainer
+  if (scrollContainer) savedGroupModalScrollTop.value = scrollContainer.scrollTop
   minStockEditorGroup.value = group
   minStockEditorError.value = null
   minStockEditorOpen.value = true
@@ -3016,6 +3033,10 @@ function closeMinStockEditor() {
   minStockEditorOpen.value = false
   minStockEditorGroup.value = null
   minStockEditorError.value = null
+  nextTick(() => {
+    const scrollContainer = groupModalRef.value?.scrollContainer
+    if (scrollContainer) scrollContainer.scrollTop = savedGroupModalScrollTop.value
+  })
 }
 
 async function applyMinStockThreshold(value: number | null) {
@@ -3041,6 +3062,10 @@ async function applyMinStockThreshold(value: number | null) {
     showToast(value === null ? 'Порог снят' : `Порог обновлён: ${value} шт`, 'success')
     minStockEditorOpen.value = false
     minStockEditorGroup.value = null
+    nextTick(() => {
+      const scrollContainer = groupModalRef.value?.scrollContainer
+      if (scrollContainer) scrollContainer.scrollTop = savedGroupModalScrollTop.value
+    })
   } catch (error) {
     console.error('Failed to update min stock threshold:', error)
     minStockEditorError.value = error instanceof Error ? error.message : 'Не удалось сохранить порог'

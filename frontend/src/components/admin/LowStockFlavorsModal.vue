@@ -11,12 +11,11 @@
       <div
         v-if="isOpen"
         class="fixed inset-0 z-[10050] flex items-center justify-center p-4"
-        @click.self="emit('close')"
       >
         <div
           class="absolute inset-0 bg-black/30 backdrop-blur-sm"
           aria-hidden="true"
-          @click="emit('close')"
+          v-safe-backdrop-close="() => emit('close')"
         />
 
         <section
@@ -122,6 +121,7 @@
 <script setup lang="ts">
 import { nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import type { LowStockFlavor } from "@/stores/crm";
+import { vSafeBackdropClose } from "@/directives/safeBackdropClose";
 
 const props = defineProps<{
   isOpen: boolean;

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
+import { defineComponent, ref } from 'vue'
 import AdminStockTransferModal from '@/components/admin/AdminStockTransferModal.vue'
 import { useAdminStore } from '@/stores/admin'
 import { useCrmStore } from '@/stores/crm'
@@ -26,6 +27,17 @@ const draftTransfer = {
   }],
 }
 
+const AdminModalStub = defineComponent({
+  props: ['isOpen', 'title'],
+  emits: ['close', 'cancel'],
+  setup(_props, { expose }) {
+    const scrollContainer = ref<HTMLElement | null>(null)
+    expose({ scrollContainer })
+    return { scrollContainer }
+  },
+  template: '<section v-if="isOpen" data-test="admin-modal" :data-modal-title="title"><div ref="scrollContainer" data-test="modal-scroll"><slot /><slot name="footer" /></div><button data-test="modal-close" @click="$emit(\'close\')">x</button></section>',
+})
+
 describe('AdminStockTransferModal', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
@@ -42,11 +54,7 @@ describe('AdminStockTransferModal', () => {
       props: { isOpen: false, initialSource: 'warehouse' },
       global: {
         stubs: {
-          AdminModal: {
-            props: ['isOpen'],
-            emits: ['close'],
-            template: '<section v-if="isOpen"><slot /><slot name="footer" /><button data-test="modal-close" @click="$emit(\'close\')">x</button></section>',
-          },
+          AdminModal: AdminModalStub,
           StaffActorPrompt: {
             props: ['open', 'context'],
             emits: ['confirm', 'close'],
@@ -242,6 +250,45 @@ describe('AdminStockTransferModal', () => {
       actor_pin: '1234',
     })
     expect(wrapper.emitted('cancelled')).toEqual([[{ number: 1 }]])
+  })
+
+  it('hides the transfer details while the legacy cancel confirmation is open', async () => {
+    useCrmStore().$patch({ staffTrackingEnabled: false })
+    const store = useAdminStore()
+    vi.spyOn(store, 'fetchInventoryTransfers').mockResolvedValue({
+      transfers: [draftTransfer],
+      pagination: { page: 1, totalPages: 1 },
+    } as any)
+    vi.spyOn(store, 'fetchInventoryTransfer').mockResolvedValue(draftTransfer as any)
+    const cancelTransfer = vi.spyOn(store, 'cancelInventoryTransfer')
+
+    const wrapper = mountModal()
+    await wrapper.setProps({ isOpen: true })
+    await flushPromises()
+    await wrapper.findAll('button').find((button) => button.text().includes('Перемещение №1'))!.trigger('click')
+    await flushPromises()
+
+    expect(wrapper.get('[data-test="admin-modal"]').attributes('data-modal-title')).toBe('Перемещение №1')
+    expect(wrapper.text()).toContain('Манго, Холодный манго')
+    const detailsScroll = wrapper.get('[data-test="modal-scroll"]').element as HTMLElement
+    detailsScroll.scrollTop = 91
+
+    await wrapper.findAll('button').find((button) => button.text() === 'Отменить заявку')!.trigger('click')
+    await flushPromises()
+
+    const confirmation = wrapper.get('[data-test="admin-modal"]')
+    expect(wrapper.findAll('[data-test="admin-modal"]')).toHaveLength(1)
+    expect(confirmation.attributes('data-modal-title')).toBe('Отменить перемещение?')
+    expect(wrapper.text()).not.toContain('Манго, Холодный манго')
+    expect(cancelTransfer).not.toHaveBeenCalled()
+
+    await confirmation.get('[data-test="modal-close"]').trigger('click')
+    await flushPromises()
+
+    const restoredDetails = wrapper.get('[data-test="admin-modal"]')
+    expect(restoredDetails.attributes('data-modal-title')).toBe('Перемещение №1')
+    expect(wrapper.text()).toContain('Манго, Холодный манго')
+    expect((restoredDetails.get('[data-test="modal-scroll"]').element as HTMLElement).scrollTop).toBe(91)
   })
 
   it('keeps the legacy flow without employee prompt when tracking is off', async () => {

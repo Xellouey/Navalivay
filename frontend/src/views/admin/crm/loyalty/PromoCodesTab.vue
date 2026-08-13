@@ -248,7 +248,7 @@
       <div
         v-if="formModalOpen"
         class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm sm:p-6"
-        @click.self="closeFormModal"
+        v-safe-backdrop-close="closeFormModal"
       >
         <Transition
           enter-active-class="transition ease-out duration-200"
@@ -505,7 +505,7 @@
       <div
         v-if="usageModalOpen"
         class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
-        @click.self="usageModalOpen = false"
+        v-safe-backdrop-close="() => (usageModalOpen = false)"
       >
         <div class="w-full max-w-lg rounded-2xl border border-slate-200/40 bg-white p-6 shadow-2xl">
           <h3 class="text-lg font-bold text-slate-900 mb-4">
@@ -561,6 +561,7 @@
 import { ref, computed, nextTick, onBeforeUnmount, onMounted } from 'vue'
 import { PencilIcon, TrashIcon } from '@heroicons/vue/24/outline'
 import { useCrmStore, type PromoCode, type PromoUsage } from '@/stores/crm'
+import { vSafeBackdropClose } from '@/directives/safeBackdropClose'
 
 const crmStore = useCrmStore()
 const promoCodes = computed(() => crmStore.promoCodes)

@@ -187,7 +187,7 @@
         <div
           v-if="showCompletePendingModal && selectedPendingSale"
           class="fixed inset-0 z-[110] flex items-center justify-center bg-black/50"
-          @click.self="closeCompletePendingModal"
+          v-safe-backdrop-close="closeCompletePendingModal"
         >
           <div class="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl">
             <h3 class="text-lg font-semibold text-gray-900 mb-4">Дозаполнить чек</h3>
@@ -237,6 +237,7 @@ import { MagnifyingGlassIcon, ExclamationTriangleIcon, CheckCircleIcon } from '@
 import { useAdminStore } from '@/stores/admin'
 import { useCrmStore, type PosSale, type Customer } from '@/stores/crm'
 import PosCustomerPanel from '@/components/admin/PosCustomerPanel.vue'
+import { vSafeBackdropClose } from '@/directives/safeBackdropClose'
 
 const emit = defineEmits<{
   (e: 'unlocked'): void

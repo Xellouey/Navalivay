@@ -261,7 +261,7 @@
       <div
         v-if="showEditModal && editingSale"
         class="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
-        @click.self="closeEditModal"
+        v-safe-backdrop-close="closeEditModal"
       >
         <div class="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
           <h3 class="mb-4 text-lg font-semibold text-gray-900">Редактировать продажу</h3>
@@ -324,7 +324,7 @@
       <div
         v-if="showDeleteModal && deletingSale"
         class="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
-        @click.self="closeDeleteModal"
+        v-safe-backdrop-close="closeDeleteModal"
       >
         <div class="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl">
           <h3 class="mb-2 text-lg font-semibold text-gray-900">Удалить продажу?</h3>
@@ -360,6 +360,7 @@ import { LockClosedIcon, PencilIcon, TrashIcon } from '@heroicons/vue/24/outline
 import AdminModal from '@/components/AdminModal.vue'
 import { useCrmStore, type PosSale } from '@/stores/crm'
 import CrmProfitPasswordField from '@/components/crm/CrmProfitPasswordField.vue'
+import { vSafeBackdropClose } from '@/directives/safeBackdropClose'
 
 const crmStore = useCrmStore()
 const { profitUnlocked, verifyingProfitAccess } = storeToRefs(crmStore)

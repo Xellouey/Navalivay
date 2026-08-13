@@ -215,7 +215,7 @@
         aria-labelledby="pos-customer-modal-title"
         tabindex="-1"
         class="fixed inset-0 z-[210] flex items-center justify-center bg-black/50 px-4"
-        @click.self="closeCreateModal"
+        v-safe-backdrop-close="closeCreateModal"
         @keydown.esc="closeCreateModal"
       >
         <div class="w-full max-w-sm rounded-2xl bg-white p-5 shadow-xl">
@@ -289,6 +289,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { CheckIcon, MagnifyingGlassIcon, PlusIcon, TrashIcon, XMarkIcon } from '@heroicons/vue/24/outline'
 import { useCrmStore, type Customer } from '@/stores/crm'
+import { vSafeBackdropClose } from '@/directives/safeBackdropClose'
 
 const props = defineProps<{
   /** Текущий выбранный клиент (v-model) — null когда не выбран. */

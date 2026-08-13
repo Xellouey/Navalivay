@@ -81,13 +81,15 @@ describe("LowStockFlavorsModal", () => {
     wrapper.unmount();
   });
 
-  it("закрывается кнопкой и фоном", () => {
+  it("закрывается кнопкой и безопасным нажатием на фон", () => {
     const wrapper = mountModal();
     const closeButton = document.querySelector<HTMLButtonElement>('button[aria-label="Закрыть"]');
     closeButton?.click();
     expect(wrapper.emitted("close")).toHaveLength(1);
 
-    document.querySelector<HTMLElement>('[aria-hidden="true"].absolute')?.click();
+    const backdrop = document.querySelector<HTMLElement>('[aria-hidden="true"].absolute');
+    backdrop?.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0, pointerId: 1 }));
+    backdrop?.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, button: 0, pointerId: 1 }));
     expect(wrapper.emitted("close")).toHaveLength(2);
     wrapper.unmount();
   });

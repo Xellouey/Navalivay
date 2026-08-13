@@ -255,10 +255,12 @@
       </form>
     </AdminModal>
 
-    <!-- Прячем на время подтверждения сотрудника: две модалки HeadlessUI рядом
-         перебивают друг другу ловушку фокуса и кнопка перестаёт нажиматься. -->
+    <!-- В DOM активна только верхняя соседняя модалка: иначе Headless UI
+         заставляет несколько ловушек фокуса спорить между собой. -->
     <AdminModal
-      :isOpen="showCreateModal && !actorPromptOpen"
+      v-if="!actorPromptOpen && !showQuickProductModal"
+      ref="createModalRef"
+      :isOpen="showCreateModal"
       :title="editingProcurementId ? 'Редактирование закупки' : 'Новая закупка'"
       description="Подберите товары, укажите закупочную цену и количество - себестоимость пересчитается автоматически."
       size="wide"
@@ -606,7 +608,9 @@
     </AdminModal>
 
     <AdminModal
-      :isOpen="detailModalOpen"
+      v-if="detailModalOpen && !actorPromptOpen"
+      ref="detailModalRef"
+      :isOpen="true"
       :title="
         activeProcurement
           ? `Закупка #${activeProcurement.procurement_number}`
@@ -781,12 +785,15 @@
     </AdminModal>
 
     <AdminModal
-      :isOpen="showQuickProductModal"
+      v-if="showQuickProductModal && !showQuickCategoryModal && !showQuickGroupModal"
+      ref="quickProductModalRef"
+      :isOpen="true"
       title="Новый товар"
       description="Быстро создайте товар, чтобы добавить его в закупку."
       size="lg"
       :showActions="false"
       :persistent="true"
+      :isLoading="quickProductSaving || quickProductUploading"
       @close="closeQuickProductModal"
       @cancel="closeQuickProductModal"
     >
@@ -1054,6 +1061,7 @@
           <button
             type="button"
             class="flex-1 rounded-lg bg-gray-200 px-4 py-2 text-sm font-medium text-gray-700 transition hover:bg-gray-300"
+            :disabled="quickProductSaving || quickProductUploading"
             @click="closeQuickProductModal"
           >
             Отмена
@@ -1063,12 +1071,15 @@
     </AdminModal>
 
     <AdminModal
+      v-if="showQuickCategoryModal"
       :isOpen="showQuickCategoryModal"
       title="Новая категория"
       description="Создайте категорию без выхода из формы закупки."
       size="sm"
       :showActions="false"
       :persistent="true"
+      :isLoading="creatingQuickCategory"
+      :initialFocus="quickCategoryNameInput"
       @close="closeQuickCategoryModal"
       @cancel="closeQuickCategoryModal"
     >
@@ -1076,6 +1087,7 @@
         <label class="flex flex-col gap-2 text-sm font-medium text-gray-700">
           Название категории
           <input
+            ref="quickCategoryNameInput"
             v-model.trim="quickCategoryName"
             type="text"
             class="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
@@ -1100,6 +1112,7 @@
           <button
             type="button"
             class="flex-1 rounded-lg bg-gray-200 px-4 py-2 text-sm font-medium text-gray-700 transition hover:bg-gray-300"
+            :disabled="creatingQuickCategory"
             @click="closeQuickCategoryModal"
           >
             Отмена
@@ -1109,6 +1122,7 @@
     </AdminModal>
 
     <AdminModal
+      v-if="showQuickGroupModal"
       :isOpen="showQuickGroupModal"
       :title="quickProduct.categoryId ? 'Новая линейка' : 'Выберите категорию'"
       :description="
@@ -1119,6 +1133,8 @@
       size="sm"
       :showActions="false"
       :persistent="true"
+      :isLoading="creatingQuickGroup"
+      :initialFocus="quickGroupNameInput"
       @close="closeQuickGroupModal"
       @cancel="closeQuickGroupModal"
     >
@@ -1126,6 +1142,7 @@
         <label class="flex flex-col gap-2 text-sm font-medium text-gray-700">
           Название линейки
           <input
+            ref="quickGroupNameInput"
             v-model.trim="quickGroupName"
             type="text"
             class="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
@@ -1166,6 +1183,7 @@
           <button
             type="button"
             class="flex-1 rounded-lg bg-gray-200 px-4 py-2 text-sm font-medium text-gray-700 transition hover:bg-gray-300"
+            :disabled="creatingQuickGroup"
             @click="closeQuickGroupModal"
           >
             Отмена
@@ -1224,6 +1242,8 @@ const {
 } = storeToRefs(crmStore);
 
 const showCreateModal = ref(false);
+const createModalRef = ref<{ scrollContainer: HTMLElement | null } | null>(null);
+const savedCreateModalScrollTop = ref(0);
 const editingProcurementId = ref<string | null>(null);
 const supplierName = ref("");
 const draftNotes = ref("");
@@ -1304,6 +1324,8 @@ const bulkWarehouseQuantity = ref<number | null>(null);
 const initialDraftSignature = ref("");
 
 const showQuickProductModal = ref(false);
+const quickProductModalRef = ref<{ scrollContainer: HTMLElement | null } | null>(null);
+const savedQuickProductModalScrollTop = ref(0);
 const quickProductSaving = ref(false);
 const quickProductError = ref("");
 const quickProduct = reactive({
@@ -1326,6 +1348,16 @@ const quickTitleInputs = ref<HTMLInputElement[]>([]);
 
 function setQuickTitleInput(el: unknown, index: number) {
   if (el instanceof HTMLInputElement) quickTitleInputs.value[index] = el;
+}
+
+function restoreModalScroll(
+  modalRef: { value: { scrollContainer: HTMLElement | null } | null },
+  scrollTop: number,
+) {
+  void nextTick(() => {
+    const scrollContainer = modalRef.value?.scrollContainer;
+    if (scrollContainer) scrollContainer.scrollTop = scrollTop;
+  });
 }
 
 /**
@@ -1366,16 +1398,20 @@ const quickProductTitles = computed(() => {
 });
 const showQuickCategoryModal = ref(false);
 const quickCategoryName = ref("");
+const quickCategoryNameInput = ref<HTMLInputElement | null>(null);
 const quickCategoryError = ref("");
 const creatingQuickCategory = ref(false);
 const showQuickGroupModal = ref(false);
 const quickGroupName = ref("");
+const quickGroupNameInput = ref<HTMLInputElement | null>(null);
 const quickGroupParentId = ref("");
 const quickGroupError = ref("");
 const creatingQuickGroup = ref(false);
 const loadedQuickGroupCategories = new Set<string>();
 
 const detailModalOpen = ref(false);
+const detailModalRef = ref<{ scrollContainer: HTMLElement | null } | null>(null);
+const savedDetailModalScrollTop = ref(0);
 const detailLoading = ref(false);
 const activeProcurement = ref<Procurement | null>(null);
 const completingProcurement = ref(false);
@@ -1844,6 +1880,8 @@ async function openQuickProductModal() {
   quickGroupName.value = "";
   quickGroupError.value = "";
   await ensureCategoriesLoaded();
+  savedCreateModalScrollTop.value =
+    createModalRef.value?.scrollContainer?.scrollTop ?? 0;
   showQuickProductModal.value = true;
 }
 
@@ -1860,6 +1898,7 @@ function closeQuickProductModal() {
   if (quickProductFileInput.value) {
     quickProductFileInput.value.value = "";
   }
+  restoreModalScroll(createModalRef, savedCreateModalScrollTop.value);
 }
 
 function triggerQuickProductUpload() {
@@ -1897,13 +1936,18 @@ function removeQuickProductImage(index: number) {
 function openQuickCategoryModal() {
   quickCategoryName.value = "";
   quickCategoryError.value = "";
+  savedQuickProductModalScrollTop.value =
+    quickProductModalRef.value?.scrollContainer?.scrollTop ?? 0;
   showQuickCategoryModal.value = true;
+  void nextTick(() => quickCategoryNameInput.value?.focus());
 }
 
 function closeQuickCategoryModal() {
+  if (creatingQuickCategory.value) return;
   showQuickCategoryModal.value = false;
   quickCategoryError.value = "";
   quickCategoryName.value = "";
+  restoreModalScroll(quickProductModalRef, savedQuickProductModalScrollTop.value);
 }
 
 async function submitQuickCategory() {
@@ -1928,6 +1972,7 @@ async function submitQuickCategory() {
       loadedQuickGroupCategories.delete(created.id);
       showQuickCategoryModal.value = false;
       quickCategoryName.value = "";
+      restoreModalScroll(quickProductModalRef, savedQuickProductModalScrollTop.value);
     }
   } catch (error: any) {
     quickCategoryError.value =
@@ -1957,15 +2002,21 @@ async function openQuickGroupModal() {
       "Не удалось загрузить линейки для выбранной категории";
   }
   if (!quickGroupError.value) {
+    savedQuickProductModalScrollTop.value =
+      quickProductModalRef.value?.scrollContainer?.scrollTop ?? 0;
     showQuickGroupModal.value = true;
+    await nextTick();
+    quickGroupNameInput.value?.focus();
   }
 }
 
 function closeQuickGroupModal() {
+  if (creatingQuickGroup.value) return;
   showQuickGroupModal.value = false;
   quickGroupError.value = "";
   quickGroupName.value = "";
   quickGroupParentId.value = "";
+  restoreModalScroll(quickProductModalRef, savedQuickProductModalScrollTop.value);
 }
 
 async function submitQuickGroup() {
@@ -1992,6 +2043,7 @@ async function submitQuickGroup() {
       showQuickGroupModal.value = false;
       quickGroupName.value = "";
       quickGroupParentId.value = "";
+      restoreModalScroll(quickProductModalRef, savedQuickProductModalScrollTop.value);
     }
   } catch (error: any) {
     quickGroupError.value =
@@ -2183,6 +2235,8 @@ async function requestSaveProcurement() {
   actorProcurementId.value = null;
   actorPromptError.value = "";
   actorPromptErrorCode.value = "";
+  savedCreateModalScrollTop.value =
+    createModalRef.value?.scrollContainer?.scrollTop ?? 0;
   actorPromptOpen.value = true;
 }
 
@@ -2197,6 +2251,8 @@ async function requestCompleteProcurement(id: string) {
   actorProcurementId.value = id;
   actorPromptError.value = "";
   actorPromptErrorCode.value = "";
+  savedDetailModalScrollTop.value =
+    detailModalRef.value?.scrollContainer?.scrollTop ?? 0;
   actorPromptOpen.value = true;
 }
 
@@ -2207,6 +2263,11 @@ function closeActorPrompt() {
   actorPromptErrorCode.value = "";
   actorAction.value = null;
   actorProcurementId.value = null;
+  if (showCreateModal.value) {
+    restoreModalScroll(createModalRef, savedCreateModalScrollTop.value);
+  } else if (detailModalOpen.value) {
+    restoreModalScroll(detailModalRef, savedDetailModalScrollTop.value);
+  }
 }
 
 async function confirmActorAction(actor: { employeeId: string; pin: string }) {
@@ -2420,6 +2481,9 @@ async function performCompleteProcurement(
     actorPromptOpen.value = false;
     actorAction.value = null;
     actorProcurementId.value = null;
+    if (detailModalOpen.value) {
+      restoreModalScroll(detailModalRef, savedDetailModalScrollTop.value);
+    }
   } catch (error: any) {
     actorPromptErrorCode.value = String(error?.code || error?.data?.error || "");
     console.error("[CRM] complete procurement error", error);

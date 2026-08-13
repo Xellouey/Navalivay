@@ -1,6 +1,7 @@
 <template>
   <AdminModal
-    :is-open="open"
+    v-if="open"
+    :is-open="true"
     :title="title"
     :description="description"
     size="sm"

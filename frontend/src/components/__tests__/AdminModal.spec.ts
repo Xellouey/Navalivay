@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { flushPromises, mount } from "@vue/test-utils";
+import { defineComponent, nextTick, ref } from "vue";
 import AdminModal from "@/components/AdminModal.vue";
 
 describe("AdminModal", () => {
@@ -16,7 +17,7 @@ describe("AdminModal", () => {
         showActions: false,
         isLoading: true,
       },
-      slots: { default: "<p>Содержимое</p>" },
+      slots: { default: '<button type="button">Действие</button>' },
     });
     await flushPromises();
 
@@ -36,6 +37,37 @@ describe("AdminModal", () => {
     await flushPromises();
     expect(wrapper.emitted("close")).toHaveLength(1);
     expect(wrapper.emitted("update:isOpen")?.[0]).toEqual([false]);
+
+    wrapper.unmount();
+  });
+
+  it("ставит фокус в явно указанное поле", async () => {
+    const Host = defineComponent({
+      components: { AdminModal },
+      setup() {
+        const input = ref<HTMLInputElement | null>(null);
+        return { input };
+      },
+      template: `
+        <AdminModal
+          :is-open="true"
+          title="Проверка фокуса"
+          :show-actions="false"
+          :initial-focus="input"
+        >
+          <input ref="input" data-test="target" />
+          <button type="button">Другая кнопка</button>
+        </AdminModal>
+      `,
+    });
+
+    const wrapper = mount(Host, { attachTo: document.body });
+    await nextTick();
+    await flushPromises();
+
+    expect(document.activeElement).toBe(
+      document.body.querySelector('[data-test="target"]'),
+    );
 
     wrapper.unmount();
   });

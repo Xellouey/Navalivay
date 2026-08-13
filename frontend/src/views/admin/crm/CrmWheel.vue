@@ -637,7 +637,7 @@
       <div
         v-if="prizeModalOpen"
         class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4"
-        @click.self="closeModal"
+        v-safe-backdrop-close="closeModal"
       >
         <Transition
           enter-active-class="transition ease-out duration-200"
@@ -899,7 +899,7 @@
       <div
         v-if="promoQuickModalOpen"
         class="fixed inset-0 z-[55] flex items-center justify-center bg-black/40 backdrop-blur-sm p-4"
-        @click.self="closeQuickPromoModal"
+        v-safe-backdrop-close="closeQuickPromoModal"
       >
         <Transition
           enter-active-class="transition ease-out duration-200"
@@ -1090,7 +1090,7 @@
       <div
         v-if="confirmTogglePrize"
         class="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4"
-        @click.self="confirmTogglePrize = null"
+        v-safe-backdrop-close="() => (confirmTogglePrize = null)"
       >
         <div
           class="w-full max-w-sm rounded-2xl bg-white shadow-2xl p-5"
@@ -1130,7 +1130,7 @@
       <div
         v-if="confirmDeletePrize"
         class="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4"
-        @click.self="confirmDeletePrize = null"
+        v-safe-backdrop-close="() => (confirmDeletePrize = null)"
       >
         <div
           class="w-full max-w-sm rounded-2xl bg-white shadow-2xl p-5"
@@ -1196,6 +1196,7 @@ import {
 } from '@/utils/businessTime'
 import { useAdminStore } from '@/stores/admin'
 import { useCrmStore } from '@/stores/crm'
+import { vSafeBackdropClose } from '@/directives/safeBackdropClose'
 
 interface WheelRarity {
   code: string

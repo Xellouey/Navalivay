@@ -271,7 +271,7 @@
     <div
       v-if="showBlockModal"
       class="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 px-4"
-      @click.self="showBlockModal = false"
+      v-safe-backdrop-close="() => (showBlockModal = false)"
     >
       <div class="w-full max-w-md rounded-xl bg-white p-6 shadow-xl">
         <h3 class="text-xl font-semibold text-gray-900">Блокировка доставки</h3>
@@ -307,6 +307,7 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useCrmStore } from '@/stores/crm'
 import type { Customer, Order, VisitLog } from '@/stores/crm'
+import { vSafeBackdropClose } from '@/directives/safeBackdropClose'
 
 type CustomerTemperature = 'cold' | 'inactive' | 'warm' | 'hot'
 

@@ -753,7 +753,7 @@
       <div
         v-if="confirmModerate"
         class="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4"
-        @click.self="confirmModerate = null"
+        v-safe-backdrop-close="() => (confirmModerate = null)"
       >
         <div
           class="w-full max-w-sm rounded-2xl bg-white p-5 shadow-2xl"
@@ -790,7 +790,7 @@
       <div
         v-if="confirmRunDraw"
         class="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4"
-        @click.self="confirmRunDraw = false"
+        v-safe-backdrop-close="() => (confirmRunDraw = false)"
       >
         <div
           class="w-full max-w-sm rounded-2xl bg-white p-5 shadow-2xl"
@@ -823,7 +823,7 @@
       <div
         v-if="confirmReroll"
         class="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4"
-        @click.self="confirmReroll = null"
+        v-safe-backdrop-close="() => (confirmReroll = null)"
       >
         <div
           class="w-full max-w-sm rounded-2xl bg-white p-5 shadow-2xl"
@@ -855,7 +855,7 @@
       <div
         v-if="confirmRefreshReplies"
         class="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4"
-        @click.self="confirmRefreshReplies = false"
+        v-safe-backdrop-close="() => (confirmRefreshReplies = false)"
       >
         <div
           class="w-full max-w-sm rounded-2xl bg-white p-5 shadow-2xl"
@@ -887,7 +887,7 @@
       <div
         v-if="confirmLeaveSettings"
         class="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4"
-        @click.self="cancelLeaveSettings"
+        v-safe-backdrop-close="cancelLeaveSettings"
       >
         <div
           class="w-full max-w-sm rounded-2xl bg-white p-5 shadow-2xl"
@@ -919,7 +919,7 @@
       <div
         v-if="confirmRefreshSettings"
         class="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4"
-        @click.self="confirmRefreshSettings = false"
+        v-safe-backdrop-close="() => (confirmRefreshSettings = false)"
       >
         <div
           class="w-full max-w-sm rounded-2xl bg-white p-5 shadow-2xl"
@@ -951,7 +951,7 @@
       <div
         v-if="confirmDeleteTag"
         class="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4"
-        @click.self="confirmDeleteTag = null"
+        v-safe-backdrop-close="() => (confirmDeleteTag = null)"
       >
         <div
           class="w-full max-w-sm rounded-2xl bg-white p-5 shadow-2xl"
@@ -1014,6 +1014,7 @@ import CrmButton from "@/components/admin/crm/CrmButton.vue";
 import { useAdminStore } from "@/stores/admin";
 import { useCrmStore } from "@/stores/crm";
 import { buildReviewDockMetaLine, buildReviewDockTitle } from "@/utils/reviewDockCopy";
+import { vSafeBackdropClose } from "@/directives/safeBackdropClose";
 import {
   formatReviewDrawPeriodKey,
   getCurrentReviewDrawPeriodKey,

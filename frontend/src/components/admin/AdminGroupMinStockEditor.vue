@@ -8,18 +8,17 @@
       leave-from-class="opacity-100"
       leave-to-class="opacity-0"
     >
-      <!-- Teleport в body. Родительская модалка получает :persistent
-           пока минимальный остаток открыт, чтобы Headless UI Dialog
-           родителя не пытался закрыться. -->
+      <!-- Teleport в body. Родительское окно линеек на это время
+           размонтируется, чтобы его ловушка фокуса не мешала вводу. -->
       <div
         v-if="isOpen"
         class="fixed inset-0 z-[10050] flex items-center justify-center p-4"
-        @click.self="emit('close')"
         @mousedown.self.stop
       >
         <div
           class="absolute inset-0 bg-black/30 backdrop-blur-sm"
           aria-hidden="true"
+          v-safe-backdrop-close="() => emit('close')"
           @mousedown.stop
         />
 
@@ -134,6 +133,7 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref } from "vue";
+import { vSafeBackdropClose } from "@/directives/safeBackdropClose";
 
 interface Props {
   isOpen: boolean;

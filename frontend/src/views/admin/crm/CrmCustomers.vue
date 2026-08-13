@@ -642,7 +642,7 @@
     <div
       v-if="showFeedbackModal"
       class="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 px-4"
-      @click.self="closeFeedbackModal"
+      v-safe-backdrop-close="closeFeedbackModal"
     >
       <div class="w-full max-w-2xl rounded-xl bg-white p-6 shadow-xl">
         <h3 class="text-xl font-bold text-gray-900 mb-2">Какой итог?</h3>
@@ -678,7 +678,7 @@
     <div
       v-if="showDeleteFeedbackModal"
       class="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 px-4"
-      @click.self="showDeleteFeedbackModal = false"
+      v-safe-backdrop-close="() => (showDeleteFeedbackModal = false)"
     >
       <div class="w-full max-w-md rounded-xl bg-white p-6 shadow-xl">
         <h3 class="text-xl font-semibold text-gray-900 mb-2">Удалить запись?</h3>
@@ -708,7 +708,7 @@
     <div
       v-if="showDeleteCustomerModal"
       class="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 px-4"
-      @click.self="showDeleteCustomerModal = false"
+      v-safe-backdrop-close="() => (showDeleteCustomerModal = false)"
     >
       <div class="w-full max-w-md rounded-xl bg-white p-6 shadow-xl">
         <h3 class="text-xl font-semibold text-gray-900 mb-2">Удалить клиента?</h3>
@@ -744,7 +744,7 @@
     <div
       v-if="showBlockModal"
       class="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 px-4"
-      @click.self="showBlockModal = false"
+      v-safe-backdrop-close="() => (showBlockModal = false)"
     >
       <div class="w-full max-w-md rounded-xl bg-white p-6 shadow-xl">
         <h3 class="text-xl font-semibold text-gray-900 mb-2">Блокировка доставки</h3>
@@ -783,6 +783,7 @@ import type { Customer, CustomerFeedback } from '@/stores/crm'
 import CustomerInviteBanModal from '@/components/admin/CustomerInviteBanModal.vue'
 import CustomerStaffAccessModal from '@/components/admin/CustomerStaffAccessModal.vue'
 import { getBusinessDateParts } from '@/utils/businessTime'
+import { vSafeBackdropClose } from '@/directives/safeBackdropClose'
 import {
   findInvalidDisallowedInviterUsernames,
   parseDisallowedInviterUsernames,

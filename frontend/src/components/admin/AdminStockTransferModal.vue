@@ -1,12 +1,14 @@
 <template>
   <!--
-    Пока открыто подтверждение сотрудника, эту модалку прячем. Две модалки
+    Пока открыто подтверждение сотрудника или отмены, эту модалку прячем. Две модалки
     HeadlessUI рядом конфликтуют ловушками фокуса: родительская гасила
     содержимое дочерней, кнопка выглядела рабочей, но клики не проходили.
     Состав заявки не теряется, он живёт в состоянии компонента.
   -->
   <AdminModal
-    :isOpen="isOpen && !actorPromptOpen"
+    v-if="isOpen && !actorPromptOpen && !cancelConfirmOpen"
+    ref="modalRef"
+    :isOpen="true"
     :title="modalTitle"
     :description="modalDescription"
     size="2xl"
@@ -407,14 +409,15 @@
     @confirm="confirmActorAction"
   />
   <AdminModal
-    :is-open="cancelConfirmOpen"
+    v-if="cancelConfirmOpen"
+    :is-open="true"
     title="Отменить перемещение?"
     description="Заявка останется в истории, а остатки не изменятся."
     size="sm"
     :show-actions="false"
     :persistent="actionSubmitting"
-    @close="cancelConfirmOpen = false"
-    @cancel="cancelConfirmOpen = false"
+    @close="closeCancelConfirmation"
+    @cancel="closeCancelConfirmation"
   >
     <div class="space-y-5">
       <div v-if="activeTransfer" class="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-800">
@@ -428,7 +431,7 @@
           type="button"
           class="min-h-[44px] rounded-xl border border-slate-300 px-4 text-sm font-semibold text-slate-700"
           :disabled="actionSubmitting"
-          @click="cancelConfirmOpen = false"
+          @click="closeCancelConfirmation"
         >
           Оставить заявку
         </button>
@@ -446,7 +449,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, onUnmounted, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import AdminModal from '@/components/AdminModal.vue'
 import { useAdminStore } from '@/stores/admin'
@@ -565,6 +568,8 @@ const actorPromptError = ref('')
 const actorPromptErrorCode = ref('')
 const actorPromptAction = ref<'create' | 'edit' | 'complete' | 'cancel' | null>(null)
 const cancelConfirmOpen = ref(false)
+const modalRef = ref<InstanceType<typeof AdminModal> | null>(null)
+const savedModalScrollTop = ref(0)
 const actorActionLoading = computed(() => submitting.value || actionSubmitting.value)
 const actorPromptTitle = computed(() => {
   if (actorPromptAction.value === 'complete') return 'Оприходовать перемещение'
@@ -1041,6 +1046,23 @@ async function ensureStaffTrackingKnown() {
   }
 }
 
+function rememberModalScroll() {
+  savedModalScrollTop.value = modalRef.value?.scrollContainer?.scrollTop ?? 0
+}
+
+function restoreModalScroll() {
+  void nextTick(() => {
+    const scrollContainer = modalRef.value?.scrollContainer
+    if (scrollContainer) scrollContainer.scrollTop = savedModalScrollTop.value
+  })
+}
+
+function closeCancelConfirmation() {
+  if (actionSubmitting.value) return
+  cancelConfirmOpen.value = false
+  restoreModalScroll()
+}
+
 async function requestCreateTransfer() {
   if (!selectedItems.value.length || submitting.value) return
   selectedItems.value.forEach(clampQuantity)
@@ -1052,6 +1074,7 @@ async function requestCreateTransfer() {
   actorPromptAction.value = editingTransferId.value ? 'edit' : 'create'
   actorPromptError.value = ''
   actorPromptErrorCode.value = ''
+  rememberModalScroll()
   actorPromptOpen.value = true
 }
 
@@ -1065,6 +1088,7 @@ async function requestCompleteTransfer() {
   actorPromptAction.value = 'complete'
   actorPromptError.value = ''
   actorPromptErrorCode.value = ''
+  rememberModalScroll()
   actorPromptOpen.value = true
 }
 
@@ -1073,6 +1097,7 @@ async function requestCancelTransfer() {
   if (!await ensureStaffTrackingKnown()) return
   actorPromptError.value = ''
   actorPromptErrorCode.value = ''
+  rememberModalScroll()
   if (!staffTrackingEnabled.value) {
     cancelConfirmOpen.value = true
     return
@@ -1089,6 +1114,7 @@ function closeActorPrompt() {
   actorPromptError.value = ''
   actorPromptErrorCode.value = ''
   actorPromptAction.value = null
+  restoreModalScroll()
 }
 
 async function confirmActorAction(actor: { employeeId: string; pin: string }) {
@@ -1221,6 +1247,7 @@ async function completeTransfer(actor?: { employeeId: string; pin: string }) {
     actionMessage.value = 'Перемещение оприходовано'
     actorPromptOpen.value = false
     actorPromptAction.value = null
+    restoreModalScroll()
     emit('completed', { quantity: Number(completed.total_quantity || 0), destination: completed.destination_location })
     void loadTransfers()
   } catch (error: any) {
@@ -1266,6 +1293,7 @@ async function cancelTransfer(actor?: { employeeId: string; pin: string }) {
     cancelConfirmOpen.value = false
     actorPromptOpen.value = false
     actorPromptAction.value = null
+    restoreModalScroll()
     emit('cancelled', { number: cancelled.transfer_number })
     void loadTransfers()
   } catch (error: any) {
@@ -1286,6 +1314,7 @@ async function cancelTransfer(actor?: { employeeId: string; pin: string }) {
       // Окно подтверждения перекрывает карточку, поэтому закрываем его: иначе
       // человек не увидит, почему отмена не прошла.
       cancelConfirmOpen.value = false
+      restoreModalScroll()
     }
   } finally {
     actionSubmitting.value = false
