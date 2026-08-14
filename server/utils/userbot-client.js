@@ -22,6 +22,8 @@
  * см. комментарий у функции sendViaUserbot ниже.
  */
 
+import { normalizeTelegramParseMode } from './telegram-message-format.js';
+
 const USERBOT_BASE = `http://127.0.0.1:${process.env.USERBOT_HTTP_PORT || 8083}`;
 const SHARED_SECRET = (process.env.USERBOT_SECRET || '').trim();
 const HEALTH_TIMEOUT_MS = 1500;
@@ -141,6 +143,7 @@ export async function isUserbotAvailable() {
 export async function sendViaUserbot({
   chatId,
   text,
+  parseMode = null,
   orderId = null,
   auto = false,
   username = null,
@@ -148,6 +151,12 @@ export async function sendViaUserbot({
 } = {}) {
   if (!chatId || !text) {
     return { ok: false, outcome: 'rejected', error: 'invalid_payload' };
+  }
+  let normalizedParseMode;
+  try {
+    normalizedParseMode = normalizeTelegramParseMode(parseMode);
+  } catch {
+    return { ok: false, outcome: 'rejected', error: 'invalid_parse_mode' };
   }
   let response;
   try {
@@ -162,6 +171,7 @@ export async function sendViaUserbot({
       body: JSON.stringify({
         chat_id: String(chatId),
         text: String(text),
+        ...(normalizedParseMode ? { parse_mode: normalizedParseMode } : {}),
         order_id: orderId,
         auto: auto === true,
         username: username ? String(username).replace(/^@/, '') : null,

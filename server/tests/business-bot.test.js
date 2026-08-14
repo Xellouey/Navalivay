@@ -17,6 +17,8 @@
 import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
+import { HTMLParser } from 'telegram/extensions/html.js';
+import { convertLegacyTelegramMarkup } from '../utils/telegram-message-format.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -82,7 +84,7 @@ function setup() {
   setAutoReplyEnabled(false);
 }
 
-function runTests() {
+async function runTests() {
   console.log('=== Setup ===');
   setup();
 
@@ -243,6 +245,21 @@ function runTests() {
   );
   const renderedNull = renderTemplate('{a}-{b}', { a: 'x', b: null });
   assertEq(renderedNull, 'x-', 'null трактуется как пустая строка');
+  const renderedHtml = renderTemplate(
+    '<b>{name}</b>',
+    { name: `Иван <VIP> & "Ко" '` },
+    { escapeValues: true },
+  );
+  assertEq(
+    renderedHtml,
+    '<b>Иван &lt;VIP&gt; &amp; &quot;Ко&quot; &#39;</b>',
+    'HTML-теги шаблона сохранены, а значение переменной экранировано',
+  );
+  assertEq(
+    convertLegacyTelegramMarkup('**Заказ {order_number}\nсобран**\nОбычный текст'),
+    '<b>Заказ {order_number}\nсобран</b>\nОбычный текст',
+    'многострочный жирный текст из старого шаблона переведён в HTML',
+  );
   assertEq(
     normalizeCustomerOrderTerminology('Ячейка 7 готова'),
     'Заказ №7 готов',
@@ -529,6 +546,54 @@ function runTests() {
     'текст содержит только короткий клиентский номер',
   );
 
+  console.log('\n=== Test 32b: prepareStatusNotification — HTML и безопасные переменные ===');
+  const unsafeCustomerName = `Иван <VIP> & "Ко" '`;
+  db.prepare(`UPDATE customers SET first_name = ? WHERE id = 'cust_v1'`).run(unsafeCustomerName);
+  upsertStatusTemplate('order_issued', {
+    title: 'Заказ выдан',
+    body: '<b>{customer_name}</b>\n<a href="https://partners.example/ячейка-7">Ячейка 7</a>',
+    is_active: 1,
+  });
+  const htmlPrepared = prepareStatusNotification({ orderId: 'order_t1', event: 'order_issued' });
+  assertEq(htmlPrepared.ok, true, 'HTML-шаблон подготовлен');
+  assertEq(htmlPrepared.parseMode, 'html', 'для статусного шаблона выбран HTML');
+  assertEq(
+    htmlPrepared.text,
+    '<b>Иван &lt;VIP&gt; &amp; &quot;Ко&quot; &#39;</b>\n<a href="https://partners.example/ячейка-7">Заказ №7</a>',
+    'пользовательские данные экранированы, адрес ссылки не изменён',
+  );
+  const [parsedHtmlText, parsedHtmlEntities] = HTMLParser.parse(htmlPrepared.text);
+  assertEq(
+    parsedHtmlText,
+    unsafeCustomerName + '\nЗаказ №7',
+    'GramJS показывает экранированное имя как обычный текст',
+  );
+  assert(
+    parsedHtmlEntities.some(
+      (entity) =>
+        entity.className === 'MessageEntityTextUrl'
+        && entity.url === 'https://partners.example/ячейка-7',
+    ),
+    'GramJS создаёт скрытую ссылку с нужным адресом',
+  );
+  upsertStatusTemplate('order_issued', {
+    title: 'Старый шаблон',
+    body: '**Заказ {order_number} выдан**',
+    is_active: 1,
+  });
+  const legacyPrepared = prepareStatusNotification({ orderId: 'order_t1', event: 'order_issued' });
+  assertEq(
+    legacyPrepared.text,
+    '<b>Заказ №1 выдан</b>',
+    'старый жирный текст сохраняется после перехода шаблонов на HTML',
+  );
+  db.prepare(`UPDATE customers SET first_name = NULL WHERE id = 'cust_v1'`).run();
+  upsertStatusTemplate('order_issued', {
+    title: 'Заказ выдан',
+    body: 'Заказ {order_number} выдан. Спасибо за покупку!',
+    is_active: 1,
+  });
+
   console.log('\n=== Test 33: prepareStatusNotification — заказ без клиента ===');
   db.prepare(`
     INSERT INTO orders (id, order_number, status, delivery_type, total_amount, final_amount, created_at, updated_at)
@@ -672,10 +737,56 @@ function runTests() {
     .get();
   assertEq(afterReconnect.disconnected_at, null, 'disconnected_at сброшен');
   assert(afterReconnect.connected_at > beforeDisc.connected_at, 'connected_at обновился (>= позднее)');
+
+  console.log('\n=== Test 44: Business Bot API — HTML только по явному запросу ===');
+  const originalFetch = globalThis.fetch;
+  const originalBotToken = process.env.BOT_TOKEN;
+  const sentBodies = [];
+  try {
+    process.env.BOT_TOKEN = 'test-token';
+    globalThis.fetch = async (_url, options = {}) => {
+      sentBodies.push(JSON.parse(String(options.body || '{}')));
+      return {
+        ok: true,
+        json: async () => ({ ok: true, result: { message_id: 77 } }),
+      };
+    };
+    const { sendBusinessMessage } = await import('../utils/telegram-business-api.js');
+    const htmlSend = await sendBusinessMessage({
+      businessConnectionId: 'bc-html',
+      chatId: '7001',
+      text: '<b>Прайс</b>',
+      parseMode: 'html',
+    });
+    assertEq(htmlSend.ok, true, 'HTML-прайс отправлен');
+    assertEq(sentBodies[0]?.parse_mode, 'HTML', 'Bot API получил parse_mode=HTML');
+
+    const plainSend = await sendBusinessMessage({
+      businessConnectionId: 'bc-plain',
+      chatId: '7001',
+      text: 'Обычный текст',
+    });
+    assertEq(plainSend.ok, true, 'обычное сообщение отправлено');
+    assertEq('parse_mode' in sentBodies[1], false, 'ручной текст не переключён на HTML');
+
+    const beforeRejected = sentBodies.length;
+    const rejected = await sendBusinessMessage({
+      businessConnectionId: 'bc-invalid',
+      chatId: '7001',
+      text: 'Текст',
+      parseMode: 'markdown',
+    });
+    assertEq(rejected.error, 'invalid_parse_mode', 'неизвестный режим отклонён');
+    assertEq(sentBodies.length, beforeRejected, 'отклонённый запрос не ушёл в Telegram');
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalBotToken === undefined) delete process.env.BOT_TOKEN;
+    else process.env.BOT_TOKEN = originalBotToken;
+  }
 }
 
 try {
-  runTests();
+  await runTests();
   console.log(`\n=== Total: ${results.passed} passed, ${results.failed} failed ===`);
   if (results.failed === 0) {
     console.log('business-bot.test.js passed');

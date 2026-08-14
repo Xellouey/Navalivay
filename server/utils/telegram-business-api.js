@@ -22,6 +22,7 @@
  */
 
 import { ProxyAgent } from 'undici';
+import { normalizeTelegramParseMode } from './telegram-message-format.js';
 
 const TELEGRAM_API_BASE = 'https://api.telegram.org';
 const REQUEST_TIMEOUT_MS = 15_000;
@@ -120,7 +121,7 @@ function redactToken(text) {
  * (timeout / connect / fetch failed). Для permanent-ошибок Telegram
  * (BAD_REQUEST, UNAUTHORIZED, PEER_ID_INVALID и т.п.) — false.
  */
-async function sendMessageOnce({ businessConnectionId, chatId, text, token }) {
+async function sendMessageOnce({ businessConnectionId, chatId, text, token, parseMode = null }) {
   try {
     const fetchOptions = {
       method: 'POST',
@@ -129,6 +130,7 @@ async function sendMessageOnce({ businessConnectionId, chatId, text, token }) {
         chat_id: String(chatId),
         text: String(text),
         business_connection_id: String(businessConnectionId),
+        ...(parseMode ? { parse_mode: 'HTML' } : {}),
       }),
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     };
@@ -168,9 +170,15 @@ async function sendMessageOnce({ businessConnectionId, chatId, text, token }) {
  * @param {string} args.businessConnectionId — id из business_connection update
  * @param {string|number} args.chatId — id чата с клиентом
  * @param {string} args.text — текст сообщения
+ * @param {string|null} [args.parseMode] — разрешён только HTML для доверенных шаблонов
  * @returns {Promise<{ok: boolean, telegramMessageId?: number|null, error?: string, attempts?: number}>}
  */
-export async function sendBusinessMessage({ businessConnectionId, chatId, text } = {}) {
+export async function sendBusinessMessage({
+  businessConnectionId,
+  chatId,
+  text,
+  parseMode = null,
+} = {}) {
   if (!businessConnectionId || !chatId || !text) {
     return { ok: false, error: 'invalid_payload' };
   }
@@ -178,12 +186,24 @@ export async function sendBusinessMessage({ businessConnectionId, chatId, text }
   if (!token) {
     return { ok: false, error: 'bot_token_missing' };
   }
+  let normalizedParseMode;
+  try {
+    normalizedParseMode = normalizeTelegramParseMode(parseMode);
+  } catch {
+    return { ok: false, error: 'invalid_parse_mode' };
+  }
 
   let lastError = null;
   // 1 первая попытка + до 3 retry → максимум 4 попытки.
   const maxAttempts = SEND_RETRY_DELAYS_MS.length + 1;
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    const result = await sendMessageOnce({ businessConnectionId, chatId, text, token });
+    const result = await sendMessageOnce({
+      businessConnectionId,
+      chatId,
+      text,
+      token,
+      parseMode: normalizedParseMode,
+    });
     if (result.ok) {
       return { ok: true, telegramMessageId: result.telegramMessageId, attempts: attempt };
     }

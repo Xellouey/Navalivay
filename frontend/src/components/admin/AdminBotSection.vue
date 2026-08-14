@@ -6,7 +6,7 @@
           Telegram-уведомления клиентам
         </h3>
         <p class="text-sm text-gray-600">
-          Сообщения о статусе заказа уходят клиенту от вашего имени. Здесь редактируются шаблоны и быстрые ответы.
+          Сообщения о заказе уходят клиенту от вашего имени. Здесь можно настроить сообщения и автоответы.
         </p>
       </div>
       <button
@@ -35,7 +35,7 @@
         </div>
 
         <div class="rounded-xl border border-gray-200 bg-gray-50/70 p-4">
-          <p class="text-xs uppercase tracking-wide text-gray-500">Авто-ответы FAQ</p>
+          <p class="text-xs uppercase tracking-wide text-gray-500">Автоответы клиентам</p>
           <label class="mt-1 inline-flex items-center gap-2 text-sm font-medium text-gray-700">
             <input
               type="checkbox"
@@ -48,18 +48,18 @@
           </label>
           <p class="mt-1 text-xs text-gray-500">
             <template v-if="status.quick_reply_count === 0">
-              Шаблонов ещё нет. Добавьте их во вкладке «Быстрые ответы».
+              Ответов ещё нет. Добавьте их во вкладке «Быстрые ответы».
             </template>
             <template v-else>
-              Включено {{ status.quick_reply_active_count }} из {{ status.quick_reply_count }}. Срабатывают на ключевые слова в сообщениях клиента.
+              Включено {{ status.quick_reply_active_count }} из {{ status.quick_reply_count }}. Автоответ срабатывает по ключевым словам клиента.
             </template>
           </p>
         </div>
 
         <div class="rounded-xl border border-gray-200 bg-gray-50/70 p-4">
-          <p class="text-xs uppercase tracking-wide text-gray-500">Активность 24 ч</p>
+          <p class="text-xs uppercase tracking-wide text-gray-500">Сообщения за 24 часа</p>
           <p class="mt-1 text-2xl font-bold text-gray-900">{{ status.recent_log_count }}</p>
-          <p class="mt-1 text-xs text-gray-500">сообщений в журнале</p>
+          <p class="mt-1 text-xs text-gray-500">записей в истории</p>
         </div>
       </div>
 
@@ -85,7 +85,7 @@
       <div v-if="activeTab === 'quick'" class="mt-4 space-y-3">
         <div class="flex items-start justify-between gap-3">
           <p class="text-sm text-gray-600">
-            Бот ищет ключевые слова в сообщении клиента (регистр и буквы е/ё не важны). Срабатывает первое совпадение в порядке сортировки.
+            Автоответ ищет ключевые слова в сообщении клиента. Заглавные и строчные буквы, а также е/ё не различаются. Если подходит несколько ответов, система выберет наиболее точный.
           </p>
           <button
             type="button"
@@ -120,10 +120,10 @@
                     "
                     class="rounded-full px-2 py-0.5 text-[11px] font-medium"
                   >{{ reply.is_active ? 'Активен' : 'Скрыт' }}</span>
-                  <span class="text-[11px] text-gray-500">порядок: {{ reply.sort_order }}</span>
+                  <span class="text-[11px] text-gray-500">место в списке: {{ reply.sort_order }}</span>
                 </div>
                 <p class="mt-1 text-xs text-gray-500">
-                  Триггеры:
+                  Ключевые слова:
                   <span v-if="reply.keywords.length">
                     <code
                       v-for="(kw, idx) in reply.keywords"
@@ -156,18 +156,26 @@
       <!-- Tab: Status templates ---------------------------------------------->
       <div v-if="activeTab === 'status'" class="mt-4 space-y-3">
         <p class="text-sm text-gray-600">
-          Тексты, которые уходят клиенту при смене статуса заказа. В шаблон можно вставить:
+          Тексты, которые отправляются клиенту. Вставка
           <code class="rounded bg-gray-100 px-1 py-0.5">{order_number}</code>
-          — короткий активный номер для клиента,
+          покажет клиенту короткий номер заказа.
           <code class="rounded bg-gray-100 px-1 py-0.5">{pickup_cell_number}</code>
-          — тот же короткий номер,
-          <code class="rounded bg-gray-100 px-1 py-0.5">{final_amount}</code>,
-          <code class="rounded bg-gray-100 px-1 py-0.5">{customer_name}</code>,
-          <code class="rounded bg-gray-100 px-1 py-0.5">{customer_username}</code>,
-          <code class="rounded bg-gray-100 px-1 py-0.5">{verification_code}</code>,
-          <code class="rounded bg-gray-100 px-1 py-0.5">{store_name}</code>.
+          покажет тот же номер. Другие вставки:
+          <code class="rounded bg-gray-100 px-1 py-0.5">{final_amount}</code> покажет сумму заказа,
+          <code class="rounded bg-gray-100 px-1 py-0.5">{customer_name}</code> имя клиента,
+          <code class="rounded bg-gray-100 px-1 py-0.5">{customer_username}</code> имя клиента в Telegram,
+          <code class="rounded bg-gray-100 px-1 py-0.5">{verification_code}</code> код доступа,
+          <code class="rounded bg-gray-100 px-1 py-0.5">{store_name}</code> название магазина.
           <span class="mt-1 block">
-            Длинный внутренний номер в клиентские статусные шаблоны не подставляется.
+            Полный номер заказа клиенту не отправляется.
+          </span>
+        </p>
+        <p class="text-sm text-gray-600">
+          В сообщениях о заказе и прайсе можно сделать текст жирным, курсивным или добавить ссылку:
+          <span class="mt-1 flex flex-wrap gap-1.5 pr-12 sm:pr-0">
+            <code class="rounded bg-gray-100 px-1 py-0.5">&lt;b&gt;жирный&lt;/b&gt;</code>
+            <code class="rounded bg-gray-100 px-1 py-0.5">&lt;i&gt;курсив&lt;/i&gt;</code>
+            <code class="min-w-0 max-w-full break-all whitespace-normal rounded bg-gray-100 px-1 py-0.5">&lt;a href=&quot;https://site.by&quot;&gt;название ссылки&lt;/a&gt;</code>
           </span>
         </p>
         <div class="space-y-3">
@@ -178,9 +186,8 @@
           >
             <div class="flex flex-wrap items-center justify-between gap-2">
               <div>
-                <p class="text-xs uppercase tracking-wide text-gray-500">{{ event }}</p>
                 <p class="text-sm font-semibold text-gray-900">
-                  {{ getTemplateForEvent(event)?.title || statusEventLabel(event) }}
+                  {{ statusEventLabel(event, getTemplateForEvent(event)?.title) }}
                 </p>
               </div>
               <label class="inline-flex items-center gap-2 text-xs text-gray-600">
@@ -218,7 +225,7 @@
       <!-- Tab: Log ----------------------------------------------------------->
       <div v-if="activeTab === 'log'" class="mt-4 space-y-3">
         <p class="text-sm text-gray-600">
-          Последние 50 сообщений. Зелёная метка: ушло клиенту, красная: не дошло.
+          Последние 50 сообщений. Зелёная метка означает, что сообщение ушло клиенту, красная, что оно не дошло.
         </p>
         <div v-if="!logItems.length" class="rounded-xl border border-dashed border-gray-300 bg-gray-50 px-6 py-8 text-center text-sm text-gray-500">
           Пока пусто. Записи появятся после первого сообщения.
@@ -233,17 +240,17 @@
             <div class="flex flex-wrap items-center justify-between gap-2 text-[11px] text-gray-500">
               <span class="flex flex-wrap items-center gap-1.5">
                 {{ entry.direction === 'out' ? 'бот → клиенту' : 'клиент → менеджеру' }}
-                · {{ entry.message_type }}
-                <template v-if="entry.template_event">· {{ entry.template_event }}</template>
+                · {{ messageTypeLabel(entry.message_type) }}
+                <template v-if="entry.template_event">· {{ statusEventLabel(entry.template_event) }}</template>
                 <span
                   v-if="logBadge(entry)"
                   class="rounded px-1.5 py-0.5 text-[10px] font-semibold"
                   :class="logBadge(entry)?.cls"
                 >{{ logBadge(entry)?.text }}</span>
               </span>
-              <span>{{ entry.created_at }} · chat {{ entry.chat_id }}</span>
+              <span>{{ entry.created_at }} · чат №{{ entry.chat_id }}</span>
             </div>
-            <p class="mt-1 whitespace-pre-wrap text-xs text-gray-800">{{ entry.text || '—' }}</p>
+            <p class="mt-1 whitespace-pre-wrap text-xs text-gray-800">{{ entry.text || 'Нет текста' }}</p>
             <p
               v-if="entry.meta?.outcome === 'failed' && entry.meta?.error"
               class="mt-1 text-[11px] font-medium text-red-700"
@@ -264,7 +271,7 @@
     >
       <form @submit.prevent="submitQuickReply" class="space-y-4">
         <div class="space-y-2">
-          <label class="text-sm font-medium text-gray-700">Название (для админки)</label>
+          <label class="text-sm font-medium text-gray-700">Название</label>
           <input
             v-model="qrForm.title"
             type="text"
@@ -276,7 +283,7 @@
         </div>
         <div class="space-y-2">
           <label class="text-sm font-medium text-gray-700">
-            Триггер-слова (через запятую)
+            Ключевые слова через запятую
           </label>
           <input
             v-model="qrForm.keywordsInput"
@@ -285,7 +292,7 @@
             placeholder="работаете, часы, до скольки"
           />
           <p class="text-[11px] text-gray-500">
-            Регистр и буквы е/ё не важны. Сработает, если найдёт целое слово или такую же подстроку в сообщении.
+            Заглавные и строчные буквы, а также е/ё не различаются. Ответ сработает, если ключевое слово встретится отдельно или внутри другого слова.
           </p>
         </div>
         <div class="space-y-2">
@@ -305,7 +312,7 @@
             Активен
           </label>
           <div class="space-y-1">
-            <label class="text-xs font-medium text-gray-600">Порядок (меньше = выше)</label>
+            <label class="text-xs font-medium text-gray-600">Место в списке (меньшее число ставит ответ выше)</label>
             <input
               v-model.number="qrForm.sort_order"
               type="number"
@@ -405,8 +412,8 @@ interface BotLogEntry {
 
 const TABS = [
   { id: "quick", label: "Быстрые ответы" },
-  { id: "status", label: "Шаблоны статусов" },
-  { id: "log", label: "Журнал" },
+  { id: "status", label: "Сообщения клиентам" },
+  { id: "log", label: "История" },
 ] as const;
 
 type TabId = (typeof TABS)[number]["id"];
@@ -420,13 +427,26 @@ const STATUS_EVENT_LABELS: Record<string, string> = {
   welcome: "Приветствие новому клиенту",
 };
 
-function statusEventLabel(event: string) {
-  return STATUS_EVENT_LABELS[event] || event;
+const MESSAGE_TYPE_LABELS: Record<string, string> = {
+  incoming: "Входящее",
+  manual: "Отправлено вручную",
+  status: "Сообщение о заказе",
+  quick_reply: "Автоответ",
+  price: "Прайс",
+  unmatched: "Без автоответа",
+};
+
+function statusEventLabel(event: string, fallbackTitle?: string) {
+  return STATUS_EVENT_LABELS[event] || fallbackTitle || "Другое сообщение";
+}
+
+function messageTypeLabel(messageType: string) {
+  return MESSAGE_TYPE_LABELS[messageType] || "Другое сообщение";
 }
 
 /**
  * Подсветка фона строки в журнале по итогу отправки. Костя 9.05.2026
- * жаловался, что в журнале не видно — дошло сообщение до клиента или
+ * жаловался, что в журнале не видно, дошло сообщение до клиента или
  * нет (`outcome=sent` или `failed` отображались одинаково).
  */
 function logEntryClass(entry: BotLogEntry): string {
@@ -501,17 +521,21 @@ const sortedQuickReplies = computed(() =>
 
 const statusEvents = computed(() => {
   // Рендерим события в порядке как пришли с бэка (он их кладёт по UNIQUE event,
-  // вместе с дефолтным сидом в миграции — порядок стабилен).
-  return (status.value?.status_templates || []).map((t) => t.event);
+  // вместе с дефолтным сидом в миграции, поэтому порядок стабилен).
+  // Устаревшее welcome не отправляется из этого шаблона: настоящее приветствие
+  // настраивается в Telegram как быстрый ответ «Прайс».
+  return (status.value?.status_templates || [])
+    .map((t) => t.event)
+    .filter((event) => event !== "welcome");
 });
 
-// Главный индикатор: может ли вообще что-то уйти клиенту. Userbot —
-// основной канал (без 24ч окна); Business-mode — fallback. Если
-// работает хоть один — «Готова». Если оба отвалились — «Не готова».
+// Главный индикатор показывает, может ли вообще что-то уйти клиенту.
+// Userbot служит основным каналом без 24ч окна, Business-mode запасным.
+// Если работает хоть один, показываем «Готова», иначе «Не готова».
 const connectionLabel = computed(() => {
-  if (!status.value) return "—";
+  if (!status.value) return "Загрузка";
   if (status.value.userbot_connected) return "Работает";
-  if (status.value.bot_token_live && status.value.active_connection) return "Работает резервный канал";
+  if (status.value.bot_token_live && status.value.active_connection) return "Работает с ограничением";
   if (!status.value.bot_token_configured) return "Не настроен";
   if (!status.value.bot_token_live) return "Не подключён";
   return "Не работает";
@@ -529,7 +553,7 @@ const deliveryHint = computed(() => {
     return "Сообщения идут от вашего имени без ограничений по времени.";
   }
   if (status.value.bot_token_live && status.value.active_connection) {
-    return "Основной канал не подключён. Резервный пишет только клиентам, которые писали в чат за последние сутки.";
+    return "Сообщения получат только клиенты, которые писали в чат за последние сутки.";
   }
   return "Сообщения клиентам сейчас не уходят.";
 });
@@ -540,7 +564,7 @@ function getTemplateForEvent(event: string): StatusTemplate | null {
 
 async function fetchStatus() {
   const response = await fetch("/api/admin/crm/bot/status", { credentials: "include" });
-  if (!response.ok) throw new Error("Не удалось загрузить статус бота");
+  if (!response.ok) throw new Error("Не удалось проверить связь с Telegram");
   status.value = (await response.json()) as BotStatus;
 }
 
@@ -553,7 +577,7 @@ async function fetchQuickReplies() {
 
 async function fetchLog() {
   const response = await fetch("/api/admin/crm/bot/log?limit=50", { credentials: "include" });
-  if (!response.ok) throw new Error("Не удалось загрузить журнал");
+  if (!response.ok) throw new Error("Не удалось загрузить историю");
   const data = (await response.json()) as { items: BotLogEntry[] };
   logItems.value = Array.isArray(data?.items) ? data.items : [];
 }
@@ -610,7 +634,7 @@ async function onToggleStatusActive(event: string, next: boolean) {
         }),
       },
     );
-    if (!response.ok) throw new Error("Не удалось обновить шаблон");
+    if (!response.ok) throw new Error("Не удалось обновить сообщение");
     await fetchStatus();
   } catch (err) {
     alert(err instanceof Error ? err.message : String(err));
@@ -653,7 +677,7 @@ async function onBlurStatusBody(event: string, body: string) {
       throw new Error(
         (data as { error?: string }).error === "body_too_long"
           ? "Текст слишком длинный (максимум 4000 символов)"
-          : (data as { message?: string }).message || "Не удалось сохранить шаблон",
+          : (data as { message?: string }).message || "Не удалось сохранить сообщение",
       );
     }
     delete statusBodyDraft[event];
@@ -661,7 +685,7 @@ async function onBlurStatusBody(event: string, body: string) {
     await fetchStatus();
   } catch (err) {
     alert(err instanceof Error ? err.message : String(err));
-    // На ошибке оставляем draft в reactive — пользователь не теряет ввод.
+    // На ошибке оставляем draft в reactive, чтобы пользователь не терял ввод.
   } finally {
     busyEvent.value = null;
   }
@@ -736,7 +760,7 @@ async function submitQuickReply() {
         title_too_long: "Название слишком длинное (максимум 200)",
         response_required: "Текст ответа обязателен",
         response_too_long: "Текст ответа слишком длинный (максимум 4000)",
-        keywords_too_long: "Слишком много ключевых слов (всего > 1000 символов)",
+        keywords_too_long: "Слишком много ключевых слов (не более 1000 символов)",
         quick_reply_not_found: "Запись не найдена. Обновите список",
       };
       formError.value = map[code] || data?.message || "Не удалось сохранить";

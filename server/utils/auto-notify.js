@@ -315,6 +315,7 @@ export async function executeAutoNotify({ orderId, event, fromRetry = false } = 
   const ubResult = await sendViaUserbot({
     chatId: prepared.chatId,
     text: prepared.text,
+    parseMode: prepared.parseMode,
     orderId,
     username: prepared.customerUsername || null,
     verified: true,

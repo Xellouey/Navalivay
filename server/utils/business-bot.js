@@ -26,6 +26,11 @@ import {
 import { db } from '../db.js';
 import { isCustomerAccessAuthorized } from './referral-authorization.js';
 import { getActiveBlockForCustomerId } from './customer-blocks.js';
+import {
+  convertLegacyTelegramMarkup,
+  escapeTelegramHtml,
+  TELEGRAM_HTML_PARSE_MODE,
+} from './telegram-message-format.js';
 
 // =============================================================================
 // Константы
@@ -461,7 +466,11 @@ export function upsertStatusTemplate(event, payload = {}) {
  * Неизвестные {placeholder} оставляются как есть (защита от опечатки —
  * Костя должен увидеть, что переменная не подставилась).
  */
-export function renderTemplate(body, variables = {}) {
+export function renderTemplate(
+  body,
+  variables = {},
+  { escapeValues = false } = {},
+) {
   const safe = String(body ?? '');
   return safe.replace(/\{(\w+)\}/g, (match, key) => {
     if (!Object.prototype.hasOwnProperty.call(variables, key)) {
@@ -469,7 +478,7 @@ export function renderTemplate(body, variables = {}) {
     }
     const value = variables[key];
     if (value === null || value === undefined) return '';
-    return String(value);
+    return escapeValues ? escapeTelegramHtml(value) : String(value);
   });
 }
 
@@ -558,6 +567,46 @@ export function normalizeCustomerOrderTerminology(value) {
         return `${prefix}${keepCase(masculinePredicate, femininePredicate)}`;
       },
     );
+}
+
+function normalizeCustomerOrderTerminologyInHtml(value) {
+  const source = String(value ?? '');
+  let result = '';
+  let textStart = 0;
+  let tagStart = -1;
+  let quote = null;
+
+  for (let i = 0; i < source.length; i += 1) {
+    const character = source[i];
+    if (tagStart < 0) {
+      if (character === '<') {
+        result += normalizeCustomerOrderTerminology(source.slice(textStart, i));
+        tagStart = i;
+      }
+      continue;
+    }
+
+    if (quote) {
+      if (character === quote) quote = null;
+      continue;
+    }
+    if (character === '"' || character === "'") {
+      quote = character;
+      continue;
+    }
+    if (character === '>') {
+      result += source.slice(tagStart, i + 1);
+      tagStart = -1;
+      textStart = i + 1;
+    }
+  }
+
+  if (tagStart >= 0) {
+    result += normalizeCustomerOrderTerminology(source.slice(tagStart));
+  } else {
+    result += normalizeCustomerOrderTerminology(source.slice(textStart));
+  }
+  return result;
 }
 
 // =============================================================================
@@ -837,7 +886,7 @@ export function getRecentLogCount({ sinceHours = 24 } = {}) {
 /**
  * Готовит payload системного уведомления о статусе заказа.
  *
- * Возвращает { ok, reason?, text?, chatId?, templateId?, templateEvent?,
+ * Возвращает { ok, reason?, text?, parseMode?, chatId?, templateId?, templateEvent?,
  * customerId?, customerTelegramId? }. Если ok=false — поле reason
  * объясняет почему отправка невозможна (нет подключения, нет шаблона,
  * у клиента нет telegram_id и т.п.). bot.js принимает решение, отправлять
@@ -880,7 +929,10 @@ export function prepareStatusNotification({ orderId, event, storeName, pickupCel
   if (!variables) {
     return { ok: false, reason: 'variables_unavailable' };
   }
-  let text = renderTemplate(template.body, variables);
+  // Теги задаёт доверенный менеджер в шаблоне, а данные клиента экранируем:
+  // имя вида "<b>Иван</b>" не должно превращаться в чужую разметку.
+  const templateBody = convertLegacyTelegramMarkup(template.body);
+  let text = renderTemplate(templateBody, variables, { escapeValues: true });
   // Пустой редактируемый шаблон остаётся ошибкой.
   if (!text.trim()) {
     return { ok: false, reason: 'template_empty' };
@@ -897,9 +949,10 @@ export function prepareStatusNotification({ orderId, event, storeName, pickupCel
   }
   // Старые редактируемые шаблоны могли содержать прежний внутренний термин.
   // Клиенту он не показывается: во внешнем общении это всегда «заказ».
-  text = normalizeCustomerOrderTerminology(text);
+  text = normalizeCustomerOrderTerminologyInHtml(text);
   return {
     ok: true,
+    parseMode: TELEGRAM_HTML_PARSE_MODE,
     chatId: String(customer.telegram_id),
     customerId: String(customer.id),
     customerTelegramId: String(customer.telegram_id),

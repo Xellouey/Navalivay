@@ -35,6 +35,7 @@ import {
   sendQuickReply,
 } from './quick-replies.js';
 import { db } from '../db.js';
+import { buildUserbotSendOptions } from './message-format.js';
 
 const PORT = Number(process.env.USERBOT_HTTP_PORT || 8083);
 const SHARED_SECRET = (process.env.USERBOT_SECRET || '').trim();
@@ -949,6 +950,15 @@ app.post('/send-message', checkSecret, async (req, res) => {
     if (text.length > MAX_TEXT_LEN) {
       return res.status(400).json({ ok: false, error: 'text_too_long' });
     }
+    let sendOptions;
+    try {
+      sendOptions = buildUserbotSendOptions(text, req.body?.parse_mode);
+    } catch (error) {
+      const errorCode = error?.code === 'invalid_parse_mode'
+        ? 'invalid_parse_mode'
+        : 'invalid_html';
+      return res.status(400).json({ ok: false, error: errorCode });
+    }
     // Активный FloodWait — не дёргаем Telegram. auto-notify по 429 пометит
     // как unreachable и пойдёт в business-mode fallback.
     if (floodWaitUntil > Date.now()) {
@@ -1013,7 +1023,7 @@ app.post('/send-message', checkSecret, async (req, res) => {
     let result;
     let viaAttempt = 0;
     try {
-      result = await client.sendMessage(BigInt(chatId), { message: text });
+      result = await client.sendMessage(BigInt(chatId), sendOptions);
       viaAttempt = 1; // прямая отправка — entity был в кэше
       const c1 = req.body?.order_id ? { order_id: req.body.order_id } : {};
       logEvent('send', { outcome: 'sent', attempt: 1, chat_id: chatId, ...c1 });
@@ -1034,7 +1044,7 @@ app.post('/send-message', checkSecret, async (req, res) => {
             accessHash: BigInt(stored.access_hash),
           });
           logEvent('send', { outcome: 'attempt', attempt: 2, chat_id: chatId, order_id: req.body?.order_id || null });
-          result = await client.sendMessage(inputPeer, { message: text });
+          result = await client.sendMessage(inputPeer, sendOptions);
           viaAttempt = 2; // отправка через сохранённый access_hash
         } catch (storedErr) {
           const storedMsg =
@@ -1052,7 +1062,7 @@ app.post('/send-message', checkSecret, async (req, res) => {
         logEvent('send', { outcome: 'attempt', attempt: 3, chat_id: chatId, order_id: req.body?.order_id || null });
         await prefetchDialogs(`entity-miss-${chatId}`);
         try {
-          result = await client.sendMessage(BigInt(chatId), { message: text });
+          result = await client.sendMessage(BigInt(chatId), sendOptions);
           viaAttempt = 3; // после prefetchDialogs — entity найден
           clearEntityMiss(chatId);
         } catch (retryErr) {

@@ -294,6 +294,7 @@ try {
   assertEq(result.telegram_message_id, 4242, 'telegram_message_id из ответа userbot');
   assertEq(userbotSendBody9.chat_id, '555', 'chat_id = telegram_id клиента');
   assertEq(userbotSendBody9.auto, true, 'auto=true в payload userbot');
+  assertEq(userbotSendBody9.parse_mode, 'html', 'статус отправляется в HTML-режиме');
   assertEq(userbotSendBody9.username, 'tester', 'username прокинут (для resolveUsername fallback)');
   assert(
     userbotSendBody9.text.toLowerCase().includes('заказ №1') &&

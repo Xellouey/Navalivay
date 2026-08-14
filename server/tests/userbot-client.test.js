@@ -62,6 +62,7 @@ const {
 } = await import('../utils/userbot-client.js');
 
 const { createRateLimiter } = await import('../userbot/rate-limiter.js');
+const { buildUserbotSendOptions } = await import('../userbot/message-format.js');
 
 // =============================================================================
 // SECTION 1: sendViaUserbot — outcome contract
@@ -103,6 +104,7 @@ console.log('\n=== Test 1.2: HTTP 200 + ok:true → success ===');
   const body = JSON.parse(fetchCalls[0].init.body);
   assertEq(body.chat_id, '111', 'chat_id передан строкой');
   assertEq(body.text, 'привет', 'text передан в теле');
+  assertEq('parse_mode' in body, false, 'для обычного сообщения режим не добавлен');
 }
 
 console.log('\n=== Test 1.3: HTTP 200 + {ok:false, error:"X"} → rejected ===');
@@ -313,6 +315,7 @@ console.log('\n=== Test 1.11: username/verified/auto прокидываются 
     username: 'client_nick',
     verified: true,
     auto: true,
+    parseMode: 'html',
   });
   const b1 = bodies[0];
   assertEq(b1.username, 'client_nick', 'username прокинут (без @)');
@@ -320,6 +323,7 @@ console.log('\n=== Test 1.11: username/verified/auto прокидываются 
   assertEq(b1.auto, true, 'auto=true прокинут');
   assertEq(b1.order_id, 'o1', 'order_id прокинут');
   assertEq(b1.chat_id, '111', 'chat_id строка');
+  assertEq(b1.parse_mode, 'html', 'HTML-режим прокинут в userbot');
 
   // Имитация ручной отправки из crm.js (с username, verified, auto=false)
   await sendViaUserbot({
@@ -332,6 +336,7 @@ console.log('\n=== Test 1.11: username/verified/auto прокидываются 
   const b2 = bodies[1];
   assertEq(b2.username, 'manager_nick', '@ срезается в sendViaUserbot');
   assertEq(b2.auto, false, 'auto=false для ручных сообщений');
+  assertEq('parse_mode' in b2, false, 'ручное сообщение не переключено на HTML');
 
   // Без username и verified — в теле их не должно быть (null)
   await sendViaUserbot({ chatId: '333', text: 'ok' });
@@ -353,6 +358,87 @@ console.log('\n=== Test 1.12: auto в теле — сравнение строг
   });
   await sendViaUserbot({ chatId: '1', text: 'x', auto: true });
   assertEq(bodies[0].auto, true, 'auto=true → в теле true (boolean)');
+}
+
+console.log('\n=== Test 1.12b: режим форматирования строго ограничен HTML ===');
+{
+  assertEq(
+    buildUserbotSendOptions('обычный **текст**'),
+    { message: 'обычный **текст**', formattingEntities: [] },
+    'без режима Markdown не включается сам',
+  );
+  const htmlOptions = buildUserbotSendOptions('<b>текст</b>', 'html');
+  assertEq(htmlOptions.message, 'текст', 'HTML разобран до вызова GramJS');
+  assertEq(
+    htmlOptions.formattingEntities.map((entity) => entity.className),
+    ['MessageEntityBold'],
+    'GramJS получает готовую сущность жирного текста',
+  );
+  assertEq('parseMode' in htmlOptions, false, 'встроенный разбор GramJS не запускается');
+
+  const mentionLinkOptions = buildUserbotSendOptions(
+    '<a href="@partner">Партнёр</a>',
+    'html',
+  );
+  assertEq(mentionLinkOptions.message, 'Партнёр', 'текст специальной ссылки разобран локально');
+  assertEq(
+    mentionLinkOptions.formattingEntities[0]?.className,
+    'MessageEntityTextUrl',
+    'ссылка остаётся URL, а не Telegram-упоминанием',
+  );
+  assertEq(
+    mentionLinkOptions.formattingEntities[0]?.url,
+    '@partner',
+    'адрес не передаётся в getInputEntity/ResolveUsername',
+  );
+
+  const nestedOptions = buildUserbotSendOptions('<b>жирный <i>курсив</i></b>', 'html');
+  assertEq(
+    nestedOptions.message,
+    'жирный курсив',
+    'правильно вложенные теги принимаются',
+  );
+  assertEq(
+    buildUserbotSendOptions('2 < 3', 'html').message,
+    '2 < 3',
+    'обычный знак «меньше» не считается тегом',
+  );
+  assertEq(
+    buildUserbotSendOptions('<a href="https://site.by/?next=1>0">ссылка</a>', 'html').message,
+    'ссылка',
+    'знак «больше» внутри кавычек не обрывает адрес',
+  );
+
+  for (const invalidSource of [
+    '<b></b>',
+    'Текст <b',
+    '<b>незакрытый тег',
+    '<b><i>неверная вложенность</b></i>',
+    '<unknown>неподдерживаемый тег</unknown>',
+    '<b title="лишнее">неизвестный атрибут</b>',
+    '<a href="">пустая ссылка</a>',
+    '<a href="оборванная ссылка>текст</a>',
+    '<b/>',
+    '<b><b>повторное вложение</b></b>',
+  ]) {
+    let invalidHtmlError = null;
+    try {
+      buildUserbotSendOptions(invalidSource, 'html');
+    } catch (error) {
+      invalidHtmlError = error?.code;
+    }
+    assertEq(invalidHtmlError, 'invalid_html', `неверная разметка отклонена: ${invalidSource}`);
+  }
+
+  setMockResponses({});
+  const rejected = await sendViaUserbot({
+    chatId: '1',
+    text: 'x',
+    parseMode: 'markdown',
+  });
+  assertEq(rejected.outcome, 'rejected', 'неразрешённый режим отклонён');
+  assertEq(rejected.error, 'invalid_parse_mode', 'возвращён понятный код ошибки');
+  assertEq(fetchCalls.length, 0, 'при неверном режиме userbot не вызывается');
 }
 
 console.log('\n=== Test 1.13: resolve username закреплён за ожидаемым Telegram ID ===');

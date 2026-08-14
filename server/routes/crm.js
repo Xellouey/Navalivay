@@ -97,6 +97,10 @@ import {
   checkBotTokenLive,
 } from '../utils/telegram-business-api.js';
 import {
+  convertLegacyTelegramMarkup,
+  TELEGRAM_HTML_PARSE_MODE,
+} from '../utils/telegram-message-format.js';
+import {
   sendViaUserbot,
   isUserbotAvailable,
 } from '../utils/userbot-client.js';
@@ -1113,6 +1117,7 @@ async function sendNotificationViaBot({
   businessConnectionId,
   chatId,
   text,
+  parseMode = null,
   customerId = null,
   customerTelegramId = null,
   templateKind = 'status',
@@ -1121,7 +1126,12 @@ async function sendNotificationViaBot({
   messageType = 'status',
   meta = null,
 } = {}) {
-  const result = await sendBusinessMessage({ businessConnectionId, chatId, text });
+  const result = await sendBusinessMessage({
+    businessConnectionId,
+    chatId,
+    text,
+    parseMode,
+  });
   // Журнал заполняется и для успеха, и для неудачи — иначе админ не увидит,
   // что отправка падает (а это и был исходный симптом «бот не отвечает»).
   // Поле outcome помогает быстро отфильтровать неуспешные в UI журнала.
@@ -1199,7 +1209,8 @@ crmRouter.post('/api/admin/crm/bot/send-price', authMiddleware, async (req, res)
       customer_telegram_id: customer.telegram_id,
       store_name: 'НАВАЛИВАЙ',
     };
-    const text = renderTemplate(template.body, variables);
+    const templateBody = convertLegacyTelegramMarkup(template.body);
+    const text = renderTemplate(templateBody, variables, { escapeValues: true });
     // Защита от пустого шаблона (админ мог стереть body, но не снять is_active).
     // В этом случае не отправляем — клиент бы получил пустое сообщение.
     if (!text.trim()) {
@@ -1220,6 +1231,7 @@ crmRouter.post('/api/admin/crm/bot/send-price', authMiddleware, async (req, res)
       businessConnectionId: active.id,
       chatId: String(customer.telegram_id),
       text,
+      parseMode: TELEGRAM_HTML_PARSE_MODE,
       customerId: customer.id,
       customerTelegramId: customer.telegram_id,
       templateKind: 'status',
