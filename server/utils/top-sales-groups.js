@@ -78,7 +78,7 @@ function mapTopSalesRow(row, rank) {
     totalQuantity: Number(row.total_quantity ?? 0),
     totalRevenue: Number(row.total_revenue ?? 0),
     totalProfit: Number(row.total_profit ?? 0),
-    hasCoverImage: Boolean(row.cover_image),
+    hasCoverImage: Boolean(row.has_cover_image),
   };
 }
 
@@ -100,17 +100,14 @@ function applyStorefrontAvailabilityFilter(rows, safeLimit, candidateLimit) {
  * Топ линеек по продажам за период (paid_at, completed/delivered).
  * Логика совпадает с CRM dashboard topProducts.
  *
- * Осторожно с обложкой: g.cover_image тянется в подзапрос item_totals на каждую
- * позицию заказа, а потом сворачивается через MAX(cover_image) — при том что
- * наружу из mapTopSalesRow уходит только булево hasCoverImage. Обложки лежат в
- * базе строкой base64, и на широком периоде это стоит дорого: замер на 10 300
- * позициях и 12,6 МБ обложек дал 3333 мс против 32 мс без обложки, то есть в сто
- * раз. На слабой машине с ограничением по памяти запрос перестаёт возвращаться
- * вовсе и блокирует весь процесс.
- *
- * В остальных местах проекта для этого используется дешёвый признак, например
- * routes/admin.js:2179 и routes/public.js:771:
- *   CASE WHEN cover_image IS NOT NULL AND cover_image != '' THEN 1 ELSE 0 END
+ * Про обложку: в подзапрос идёт только признак «картинка есть», а не сама
+ * картинка. Наружу из mapTopSalesRow всё равно уходит булево hasCoverImage, а
+ * обложки лежат в базе строкой base64 по 50 килобайт. Раньше тут стоял
+ * g.cover_image с последующим MAX(cover_image), и движок тащил эти строки через
+ * каждую позицию заказа: замер на 10 300 позициях дал 3333 мс против 32 мс, то
+ * есть в сто раз дольше. На двух ядрах с ограничением по памяти запрос за год
+ * переставал возвращаться вовсе и блокировал весь процесс, вместе с выдачей
+ * каталога. Не возвращайте сюда саму обложку.
  */
 export function queryTopSalesGroups({
   start,
@@ -162,7 +159,7 @@ export function queryTopSalesGroups({
           oi.total_cost AS total_cost,
           COALESCE(g.id, 'no_group') AS group_id,
           COALESCE(g.name, 'Без линейки') AS group_name,
-          g.cover_image AS cover_image,
+          CASE WHEN g.cover_image IS NOT NULL AND g.cover_image != '' THEN 1 ELSE 0 END AS has_cover_image,
           g.categoryId AS category_id,
           CASE
             WHEN COALESCE(ot.items_subtotal, 0) > 0
@@ -182,7 +179,7 @@ export function queryTopSalesGroups({
       SELECT
         group_id,
         group_name,
-        MAX(cover_image) AS cover_image,
+        MAX(has_cover_image) AS has_cover_image,
         MAX(category_id) AS category_id,
         SUM(quantity) as total_quantity,
         SUM(total_price - (total_price * order_discount_ratio)) as total_revenue,

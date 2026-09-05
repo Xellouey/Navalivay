@@ -115,6 +115,36 @@ assertEq(monthTop.items[0].rank, 1, 'assigns rank 1 to leader');
 assertEq(monthTop.items[1].groupId, 'g_alpha', 'second group is alpha');
 assertEq(monthTop.items[1].totalQuantity, 3, 'alpha quantity is 3');
 
+// Признак «у линейки есть обложка» считается в запросе через CASE, а не через
+// MAX по самой картинке: обложки лежат в базе строкой base64, и протаскивать их
+// через каждую позицию заказа стоит в сто раз дороже. Проверяем оба исхода,
+// чтобы флаг не перестал быть флагом при следующей правке запроса.
+db.prepare('UPDATE category_groups SET cover_image = ? WHERE id = ?').run(
+  'data:image/webp;base64,AAAA',
+  'g_beta',
+);
+db.prepare('UPDATE category_groups SET cover_image = NULL WHERE id = ?').run('g_alpha');
+
+const withCover = queryTopSalesGroups({
+  start,
+  end,
+  categoryId: 'c_liq',
+  sortBy: 'quantity',
+  limit: 5,
+});
+assertEq(withCover.items[0].hasCoverImage, true, 'group with cover reports hasCoverImage');
+assertEq(withCover.items[1].hasCoverImage, false, 'group without cover reports no cover');
+
+db.prepare("UPDATE category_groups SET cover_image = '' WHERE id = ?").run('g_beta');
+const emptyCover = queryTopSalesGroups({
+  start,
+  end,
+  categoryId: 'c_liq',
+  sortBy: 'quantity',
+  limit: 5,
+});
+assertEq(emptyCover.items[0].hasCoverImage, false, 'empty cover string is not a cover');
+
 resetTables();
 seedCategory('c_other', 'Pods', 'none');
 seedGroup('g_pod', 'c_other', 'Pod line');
