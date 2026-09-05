@@ -8,6 +8,11 @@ import { authMiddleware } from './auth.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// Путь к загрузкам здесь задан жёстко, переменная окружения UPLOADS_DIR на него
+// не влияет. Её читают только services/image-thumbnail-service.js и
+// utils/customer-photo-disk.js. Поэтому задавать UPLOADS_DIR частично нельзя:
+// multer будет писать сюда, express.static раздавать отсюда же, а миниатюры и
+// фото клиентов уедут в другой каталог, и на витрине появятся битые картинки.
 const baseUploads = path.resolve(__dirname, '../uploads');
 const MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
 const ALLOWED_MIME_TYPES = new Set([

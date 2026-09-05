@@ -99,6 +99,12 @@ function parseTestIdentity(rawValue) {
   };
 }
 
+// Байпас «представься кем угодно»: заголовок x-test-telegram-auth принимается
+// без всякой подписи. В отличие от соседнего isInsecureTelegramFallbackEnabled,
+// которому нужен ещё и NODE_ENV=development, здесь условия соединены через ИЛИ,
+// поэтому ALLOW_TEST_TELEGRAM_AUTH=1 включает байпас при ЛЮБОМ NODE_ENV, включая
+// production. Проверено прогоном: сервер с NODE_ENV=production и этой переменной
+// отдал 200 на /api/customer/me по одному только заголовку.
 function getTestBypassIdentity(req) {
   const enabled =
     String(process.env.NODE_ENV || "").toLowerCase() === "test" ||

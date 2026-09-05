@@ -99,6 +99,18 @@ function applyStorefrontAvailabilityFilter(rows, safeLimit, candidateLimit) {
 /**
  * Топ линеек по продажам за период (paid_at, completed/delivered).
  * Логика совпадает с CRM dashboard topProducts.
+ *
+ * Осторожно с обложкой: g.cover_image тянется в подзапрос item_totals на каждую
+ * позицию заказа, а потом сворачивается через MAX(cover_image) — при том что
+ * наружу из mapTopSalesRow уходит только булево hasCoverImage. Обложки лежат в
+ * базе строкой base64, и на широком периоде это стоит дорого: замер на 10 300
+ * позициях и 12,6 МБ обложек дал 3333 мс против 32 мс без обложки, то есть в сто
+ * раз. На слабой машине с ограничением по памяти запрос перестаёт возвращаться
+ * вовсе и блокирует весь процесс.
+ *
+ * В остальных местах проекта для этого используется дешёвый признак, например
+ * routes/admin.js:2179 и routes/public.js:771:
+ *   CASE WHEN cover_image IS NOT NULL AND cover_image != '' THEN 1 ELSE 0 END
  */
 export function queryTopSalesGroups({
   start,

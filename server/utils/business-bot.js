@@ -175,7 +175,13 @@ export function listBusinessConnections() {
 }
 
 /** Активный коннект (для отправки сообщений). Возвращает первый
- * is_enabled=1 AND can_reply=1 AND disconnected_at IS NULL. */
+ * is_enabled=1 AND can_reply=1 AND disconnected_at IS NULL.
+ *
+ * Пустая таблица business_connections полностью глушит отправку бизнес-сообщений:
+ * маршруты возвращают no_active_connection, не обращаясь к сети. Этим удобно
+ * пользоваться на тестовых стендах — гарантия, что стенд физически не напишет
+ * живому человеку. Проверено прогоном: POST /api/admin/crm/bot/send-custom с
+ * валидным клиентом отвечает 400 no_active_connection. */
 export function getActiveBusinessConnection() {
   const row = db
     .prepare(

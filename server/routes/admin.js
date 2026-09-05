@@ -358,6 +358,10 @@ adminRouter.post('/api/admin/auth/verify', authMiddleware, (req, res) => {
 });
 
 // Change password
+//
+// Новый пароль пишется в ФАЙЛ (см. writeAdminConfig в server/auth.js), а не в
+// базу. Это важно для любых сценариев с восстановлением: откат базы к резервной
+// копии смену пароля не отменяет, файл admin.json надо восстанавливать отдельно.
 adminRouter.post('/api/admin/password', authMiddleware, async (req, res) => {
   const { currentPassword, newPassword } = req.body || {};
   if (!currentPassword || !newPassword) return res.status(400).json({ error: 'missing' });

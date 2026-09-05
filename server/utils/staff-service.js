@@ -1492,6 +1492,17 @@ export function createShiftRequiredMiddleware() {
   };
 }
 
+/**
+ * Автозакрытие смен. Первый прогон идёт через setImmediate, то есть сразу при
+ * старте процесса: смена с уже прошедшим planned_end_at закрывается со статусом
+ * auto_closed, не дожидаясь интервала. Проверено прогоном на копии базы.
+ *
+ * Для тестовых стендов и наполнения данными это значит, что «открытая сейчас»
+ * смена обязана иметь плановое окончание в будущем, иначе она закроется на
+ * первом же запуске сервера. Одновременно открытой может быть только одна
+ * смена: этого не даёт нарушить уникальный индекс idx_staff_shifts_one_active
+ * (server/migrations/add_staff_management.js).
+ */
 export function startStaffShiftScheduler({
   intervalMs = SHIFT_SCHEDULER_INTERVAL_MS,
 } = {}) {

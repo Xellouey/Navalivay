@@ -50,7 +50,15 @@ function extractProductId(link) {
   }
 }
 
-/** HTTPS URL витрины для web_app кнопок и меню (как в BotFather). Оптовые t.me ссылки с mode=compact — во фронте. */
+/** HTTPS URL витрины для web_app кнопок и меню (как в BotFather). Оптовые t.me ссылки с mode=compact — во фронте.
+ *
+ * Дефолт здесь боевой, и на старте бот вызывает setChatMenuButton с этим
+ * адресом. Значит любой запуск bot.js с чужим или скопированным BOT_TOKEN и
+ * пустым BASE_URL перепишет кнопку меню тому боту, чей токен взяли, и уведёт его
+ * пользователей на боевую витрину. На тестовых стендах bot.js лучше не
+ * запускать вовсе: кнопка Mini App настраивается один раз в BotFather и живёт
+ * без процесса.
+ */
 function getStoreWebAppUrl() {
   return (process.env.BASE_URL || "https://navalivay.store").replace(/\/$/, "");
 }

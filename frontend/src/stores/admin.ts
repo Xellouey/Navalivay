@@ -387,6 +387,16 @@ export const useAdminStore = defineStore('admin', () => {
     useCrmStore().lockStaffAccess()
   }
 
+  // Наблюдение, проверенное в браузере: сессия админки не переживает полную
+  // перезагрузку страницы. Открываем /admin в новом окне с уже лежащим в
+  // localStorage валидным admin_token — через пару секунд localStorage пуст, и
+  // показывается экран входа. Запроса к пробной ручке /api/admin/banners в
+  // сетевом логе при этом нет, то есть токен вычищается раньше, чем сюда
+  // доходит дело. Причина не выяснена.
+  //
+  // Практические следствия: переход по прямой ссылке на вложенный адрес вида
+  // /admin/crm/orders выкидывает на /admin, а нажатие F5 внутри панели требует
+  // ввести пароль заново. Переходы по меню внутри приложения работают штатно.
   async function checkAuth() {
     const storedToken = typeof window !== 'undefined' ? localStorage.getItem('admin_token') : null
     if (!storedToken) {
