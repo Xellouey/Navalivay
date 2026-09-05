@@ -18,7 +18,8 @@ import rateLimit from 'express-rate-limit';
 import {
   DASHBOARD_LOCK_FROM_HOUR,
   DASHBOARD_LOCK_TO_HOUR,
-  isDashboardLocked,
+  isDashboardLockActive,
+  isOverviewPasswordEnabled,
   issueDashboardToken,
   verifyDashboardOwnerPassword,
 } from '../utils/dashboard-access.js';
@@ -415,7 +416,7 @@ adminRouter.post(
         return res.status(400).json({ error: 'missing_password' });
       }
 
-      const locked = isDashboardLocked();
+      const locked = isDashboardLockActive();
       const ownerOk = verifyDashboardOwnerPassword(password);
       let allowed = ownerOk;
 
@@ -438,10 +439,18 @@ adminRouter.post(
   },
 );
 
-/** Состояние замка, чтобы интерфейс знал, какой пароль спрашивать. */
+/**
+ * Состояние замка, чтобы интерфейс знал, какой пароль спрашивать.
+ *
+ * profit_required — выключатель паролей поверх обычного входа
+ * (OVERVIEW_PASSWORD_ENABLED, см. utils/dashboard-access.js). Когда он false,
+ * интерфейс не спрашивает пароль нигде: ни в «Обзоре», ни на себестоимости в
+ * «Товарах», ни в «Финансах», «Заказах», «Архиве», «Закупках» и «Кассе».
+ */
 adminRouter.get('/api/admin/dashboard-access/state', authMiddleware, (_req, res) => {
   res.json({
-    locked: isDashboardLocked(),
+    locked: isDashboardLockActive(),
+    profit_required: isOverviewPasswordEnabled(),
     window: { from: DASHBOARD_LOCK_FROM_HOUR, to: DASHBOARD_LOCK_TO_HOUR },
   });
 });

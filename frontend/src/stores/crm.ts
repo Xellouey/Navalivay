@@ -1403,15 +1403,26 @@ export const useCrmStore = defineStore("crm", () => {
    */
   const dashboardToken = ref("");
   const dashboardLocked = ref(true);
+  /**
+   * Спрашивает ли этот магазин пароли поверх обычного входа. Выключаются
+   * переменной окружения сервера OVERVIEW_PASSWORD_ENABLED
+   * (см. server/utils/dashboard-access.js),
+   * и тогда profitUnlocked поднимается сам. Закрыт им не только «Обзор»:
+   * на нём же себестоимость в «Товарах», «Финансы», «Заказы», «Архив»,
+   * «Закупки» и «Касса». До ответа сервера считаем, что пароли спрашивают.
+   */
+  const overviewPasswordRequired = ref(true);
   const verifyingProfitAccess = ref(false);
   const isProfitUnlocked = computed(() => profitUnlocked.value);
 
   function lockProfitAccess() {
-    profitUnlocked.value = false;
+    // Когда пароли «Обзора» выключены настройкой, запирать нечего: иначе на
+    // экране повис бы запрос пароля, которого магазину никто не выдавал.
+    profitUnlocked.value = !overviewPasswordRequired.value;
     // Пропуск в «Обзор» уходит вместе с ключом: иначе после блокировки хватило
     // бы обычного ключа, чтобы снова увидеть сводку.
     dashboardToken.value = "";
-    dashboardLocked.value = true;
+    dashboardLocked.value = overviewPasswordRequired.value;
     // Загруженную сводку тоже забываем, иначе после повторного входа она
     // отрисуется из памяти, хотя доступ уже отобран.
     dashboardStats.value = null;
@@ -4910,10 +4921,27 @@ export const useCrmStore = defineStore("crm", () => {
   }
 
   async function fetchDashboardAccessState() {
-    const state = await fetchAPI<{ locked: boolean }>(
+    const state = await fetchAPI<{ locked: boolean; profit_required?: boolean }>(
       `/api/admin/dashboard-access/state`,
     );
+    // Поля может не быть только если сервер старее этой сборки. Тогда ведём
+    // себя как раньше и пароль спрашиваем.
+    // Обратной дороги здесь нет: когда пароль нужен, допуск не сбрасываем, а
+    // оставляем как был. Иначе переход между вкладками отбирал бы допуск,
+    // выданный минуту назад.
+    const wasRequired = overviewPasswordRequired.value;
+    overviewPasswordRequired.value = state.profit_required !== false;
     dashboardLocked.value = Boolean(state.locked);
+    if (!overviewPasswordRequired.value) {
+      profitUnlocked.value = true;
+    } else if (!wasRequired) {
+      // Пароли включили обратно, пока вкладка была открыта. Поднятый нами
+      // допуск надо отобрать, иначе себестоимость и «Финансы» так и остались
+      // бы видны без пароля до перезагрузки страницы.
+      profitUnlocked.value =
+        typeof localStorage !== "undefined" &&
+        localStorage.getItem("crm_profit_unlocked") === "true";
+    }
     return state;
   }
 
@@ -5286,6 +5314,7 @@ export const useCrmStore = defineStore("crm", () => {
     deleteProcurement,
     removeProcurementPayment,
     verifyProfitPassword,
+    overviewPasswordRequired,
     verifyDashboardAccess,
     fetchDashboardAccessState,
     clearDashboardAccess,

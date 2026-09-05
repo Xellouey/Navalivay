@@ -2,7 +2,7 @@ import express from 'express';
 import { db } from '../db.js';
 import { authMiddleware } from '../auth.js';
 import {
-  isDashboardLocked,
+  isDashboardLockActive,
   isDashboardTokenValid,
 } from '../utils/dashboard-access.js';
 import {
@@ -144,7 +144,7 @@ function getNextNumber(table, field) {
  * данные всё равно приезжали бы в браузер, и их было бы видно через консоль.
  */
 function requireDashboardAccess(req, res, next) {
-  if (!isDashboardLocked()) return next();
+  if (!isDashboardLockActive()) return next();
   const token = String(req.get('X-Dashboard-Token') || '').trim();
   if (!isDashboardTokenValid(token)) {
     return res.status(403).json({ error: 'dashboard_locked' });

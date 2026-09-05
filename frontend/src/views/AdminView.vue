@@ -1566,10 +1566,15 @@ async function ensureTabData(tab: AdminTabId) {
     return
   }
 
+  // Замок «Обзора» зависит от времени, поэтому браузерным часам тут доверять
+  // нельзя и состояние спрашиваем у сервера при каждом заходе.
+  // Спрашиваем на любой вкладке, а не только на «Обзоре»: тем же флагом
+  // profitUnlocked закрыты себестоимость в «Товарах», «Финансы», «Заказы»,
+  // «Архив», «Закупки» и «Касса», и на них тоже нужно знать, спрашивает ли
+  // этот магазин пароль вообще.
+  await crmStore.fetchDashboardAccessState().catch(() => undefined)
+
   if (tab === 'dashboard') {
-    // Замок зависит от времени, поэтому состояние спрашиваем у сервера при
-    // каждом заходе: браузерным часам тут доверять нельзя.
-    await crmStore.fetchDashboardAccessState().catch(() => undefined)
     if (dataLoaded.dashboard || !dashboardReady.value) {
       return
     }

@@ -32,6 +32,37 @@ export function isDashboardLocked(now = new Date()) {
   return hour >= DASHBOARD_LOCK_FROM_HOUR && hour < DASHBOARD_LOCK_TO_HOUR;
 }
 
+/**
+ * Выключатель обоих замков «Обзора»: и пароля прибыли, и кода владельца.
+ * Заводился для демонстрационного стенда, где посторонний человек смотрит
+ * систему и упираться в пароли не должен.
+ *
+ * Живёт в переменной окружения, а не в настройках магазина, и это важно:
+ * POST /api/admin/settings (routes/admin.js) кладёт в таблицу settings любой
+ * присланный ключ без белого списка, за одним общим ключом CRM. Настройкой
+ * этот выключатель снимался бы одним запросом — теми самыми людьми, от кого
+ * код владельца и заводили. Переменную окружения из админки не поменять.
+ *
+ * Выключено только точным '0'. Пустая строка, мусор, лишний пробел — замок
+ * работает: ошибка в конфиге должна закрывать сводку по выручке, а не
+ * открывать её.
+ */
+export function isOverviewPasswordEnabled() {
+  return String(process.env.OVERVIEW_PASSWORD_ENABLED ?? '1') !== '0';
+}
+
+/**
+ * Замок «Обзора» с учётом выключателя. Именно эту функцию спрашивают ручки;
+ * isDashboardLocked оставлена чистой функцией от времени.
+ *
+ * Пропуски (issueDashboardToken) считают свой штамп по чистой isDashboardLocked.
+ * Рассинхрона не будет: выключатель меняется только перезапуском процесса, а
+ * перезапуск и так стирает все выданные пропуски.
+ */
+export function isDashboardLockActive(now = new Date()) {
+  return isOverviewPasswordEnabled() && isDashboardLocked(now);
+}
+
 /** Сравнение за постоянное время: длина пароля короткая, подбор по таймингу дешёв. */
 export function verifyDashboardOwnerPassword(password) {
   const given = Buffer.from(String(password ?? ''));

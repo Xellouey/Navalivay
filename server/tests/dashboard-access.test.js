@@ -1,5 +1,12 @@
 import assert from 'node:assert/strict';
-import { getTimeZoneDateParts } from '../utils/business-time.js';
+
+// Зону выставляем до первого импорта business-time.js: модуль читает
+// BUSINESS_TIMEZONE один раз при загрузке. Поэтому импорт динамический —
+// статический ESM поднял бы его выше этой строки, и тест зависел бы от
+// зоны машины (с BUSINESS_TIMEZONE=UTC он падал).
+process.env.BUSINESS_TIMEZONE = 'Europe/Minsk';
+
+const { getTimeZoneDateParts } = await import('../utils/business-time.js');
 
 /**
  * Окно проверок: 10:00–16:00 по Минску. Логику часа проверяем без базы, чтобы
@@ -37,9 +44,45 @@ assert.equal(lockedAt(after.hour), false);
 const {
   issueDashboardToken,
   isDashboardTokenValid,
+  isDashboardLockActive,
+  isOverviewPasswordEnabled,
   revokeAllDashboardTokens,
   verifyDashboardOwnerPassword,
 } = await import('../utils/dashboard-access.js');
+
+console.log('обзор: выключатель паролей');
+// 2026-07-30 08:30 UTC = 11:30 в Минске, то есть середина окна проверок.
+const middleOfWindow = new Date('2026-07-30T08:30:00.000Z');
+
+delete process.env.OVERVIEW_PASSWORD_ENABLED;
+assert.equal(
+  isOverviewPasswordEnabled(),
+  true,
+  'переменной нет — пароль спрашиваем, иначе обновление открыло бы выручку всем',
+);
+assert.equal(isDashboardLockActive(middleOfWindow), true, 'по умолчанию замок работает как раньше');
+
+process.env.OVERVIEW_PASSWORD_ENABLED = '0';
+assert.equal(isOverviewPasswordEnabled(), false);
+assert.equal(
+  isDashboardLockActive(middleOfWindow),
+  false,
+  'выключенные пароли снимают замок и в середине окна проверок',
+);
+
+// Выключает только точное '0'. Опечатка в конфиге обязана закрывать выручку,
+// а не открывать её.
+for (const bad of ['', ' ', ' 0', '0 ', '00', 'false', 'off', 'no', 'нет', '1', 'true']) {
+  process.env.OVERVIEW_PASSWORD_ENABLED = bad;
+  assert.equal(
+    isOverviewPasswordEnabled(),
+    true,
+    `значение ${JSON.stringify(bad)} не должно снимать замок`,
+  );
+  assert.equal(isDashboardLockActive(middleOfWindow), true);
+}
+
+delete process.env.OVERVIEW_PASSWORD_ENABLED;
 
 console.log('обзор: пароль владельца');
 assert.equal(verifyDashboardOwnerPassword('0002'), true);
