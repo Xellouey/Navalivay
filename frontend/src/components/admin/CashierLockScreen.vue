@@ -158,17 +158,27 @@
       <div class="w-80 bg-white border-l border-gray-200 flex flex-col">
         <div class="p-4 border-b border-gray-200">
           <label class="block text-sm font-medium text-gray-700 mb-2">Поиск по товарам</label>
-          <div class="relative">
+          <!--
+            Форма, а не просто div: без неё с телефона в админку не войти.
+            Проверено на живом телефоне: клавиатура показывала «Далее», и по
+            нажатию фокус уезжал в поле клиента ниже, а keydown с Enter в
+            страницу не приходил вовсе, поэтому handleSearch не вызывался и
+            пароль не проверялся. В форме с единственным полем то же нажатие
+            отправляет форму, а enterkeyhint="search" убирает «Далее» и
+            сохраняет маскировку блока под поиск. На компьютере поведение
+            прежнее: Enter отправляет форму, обработчик тот же.
+          -->
+          <form class="relative" @submit.prevent="handleSearch">
             <MagnifyingGlassIcon class="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
             <input
               ref="searchInput"
               v-model="searchQuery"
               type="text"
+              enterkeyhint="search"
               class="w-full rounded-lg border border-gray-300 pl-10 pr-4 py-2.5 text-sm focus:border-gray-500 focus:outline-none focus:ring-2 focus:ring-gray-200"
               placeholder="Введите название..."
-              @keydown.enter="handleSearch"
             />
-          </div>
+          </form>
           <!-- Fake search result -->
           <p v-if="lastSearchQuery && !isVerifying" class="mt-2 text-xs text-gray-500">
             По запросу "{{ lastSearchQuery }}" товаров не найдено
