@@ -8,19 +8,30 @@
 <AdminLayout v-else-if="adminStore.isAuthenticated" v-model="layoutTab" :tabs="adminTabs" :main-active="!isCrmRoute" :crm-links="crmLinks" @lock="handleLock">
         <template #default>
           <!--
-            Разделы CRM меняются здесь, поэтому и анимация живёт здесь.
-            Раньше её изображал верхний <Transition> в App.vue: он уводил и
-            возвращал всю админку целиком, а этот RouterView успевал подменить
-            содержимое ещё до начала ухода — было видно, как раздел сменился
-            раньше анимации. Теперь уезжает ровно то, что меняется.
+            Здесь меняется раздел — здесь же живёт и анимация. Один переход на
+            все три случая: вкладка на вкладку, раздел CRM на раздел CRM и
+            переход между ними.
+
+            Раньше её изображал верхний <Transition> в App.vue, но он уводил и
+            возвращал всю админку целиком по ключу route.fullPath. Экземпляр
+            AdminView во время ухода остаётся живым и реактивным, поэтому
+            успевал перерисоваться под новый маршрут: раздел сменялся до начала
+            анимации, а потом уезжало уже подменённое.
+
+            Уходящий здесь — либо этот <div> (обычный элемент, его поддерево во
+            время ухода больше не перерисовывается), либо экран CRM, который
+            своим содержимым от маршрута не зависит. Поэтому подмена происходит
+            после ухода, а не до него.
+
+            RouterView стоит снаружи, а не под v-if, чтобы переход видел оба
+            варианта как замену одного ребёнка другим. Вне разделов CRM он
+            отдаёт Component равным undefined — его закрывает v-if.
             Класс page-fade объявлен в App.vue в неизолированном <style>.
           -->
-          <RouterView v-if="isCrmRoute" v-slot="{ Component, route: crmRoute }">
+          <RouterView v-slot="{ Component, route: crmRoute }">
             <Transition name="page-fade" mode="out-in">
-              <component :is="Component" :key="crmRoute.fullPath" />
-            </Transition>
-          </RouterView>
-          <template v-else>
+              <component v-if="isCrmRoute" :is="Component" :key="crmRoute.fullPath" />
+              <div v-else :key="activeTab">
             <!-- Overview -->
             <template v-if="activeTab === 'dashboard'">
               <!-- Profit access form for dashboard -->
@@ -888,7 +899,9 @@
             </div>
           </div>
           </template>
-          </template>
+              </div>
+            </Transition>
+          </RouterView>
         </template>
       </AdminLayout>
 
