@@ -10,6 +10,7 @@ import ReviewPromptModal from "@/components/reviews/ReviewPromptModal.vue";
 import ReferralAuthorizationGate from "@/components/ReferralAuthorizationGate.vue";
 import { useCustomerBlock } from "@/composables/useCustomerBlock";
 import { useUserStore } from "@/stores/user";
+import { topLevelViewKey } from "@/router/view-key";
 const route = useRoute();
 const { currentBlock, isBlocked, refreshBlock } = useCustomerBlock();
 const userStore = useUserStore();
@@ -94,7 +95,7 @@ onMounted(() => {
       <div class="app-shell__content">
         <RouterView v-slot="{ Component, route: viewRoute }">
           <Transition name="page-fade" mode="out-in">
-            <component :is="Component" :key="viewRoute.fullPath" />
+            <component :is="Component" :key="topLevelViewKey(viewRoute)" />
           </Transition>
         </RouterView>
       </div>

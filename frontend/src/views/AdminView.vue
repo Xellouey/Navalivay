@@ -7,7 +7,19 @@
     <!-- Authenticated layout -->
 <AdminLayout v-else-if="adminStore.isAuthenticated" v-model="layoutTab" :tabs="adminTabs" :main-active="!isCrmRoute" :crm-links="crmLinks" @lock="handleLock">
         <template #default>
-          <RouterView v-if="isCrmRoute" />
+          <!--
+            Разделы CRM меняются здесь, поэтому и анимация живёт здесь.
+            Раньше её изображал верхний <Transition> в App.vue: он уводил и
+            возвращал всю админку целиком, а этот RouterView успевал подменить
+            содержимое ещё до начала ухода — было видно, как раздел сменился
+            раньше анимации. Теперь уезжает ровно то, что меняется.
+            Класс page-fade объявлен в App.vue в неизолированном <style>.
+          -->
+          <RouterView v-if="isCrmRoute" v-slot="{ Component, route: crmRoute }">
+            <Transition name="page-fade" mode="out-in">
+              <component :is="Component" :key="crmRoute.fullPath" />
+            </Transition>
+          </RouterView>
           <template v-else>
             <!-- Overview -->
             <template v-if="activeTab === 'dashboard'">
