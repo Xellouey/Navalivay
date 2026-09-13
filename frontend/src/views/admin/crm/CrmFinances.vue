@@ -32,7 +32,7 @@
         <div class="mb-8">
           <div class="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <h2 class="text-xl font-bold text-gray-900">Счета и кассы</h2>
-            <button @click="showAccountModal = true" class="w-full rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-blue-700 sm:w-auto">Добавить счет</button>
+            <button @click="showAccountModal = true" class="w-full rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-blue-700 sm:w-auto">Добавить счёт</button>
           </div>
           <div class="grid grid-cols-1 gap-4 md:grid-cols-3">
             <div v-for="account in cashAccounts" :key="account.id" class="bg-white rounded-lg shadow-sm p-6">
@@ -73,7 +73,7 @@
               <thead class="border-b">
                 <tr>
                   <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Дата</th>
-                  <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Счет</th>
+                  <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Счёт</th>
                   <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Тип</th>
                   <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Описание</th>
                   <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Сумма</th>
@@ -196,7 +196,7 @@
     >
       <div class="space-y-4">
         <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">Счет</label>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Счёт</label>
           <select v-model="newTransaction.account_id" class="w-full px-3 py-2 border border-gray-300 rounded-md">
             <option v-for="acc in cashAccounts" :key="acc.id" :value="acc.id">{{ acc.name }}</option>
           </select>
@@ -235,7 +235,7 @@
     >
       <div v-if="editTransaction" class="space-y-4">
         <div>
-          <label class="mb-1 block text-sm font-medium text-gray-700">Счет</label>
+          <label class="mb-1 block text-sm font-medium text-gray-700">Счёт</label>
           <select v-model="editTransactionForm.account_id" class="w-full rounded-md border border-gray-300 px-3 py-2">
             <option v-for="acc in cashAccounts" :key="acc.id" :value="acc.id">{{ acc.name }}</option>
           </select>
@@ -279,7 +279,7 @@
     <!-- Add Account Modal -->
     <AdminModal
       :isOpen="showAccountModal"
-      title="Новый счет"
+      title="Новый счёт"
       description="Создайте дополнительную кассу и настройте начальный баланс."
       size="sm"
       :showActions="false"
@@ -288,7 +288,7 @@
     >
       <div class="space-y-4">
         <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">Название счета</label>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Название счёта</label>
           <input v-model.trim="newAccount.name" type="text" class="w-full px-3 py-2 border border-gray-300 rounded-md" placeholder="Например, Касса в магазине" />
         </div>
         <div>
@@ -297,7 +297,7 @@
         </div>
         <label class="inline-flex items-center text-sm text-gray-700">
           <input v-model="newAccount.is_default" type="checkbox" class="mr-2 rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
-          Сделать счетом по умолчанию
+          Сделать счётом по умолчанию
         </label>
         <div class="flex gap-3 pt-2">
           <button @click="addAccount" class="flex-1 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700">Создать</button>
@@ -389,7 +389,7 @@ function filterBtnClass(filter: 'income' | 'expense' | null) {
 async function addTransaction() {
   try {
     if (!newTransaction.value.account_id) {
-      alert('Выберите счет для транзакции')
+      alert('Выберите счёт для транзакции')
       return
     }
 
@@ -398,13 +398,13 @@ async function addTransaction() {
     await crmStore.fetchCashAccounts()
     await crmStore.fetchCashTransactions()
   } catch (error) {
-    alert('Ошибка добавления транзакции')
+    alert('Не получилось добавить транзакцию.')
   }
 }
 
 async function addAccount() {
   if (!newAccount.value.name.trim()) {
-    alert('Укажите название счета')
+    alert('Укажите название счёта.')
     return
   }
 
@@ -417,7 +417,7 @@ async function addAccount() {
     await crmStore.fetchCashAccounts()
     closeAccountModal()
   } catch (error) {
-    alert('Ошибка создания счета')
+    alert('Не получилось создать счёт.')
   }
 }
 
@@ -430,8 +430,12 @@ function closeAccountModal() {
   resetNewAccount()
 }
 
-async function confirmDeleteAccount(account: { id: string; name: string }) {
-  if (!confirm(`Удалить счёт "${account.name}"?\n\nЭто действие нельзя отменить.`)) {
+async function confirmDeleteAccount(account: { id: string; name: string; balance: number }) {
+  const balanceNote = Number(account.balance)
+    ? `\nОстаток ${formatCurrency(account.balance)} пропадёт из списка счетов.`
+    : ''
+
+  if (!confirm(`Удалить счёт «${account.name}»?${balanceNote}\nТранзакции по нему останутся на месте.`)) {
     return
   }
 
@@ -439,20 +443,21 @@ async function confirmDeleteAccount(account: { id: string; name: string }) {
     await crmStore.deleteCashAccount(account.id)
     await crmStore.fetchCashAccounts()
   } catch (error: any) {
-    let message = 'Ошибка удаления счёта'
-    
-    // Парсим ошибку от сервера
-    const errorCode = error?.error || error?.message
-    if (errorCode === 'has_transactions') {
-      message = 'Невозможно удалить счёт: на нём есть транзакции. Сначала удалите все транзакции.'
-    } else if (errorCode === 'last_account') {
-      message = 'Невозможно удалить последний счёт. Должен остаться хотя бы один.'
-    } else if (errorCode === 'not_found') {
-      message = 'Счёт не найден'
-    } else if (error?.message) {
+    // Слаг ошибки fetchAPI кладёт в code, а не в error (stores/crm.ts). В message
+    // на 500 приезжает текст серверного исключения вроде FOREIGN KEY constraint
+    // failed — такое пользователю не показываем.
+    let message = 'Не получилось удалить счёт. Обновите страницу и попробуйте ещё раз.'
+
+    if (error?.code === 'last_account') {
+      message = 'Это последний счёт, без него некуда проводить оплаты. Сначала добавьте новый кнопкой «Добавить счёт».'
+    } else if (error?.code === 'not_found') {
+      message = 'Счёта уже нет.'
+      await crmStore.fetchCashAccounts().catch(() => undefined)
+    } else if (error?.name === 'StaffApiError') {
+      // Обрыв связи: там текст уже человеческий, свой был бы хуже.
       message = error.message
     }
-    
+
     alert(message)
   }
 }
@@ -551,7 +556,7 @@ async function deleteTransaction(transaction: CashTransaction) {
     await crmStore.fetchCashAccounts()
     await crmStore.fetchCashTransactions({ type: transactionFilter.value || undefined })
   } catch (error) {
-    alert('Ошибка удаления транзакции')
+    alert('Не получилось удалить транзакцию.')
   }
 }
 

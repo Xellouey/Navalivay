@@ -562,7 +562,27 @@ crmFinanceRouter.patch('/api/admin/crm/cash-accounts/:id', authMiddleware, (req,
   }
 });
 
-// Удаление счета
+// Удаление счёта. Счёт не стирается из базы, а помечается active = 0.
+//
+// Стереть строку нельзя по двум причинам, обе видны в схеме:
+// 1) cash_transactions.account_id объявлен ON DELETE CASCADE
+//    (migrations/add_crm_tables.js:151), а внешние ключи включены
+//    (server/db.js:91) — удаление счёта молча унесло бы весь его денежный
+//    журнал, включая оплаты заказов и закупки;
+// 2) orders.payment_account_id ссылается на cash_accounts без ON DELETE
+//    (migrations/add_payment_fields_to_orders.js:15), то есть NO ACTION —
+//    у счёта, которым хоть раз оплатили заказ, удаление строки падает на
+//    внешнем ключе и превращается в невнятную 500.
+//
+// Раньше здесь стоял запрет «сначала удалите все транзакции». Он невыполним:
+// транзакции заказов и продаж через кассу не удаляются ни ручкой
+// DELETE /cash-transactions/:id (409 linked_order / linked_pos_sale), ни из
+// интерфейса — там кнопки выключены. Счёт, принявший хоть одну оплату,
+// оставался в CRM навсегда.
+//
+// Что видно пользователю: счёт исчезает из списка (GET фильтрует active = 1)
+// и из всех выпадающих списков, а его транзакции остаются в журнале под
+// прежним названием счёта.
 crmFinanceRouter.delete('/api/admin/crm/cash-accounts/:id', authMiddleware, (req, res) => {
   try {
     const { id } = req.params;
@@ -572,34 +592,38 @@ crmFinanceRouter.delete('/api/admin/crm/cash-accounts/:id', authMiddleware, (req
       return res.status(404).json({ error: 'not_found' });
     }
 
-    // Проверяем, есть ли транзакции по этому счету
-    const transactionsCount = db.prepare('SELECT COUNT(*) as count FROM cash_transactions WHERE account_id = ?').get(id);
-    if (transactionsCount.count > 0) {
-      return res.status(409).json({ 
-        error: 'has_transactions', 
-        message: `Невозможно удалить счёт: есть ${transactionsCount.count} транзакций` 
-      });
+    // Повторное удаление уже скрытого счёта — не ошибка, а тот же результат.
+    if (!account.active) {
+      return res.json({ ok: true });
     }
 
-    // Проверяем, не является ли это единственным счетом
+    // Последний счёт убирать нельзя: без него закупки и оплаты некуда проводить.
     const accountsCount = db.prepare('SELECT COUNT(*) as count FROM cash_accounts WHERE active = 1').get();
     if (accountsCount.count <= 1) {
-      return res.status(409).json({ 
-        error: 'last_account', 
-        message: 'Невозможно удалить последний счёт' 
+      return res.status(409).json({
+        error: 'last_account',
+        message: 'Невозможно удалить последний счёт'
       });
     }
 
-    // Если удаляем дефолтный счет, назначаем другой дефолтным
-    if (account.is_default) {
-      const anotherAccount = db.prepare('SELECT id FROM cash_accounts WHERE id != ? AND active = 1 LIMIT 1').get(id);
-      if (anotherAccount) {
-        db.prepare('UPDATE cash_accounts SET is_default = 1 WHERE id = ?').run(anotherAccount.id);
+    const tx = db.transaction(() => {
+      // Флаг «по умолчанию» обязан остаться ровно у одного живого счёта:
+      // приёмка закупки ищет кассу именно по нему (crm-operations.js:3415)
+      // и молча не списывает деньги, если не нашла.
+      if (account.is_default) {
+        const heir = db
+          .prepare('SELECT id FROM cash_accounts WHERE id != ? AND active = 1 ORDER BY created_at ASC, id ASC LIMIT 1')
+          .get(id);
+        if (!heir) {
+          throw new Error('no_default_heir');
+        }
+        db.prepare('UPDATE cash_accounts SET is_default = 1 WHERE id = ?').run(heir.id);
       }
-    }
 
-    // Удаляем счет
-    db.prepare('DELETE FROM cash_accounts WHERE id = ?').run(id);
+      db.prepare('UPDATE cash_accounts SET active = 0, is_default = 0 WHERE id = ?').run(id);
+    });
+
+    tx();
 
     res.json({ ok: true });
   } catch (error) {
@@ -682,7 +706,7 @@ crmFinanceRouter.post('/api/admin/crm/cash-transactions', authMiddleware, (req, 
       return res.status(400).json({ error: 'invalid_type' });
     }
 
-    const account = db.prepare('SELECT * FROM cash_accounts WHERE id = ?').get(account_id);
+    const account = db.prepare('SELECT * FROM cash_accounts WHERE id = ? AND active = 1').get(account_id);
     if (!account) {
       return res.status(404).json({ error: 'account_not_found' });
     }
@@ -755,7 +779,7 @@ crmFinanceRouter.patch('/api/admin/crm/cash-transactions/:id', authMiddleware, (
       return res.status(400).json({ error: 'invalid_amount' });
     }
 
-    const account = db.prepare('SELECT * FROM cash_accounts WHERE id = ?').get(nextAccountId);
+    const account = db.prepare('SELECT * FROM cash_accounts WHERE id = ? AND active = 1').get(nextAccountId);
     if (!account) {
       return res.status(404).json({ error: 'account_not_found' });
     }

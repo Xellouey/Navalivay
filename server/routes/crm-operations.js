@@ -2236,7 +2236,7 @@ crmOperationsRouter.post(
       }
 
       const account = db
-        .prepare("SELECT * FROM cash_accounts WHERE id = ?")
+        .prepare("SELECT * FROM cash_accounts WHERE id = ? AND active = 1")
         .get(payment_account_id);
       if (!account) {
         return res.status(404).json({ error: "account_not_found" });
@@ -3412,7 +3412,7 @@ crmOperationsRouter.post(
 
         // Списываем деньги из кассы
         const defaultAccount = db
-          .prepare("SELECT id FROM cash_accounts WHERE is_default = 1 LIMIT 1")
+          .prepare("SELECT id FROM cash_accounts WHERE is_default = 1 AND active = 1 LIMIT 1")
           .get();
         if (defaultAccount) {
           const transId = generateId("trans");
