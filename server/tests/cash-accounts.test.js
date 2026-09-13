@@ -19,12 +19,14 @@ process.env.BOT_TOKEN = '';
 const { initDb, db } = await import('../db.js');
 const { issueToken } = await import('../auth.js');
 const { crmFinanceRouter } = await import('../routes/crm-finance.js');
+const { crmOperationsRouter } = await import('../routes/crm-operations.js');
 
 initDb();
 
 const app = express();
 app.use(express.json());
 app.use(crmFinanceRouter);
+app.use(crmOperationsRouter);
 
 const server = await new Promise((resolve) => {
   const instance = app.listen(0, () => resolve(instance));
@@ -183,6 +185,114 @@ async function testUnknownAccount() {
   assert.equal(data.error, 'not_found');
 }
 
+// Стартовый остаток обязан попасть в журнал: иначе сумма движений по счёту
+// никогда не объяснит его остаток.
+async function testOpeningBalanceIsRecorded() {
+  const account = await createAccount('Сейф', { balance: 500 });
+  assert.equal(accountRow(account.id).balance, 500);
+
+  const rows = db
+    .prepare('SELECT type, amount, description FROM cash_transactions WHERE account_id = ?')
+    .all(account.id);
+  assert.equal(rows.length, 1, 'стартовый остаток не попал в журнал');
+  assert.deepEqual(rows[0], { type: 'income', amount: 500, description: 'Начальный остаток' });
+
+  const zero = await createAccount('Без остатка');
+  assert.equal(countTransactions(zero.id), 0, 'нулевой остаток не должен заводить транзакцию');
+}
+
+async function testCreateAccountValidatesInput() {
+  const blankName = await requestJson('/api/admin/crm/cash-accounts', {
+    method: 'POST',
+    body: JSON.stringify({ name: '   ' }),
+  });
+  assert.equal(blankName.response.status, 400);
+  assert.equal(blankName.data.error, 'name_required');
+
+  const badBalance = await requestJson('/api/admin/crm/cash-accounts', {
+    method: 'POST',
+    body: JSON.stringify({ name: 'Кривой', balance: 'много' }),
+  });
+  assert.equal(badBalance.response.status, 400);
+  assert.equal(badBalance.data.error, 'invalid_balance');
+  assert.equal(
+    db.prepare("SELECT COUNT(*) AS n FROM cash_accounts WHERE name = 'Кривой'").get().n,
+    0,
+    'счёт с нечисловым остатком всё-таки создался',
+  );
+}
+
+// Явный is_default: false обязан снимать флаг, а не молча возвращать прежний.
+async function testDefaultFlagCanBeHandedOver() {
+  const first = await createAccount('Первая касса', { is_default: true });
+  const second = await createAccount('Вторая касса');
+  assert.equal(accountRow(first.id).is_default, 1);
+
+  const { response, data } = await requestJson(`/api/admin/crm/cash-accounts/${first.id}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ is_default: false }),
+  });
+  assert.equal(response.status, 200);
+  assert.equal(data.is_default, 0, 'сервер ответил 200, но флаг не снял');
+  assert.equal(accountRow(first.id).is_default, 0);
+
+  const defaults = db.prepare('SELECT id FROM cash_accounts WHERE is_default = 1 AND active = 1').all();
+  assert.equal(defaults.length, 1, `касс по умолчанию должно быть ровно 1, а их ${defaults.length}`);
+  assert.notEqual(defaults[0].id, first.id);
+  assert.ok(second.id, 'второй счёт нужен как наследник флага');
+}
+
+async function testTransactionListClampsPaging() {
+  const garbage = await requestJson('/api/admin/crm/cash-transactions?limit=abc');
+  assert.equal(garbage.response.status, 200, 'нечисловой limit уронил запрос');
+  assert.ok(Array.isArray(garbage.data));
+
+  const huge = await requestJson('/api/admin/crm/cash-transactions?limit=99999999');
+  assert.equal(huge.response.status, 200);
+  assert.ok(huge.data.length <= 500, `отдано ${huge.data.length} строк вместо не более 500`);
+
+  const negative = await requestJson('/api/admin/crm/cash-transactions?offset=-5');
+  assert.equal(negative.response.status, 200);
+}
+
+// Приёмка закупки без кассы по умолчанию обязана останавливаться, а не
+// принимать товар молча и без списания денег.
+async function testProcurementNeedsCashAccount() {
+  const categoryId = db.prepare('SELECT id FROM categories LIMIT 1').get().id;
+  db.prepare(
+    `INSERT INTO products (id, categoryId, title, priceRub, createdAt)
+     VALUES ('prod_cash_guard', ?, 'Товар для проверки кассы', 10, DATETIME('now'))`,
+  ).run(categoryId);
+  db.prepare(
+    `INSERT INTO procurements (id, procurement_number, total_amount, status)
+     VALUES ('proc_cash_guard', 9901, 100, 'draft')`,
+  ).run();
+  db.prepare(
+    `INSERT INTO procurement_items (id, procurement_id, product_id, quantity, cost_per_unit, total_cost)
+     VALUES ('procitem_cash_guard', 'proc_cash_guard', 'prod_cash_guard', 2, 50, 100)`,
+  ).run();
+
+  const stockBefore = db.prepare("SELECT stock FROM products WHERE id = 'prod_cash_guard'").get().stock;
+  db.prepare('UPDATE cash_accounts SET is_default = 0').run();
+
+  const { response, data } = await requestJson(
+    '/api/admin/crm/procurements/proc_cash_guard/complete',
+    { method: 'POST' },
+  );
+  assert.equal(response.status, 409, `приёмка прошла без кассы: ${JSON.stringify(data)}`);
+  assert.equal(data.error, 'cash_account_required');
+  assert.equal(
+    db.prepare("SELECT status FROM procurements WHERE id = 'proc_cash_guard'").get().status,
+    'draft',
+    'закупка принялась, хотя деньги не списаны',
+  );
+  assert.equal(
+    db.prepare("SELECT stock FROM products WHERE id = 'prod_cash_guard'").get().stock,
+    stockBefore,
+    'товар пришёл на склад без списания денег',
+  );
+}
+
 try {
   const hiddenId = await testDeleteAccountWithOrderTransaction();
   await testDeleteAccountReferencedByOrder();
@@ -190,7 +300,12 @@ try {
   await testHiddenAccountRejectsNewTransaction(hiddenId);
   await testRepeatedDeleteIsOk(hiddenId);
   await testUnknownAccount();
+  await testOpeningBalanceIsRecorded();
+  await testCreateAccountValidatesInput();
+  await testDefaultFlagCanBeHandedOver();
+  await testTransactionListClampsPaging();
   await testLastActiveAccountIsProtected();
+  await testProcurementNeedsCashAccount();
   console.log('cash-accounts tests passed');
 } finally {
   server.close();

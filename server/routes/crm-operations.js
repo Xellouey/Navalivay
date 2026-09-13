@@ -3410,39 +3410,44 @@ crmOperationsRouter.post(
           throw new StaffServiceError("already_completed", 409);
         }
 
-        // Списываем деньги из кассы
+        // Списываем деньги из кассы. Кассы по умолчанию может не оказаться:
+        // тогда приёмку надо остановить, а не принять молча. Иначе товар
+        // приходит на склад, expense_transaction_id остаётся пустым, деньги из
+        // кассы не уходят, и расхождение всплывает только при сверке.
         const defaultAccount = db
           .prepare("SELECT id FROM cash_accounts WHERE is_default = 1 AND active = 1 LIMIT 1")
           .get();
-        if (defaultAccount) {
-          const transId = generateId("trans");
-          db.prepare(
-            `
+        if (!defaultAccount) {
+          throw new StaffServiceError("cash_account_required", 409);
+        }
+
+        const transId = generateId("trans");
+        db.prepare(
+          `
           INSERT INTO cash_transactions (
             id, account_id, type, amount, description, employee_id
           )
           VALUES (?, ?, 'expense', ?, ?, ?)
         `,
-          ).run(
-            transId,
-            defaultAccount.id,
-            freshProcurement.total_amount,
-            `Закупка #${procurement.procurement_number}`,
-            actor?.employeeId || null,
-          );
+        ).run(
+          transId,
+          defaultAccount.id,
+          freshProcurement.total_amount,
+          `Закупка #${procurement.procurement_number}`,
+          actor?.employeeId || null,
+        );
 
-          db.prepare(
-            "UPDATE cash_accounts SET balance = balance - ? WHERE id = ?",
-          ).run(freshProcurement.total_amount, defaultAccount.id);
+        db.prepare(
+          "UPDATE cash_accounts SET balance = balance - ? WHERE id = ?",
+        ).run(freshProcurement.total_amount, defaultAccount.id);
 
-          db.prepare(
-            `
+        db.prepare(
+          `
           UPDATE procurements
           SET expense_transaction_id = ?
           WHERE id = ?
         `,
-            ).run(transId, id);
-        }
+        ).run(transId, id);
 
         if (actor) {
           const eventKey = `procurement:${id}:accepted`;

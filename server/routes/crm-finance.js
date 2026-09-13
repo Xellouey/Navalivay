@@ -24,6 +24,21 @@ function getNextNumber(table, field) {
   return (row?.maxNum || 0) + 1;
 }
 
+/**
+ * Число из строки запроса, пригодное для LIMIT/OFFSET.
+ *
+ * Без этого ?limit=abc даёт NaN, который better-sqlite3 отказывается
+ * привязывать, и запрос падает в 500; а ?limit=99999999 вытаскивает весь
+ * денежный журнал магазина одним ответом.
+ */
+function clampQueryInt(value, fallback, max) {
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    return fallback;
+  }
+  return Math.min(parsed, max);
+}
+
 function getLinkedPosSaleByTransactionId(transactionId) {
   return db.prepare(`
     SELECT id, sale_number
@@ -504,23 +519,48 @@ crmFinanceRouter.get('/api/admin/crm/cash-accounts', authMiddleware, (req, res) 
 
 crmFinanceRouter.post('/api/admin/crm/cash-accounts', authMiddleware, (req, res) => {
   try {
-    const { name, balance = 0, is_default = false } = req.body;
+    const { is_default = false } = req.body ?? {};
+    const name = typeof req.body?.name === 'string' ? req.body.name.trim() : '';
+    const rawBalance = req.body?.balance;
+    const balance =
+      rawBalance === undefined || rawBalance === null || rawBalance === '' ? 0 : Number(rawBalance);
 
     if (!name) {
       return res.status(400).json({ error: 'name_required' });
     }
 
-    const id = generateId('acc');
-
-    // Если это дефолтный счет, убираем флаг у других
-    if (is_default) {
-      db.prepare('UPDATE cash_accounts SET is_default = 0').run();
+    // Колонка balance объявлена REAL, но SQLite положит в неё и строку: без этой
+    // проверки счёт с balance = 'много' переживёт вставку, а первое же
+    // balance = balance - ? превратит остаток в NULL.
+    if (!Number.isFinite(balance)) {
+      return res.status(400).json({ error: 'invalid_balance' });
     }
 
-    db.prepare(`
-      INSERT INTO cash_accounts (id, name, balance, is_default, active)
-      VALUES (?, ?, ?, ?, 1)
-    `).run(id, name, balance, is_default ? 1 : 0);
+    const id = generateId('acc');
+
+    const tx = db.transaction(() => {
+      // Если это дефолтный счет, убираем флаг у других
+      if (is_default) {
+        db.prepare('UPDATE cash_accounts SET is_default = 0').run();
+      }
+
+      db.prepare(`
+        INSERT INTO cash_accounts (id, name, balance, is_default, active)
+        VALUES (?, ?, ?, ?, 1)
+      `).run(id, name, balance, is_default ? 1 : 0);
+
+      // Стартовый остаток заводится транзакцией, а не только числом в колонке:
+      // иначе сумма движений по счёту никогда не сойдётся с его остатком, и при
+      // сверке кассы эта разница неотличима от потерянной транзакции.
+      if (balance !== 0) {
+        db.prepare(`
+          INSERT INTO cash_transactions (id, account_id, type, amount, description)
+          VALUES (?, ?, ?, ?, 'Начальный остаток')
+        `).run(generateId('trans'), id, balance > 0 ? 'income' : 'expense', Math.abs(balance));
+      }
+    });
+
+    tx();
 
     const account = db.prepare('SELECT * FROM cash_accounts WHERE id = ?').get(id);
     res.json(account);
@@ -533,23 +573,48 @@ crmFinanceRouter.post('/api/admin/crm/cash-accounts', authMiddleware, (req, res)
 crmFinanceRouter.patch('/api/admin/crm/cash-accounts/:id', authMiddleware, (req, res) => {
   try {
     const { id } = req.params;
-    const { name, is_default } = req.body;
+    const { name, is_default } = req.body ?? {};
 
     const account = db.prepare('SELECT * FROM cash_accounts WHERE id = ?').get(id);
     if (!account) {
       return res.status(404).json({ error: 'not_found' });
     }
 
+    const nextName = name === undefined ? account.name : String(name).trim();
+    if (!nextName) {
+      return res.status(400).json({ error: 'name_required' });
+    }
+
+    // Явный false обязан снимать флаг: молча вернуть прежнее значение и ответить
+    // 200 — тихий отказ, вызывающий считает, что всё получилось.
+    const nextIsDefault = is_default === undefined ? Boolean(account.is_default) : Boolean(is_default);
+
+    // Кассой по умолчанию может быть только видимый счёт: приёмка закупки ищет
+    // её среди active = 1 и без неё останавливается.
+    if (nextIsDefault && !account.active) {
+      return res.status(409).json({ error: 'account_hidden' });
+    }
+
     const tx = db.transaction(() => {
-      if (is_default) {
+      if (nextIsDefault) {
         db.prepare('UPDATE cash_accounts SET is_default = 0').run();
+      } else if (account.is_default) {
+        // Флаг не снимается в пустоту, а передаётся: магазин без кассы по
+        // умолчанию не сможет принять закупку.
+        const heir = db
+          .prepare('SELECT id FROM cash_accounts WHERE id != ? AND active = 1 ORDER BY created_at ASC, id ASC LIMIT 1')
+          .get(id);
+        if (!heir) {
+          throw new Error('default_required');
+        }
+        db.prepare('UPDATE cash_accounts SET is_default = 1 WHERE id = ?').run(heir.id);
       }
 
       db.prepare(`
-        UPDATE cash_accounts 
+        UPDATE cash_accounts
         SET name = ?, is_default = ?
         WHERE id = ?
-      `).run(name !== undefined ? name : account.name, is_default ? 1 : account.is_default, id);
+      `).run(nextName, nextIsDefault ? 1 : 0, id);
     });
 
     tx();
@@ -557,6 +622,9 @@ crmFinanceRouter.patch('/api/admin/crm/cash-accounts/:id', authMiddleware, (req,
     const updated = db.prepare('SELECT * FROM cash_accounts WHERE id = ?').get(id);
     res.json(updated);
   } catch (error) {
+    if (error.message === 'default_required') {
+      return res.status(409).json({ error: 'default_required' });
+    }
     console.error('[crm] Update cash account error:', error);
     res.status(500).json({ error: 'failed', message: error.message });
   }
@@ -637,7 +705,9 @@ crmFinanceRouter.delete('/api/admin/crm/cash-accounts/:id', authMiddleware, (req
 // =========================
 crmFinanceRouter.get('/api/admin/crm/cash-transactions', authMiddleware, (req, res) => {
   try {
-    const { account_id, type, limit = 50, offset = 0 } = req.query;
+    const { account_id, type } = req.query;
+    const limit = clampQueryInt(req.query.limit, 50, 500);
+    const offset = clampQueryInt(req.query.offset, 0, 1000000);
     
     let whereClause = '';
     const params = [];
@@ -670,7 +740,7 @@ crmFinanceRouter.get('/api/admin/crm/cash-transactions', authMiddleware, (req, r
           ${whereClause}
           ORDER BY ct.created_at DESC
           LIMIT ? OFFSET ?
-        `).all(...params, parseInt(limit), parseInt(offset))
+        `).all(...params, limit, offset)
       : db.prepare(`
           SELECT 
             ct.*,
@@ -684,7 +754,7 @@ crmFinanceRouter.get('/api/admin/crm/cash-transactions', authMiddleware, (req, r
           LEFT JOIN pos_sales ps ON ps.transaction_id = ct.id
           ORDER BY ct.created_at DESC
           LIMIT ? OFFSET ?
-        `).all(parseInt(limit), parseInt(offset));
+        `).all(limit, offset);
 
     res.json(transactions);
   } catch (error) {
